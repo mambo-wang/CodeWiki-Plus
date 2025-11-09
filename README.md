@@ -189,9 +189,9 @@ Generated documentation includes:
 If you use CodeWiki in your research, please cite:
 
 ```bibtex
-@misc{anh2025codewikievaluatingaiabilitytogenerateholisticdocumentationforlargescalecodebase,
+@misc{hoang2025codewikievaluatingaisability,
       title={CodeWiki: Evaluating AI's Ability to Generate Holistic Documentation for Large-Scale Codebases}, 
-      author={Nguyen Hoang Anh and Minh Le-Anh and Bach Le and Nghi D. Q. Bui},
+      author={Anh Nguyen Hoang and Minh Le-Anh and Bach Le and Nghi D. Q. Bui},
       year={2025},
       eprint={2510.24428},
       archivePrefix={arXiv},
