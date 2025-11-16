@@ -73,12 +73,6 @@ docker network create codewiki-network
 docker-compose -f docker/docker-compose.yml up -d
 ```
 
-**Option B: From docker directory**
-```bash
-cd docker
-docker-compose up -d
-```
-
 ### 5. Access the Application
 
 - Web Application: http://localhost:8000
