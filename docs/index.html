@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="CodeWiki - The first open-source framework for holistic, structured repository-level documentation across multilingual codebases">
+    <meta name="keywords" content="code documentation, AI, repository documentation, CodeWiki, automated documentation">
+    <meta name="author" content="CodeWiki Team">
+    
+    <!-- Open Graph / Social Media -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="CodeWiki - Automated Repository-Level Documentation">
+    <meta property="og:description" content="The first open-source framework for holistic documentation generation across 7 programming languages">
+    <meta property="og:url" content="https://fsoft-ai4code.github.io/CodeWiki/">
+    
+    <title>CodeWiki - Automated Repository-Level Documentation at Scale</title>
+    
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --secondary-color: #1e40af;
+            --accent-color: #3b82f6;
+            --dark-bg: #0f172a;
+            --light-bg: #f8fafc;
+            --text-dark: #1e293b;
+            --text-light: #64748b;
+            --border-color: #e2e8f0;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+            line-height: 1.6;
+            color: var(--text-dark);
+            background-color: #ffffff;
+        }
+        
+        /* Navigation */
+        nav {
+            background: var(--dark-bg);
+            color: white;
+            padding: 1rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .nav-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .nav-brand {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: white;
+            text-decoration: none;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+            flex-wrap: wrap;
+        }
+        
+        .nav-links a {
+            color: white;
+            text-decoration: none;
+            transition: color 0.3s;
+            font-weight: 500;
+        }
+        
+        .nav-links a:hover {
+            color: var(--accent-color);
+        }
+        
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: white;
+            padding: 4rem 2rem;
+            text-align: center;
+        }
+        
+        .hero h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            line-height: 1.2;
+        }
+        
+        .hero p {
+            font-size: 1.25rem;
+            margin-bottom: 2rem;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            opacity: 0.95;
+        }
+        
+        .badges {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 2rem;
+        }
+        
+        .badge {
+            background: rgba(255,255,255,0.2);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            backdrop-filter: blur(10px);
+        }
+        
+        .cta-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 0.75rem 2rem;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s;
+            display: inline-block;
+            border: 2px solid transparent;
+        }
+        
+        .btn-primary {
+            background: white;
+            color: var(--primary-color);
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            color: white;
+            border-color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: white;
+            color: var(--primary-color);
+        }
+        
+        /* Container */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 4rem 2rem;
+        }
+        
+        section {
+            margin-bottom: 4rem;
+        }
+        
+        h2 {
+            font-size: 2rem;
+            margin-bottom: 1.5rem;
+            color: var(--text-dark);
+            border-bottom: 3px solid var(--primary-color);
+            padding-bottom: 0.5rem;
+            display: inline-block;
+        }
+        
+        h3 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--text-dark);
+        }
+        
+        /* Architecture Diagram */
+        .architecture {
+            background: var(--light-bg);
+            padding: 3rem 2rem;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .architecture img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        /* Features Grid */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        
+        .feature-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-left: 4px solid var(--primary-color);
+            transition: transform 0.3s;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        }
+        
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        /* Table Styles */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 2rem 0;
+            background: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        th {
+            background: var(--primary-color);
+            color: white;
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+        }
+        
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        tr:hover {
+            background: var(--light-bg);
+        }
+        
+        /* Code Block */
+        pre {
+            background: var(--dark-bg);
+            color: #e2e8f0;
+            padding: 1.5rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        
+        code {
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+        
+        /* Video Section */
+        .video-container {
+            position: relative;
+            padding-bottom: 56.25%; /* 16:9 aspect ratio */
+            height: 0;
+            overflow: hidden;
+            max-width: 100%;
+            background: #000;
+            border-radius: 10px;
+            margin: 2rem 0;
+        }
+        
+        .video-container iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 0;
+        }
+        
+        /* Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+        }
+        
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+        
+        .stat-label {
+            font-size: 1rem;
+            opacity: 0.9;
+        }
+        
+        /* Languages */
+        .languages {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+        
+        .language-tag {
+            background: var(--light-bg);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            border: 2px solid var(--border-color);
+            font-weight: 500;
+            color: var(--text-dark);
+        }
+        
+        /* Footer */
+        footer {
+            background: var(--dark-bg);
+            color: white;
+            padding: 3rem 2rem;
+            text-align: center;
+        }
+        
+        .footer-links {
+            display: flex;
+            gap: 2rem;
+            justify-content: center;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        
+        .footer-links a {
+            color: white;
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+        
+        .footer-links a:hover {
+            color: var(--accent-color);
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2rem;
+            }
+            
+            .hero p {
+                font-size: 1rem;
+            }
+            
+            .nav-container {
+                flex-direction: column;
+                gap: 1rem;
+            }
+            
+            .nav-links {
+                gap: 1rem;
+            }
+            
+            h2 {
+                font-size: 1.5rem;
+            }
+            
+            .container {
+                padding: 2rem 1rem;
+            }
+        }
+        
+        /* Highlight */
+        .highlight {
+            background: #fef3c7;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        
+        .success {
+            color: var(--success-color);
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav>
+        <div class="nav-container">
+            <a href="#" class="nav-brand">📚 CodeWiki</a>
+            <ul class="nav-links">
+                <li><a href="#about">About</a></li>
+                <li><a href="#features">Features</a></li>
+                <li><a href="#results">Results</a></li>
+                <li><a href="#demo">Demo</a></li>
+                <li><a href="#installation">Installation</a></li>
+                <li><a href="#citation">Citation</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <div class="hero">
+        <h1>CodeWiki: Evaluating AI's Ability to Generate Holistic Documentation for Large-Scale Codebases</h1>
+        <p>The first open-source framework for holistic, structured repository-level documentation across multilingual codebases</p>
+        
+        <div class="badges">
+            <span class="badge">🐍 Python 3.12+</span>
+            <span class="badge">📝 7 Languages Supported</span>
+            <span class="badge">🚀 Open Source</span>
+            <span class="badge">📊 Benchmarked</span>
+        </div>
+        
+        <div class="cta-buttons">
+            <a href="https://github.com/FSoft-AI4Code/CodeWiki" class="btn btn-primary" target="_blank">
+                View on GitHub
+            </a>
+            <a href="https://arxiv.org/abs/2510.24428" class="btn btn-secondary" target="_blank">
+                Read Paper
+            </a>
+            <a href="https://fsoft-ai4code.github.io/codewiki-demo/" class="btn btn-secondary" target="_blank">
+                Live Demo
+            </a>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container">
+        <!-- About Section -->
+        <section id="about">
+            <h2>📖 About</h2>
+            <p style="font-size: 1.1rem; line-height: 1.8; margin-top: 1.5rem;">
+                Developers spend nearly <span class="highlight">58% of their time</span> understanding codebases, yet maintaining comprehensive documentation remains challenging. While recent Large Language Models (LLMs) show promise for function-level documentation, they fail at the repository level, where capturing architectural patterns and cross-module interactions is essential.
+            </p>
+            <p style="font-size: 1.1rem; line-height: 1.8; margin-top: 1rem;">
+                <strong>CodeWiki</strong> is the first open-source framework for holistic repository-level documentation across seven programming languages, introducing innovations in hierarchical decomposition, recursive agentic processing, and multi-modal synthesis.
+            </p>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number">68.79%</div>
+                    <div class="stat-label">Quality Score (Proprietary Models)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">64.80%</div>
+                    <div class="stat-label">Quality Score (Open-Source Models)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">7</div>
+                    <div class="stat-label">Programming Languages</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">1.4M</div>
+                    <div class="stat-label">Max LOC Tested</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Architecture -->
+        <section id="architecture">
+            <h2>🏗️ Framework Architecture</h2>
+            <div class="architecture">
+                <img src="../img/framework-overview.png" alt="CodeWiki Framework Architecture" />
+                <p style="margin-top: 1.5rem; color: var(--text-light);">
+                    <strong>Figure 1:</strong> CodeWiki Framework operates in three main phases: (1) Repository analysis and hierarchical decomposition, 
+                    (2) Recursive documentation generation with dynamic delegation, (3) Hierarchical assembly and synthesis
+                </p>
+            </div>
+        </section>
+
+        <!-- Key Features -->
+        <section id="features">
+            <h2>✨ Key Innovations</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🔄</div>
+                    <h3>Hierarchical Decomposition</h3>
+                    <p>Dynamic programming-inspired strategy that breaks complex repositories into manageable modules while preserving architectural coherence. Handles codebases from 86K to 1.4M lines of code.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🤖</div>
+                    <h3>Recursive Agentic System</h3>
+                    <p>Multi-agent architecture with dynamic delegation capabilities that enables adaptive processing based on module complexity, maintaining quality at repository-level scope.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Multi-Modal Synthesis</h3>
+                    <p>Generates comprehensive documentation including textual descriptions, architecture diagrams, data flows, and sequence diagrams for holistic understanding.</p>
+                </div>
+            </div>
+
+            <h3 style="margin-top: 3rem;">🌐 Multilingual Support</h3>
+            <div class="languages">
+                <span class="language-tag">🐍 Python</span>
+                <span class="language-tag">☕ Java</span>
+                <span class="language-tag">📜 JavaScript</span>
+                <span class="language-tag">📘 TypeScript</span>
+                <span class="language-tag">🔧 C</span>
+                <span class="language-tag">⚙️ C++</span>
+                <span class="language-tag">💎 C#</span>
+            </div>
+        </section>
+
+        <!-- Results -->
+        <section id="results">
+            <h2>📊 Experimental Results</h2>
+            <p style="font-size: 1.1rem; margin-bottom: 2rem;">
+                Evaluated on <strong>CodeWikiBench</strong>, the first benchmark specifically designed for repository-level documentation quality assessment across 21 repositories.
+            </p>
+
+            <h3>Performance by Language Category</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Language Category</th>
+                        <th>CodeWiki (Sonnet-4)</th>
+                        <th>DeepWiki</th>
+                        <th>Improvement</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>High-Level (Python, JS, TS)</strong></td>
+                        <td><span class="success">79.14%</span></td>
+                        <td>68.67%</td>
+                        <td><span class="success">+10.47%</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Managed (C#, Java)</strong></td>
+                        <td><span class="success">68.84%</span></td>
+                        <td>64.80%</td>
+                        <td><span class="success">+4.04%</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Systems (C, C++)</strong></td>
+                        <td>53.24%</td>
+                        <td>56.39%</td>
+                        <td>-3.15%</td>
+                    </tr>
+                    <tr style="background: var(--light-bg); font-weight: bold;">
+                        <td><strong>Overall Average</strong></td>
+                        <td><span class="success">68.79%</span></td>
+                        <td>64.06%</td>
+                        <td><span class="success">+4.73%</span></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3 style="margin-top: 3rem;">Results on Representative Repositories</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Repository</th>
+                        <th>Language</th>
+                        <th>LOC</th>
+                        <th>CodeWiki</th>
+                        <th>DeepWiki</th>
+                        <th>Improvement</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>All-Hands-AI--OpenHands</td>
+                        <td>Python</td>
+                        <td>229K</td>
+                        <td><span class="success">82.45%</span></td>
+                        <td>73.04%</td>
+                        <td><span class="success">+9.41%</span></td>
+                    </tr>
+                    <tr>
+                        <td>puppeteer--puppeteer</td>
+                        <td>TypeScript</td>
+                        <td>136K</td>
+                        <td><span class="success">83.00%</span></td>
+                        <td>64.46%</td>
+                        <td><span class="success">+18.54%</span></td>
+                    </tr>
+                    <tr>
+                        <td>sveltejs--svelte</td>
+                        <td>JavaScript</td>
+                        <td>125K</td>
+                        <td><span class="success">71.96%</span></td>
+                        <td>68.51%</td>
+                        <td><span class="success">+3.45%</span></td>
+                    </tr>
+                    <tr>
+                        <td>Unity-Technologies--ml-agents</td>
+                        <td>C#</td>
+                        <td>86K</td>
+                        <td><span class="success">79.78%</span></td>
+                        <td>74.80%</td>
+                        <td><span class="success">+4.98%</span></td>
+                    </tr>
+                    <tr>
+                        <td>elastic--logstash</td>
+                        <td>Java</td>
+                        <td>117K</td>
+                        <td><span class="success">57.90%</span></td>
+                        <td>54.80%</td>
+                        <td><span class="success">+3.10%</span></td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <p style="margin-top: 1.5rem; font-style: italic; color: var(--text-light);">
+                View comprehensive results for all 21 repositories in our <a href="https://arxiv.org/abs/2510.24428" target="_blank">paper</a>.
+            </p>
+        </section>
+
+        <!-- Demo Video -->
+        <section id="demo">
+            <h2>🎥 Demo Video</h2>
+            <p style="font-size: 1.1rem; margin-bottom: 2rem;">
+                Watch CodeWiki in action as it generates comprehensive documentation for a real repository:
+            </p>
+            
+            <!-- Placeholder for video - replace with actual video embed when available -->
+            <div style="background: var(--light-bg); padding: 3rem; text-align: center; border-radius: 10px; border: 2px dashed var(--border-color);">
+                <img src="../img/cli-usage-example.gif" alt="CLI Usage Example" style="max-width: 100%; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1);" />
+                <p style="margin-top: 1.5rem; color: var(--text-light);">
+                    <strong>CLI Usage Example:</strong> Generating documentation with CodeWiki
+                </p>
+            </div>
+            
+            <div style="margin-top: 2rem; text-align: center;">
+                <a href="https://fsoft-ai4code.github.io/codewiki-demo/" class="btn btn-primary" target="_blank">
+                    View Live Demo
+                </a>
+            </div>
+        </section>
+
+        <!-- Installation -->
+        <section id="installation">
+            <h2>🚀 Installation & Quick Start</h2>
+            
+            <h3>Prerequisites</h3>
+            <ul style="margin: 1rem 0 2rem 2rem; line-height: 2;">
+                <li>Python 3.12+</li>
+                <li>Node.js (for Mermaid diagram validation)</li>
+                <li>LLM API access (Anthropic Claude, OpenAI, etc.)</li>
+            </ul>
+
+            <h3>Installation</h3>
+            <pre><code># Install from source
+pip install git+https://github.com/FSoft-AI4Code/CodeWiki.git
+
+# Verify installation
+codewiki --version</code></pre>
+
+            <h3>Quick Start</h3>
+            <p><strong>1. Configure CodeWiki:</strong></p>
+            <pre><code>codewiki config set \
+  --api-key YOUR_API_KEY \
+  --base-url https://api.anthropic.com \
+  --main-model claude-sonnet-4 \
+  --cluster-model claude-sonnet-4
+
+# Verify configuration
+codewiki config show
+codewiki config validate</code></pre>
+
+            <p><strong>2. Generate Documentation:</strong></p>
+            <pre><code># Navigate to your project
+cd /path/to/your/project
+
+# Generate documentation (saved to ./docs/)
+codewiki generate
+
+# Generate with GitHub Pages HTML viewer
+codewiki generate --github-pages
+
+# Full-featured generation
+codewiki generate --create-branch --github-pages --verbose</code></pre>
+
+            <h3>Output Structure</h3>
+            <pre><code>./docs/
+├── overview.md              # Repository overview (start here!)
+├── module1.md               # Module documentation
+├── module2.md               # Additional modules...
+├── module_tree.json         # Hierarchical module structure
+├── first_module_tree.json   # Initial clustering result
+├── metadata.json            # Generation metadata
+└── index.html               # Interactive viewer (with --github-pages)</code></pre>
+        </section>
+
+        <!-- Citation -->
+        <section id="citation">
+            <h2>📚 Citation</h2>
+            <p style="margin-bottom: 1.5rem;">If you use CodeWiki in your research, please cite our paper:</p>
+            <pre><code>@misc{hoang2025codewikievaluatingaisability,
+      title={CodeWiki: Evaluating AI's Ability to Generate Holistic 
+             Documentation for Large-Scale Codebases}, 
+      author={Anh Nguyen Hoang and Minh Le-Anh and Bach Le 
+              and Nghi D. Q. Bui},
+      year={2025},
+      eprint={2510.24428},
+      archivePrefix={arXiv},
+      primaryClass={cs.SE},
+      url={https://arxiv.org/abs/2510.24428}, 
+}</code></pre>
+        </section>
+
+        <!-- Resources -->
+        <section id="resources">
+            <h2>🔗 Resources</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">📄</div>
+                    <h3>Research Paper</h3>
+                    <p>Read the full paper on arXiv</p>
+                    <a href="https://arxiv.org/abs/2510.24428" target="_blank" class="btn btn-primary" style="margin-top: 1rem; display: inline-block;">
+                        arXiv
+                    </a>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">💻</div>
+                    <h3>GitHub Repository</h3>
+                    <p>Access source code and contribute</p>
+                    <a href="https://github.com/FSoft-AI4Code/CodeWiki" target="_blank" class="btn btn-primary" style="margin-top: 1rem; display: inline-block;">
+                        GitHub
+                    </a>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h3>CodeWikiBench</h3>
+                    <p>First repository-level doc benchmark</p>
+                    <a href="https://github.com/FSoft-AI4Code/CodeWikiBench" target="_blank" class="btn btn-primary" style="margin-top: 1rem; display: inline-block;">
+                        Benchmark
+                    </a>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🌐</div>
+                    <h3>Live Demo</h3>
+                    <p>View generated documentation examples</p>
+                    <a href="https://fsoft-ai4code.github.io/codewiki-demo/" target="_blank" class="btn btn-primary" style="margin-top: 1rem; display: inline-block;">
+                        Demo
+                    </a>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🐳</div>
+                    <h3>Docker Deployment</h3>
+                    <p>Containerized deployment guide</p>
+                    <a href="https://github.com/FSoft-AI4Code/CodeWiki/blob/main/docker/DOCKER_README.md" target="_blank" class="btn btn-primary" style="margin-top: 1rem; display: inline-block;">
+                        Docker Guide
+                    </a>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">📖</div>
+                    <h3>Development Guide</h3>
+                    <p>Contributing and architecture details</p>
+                    <a href="https://github.com/FSoft-AI4Code/CodeWiki/blob/main/DEVELOPMENT.md" target="_blank" class="btn btn-primary" style="margin-top: 1rem; display: inline-block;">
+                        Dev Guide
+                    </a>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-links">
+            <a href="https://github.com/FSoft-AI4Code/CodeWiki" target="_blank">GitHub</a>
+            <a href="https://arxiv.org/abs/2510.24428" target="_blank">Paper</a>
+            <a href="https://fsoft-ai4code.github.io/codewiki-demo/" target="_blank">Demo</a>
+            <a href="https://github.com/FSoft-AI4Code/CodeWikiBench" target="_blank">Benchmark</a>
+        </div>
+        <p style="opacity: 0.8; margin-bottom: 0.5rem;">
+            Made with ❤️ by the CodeWiki Team
+        </p>
+        <p style="opacity: 0.6; font-size: 0.9rem;">
+            FPT Software AI Center & University of Melbourne
+        </p>
+        <p style="opacity: 0.6; font-size: 0.9rem; margin-top: 1rem;">
+            © 2025 CodeWiki. Licensed under MIT License.
+        </p>
+    </footer>
+</body>
+</html>
+
