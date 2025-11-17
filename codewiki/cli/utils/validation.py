@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from codewiki.cli.utils.errors import ConfigurationError, RepositoryError
 
 
-def validate_url(url: str, require_https: bool = True, allow_localhost: bool = True) -> str:
+def validate_url(url: str, require_https: bool = False, allow_localhost: bool = True) -> str:
     """
     Validate URL format.
     
