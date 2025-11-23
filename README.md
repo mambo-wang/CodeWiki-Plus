@@ -22,7 +22,7 @@ Given a large and evolving codebase, the ability to automatically generate holis
 
 ## Usage Example
 
-![CLI Usage Example](img/cli-usage-example.gif)
+![CLI Usage Example](https://github.com/FSoft-AI4Code/CodeWiki/releases/download/assets/cli-usage-example.gif)
 
 ---
 
