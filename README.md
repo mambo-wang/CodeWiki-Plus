@@ -8,7 +8,7 @@
 
 **The first open-source framework for holistic, structured repository-level documentation across multilingual codebases**
 
-[Demo](https://fsoft-ai4code.github.io/codewiki-demo/) • [Paper](https://arxiv.org/abs/2510.24428) • [Docker](docker/DOCKER_README.md) • [Development](DEVELOPMENT.md) • [Citation](#citation)
+[Demo](https://fsoft-ai4code.github.io/codewiki-demo/) • [Paper](https://arxiv.org/abs/2510.24428) • [CodeWikiBench](https://github.com/FSoft-AI4Code/CodeWikiBench) • [Docker](docker/DOCKER_README.md) • [Development](DEVELOPMENT.md) • [Citation](#citation)
 
 </div>
 
@@ -202,23 +202,8 @@ If you use CodeWiki in your research, please cite:
 
 ---
 
-## Resources
-
-- **Live Demo**: [View documentation examples](https://fsoft-ai4code.github.io/codewiki-demo/)
-- **Benchmark**: [CodeWikiBench](https://github.com/FSoft-AI4Code/CodeWikiBench)
-
----
-
 ## License
 
 MIT License
-
----
-
-<div align="center">
-
-**Made with ❤️ by the CodeWiki Team**
-
-[⬆ Back to Top](#codewiki)
 
 </div>
