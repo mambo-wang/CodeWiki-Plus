@@ -5,8 +5,9 @@
 ![CodeWiki Architecture](img/framework-overview.png)
 
 [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![GitHub stars](https://img.shields.io/github/stars/FSoft-AI4Code/CodeWiki?style=social)](https://github.com/FSoft-AI4Code/CodeWiki/stargazers)
 
-**The first open-source framework for holistic, structured repository-level documentation across multilingual codebases**
+**Open-source framework for holistic, structured repository-level documentation across multilingual codebases**
 
 [Demo](https://fsoft-ai4code.github.io/codewiki-demo/) • [Paper](https://arxiv.org/abs/2510.24428) • [CodeWikiBench](https://github.com/FSoft-AI4Code/CodeWikiBench) • [Docker](docker/DOCKER_README.md) • [Development](DEVELOPMENT.md) • [Citation](#citation)
 
@@ -199,6 +200,18 @@ If you use CodeWiki in your research, please cite:
       url={https://arxiv.org/abs/2510.24428}, 
 }
 ```
+
+---
+
+## Star History
+
+<a href="https://star-history.com/#FSoft-AI4Code/CodeWiki&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=FSoft-AI4Code/CodeWiki&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=FSoft-AI4Code/CodeWiki&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=FSoft-AI4Code/CodeWiki&type=Date" />
+ </picture>
+</a>
 
 ---
 
