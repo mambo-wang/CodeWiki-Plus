@@ -1,47 +1,170 @@
-# CodeWiki: Evaluating AI’s Ability to Generate Holistic Documentation for Large-Scale Codebases
+<p align="center">
+  <img src="./img/framework-overview.png" alt="CodeWiki Framework" width="500" style="border: 2px solid #e1e4e8; border-radius: 12px; padding: 20px;"/>
+</p>
 
-<div align="center">
+<h1 align="center">CodeWiki</h1>
 
-![CodeWiki Architecture](img/framework-overview.png)
+<p align="center">
+  <strong>AI-Powered Repository Documentation Generation</strong> • <strong>Multi-Language Support</strong> • <strong>Architecture-Aware Analysis</strong>
+</p>
 
-[![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![GitHub stars](https://img.shields.io/github/stars/FSoft-AI4Code/CodeWiki?style=social)](https://github.com/FSoft-AI4Code/CodeWiki/stargazers)
+<p align="center">
+  Generate holistic, structured documentation for large-scale codebases • Cross-module interactions • Visual artifacts and diagrams
+</p>
 
-**Open-source framework for holistic, structured repository-level documentation across multilingual codebases**
+<p align="center">
+  <a href="https://github.com/FSoft-AI4Code/CodeWiki/actions"><img alt="CI" src="https://github.com/FSoft-AI4Code/CodeWiki/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="https://pypi.org/project/codewiki/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/codewiki?style=flat-square" /></a>
+  <a href="https://python.org/"><img alt="Python version" src="https://img.shields.io/badge/python-3.12+-blue?style=flat-square" /></a>
+  <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" /></a>
+  <a href="https://github.com/FSoft-AI4Code/CodeWiki/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/FSoft-AI4Code/CodeWiki?style=flat-square" /></a>
+</p>
 
-[Demo](https://fsoft-ai4code.github.io/codewiki-demo/) • [Paper](https://arxiv.org/abs/2510.24428) • [CodeWikiBench](https://github.com/FSoft-AI4Code/CodeWikiBench) • [Docker](docker/DOCKER_README.md) • [Development](DEVELOPMENT.md) • [Citation](#citation)
-
-</div>
+<p align="center">
+  <a href="#quick-start"><strong>Quick Start</strong></a> •
+  <a href="#cli-commands"><strong>CLI Commands</strong></a> •
+  <a href="#documentation-output"><strong>Output Structure</strong></a> •
+  <a href="https://arxiv.org/abs/2510.24428"><strong>Paper</strong></a>
+</p>
 
 ---
 
-## Abstract
+## Quick Start
 
-Given a large and evolving codebase, the ability to automatically generate holistic, architecture-aware documentation that captures not only individual functions but also their cross-file, cross-module, and system-level interactions remains an open challenge. We present **CodeWiki**, a unified framework for automated repository-level documentation across seven programming languages. CodeWiki introduces three key innovations: (i) hierarchical decomposition that preserves architectural context across multiple levels of granularity, (ii) recursive multi-agent processing with dynamic task delegation for scalable generation, and (iii) multi-modal synthesis that integrates textual descriptions with visual artifacts such as architecture diagrams and data-flow representations.
+### 1. Install CodeWiki
+
+```bash
+# Install from PyPI
+pip install codewiki
+
+# Or install from source
+pip install git+https://github.com/FSoft-AI4Code/CodeWiki.git
+
+# Verify installation
+codewiki --version
+```
+
+### 2. Configure Your Environment
+
+```bash
+codewiki config set \
+  --api-key YOUR_API_KEY \
+  --base-url https://api.anthropic.com \
+  --main-model claude-sonnet-4 \
+  --cluster-model claude-sonnet-4
+```
+
+### 3. Generate Documentation
+
+```bash
+# Navigate to your project
+cd /path/to/your/project
+
+# Generate documentation
+codewiki generate
+
+# Generate with HTML viewer for GitHub Pages
+codewiki generate --github-pages --create-branch
+```
+
+**That's it!** Your documentation will be generated in `./docs/` with comprehensive repository-level analysis.
 
 ---
 
-## Usage Example
+## What is CodeWiki?
 
-![CLI Usage Example](https://github.com/FSoft-AI4Code/CodeWiki/releases/download/assets/cli-usage-example.gif)
-
----
-
-## Overview
-
-CodeWiki addresses the challenge of comprehensive documentation for large-scale repositories through three core innovations:
+CodeWiki is an open-source framework for **automated repository-level documentation** across seven programming languages. It generates holistic, architecture-aware documentation that captures not only individual functions but also their cross-file, cross-module, and system-level interactions.
 
 ### Key Innovations
 
 | Innovation | Description | Impact |
 |------------|-------------|--------|
-| **Hierarchical Decomposition** | Dynamic programming-inspired strategy that partitions repositories into coherent modules while preserving architectural context | Handles codebases of arbitrary size (86K-1.4M LOC tested) |
-| **Recursive Agentic System** | Adaptive multi-agent processing with dynamic delegation capabilities for complex modules | Maintains quality while scaling to repository-level scope |
+| **Hierarchical Decomposition** | Dynamic programming-inspired strategy that preserves architectural context | Handles codebases of arbitrary size (86K-1.4M LOC tested) |
+| **Recursive Agentic System** | Adaptive multi-agent processing with dynamic delegation capabilities | Maintains quality while scaling to repository-level scope |
 | **Multi-Modal Synthesis** | Generates textual documentation, architecture diagrams, data flows, and sequence diagrams | Comprehensive understanding from multiple perspectives |
 
-### Multilingual Support
+### Supported Languages
 
-Supports **7 programming languages**: Python, Java, JavaScript, TypeScript, C, C++, C#
+**🐍 Python** • **☕ Java** • **🟨 JavaScript** • **🔷 TypeScript** • **⚙️ C** • **🔧 C++** • **🪟 C#**
+
+---
+
+## CLI Commands
+
+### Configuration Management
+
+```bash
+# Set up your API configuration
+codewiki config set \
+  --api-key <your-api-key> \
+  --base-url <provider-url> \
+  --main-model <model-name> \
+  --cluster-model <model-name>
+
+# Show current configuration
+codewiki config show
+
+# Validate your configuration
+codewiki config validate
+```
+
+### Documentation Generation
+
+```bash
+# Basic generation
+codewiki generate
+
+# Custom output directory
+codewiki generate --output ./documentation
+
+# Create git branch for documentation
+codewiki generate --create-branch
+
+# Generate HTML viewer for GitHub Pages
+codewiki generate --github-pages
+
+# Enable verbose logging
+codewiki generate --verbose
+
+# Full-featured generation
+codewiki generate --create-branch --github-pages --verbose
+```
+
+### Configuration Storage
+
+- **API keys**: Securely stored in system keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service)
+- **Settings**: `~/.codewiki/config.json`
+
+---
+
+## Documentation Output
+
+Generated documentation includes both **textual descriptions** and **visual artifacts** for comprehensive understanding.
+
+### Textual Documentation
+- Repository overview with architecture guide
+- Module-level documentation with API references
+- Usage examples and implementation patterns
+- Cross-module interaction analysis
+
+### Visual Artifacts
+- System architecture diagrams (Mermaid)
+- Data flow visualizations
+- Dependency graphs and module relationships
+- Sequence diagrams for complex interactions
+
+### Output Structure
+
+```
+./docs/
+├── overview.md              # Repository overview (start here!)
+├── module1.md               # Module documentation
+├── module2.md               # Additional modules...
+├── module_tree.json         # Hierarchical module structure
+├── first_module_tree.json   # Initial clustering result
+├── metadata.json            # Generation metadata
+└── index.html               # Interactive viewer (with --github-pages)
+```
 
 ---
 
@@ -72,116 +195,55 @@ CodeWiki has been evaluated on **CodeWikiBench**, the first benchmark specifical
 
 ---
 
-## CLI Installation & Usage
+## How It Works
 
-### Prerequisites
+### Architecture Overview
 
-- Python 3.12+
-- Node.js (for mermaid diagram validation)
-- LLM API access (Anthropic Claude, OpenAI, etc.)
+CodeWiki employs a three-stage process for comprehensive documentation generation:
 
-### Installation
+1. **Hierarchical Decomposition**: Uses dynamic programming-inspired algorithms to partition repositories into coherent modules while preserving architectural context across multiple granularity levels.
 
-```bash
-# Install from source
-pip install git+https://github.com/FSoft-AI4Code/CodeWiki.git
+2. **Recursive Multi-Agent Processing**: Implements adaptive multi-agent processing with dynamic task delegation, allowing the system to handle complex modules at scale while maintaining quality.
 
-# Verify installation
-codewiki --version
+3. **Multi-Modal Synthesis**: Integrates textual descriptions with visual artifacts including architecture diagrams, data-flow representations, and sequence diagrams for comprehensive understanding.
+
+### Data Flow
+
 ```
-
-### Quick Start
-
-#### 1. Configure CodeWiki
-
-```bash
-codewiki config set \
-  --api-key YOUR_API_KEY \
-  --base-url https://api.anthropic.com \
-  --main-model claude-sonnet-4 \
-  --cluster-model claude-sonnet-4
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Codebase      │───▶│  Hierarchical    │───▶│  Multi-Agent    │
+│   Analysis      │    │  Decomposition   │    │  Processing     │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                                │                        │
+                                ▼                        ▼
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Visual        │◀───│  Multi-Modal     │◀───│  Structured     │
+│   Artifacts     │    │  Synthesis       │    │  Content        │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
-
-Verify configuration:
-
-```bash
-codewiki config show
-codewiki config validate
-```
-
-#### 2. Generate Documentation
-
-```bash
-# Navigate to your project
-cd /path/to/your/project
-
-# Generate documentation (saved to ./docs/)
-codewiki generate
-
-# Generate with GitHub Pages HTML viewer
-codewiki generate --github-pages
-
-# Full-featured generation
-codewiki generate --create-branch --github-pages --verbose
-```
-
-### CLI Commands
-
-```bash
-# Configuration Management
-codewiki config set --api-key <key> --base-url <url> \
-  --main-model <model> --cluster-model <model>
-codewiki config show
-codewiki config validate
-
-# Documentation Generation
-codewiki generate                           # Basic generation
-codewiki generate --output ./documentation  # Custom output directory
-codewiki generate --create-branch           # Create git branch
-codewiki generate --github-pages            # Generate HTML viewer
-codewiki generate --verbose                 # Detailed logging
-```
-
-### Configuration Storage
-
-- **API keys**: System keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service)
-- **Settings**: `~/.codewiki/config.json`
 
 ---
 
-## Additional Documentation
+## Requirements
 
+- **Python 3.12+**
+- **Node.js** (for Mermaid diagram validation)
+- **LLM API access** (Anthropic Claude, OpenAI, etc.)
+- **Git** (for branch creation features)
+
+---
+
+## Additional Resources
+
+### Documentation & Guides
 - **[Docker Deployment](docker/DOCKER_README.md)** - Containerized deployment instructions
 - **[Development Guide](DEVELOPMENT.md)** - Project structure, architecture, and contributing guidelines
+- **[CodeWikiBench](https://github.com/FSoft-AI4Code/CodeWikiBench)** - Repository-level documentation benchmark
+- **[Live Demo](https://fsoft-ai4code.github.io/codewiki-demo/)** - Interactive demo and examples
 
----
-
-## Documentation Output
-
-Generated documentation includes:
-
-### Textual Documentation
-- Repository overview with architecture guide
-- Module-level documentation with API references
-- Usage examples and implementation patterns
-
-### Visual Artifacts
-- System architecture diagrams (Mermaid)
-- Data flow visualizations
-- Dependency graphs
-
-### Output Structure
-
-```
-./docs/
-├── overview.md              # Repository overview (start here!)
-├── module1.md               # Module documentation
-├── module2.md               # Additional modules...
-├── module_tree.json         # Hierarchical module structure
-├── first_module_tree.json   # Initial clustering result
-├── metadata.json            # Generation metadata
-└── index.html               # Interactive viewer (with --github-pages)
-```
+### Academic Resources
+- **[Paper](https://arxiv.org/abs/2510.24428)** - Full research paper with detailed methodology and results
+- **[Citation](#citation)** - How to cite CodeWiki in your research
 
 ---
 
@@ -191,13 +253,13 @@ If you use CodeWiki in your research, please cite:
 
 ```bibtex
 @misc{hoang2025codewikievaluatingaisability,
-      title={CodeWiki: Evaluating AI's Ability to Generate Holistic Documentation for Large-Scale Codebases}, 
+      title={CodeWiki: Evaluating AI's Ability to Generate Holistic Documentation for Large-Scale Codebases},
       author={Anh Nguyen Hoang and Minh Le-Anh and Bach Le and Nghi D. Q. Bui},
       year={2025},
       eprint={2510.24428},
       archivePrefix={arXiv},
       primaryClass={cs.SE},
-      url={https://arxiv.org/abs/2510.24428}, 
+      url={https://arxiv.org/abs/2510.24428},
 }
 ```
 
@@ -205,18 +267,18 @@ If you use CodeWiki in your research, please cite:
 
 ## Star History
 
-<a href="https://star-history.com/#FSoft-AI4Code/CodeWiki&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=FSoft-AI4Code/CodeWiki&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=FSoft-AI4Code/CodeWiki&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=FSoft-AI4Code/CodeWiki&type=Date" />
- </picture>
-</a>
+<p align="center">
+  <a href="https://star-history.com/#FSoft-AI4Code/CodeWiki&Date">
+   <picture>
+     <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=FSoft-AI4Code/CodeWiki&type=Date&theme=dark" />
+     <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=FSoft-AI4Code/CodeWiki&type=Date" />
+     <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=FSoft-AI4Code/CodeWiki&type=Date" />
+   </picture>
+  </a>
+</p>
 
 ---
 
 ## License
 
-MIT License
-
-</div>
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
