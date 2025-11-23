@@ -1,8 +1,4 @@
-<p align="center">
-  <img src="./img/framework-overview.png" alt="CodeWiki Framework" width="500" style="border: 2px solid #e1e4e8; border-radius: 12px; padding: 20px;"/>
-</p>
-
-<h1 align="center">CodeWiki</h1>
+<h1 align="center">CodeWiki: Evaluating AI's Ability to Generate Holistic Documentation for Large-Scale Codebases</h1>
 
 <p align="center">
   <strong>AI-Powered Repository Documentation Generation</strong> • <strong>Multi-Language Support</strong> • <strong>Architecture-Aware Analysis</strong>
@@ -13,11 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/FSoft-AI4Code/CodeWiki/actions"><img alt="CI" src="https://github.com/FSoft-AI4Code/CodeWiki/actions/workflows/ci.yml/badge.svg" /></a>
-  <a href="https://pypi.org/project/codewiki/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/codewiki?style=flat-square" /></a>
   <a href="https://python.org/"><img alt="Python version" src="https://img.shields.io/badge/python-3.12+-blue?style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" /></a>
   <a href="https://github.com/FSoft-AI4Code/CodeWiki/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/FSoft-AI4Code/CodeWiki?style=flat-square" /></a>
+  <a href="https://arxiv.org/abs/2510.24428"><img alt="arXiv" src="https://img.shields.io/badge/arXiv-2510.24428-b31b1b?style=flat-square" /></a>
 </p>
 
 <p align="center">
@@ -27,6 +22,10 @@
   <a href="https://arxiv.org/abs/2510.24428"><strong>Paper</strong></a>
 </p>
 
+<p align="center">
+  <img src="./img/framework-overview.png" alt="CodeWiki Framework" width="600" style="border: 2px solid #e1e4e8; border-radius: 12px; padding: 20px;"/>
+</p>
+
 ---
 
 ## Quick Start
@@ -34,10 +33,7 @@
 ### 1. Install CodeWiki
 
 ```bash
-# Install from PyPI
-pip install codewiki
-
-# Or install from source
+# Install from source
 pip install git+https://github.com/FSoft-AI4Code/CodeWiki.git
 
 # Verify installation
