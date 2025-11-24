@@ -65,6 +65,10 @@ codewiki generate --github-pages --create-branch
 
 **That's it!** Your documentation will be generated in `./docs/` with comprehensive repository-level analysis.
 
+### Usage Example
+
+![CLI Usage Example](https://github.com/FSoft-AI4Code/CodeWiki/releases/download/assets/cli-usage-example.gif)
+
 ---
 
 ## What is CodeWiki?
