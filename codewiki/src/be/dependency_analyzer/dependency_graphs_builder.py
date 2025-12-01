@@ -61,7 +61,20 @@ class DependencyGraphBuilder:
         # Get leaf nodes
         leaf_nodes = get_leaf_nodes(graph, components)
 
-        # check if leaf_nodes are in components, only keep the ones that are in components and type is one of the following: class, interface, struct
+        # check if leaf_nodes are in components, only keep the ones that are in components
+        # and type is one of the following: class, interface, struct (or function for C-based projects)
+        
+        # Determine if we should include functions based on available component types
+        available_types = set()
+        for comp in components.values():
+            available_types.add(comp.component_type)
+        
+        # Valid types for leaf nodes - include functions for C-based codebases
+        valid_types = {"class", "interface", "struct"}
+        # If no classes/interfaces/structs are found, include functions
+        if not available_types.intersection(valid_types):
+            valid_types.add("function")
+        
         keep_leaf_nodes = []
         for leaf_node in leaf_nodes:
             # Skip any leaf nodes that are clearly error strings or invalid identifiers
@@ -70,7 +83,7 @@ class DependencyGraphBuilder:
                 continue
                 
             if leaf_node in components:
-                if components[leaf_node].component_type in ["class", "interface", "struct"]:
+                if components[leaf_node].component_type in valid_types:
                     keep_leaf_nodes.append(leaf_node)
                 else:
                     # logger.debug(f"Leaf node {leaf_node} is a {components[leaf_node].component_type}, removing it")

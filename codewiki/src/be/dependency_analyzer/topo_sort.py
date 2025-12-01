@@ -302,6 +302,18 @@ def get_leaf_nodes(graph: Dict[str, Set[str]], components: Dict[str, Node]) -> L
                 concise_leaf_nodes.add(node)
         
         keep_leaf_nodes = []
+        
+        # Determine if we should include functions based on available component types
+        # For C-based projects, we need to include functions since they don't have classes
+        available_types = set()
+        for comp in components.values():
+            available_types.add(comp.component_type)
+        
+        # Valid types for leaf nodes - include functions for C-based codebases
+        valid_types = {"class", "interface", "struct"}
+        # If no classes/interfaces/structs are found, include functions
+        if not available_types.intersection(valid_types):
+            valid_types.add("function")
 
         for leaf_node in leaf_nodes:
             # Skip any leaf nodes that are clearly error strings or invalid identifiers
@@ -310,7 +322,7 @@ def get_leaf_nodes(graph: Dict[str, Set[str]], components: Dict[str, Node]) -> L
                 continue
                 
             if leaf_node in components:
-                if components[leaf_node].component_type in ["class", "interface", "struct"]:
+                if components[leaf_node].component_type in valid_types:
                     keep_leaf_nodes.append(leaf_node)
                 else:
                     # logger.debug(f"Leaf node {leaf_node} is a {components[leaf_node].component_type}, removing it")

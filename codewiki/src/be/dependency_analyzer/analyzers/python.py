@@ -1,5 +1,6 @@
 import ast
 import logging
+import warnings
 from typing import List, Tuple, Optional
 from pathlib import Path
 import sys
@@ -227,7 +228,11 @@ class PythonASTAnalyzer(ast.NodeVisitor):
         """Analyze the Python file and extract functions and relationships."""
 
         try:
-            tree = ast.parse(self.content)
+            # Suppress SyntaxWarnings about invalid escape sequences in source code
+            # These warnings come from regex patterns like '\(' or '\.' in the analyzed files
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=SyntaxWarning)
+                tree = ast.parse(self.content)
             self.visit(tree)
 
             logger.debug(

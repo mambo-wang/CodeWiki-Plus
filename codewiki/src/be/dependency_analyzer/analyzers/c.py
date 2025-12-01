@@ -64,7 +64,7 @@ class TreeSitterCAnalyzer:
 		self._extract_relationships(root, top_level_nodes)
 	
 	def _extract_nodes(self, node, top_level_nodes, lines):
-		"""Recursively extract top-level nodes (functions and global variables)."""
+		"""Recursively extract top-level nodes (functions, structs, and global variables)."""
 		node_type = None
 		node_name = None
 		
@@ -76,6 +76,24 @@ class TreeSitterCAnalyzer:
 				identifier = next((c for c in declarator.children if c.type == "identifier"), None)
 				if identifier:
 					node_name = identifier.text.decode()
+		elif node.type == "struct_specifier":
+			# Extract struct definitions: struct Name { ... }
+			node_type = "struct"
+			# Find type_identifier that represents the struct name
+			for child in node.children:
+				if child.type == "type_identifier":
+					node_name = child.text.decode()
+					break
+		elif node.type == "type_definition":
+			# Handle typedef struct definitions: typedef struct { ... } Name;
+			# Check if this typedef contains a struct
+			struct_spec = next((c for c in node.children if c.type == "struct_specifier"), None)
+			if struct_spec:
+				node_type = "struct"
+				# The typedef name is the type_identifier at the end
+				type_declarator = next((c for c in node.children if c.type == "type_identifier"), None)
+				if type_declarator:
+					node_name = type_declarator.text.decode()
 		elif node.type == "declaration":
 			if self._is_global_variable(node):
 				node_type = "variable"
@@ -117,7 +135,7 @@ class TreeSitterCAnalyzer:
 				component_id=component_id
 			)
 
-			if node_type == "function":
+			if node_type in ["function", "struct"]:
 				self.nodes.append(node_obj)
 			top_level_nodes[node_name] = node_obj
 		
