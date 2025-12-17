@@ -32,8 +32,6 @@
 
 ### 1. Install CodeWiki
 
-CodeWiki supports multiple models via an OpenAI-compatible SDK layer.
-
 ```bash
 # Install from source
 pip install git+https://github.com/FSoft-AI4Code/CodeWiki.git
@@ -43,6 +41,8 @@ codewiki --version
 ```
 
 ### 2. Configure Your Environment
+
+CodeWiki supports multiple models via an OpenAI-compatible SDK layer.
 
 ```bash
 codewiki config set \
