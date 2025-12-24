@@ -4,7 +4,7 @@ CodeWiki: Transform codebases into comprehensive documentation using AI-powered 
 This package provides a CLI tool for generating documentation from code repositories.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 __author__ = "CodeWiki Contributors"
 __license__ = "MIT"
 

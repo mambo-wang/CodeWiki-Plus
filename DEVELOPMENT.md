@@ -109,8 +109,13 @@ pip install -r requirements.txt
 
 #### Command Structure (`cli/commands/`)
 
-- `config.py`: Configuration management
-- `generate.py`: Documentation generation
+- `config.py`: Configuration management (API settings + agent instructions)
+- `generate.py`: Documentation generation with customization options
+
+#### Models (`cli/models/`)
+
+- `config.py`: Configuration data models including `AgentInstructions`
+- `job.py`: Job tracking models
 
 #### Utilities (`cli/utils/`)
 
@@ -118,6 +123,54 @@ pip install -r requirements.txt
 - `validation.py`: Input validation
 - `progress.py`: Progress tracking
 - `logging.py`: Logging configuration
+
+### Agent Instructions System
+
+The `AgentInstructions` model (`cli/models/config.py`) enables customization:
+
+```python
+@dataclass
+class AgentInstructions:
+    include_patterns: Optional[List[str]] = None  # e.g., ["*.cs"]
+    exclude_patterns: Optional[List[str]] = None  # e.g., ["*Tests*"]
+    focus_modules: Optional[List[str]] = None     # e.g., ["src/core"]
+    doc_type: Optional[str] = None                # api, architecture, etc.
+    custom_instructions: Optional[str] = None     # Free-form text
+```
+
+**How it flows through the system:**
+
+1. **CLI Options** (`generate.py`) → Runtime `AgentInstructions`
+2. **Persistent Config** (`~/.codewiki/config.json`) → Default `AgentInstructions`
+3. **Backend Config** (`src/config.py`) → `agent_instructions` dict
+4. **Dependency Analyzer** → Uses `include_patterns` and `exclude_patterns` for file filtering
+5. **Agent Orchestrator** → Injects `custom_instructions` into LLM prompts
+
+## Extending Agent Instructions
+
+To add new customization options to the agent instructions system:
+
+1. **Update the model** in `cli/models/config.py`:
+
+```python
+@dataclass
+class AgentInstructions:
+    # ... existing fields ...
+    new_option: Optional[str] = None  # Add new field
+```
+
+2. **Update serialization methods** (`to_dict`, `from_dict`, `is_empty`, `get_prompt_addition`)
+
+3. **Add CLI options** in `cli/commands/generate.py` and `cli/commands/config.py`
+
+4. **Update backend Config** if the option affects analysis (`src/config.py`)
+
+5. **Use in relevant components**:
+   - File filtering → `dependency_analyzer/ast_parser.py`
+   - Prompts → `be/prompt_template.py`
+   - Agent creation → `be/agent_orchestrator.py`
+
+---
 
 ## Adding Support for New Languages
 

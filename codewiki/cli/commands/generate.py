@@ -6,7 +6,7 @@ import sys
 import logging
 import traceback
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Tuple
 import click
 import time
 
@@ -29,6 +29,14 @@ from codewiki.cli.utils.logging import create_logger
 from codewiki.cli.adapters.doc_generator import CLIDocumentationGenerator
 from codewiki.cli.utils.instructions import display_post_generation_instructions
 from codewiki.cli.models.job import GenerationOptions
+from codewiki.cli.models.config import AgentInstructions
+
+
+def parse_patterns(patterns_str: str) -> List[str]:
+    """Parse comma-separated patterns into a list."""
+    if not patterns_str:
+        return []
+    return [p.strip() for p in patterns_str.split(',') if p.strip()]
 
 
 @click.command(name="generate")
@@ -55,6 +63,40 @@ from codewiki.cli.models.job import GenerationOptions
     help="Force full regeneration, ignoring cache",
 )
 @click.option(
+    "--include",
+    "-i",
+    type=str,
+    default=None,
+    help="Comma-separated file patterns to include (e.g., '*.cs,*.py'). Overrides defaults.",
+)
+@click.option(
+    "--exclude",
+    "-e",
+    type=str,
+    default=None,
+    help="Comma-separated patterns to exclude (e.g., '*Tests*,*Specs*,test_*')",
+)
+@click.option(
+    "--focus",
+    "-f",
+    type=str,
+    default=None,
+    help="Comma-separated modules/paths to focus on (e.g., 'src/core,src/api')",
+)
+@click.option(
+    "--doc-type",
+    "-t",
+    type=click.Choice(['api', 'architecture', 'user-guide', 'developer'], case_sensitive=False),
+    default=None,
+    help="Type of documentation to generate",
+)
+@click.option(
+    "--instructions",
+    type=str,
+    default=None,
+    help="Custom instructions for the documentation agent",
+)
+@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -67,6 +109,11 @@ def generate_command(
     create_branch: bool,
     github_pages: bool,
     no_cache: bool,
+    include: Optional[str],
+    exclude: Optional[str],
+    focus: Optional[str],
+    doc_type: Optional[str],
+    instructions: Optional[str],
     verbose: bool
 ):
     """
@@ -88,6 +135,18 @@ def generate_command(
     \b
     # Force full regeneration
     $ codewiki generate --no-cache
+    
+    \b
+    # C# project: only .cs files, exclude tests
+    $ codewiki generate --include "*.cs" --exclude "*Tests*,*Specs*"
+    
+    \b
+    # Focus on specific modules with architecture docs
+    $ codewiki generate --focus "src/core,src/api" --doc-type architecture
+    
+    \b
+    # Custom instructions
+    $ codewiki generate --instructions "Focus on public APIs and include usage examples"
     """
     logger = create_logger(verbose=verbose)
     start_time = time.time()
@@ -194,6 +253,44 @@ def generate_command(
             custom_output=output if output != "docs" else None
         )
         
+        # Create runtime agent instructions from CLI options
+        runtime_instructions = None
+        if any([include, exclude, focus, doc_type, instructions]):
+            runtime_instructions = AgentInstructions(
+                include_patterns=parse_patterns(include) if include else None,
+                exclude_patterns=parse_patterns(exclude) if exclude else None,
+                focus_modules=parse_patterns(focus) if focus else None,
+                doc_type=doc_type,
+                custom_instructions=instructions,
+            )
+            
+            if verbose:
+                if include:
+                    logger.debug(f"Include patterns: {parse_patterns(include)}")
+                if exclude:
+                    logger.debug(f"Exclude patterns: {parse_patterns(exclude)}")
+                if focus:
+                    logger.debug(f"Focus modules: {parse_patterns(focus)}")
+                if doc_type:
+                    logger.debug(f"Doc type: {doc_type}")
+                if instructions:
+                    logger.debug(f"Custom instructions: {instructions}")
+        
+        # Get agent instructions (merge runtime with persistent)
+        agent_instructions_dict = None
+        if runtime_instructions and not runtime_instructions.is_empty():
+            # Merge with persistent settings
+            merged = AgentInstructions(
+                include_patterns=runtime_instructions.include_patterns or (config.agent_instructions.include_patterns if config.agent_instructions else None),
+                exclude_patterns=runtime_instructions.exclude_patterns or (config.agent_instructions.exclude_patterns if config.agent_instructions else None),
+                focus_modules=runtime_instructions.focus_modules or (config.agent_instructions.focus_modules if config.agent_instructions else None),
+                doc_type=runtime_instructions.doc_type or (config.agent_instructions.doc_type if config.agent_instructions else None),
+                custom_instructions=runtime_instructions.custom_instructions or (config.agent_instructions.custom_instructions if config.agent_instructions else None),
+            )
+            agent_instructions_dict = merged.to_dict()
+        elif config.agent_instructions and not config.agent_instructions.is_empty():
+            agent_instructions_dict = config.agent_instructions.to_dict()
+        
         # Create generator
         generator = CLIDocumentationGenerator(
             repo_path=repo_path,
@@ -204,6 +301,7 @@ def generate_command(
                 'fallback_model': config.fallback_model,
                 'base_url': config.base_url,
                 'api_key': api_key,
+                'agent_instructions': agent_instructions_dict,
             },
             verbose=verbose,
             generate_html=github_pages

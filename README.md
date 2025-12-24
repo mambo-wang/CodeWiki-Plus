@@ -134,10 +134,57 @@ codewiki generate --verbose
 codewiki generate --create-branch --github-pages --verbose
 ```
 
+### Customization Options
+
+CodeWiki supports customization for language-specific projects and documentation styles:
+
+```bash
+# C# project: only analyze .cs files, exclude tests
+codewiki generate --include "*.cs" --exclude "*Tests*,*Specs*"
+
+# Focus on specific modules with architecture-style docs
+codewiki generate --focus "src/core,src/api" --doc-type architecture
+
+# Add custom instructions for the AI agent
+codewiki generate --instructions "Focus on public APIs and include usage examples"
+```
+
+#### Setting Persistent Defaults
+
+Save your preferred settings as defaults:
+
+```bash
+# Set include patterns for C# projects
+codewiki config agent --include "*.cs"
+
+# Exclude test projects by default
+codewiki config agent --exclude "*Tests*,*Specs*,test_*"
+
+# Set focus modules
+codewiki config agent --focus "src/core,src/api"
+
+# Set default documentation type
+codewiki config agent --doc-type architecture
+
+# View current agent settings
+codewiki config agent
+
+# Clear all agent settings
+codewiki config agent --clear
+```
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--include` | File patterns to include | `*.cs`, `*.py,*.pyi` |
+| `--exclude` | Patterns to exclude | `*Tests*`, `*test*,*mock*` |
+| `--focus` | Modules to document in detail | `src/core,src/api` |
+| `--doc-type` | Documentation style | `api`, `architecture`, `user-guide`, `developer` |
+| `--instructions` | Custom agent instructions | Free-form text |
+
 ### Configuration Storage
 
 - **API keys**: Securely stored in system keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service)
-- **Settings**: `~/.codewiki/config.json`
+- **Settings & Agent Instructions**: `~/.codewiki/config.json`
 
 ---
 

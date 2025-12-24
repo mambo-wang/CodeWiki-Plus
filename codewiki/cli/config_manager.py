@@ -112,12 +112,14 @@ class ConfigManager:
             if CONFIG_FILE.exists():
                 self.load()
             else:
+                from codewiki.cli.models.config import AgentInstructions
                 self._config = Configuration(
                     base_url="",
                     main_model="",
                     cluster_model="",
                     fallback_model="glm-4p5",
-                    default_output="docs"
+                    default_output="docs",
+                    agent_instructions=AgentInstructions()
                 )
         
         # Update fields if provided
@@ -132,8 +134,9 @@ class ConfigManager:
         if default_output is not None:
             self._config.default_output = default_output
         
-        # Validate configuration
-        self._config.validate()
+        # Validate configuration (only if base fields are set)
+        if self._config.base_url and self._config.main_model and self._config.cluster_model:
+            self._config.validate()
         
         # Save API key to keyring
         if api_key is not None:

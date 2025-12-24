@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict, Any
 import argparse
 import os
 import sys
@@ -51,6 +52,70 @@ class Config:
     main_model: str
     cluster_model: str
     fallback_model: str = FALLBACK_MODEL_1
+    # Agent instructions for customization
+    agent_instructions: Optional[Dict[str, Any]] = None
+    
+    @property
+    def include_patterns(self) -> Optional[List[str]]:
+        """Get file include patterns from agent instructions."""
+        if self.agent_instructions:
+            return self.agent_instructions.get('include_patterns')
+        return None
+    
+    @property
+    def exclude_patterns(self) -> Optional[List[str]]:
+        """Get file exclude patterns from agent instructions."""
+        if self.agent_instructions:
+            return self.agent_instructions.get('exclude_patterns')
+        return None
+    
+    @property
+    def focus_modules(self) -> Optional[List[str]]:
+        """Get focus modules from agent instructions."""
+        if self.agent_instructions:
+            return self.agent_instructions.get('focus_modules')
+        return None
+    
+    @property
+    def doc_type(self) -> Optional[str]:
+        """Get documentation type from agent instructions."""
+        if self.agent_instructions:
+            return self.agent_instructions.get('doc_type')
+        return None
+    
+    @property
+    def custom_instructions(self) -> Optional[str]:
+        """Get custom instructions from agent instructions."""
+        if self.agent_instructions:
+            return self.agent_instructions.get('custom_instructions')
+        return None
+    
+    def get_prompt_addition(self) -> str:
+        """Generate prompt additions based on agent instructions."""
+        if not self.agent_instructions:
+            return ""
+        
+        additions = []
+        
+        if self.doc_type:
+            doc_type_instructions = {
+                'api': "Focus on API documentation: endpoints, parameters, return types, and usage examples.",
+                'architecture': "Focus on architecture documentation: system design, component relationships, and data flow.",
+                'user-guide': "Focus on user guide documentation: how to use features, step-by-step tutorials.",
+                'developer': "Focus on developer documentation: code structure, contribution guidelines, and implementation details.",
+            }
+            if self.doc_type.lower() in doc_type_instructions:
+                additions.append(doc_type_instructions[self.doc_type.lower()])
+            else:
+                additions.append(f"Focus on generating {self.doc_type} documentation.")
+        
+        if self.focus_modules:
+            additions.append(f"Pay special attention to and provide more detailed documentation for these modules: {', '.join(self.focus_modules)}")
+        
+        if self.custom_instructions:
+            additions.append(f"Additional instructions: {self.custom_instructions}")
+        
+        return "\n".join(additions) if additions else ""
     
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> 'Config':
@@ -80,7 +145,8 @@ class Config:
         llm_api_key: str,
         main_model: str,
         cluster_model: str,
-        fallback_model: str = FALLBACK_MODEL_1
+        fallback_model: str = FALLBACK_MODEL_1,
+        agent_instructions: Optional[Dict[str, Any]] = None
     ) -> 'Config':
         """
         Create configuration for CLI context.
@@ -93,6 +159,7 @@ class Config:
             main_model: Primary model
             cluster_model: Clustering model
             fallback_model: Fallback model
+            agent_instructions: Custom agent instructions dict
             
         Returns:
             Config instance
@@ -110,5 +177,6 @@ class Config:
             llm_api_key=llm_api_key,
             main_model=main_model,
             cluster_model=cluster_model,
-            fallback_model=fallback_model
+            fallback_model=fallback_model,
+            agent_instructions=agent_instructions
         )

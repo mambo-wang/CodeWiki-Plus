@@ -45,6 +45,8 @@ from codewiki.src.be.prompt_template import (
     SYSTEM_PROMPT,
     LEAF_SYSTEM_PROMPT,
     format_user_prompt,
+    format_system_prompt,
+    format_leaf_system_prompt,
 )
 from codewiki.src.be.utils import is_complex_module
 from codewiki.src.config import (
@@ -66,6 +68,9 @@ class AgentOrchestrator:
     def create_agent(self, module_name: str, components: Dict[str, Any], 
                     core_component_ids: List[str]) -> Agent:
         """Create an appropriate agent based on module complexity."""
+        # Get custom instructions from config
+        custom_instructions = self.config.get_prompt_addition() if self.config else None
+        
         if is_complex_module(components, core_component_ids):
             return Agent(
                 self.fallback_models,
@@ -76,7 +81,7 @@ class AgentOrchestrator:
                     str_replace_editor_tool, 
                     generate_sub_module_documentation_tool
                 ],
-                system_prompt=SYSTEM_PROMPT.format(module_name=module_name),
+                system_prompt=format_system_prompt(module_name, custom_instructions),
             )
         else:
             return Agent(
@@ -84,7 +89,7 @@ class AgentOrchestrator:
                 name=module_name,
                 deps_type=CodeWikiDeps,
                 tools=[read_code_components_tool, str_replace_editor_tool],
-                system_prompt=LEAF_SYSTEM_PROMPT.format(module_name=module_name),
+                system_prompt=format_leaf_system_prompt(module_name, custom_instructions),
             )
     
     async def process_module(self, module_name: str, components: Dict[str, Node], 

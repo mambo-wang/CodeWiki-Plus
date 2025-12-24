@@ -5,9 +5,10 @@ Configuration commands for CodeWiki CLI.
 import json
 import sys
 import click
-from typing import Optional
+from typing import Optional, List
 
 from codewiki.cli.config_manager import ConfigManager
+from codewiki.cli.models.config import AgentInstructions
 from codewiki.cli.utils.errors import (
     ConfigurationError, 
     handle_error, 
@@ -21,6 +22,13 @@ from codewiki.cli.utils.validation import (
     is_top_tier_model,
     mask_api_key
 )
+
+
+def parse_patterns(patterns_str: str) -> List[str]:
+    """Parse comma-separated patterns into a list."""
+    if not patterns_str:
+        return []
+    return [p.strip() for p in patterns_str.split(',') if p.strip()]
 
 
 @click.group(name="config")
@@ -207,6 +215,7 @@ def config_show(output_json: bool):
                 "cluster_model": config.cluster_model if config else "",
                 "fallback_model": config.fallback_model if config else "glm-4p5",
                 "default_output": config.default_output if config else "docs",
+                "agent_instructions": config.agent_instructions.to_dict() if config and config.agent_instructions else {},
                 "config_file": str(manager.config_file_path)
             }
             click.echo(json.dumps(output, indent=2))
@@ -238,6 +247,23 @@ def config_show(output_json: bool):
             click.secho("Output Settings", fg="cyan", bold=True)
             if config:
                 click.echo(f"  Default Output:   {config.default_output}")
+            
+            click.echo()
+            click.secho("Agent Instructions", fg="cyan", bold=True)
+            if config and config.agent_instructions and not config.agent_instructions.is_empty():
+                agent = config.agent_instructions
+                if agent.include_patterns:
+                    click.echo(f"  Include patterns:   {', '.join(agent.include_patterns)}")
+                if agent.exclude_patterns:
+                    click.echo(f"  Exclude patterns:   {', '.join(agent.exclude_patterns)}")
+                if agent.focus_modules:
+                    click.echo(f"  Focus modules:      {', '.join(agent.focus_modules)}")
+                if agent.doc_type:
+                    click.echo(f"  Doc type:           {agent.doc_type}")
+                if agent.custom_instructions:
+                    click.echo(f"  Custom instructions: {agent.custom_instructions[:50]}...")
+            else:
+                click.secho("  Using defaults (no custom settings)", fg="yellow")
             
             click.echo()
             click.echo(f"Configuration file: {manager.config_file_path}")
@@ -395,4 +421,171 @@ def config_validate(quick: bool, verbose: bool):
         sys.exit(e.exit_code)
     except Exception as e:
         sys.exit(handle_error(e, verbose=verbose))
+
+
+@config_group.command(name="agent")
+@click.option(
+    "--include",
+    "-i",
+    type=str,
+    default=None,
+    help="Comma-separated file patterns to include (e.g., '*.cs,*.py')",
+)
+@click.option(
+    "--exclude",
+    "-e",
+    type=str,
+    default=None,
+    help="Comma-separated patterns to exclude (e.g., '*Tests*,*Specs*')",
+)
+@click.option(
+    "--focus",
+    "-f",
+    type=str,
+    default=None,
+    help="Comma-separated modules/paths to focus on (e.g., 'src/core,src/api')",
+)
+@click.option(
+    "--doc-type",
+    "-t",
+    type=click.Choice(['api', 'architecture', 'user-guide', 'developer'], case_sensitive=False),
+    default=None,
+    help="Default type of documentation to generate",
+)
+@click.option(
+    "--instructions",
+    type=str,
+    default=None,
+    help="Custom instructions for the documentation agent",
+)
+@click.option(
+    "--clear",
+    is_flag=True,
+    help="Clear all agent instructions",
+)
+def config_agent(
+    include: Optional[str],
+    exclude: Optional[str],
+    focus: Optional[str],
+    doc_type: Optional[str],
+    instructions: Optional[str],
+    clear: bool
+):
+    """
+    Configure default agent instructions for documentation generation.
+    
+    These settings are used as defaults when running 'codewiki generate'.
+    Runtime options (--include, --exclude, etc.) override these defaults.
+    
+    Examples:
+    
+    \b
+    # Set include patterns for C# projects
+    $ codewiki config agent --include "*.cs"
+    
+    \b
+    # Exclude test projects
+    $ codewiki config agent --exclude "*Tests*,*Specs*,test_*"
+    
+    \b
+    # Focus on specific modules
+    $ codewiki config agent --focus "src/core,src/api"
+    
+    \b
+    # Set default doc type
+    $ codewiki config agent --doc-type architecture
+    
+    \b
+    # Add custom instructions
+    $ codewiki config agent --instructions "Focus on public APIs and include usage examples"
+    
+    \b
+    # Clear all agent instructions
+    $ codewiki config agent --clear
+    """
+    try:
+        manager = ConfigManager()
+        
+        if not manager.load():
+            click.secho("\n✗ Configuration not found.", fg="red", err=True)
+            click.echo("\nPlease run 'codewiki config set' first to configure your API credentials.")
+            sys.exit(EXIT_CONFIG_ERROR)
+        
+        config = manager.get_config()
+        
+        if clear:
+            # Clear all agent instructions
+            config.agent_instructions = AgentInstructions()
+            manager.save()
+            click.echo()
+            click.secho("✓ Agent instructions cleared", fg="green")
+            click.echo()
+            return
+        
+        # Check if at least one option is provided
+        if not any([include, exclude, focus, doc_type, instructions]):
+            # Display current settings
+            click.echo()
+            click.secho("Agent Instructions", fg="blue", bold=True)
+            click.echo("━" * 40)
+            click.echo()
+            
+            agent = config.agent_instructions
+            if agent and not agent.is_empty():
+                if agent.include_patterns:
+                    click.echo(f"  Include patterns:   {', '.join(agent.include_patterns)}")
+                if agent.exclude_patterns:
+                    click.echo(f"  Exclude patterns:   {', '.join(agent.exclude_patterns)}")
+                if agent.focus_modules:
+                    click.echo(f"  Focus modules:      {', '.join(agent.focus_modules)}")
+                if agent.doc_type:
+                    click.echo(f"  Doc type:           {agent.doc_type}")
+                if agent.custom_instructions:
+                    click.echo(f"  Custom instructions: {agent.custom_instructions}")
+            else:
+                click.secho("  No agent instructions configured (using defaults)", fg="yellow")
+            
+            click.echo()
+            click.echo("Use 'codewiki config agent --help' for usage information.")
+            click.echo()
+            return
+        
+        # Update agent instructions
+        current = config.agent_instructions or AgentInstructions()
+        
+        if include is not None:
+            current.include_patterns = parse_patterns(include) if include else None
+        if exclude is not None:
+            current.exclude_patterns = parse_patterns(exclude) if exclude else None
+        if focus is not None:
+            current.focus_modules = parse_patterns(focus) if focus else None
+        if doc_type is not None:
+            current.doc_type = doc_type if doc_type else None
+        if instructions is not None:
+            current.custom_instructions = instructions if instructions else None
+        
+        config.agent_instructions = current
+        manager.save()
+        
+        # Display success messages
+        click.echo()
+        if include:
+            click.secho(f"✓ Include patterns: {parse_patterns(include)}", fg="green")
+        if exclude:
+            click.secho(f"✓ Exclude patterns: {parse_patterns(exclude)}", fg="green")
+        if focus:
+            click.secho(f"✓ Focus modules: {parse_patterns(focus)}", fg="green")
+        if doc_type:
+            click.secho(f"✓ Doc type: {doc_type}", fg="green")
+        if instructions:
+            click.secho(f"✓ Custom instructions set", fg="green")
+        
+        click.echo("\n" + click.style("Agent instructions updated successfully.", fg="green", bold=True))
+        click.echo()
+        
+    except ConfigurationError as e:
+        click.secho(f"\n✗ Configuration error: {e.message}", fg="red", err=True)
+        sys.exit(e.exit_code)
+    except Exception as e:
+        sys.exit(handle_error(e))
 
