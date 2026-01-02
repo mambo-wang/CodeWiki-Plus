@@ -50,11 +50,17 @@ def config_group():
     type=str,
     help="Model for module clustering (recommend top-tier)"
 )
+@click.option(
+    "--fallback-model",
+    type=str,
+    help="Fallback model for documentation generation"
+)
 def config_set(
     api_key: Optional[str],
     base_url: Optional[str],
     main_model: Optional[str],
-    cluster_model: Optional[str]
+    cluster_model: Optional[str],
+    fallback_model: Optional[str]
 ):
     """
     Set configuration values for CodeWiki.
@@ -69,7 +75,7 @@ def config_set(
     \b
     # Set all configuration
     $ codewiki config set --api-key sk-abc123 --base-url https://api.anthropic.com \\
-        --main-model claude-sonnet-4 --cluster-model claude-sonnet-4
+        --main-model claude-sonnet-4 --cluster-model claude-sonnet-4 --fallback-model glm-4p5
     
     \b
     # Update only API key
@@ -77,7 +83,7 @@ def config_set(
     """
     try:
         # Check if at least one option is provided
-        if not any([api_key, base_url, main_model, cluster_model]):
+        if not any([api_key, base_url, main_model, cluster_model, fallback_model]):
             click.echo("No options provided. Use --help for usage information.")
             sys.exit(EXIT_CONFIG_ERROR)
         
@@ -96,6 +102,9 @@ def config_set(
         if cluster_model:
             validated_data['cluster_model'] = validate_model_name(cluster_model)
         
+        if fallback_model:
+            validated_data['fallback_model'] = validate_model_name(fallback_model)
+        
         # Create config manager and save
         manager = ConfigManager()
         manager.load()  # Load existing config if present
@@ -104,7 +113,8 @@ def config_set(
             api_key=validated_data.get('api_key'),
             base_url=validated_data.get('base_url'),
             main_model=validated_data.get('main_model'),
-            cluster_model=validated_data.get('cluster_model')
+            cluster_model=validated_data.get('cluster_model'),
+            fallback_model=validated_data.get('fallback_model')
         )
         
         # Display success messages
@@ -137,6 +147,9 @@ def config_set(
                 click.echo(
                     "   Recommended models: claude-opus, claude-sonnet-4, gpt-4, gpt-4-turbo"
                 )
+        
+        if fallback_model:
+            click.secho(f"✓ Fallback model: {fallback_model}", fg="green")
         
         click.echo("\n" + click.style("Configuration updated successfully.", fg="green", bold=True))
         
@@ -177,7 +190,7 @@ def config_show(output_json: bool):
             click.secho("\n✗ Configuration not found.", fg="red", err=True)
             click.echo("\nPlease run 'codewiki config set' to configure your API credentials:")
             click.echo("  codewiki config set --api-key <key> --base-url <url> \\")
-            click.echo("    --main-model <model> --cluster-model <model>")
+            click.echo("    --main-model <model> --cluster-model <model> --fallback-model <model>")
             click.echo("\nFor more help: codewiki config set --help")
             sys.exit(EXIT_CONFIG_ERROR)
         
@@ -192,6 +205,7 @@ def config_show(output_json: bool):
                 "base_url": config.base_url if config else "",
                 "main_model": config.main_model if config else "",
                 "cluster_model": config.cluster_model if config else "",
+                "fallback_model": config.fallback_model if config else "glm-4p5",
                 "default_output": config.default_output if config else "docs",
                 "config_file": str(manager.config_file_path)
             }
@@ -216,6 +230,7 @@ def config_show(output_json: bool):
                 click.echo(f"  Base URL:         {config.base_url or 'Not set'}")
                 click.echo(f"  Main Model:       {config.main_model or 'Not set'}")
                 click.echo(f"  Cluster Model:    {config.cluster_model or 'Not set'}")
+                click.echo(f"  Fallback Model:   {config.fallback_model or 'Not set'}")
             else:
                 click.secho("  Not configured", fg="yellow")
             
@@ -339,8 +354,9 @@ def config_validate(quick: bool, verbose: bool):
             click.echo("[4/5] Checking model configuration...")
             click.echo(f"      Main model: {config.main_model}")
             click.echo(f"      Cluster model: {config.cluster_model}")
+            click.echo(f"      Fallback model: {config.fallback_model}")
         
-        if not config.main_model or not config.cluster_model:
+        if not config.main_model or not config.cluster_model or not config.fallback_model:
             click.secho("✗ Models not configured", fg="red")
             sys.exit(EXIT_CONFIG_ERROR)
         
@@ -349,6 +365,7 @@ def config_validate(quick: bool, verbose: bool):
         else:
             click.secho(f"✓ Main model configured: {config.main_model}", fg="green")
             click.secho(f"✓ Cluster model configured: {config.cluster_model}", fg="green")
+            click.secho(f"✓ Fallback model configured: {config.fallback_model}", fg="green")
         
         # Warn about non-top-tier cluster model
         if not is_top_tier_model(config.cluster_model):

@@ -49,7 +49,8 @@ codewiki config set \
   --api-key YOUR_API_KEY \
   --base-url https://api.anthropic.com \
   --main-model claude-sonnet-4 \
-  --cluster-model claude-sonnet-4
+  --cluster-model claude-sonnet-4 \
+  --fallback-model glm-4p5
 ```
 
 ### 3. Generate Documentation
@@ -101,7 +102,8 @@ codewiki config set \
   --api-key <your-api-key> \
   --base-url <provider-url> \
   --main-model <model-name> \
-  --cluster-model <model-name>
+  --cluster-model <model-name> \
+  --fallback-model <model-name>
 
 # Show current configuration
 codewiki config show
