@@ -232,7 +232,10 @@ EXTENSION_TO_LANGUAGE = {
     ".mjs": "javascript",
     ".cjs": "javascript",
     ".jsx": "javascript",
-    ".cs": "csharp"
+    ".cs": "csharp",
+    ".php": "php",
+    ".phtml": "php",
+    ".inc": "php"
 }
 
 

@@ -171,6 +171,7 @@ def detect_supported_languages(directory: Path) -> List[Tuple[str, int]]:
         'C': ['.c', '.h'],
         'C++': ['.cpp', '.hpp', '.cc', '.hh', '.cxx', '.hxx'],
         'C#': ['.cs'],
+        'PHP': ['.php', '.phtml', '.inc'],
     }
     
     # Directories to exclude from counting

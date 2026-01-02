@@ -27,6 +27,9 @@ SUPPORTED_EXTENSIONS = {
     '.cxx',     # C++
     '.hxx',     # C++ headers
     '.cs',      # C#
+    '.php',     # PHP
+    '.phtml',   # PHP templates
+    '.inc',     # PHP includes
 }
 
 
@@ -57,7 +60,7 @@ def validate_repository(repo_path: Path) -> Tuple[Path, List[Tuple[str, int]]]:
     if not languages:
         raise RepositoryError(
             f"No supported code files found in {repo_path}\n\n"
-            "CodeWiki supports: Python, Java, JavaScript, TypeScript, C, C++, C#\n\n"
+            "CodeWiki supports: Python, Java, JavaScript, TypeScript, C, C++, C#, PHP\n\n"
             "Please navigate to a code repository or specify a custom directory:\n"
             "  cd /path/to/your/project\n"
             "  codewiki generate"

@@ -132,6 +132,8 @@ class CallGraphAnalyzer:
                 self._analyze_c_file(file_path, content, repo_dir)
             elif language == "cpp":
                 self._analyze_cpp_file(file_path, content, repo_dir)
+            elif language == "php":
+                self._analyze_php_file(file_path, content, repo_dir)
             # else:
             #     logger.warning(
             #         f"Unsupported language for call graph analysis: {language} for file {file_path}"
@@ -300,6 +302,28 @@ class CallGraphAnalyzer:
         except Exception as e:
             logger.error(f"Failed to analyze C# file {file_path}: {e}", exc_info=True)
 
+    def _analyze_php_file(self, file_path: str, content: str, repo_dir: str):
+        """
+        Analyze PHP file using tree-sitter based analyzer.
+
+        Args:
+            file_path: Relative path to the PHP file
+            content: File content string
+            repo_dir: Repository base directory
+        """
+        from codewiki.src.be.dependency_analyzer.analyzers.php import analyze_php_file
+
+        try:
+            functions, relationships = analyze_php_file(file_path, content, repo_path=repo_dir)
+
+            for func in functions:
+                func_id = func.id if func.id else f"{file_path}:{func.name}"
+                self.functions[func_id] = func
+
+            self.call_relationships.extend(relationships)
+        except Exception as e:
+            logger.error(f"Failed to analyze PHP file {file_path}: {e}", exc_info=True)
+
     def _resolve_call_relationships(self):
         """
         Resolve function call relationships across all languages.
@@ -384,6 +408,8 @@ class CallGraphAnalyzer:
                 node_classes.append("lang-c")
             elif file_ext in [".cpp", ".cc", ".cxx", ".hpp", ".hxx"]:
                 node_classes.append("lang-cpp")
+            elif file_ext in [".php", ".phtml", ".inc"]:
+                node_classes.append("lang-php")
 
             cytoscape_elements.append(
                 {
