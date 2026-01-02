@@ -120,7 +120,7 @@ class ConfigManager:
                     fallback_model="glm-4p5",
                     default_output="docs",
                     agent_instructions=AgentInstructions(),
-                    fallback_model="glm-4p5",
+                    fallback_model="glm-4p5"
                 )
         
         # Update fields if provided
