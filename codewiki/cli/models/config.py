@@ -217,6 +217,6 @@ class Configuration:
             main_model=self.main_model,
             cluster_model=self.cluster_model,
             fallback_model=self.fallback_model,
-            agent_instructions=final_instructions.to_dict() if final_instructions else None,
+            agent_instructions=final_instructions.to_dict() if final_instructions else None
         )
 
