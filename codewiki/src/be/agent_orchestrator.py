@@ -2,6 +2,7 @@ from pydantic_ai import Agent
 # import logfire
 import logging
 import os
+import traceback
 from typing import Dict, List, Any
 
 # Configure logging and monitoring
@@ -144,4 +145,5 @@ class AgentOrchestrator:
             
         except Exception as e:
             logger.error(f"Error processing module {module_name}: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             raise

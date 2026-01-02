@@ -8,6 +8,7 @@ across different programming languages in a repository.
 
 from typing import Dict, List
 import logging
+import traceback
 from pathlib import Path
 from codewiki.src.be.dependency_analyzer.models.core import Node, CallRelationship
 from codewiki.src.be.dependency_analyzer.utils.patterns import CODE_EXTENSIONS
@@ -138,6 +139,7 @@ class CallGraphAnalyzer:
 
         except Exception as e:
             logger.error(f"⚠️ Error analyzing {file_path}: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
 
     def _analyze_python_file(self, file_path: str, content: str, base_dir: str):
         """

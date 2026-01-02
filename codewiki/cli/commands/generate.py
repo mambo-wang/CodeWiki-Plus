@@ -4,6 +4,7 @@ Generate command for documentation generation.
 
 import sys
 import logging
+import traceback
 from pathlib import Path
 from typing import Optional
 import click
@@ -245,12 +246,15 @@ def generate_command(
         
     except ConfigurationError as e:
         logger.error(e.message)
+        logger.error(f"Traceback: {traceback.format_exc()}")
         sys.exit(e.exit_code)
     except RepositoryError as e:
         logger.error(e.message)
+        logger.error(f"Traceback: {traceback.format_exc()}")
         sys.exit(e.exit_code)
     except APIError as e:
         logger.error(e.message)
+        logger.error(f"Traceback: {traceback.format_exc()}")
         sys.exit(e.exit_code)
     except KeyboardInterrupt:
         click.echo("\n\nInterrupted by user")

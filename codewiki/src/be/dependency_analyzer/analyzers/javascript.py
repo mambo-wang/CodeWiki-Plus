@@ -1,5 +1,6 @@
 import logging
 import os
+import traceback
 from typing import List, Set, Optional, Tuple
 from pathlib import Path
 import sys
@@ -33,6 +34,7 @@ class TreeSitterJSAnalyzer:
 
         except Exception as e:
             logger.error(f"Failed to initialize JavaScript parser: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             self.parser = None
             self.js_language = None
 

@@ -1,6 +1,7 @@
 from typing import List, Dict, Any
 from collections import defaultdict
 import logging
+import traceback
 logger = logging.getLogger(__name__)
 
 from codewiki.src.be.dependency_analyzer.models.core import Node
@@ -75,6 +76,7 @@ def cluster_modules(
             
     except Exception as e:
         logger.error(f"Failed to parse LLM response: {e}. Response: {response[:200]}...")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return {}
 
     # check if the module tree is valid

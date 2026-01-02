@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List, Tuple
 import logging
 import tiktoken
+import traceback
 
 
 logger = logging.getLogger(__name__)
@@ -169,6 +170,7 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
                 core_error = core_error
             else:
                 logger.error(f"No match found for error pattern, fallback to mermaid-py\n{error_str}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 raise Exception(error_str)
 
     except Exception as e:
