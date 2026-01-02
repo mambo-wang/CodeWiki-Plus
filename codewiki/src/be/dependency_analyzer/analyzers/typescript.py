@@ -1,5 +1,6 @@
 import logging
 import os
+import traceback
 from typing import List, Set, Optional, Tuple
 from pathlib import Path
 import sys
@@ -31,6 +32,7 @@ class TreeSitterTSAnalyzer:
 
         except Exception as e:
             logger.error(f"Failed to initialize TypeScript parser: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             self.parser = None
             self.ts_language = None
 

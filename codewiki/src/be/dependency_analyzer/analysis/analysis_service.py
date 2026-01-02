@@ -7,6 +7,7 @@ AST parsing for call graph generation.
 """
 
 import logging
+import traceback
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 from codewiki.src.be.dependency_analyzer.utils.security import safe_open_text, assert_safe_path
@@ -212,6 +213,7 @@ class AnalysisService:
             if temp_dir:
                 self._cleanup_repository(temp_dir)
             logger.error(f"Structure analysis failed for {github_url}: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             raise RuntimeError(f"Structure analysis failed: {str(e)}") from e
 
     def _clone_repository(self, github_url: str) -> str:

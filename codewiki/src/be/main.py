@@ -11,6 +11,7 @@ This module orchestrates the documentation generation process by:
 import logging
 import argparse
 import asyncio
+import traceback
 
 # Configure logging and monitoring
 from codewiki.src.be.dependency_analyzer.utils.logging_config import setup_logging
@@ -57,6 +58,7 @@ async def main() -> None:
         logger.debug("Documentation generation interrupted by user")
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise
 
 
