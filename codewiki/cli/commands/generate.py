@@ -201,6 +201,7 @@ def generate_command(
             config={
                 'main_model': config.main_model,
                 'cluster_model': config.cluster_model,
+                'fallback_model': config.fallback_model,
                 'base_url': config.base_url,
                 'api_key': api_key,
             },

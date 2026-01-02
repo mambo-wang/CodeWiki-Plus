@@ -26,11 +26,13 @@ class Configuration:
         base_url: LLM API base URL
         main_model: Primary model for documentation generation
         cluster_model: Model for module clustering
+        fallback_model: Fallback model for documentation generation
         default_output: Default output directory
     """
     base_url: str
     main_model: str
     cluster_model: str
+    fallback_model: str = "glm-4p5"
     default_output: str = "docs"
     
     def validate(self):
@@ -43,6 +45,7 @@ class Configuration:
         validate_url(self.base_url)
         validate_model_name(self.main_model)
         validate_model_name(self.cluster_model)
+        validate_model_name(self.fallback_model)
     
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -63,6 +66,7 @@ class Configuration:
             base_url=data.get('base_url', ''),
             main_model=data.get('main_model', ''),
             cluster_model=data.get('cluster_model', ''),
+            fallback_model=data.get('fallback_model', 'glm-4p5'),
             default_output=data.get('default_output', 'docs'),
         )
     
@@ -71,7 +75,8 @@ class Configuration:
         return bool(
             self.base_url and 
             self.main_model and 
-            self.cluster_model
+            self.cluster_model and
+            self.fallback_model
         )
     
     def to_backend_config(self, repo_path: str, output_dir: str, api_key: str):
@@ -97,6 +102,7 @@ class Configuration:
             llm_base_url=self.base_url,
             llm_api_key=api_key,
             main_model=self.main_model,
-            cluster_model=self.cluster_model
+            cluster_model=self.cluster_model,
+            fallback_model=self.fallback_model
         )
 
