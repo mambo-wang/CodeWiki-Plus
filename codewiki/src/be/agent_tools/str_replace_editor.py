@@ -710,7 +710,8 @@ async def str_replace_editor(
     ctx: RunContext[CodeWikiDeps],
     working_dir: Literal["repo", "docs"],
     command: Literal["view", "create", "str_replace", "insert", "undo_edit"],
-    path: str,
+    path: Optional[str] = None,
+    file: Optional[str] = None,
     file_text: Optional[str] = None,
     view_range: Optional[List[int]] = None,
     old_str: Optional[str] = None,
@@ -730,12 +731,18 @@ async def str_replace_editor(
         working_dir: The working directory to use. Choose `repo` to work with the repository files, or `docs` to work with the generated documentation files.
         command: The command to run. Allowed options are: `view`, `create`, `str_replace`, `insert`, `undo_edit`.
         path: Path to file or directory, e.g. `./chat_core.md` or `./agents/`
+        file: Alias for `path` parameter (for compatibility with some models)
         file_text: Required parameter of `create` command, with the content of the file to be created.
         view_range: Optional parameter of `view` command when `path` points to a file. If none is given, the full file is shown. If provided, the file will be shown in the indicated line number range, e.g. [11, 12] will show lines 11 and 12. Indexing at 1 to start. Setting `[start_line, -1]` shows all lines from `start_line` to the end of the file.
         old_str: Required parameter of `str_replace` command containing the string in `path` to replace.
         new_str: Optional parameter of `str_replace` command containing the new string (if not given, no string will be added). Required parameter of `insert` command containing the string to insert.
     """
 
+    # Handle both `path` and `file` parameters for model compatibility
+    if path is None and file is None:
+        return "Error: Either `path` or `file` parameter must be provided."
+    if path is None:
+        path = file
 
     tool = EditTool(ctx.deps.registry, ctx.deps.absolute_docs_path)
     if working_dir == "docs":
@@ -746,7 +753,7 @@ async def str_replace_editor(
     # validate command
     if command != "view" and working_dir == "repo":
         return "The `view` command is the only allowed command when `working_dir` is `repo`."
-    
+
     tool(
         command=command,
         path=absolute_path,
