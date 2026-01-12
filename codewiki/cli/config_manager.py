@@ -119,8 +119,7 @@ class ConfigManager:
                     cluster_model="",
                     fallback_model="glm-4p5",
                     default_output="docs",
-                    agent_instructions=AgentInstructions(),
-                    fallback_model="glm-4p5",
+                    agent_instructions=AgentInstructions()
                 )
         
         # Update fields if provided
