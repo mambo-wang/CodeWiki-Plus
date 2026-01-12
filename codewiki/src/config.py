@@ -14,8 +14,13 @@ FIRST_MODULE_TREE_FILENAME = 'first_module_tree.json'
 MODULE_TREE_FILENAME = 'module_tree.json'
 OVERVIEW_FILENAME = 'overview.md'
 MAX_DEPTH = 2
-MAX_TOKEN_PER_MODULE = 36_369
-MAX_TOKEN_PER_LEAF_MODULE = 16_000
+# Default max token settings
+DEFAULT_MAX_TOKENS = 32_768
+DEFAULT_MAX_TOKEN_PER_MODULE = 36_369
+DEFAULT_MAX_TOKEN_PER_LEAF_MODULE = 16_000
+# Legacy constants (for backward compatibility)
+MAX_TOKEN_PER_MODULE = DEFAULT_MAX_TOKEN_PER_MODULE
+MAX_TOKEN_PER_LEAF_MODULE = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE
 
 # CLI context detection
 _CLI_CONTEXT = False
@@ -52,6 +57,10 @@ class Config:
     main_model: str
     cluster_model: str
     fallback_model: str = FALLBACK_MODEL_1
+    # Max token settings
+    max_tokens: int = DEFAULT_MAX_TOKENS
+    max_token_per_module: int = DEFAULT_MAX_TOKEN_PER_MODULE
+    max_token_per_leaf_module: int = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE
     # Agent instructions for customization
     agent_instructions: Optional[Dict[str, Any]] = None
     
@@ -146,6 +155,9 @@ class Config:
         main_model: str,
         cluster_model: str,
         fallback_model: str = FALLBACK_MODEL_1,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        max_token_per_module: int = DEFAULT_MAX_TOKEN_PER_MODULE,
+        max_token_per_leaf_module: int = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE,
         agent_instructions: Optional[Dict[str, Any]] = None
     ) -> 'Config':
         """
@@ -159,6 +171,9 @@ class Config:
             main_model: Primary model
             cluster_model: Clustering model
             fallback_model: Fallback model
+            max_tokens: Maximum tokens for LLM response
+            max_token_per_module: Maximum tokens per module for clustering
+            max_token_per_leaf_module: Maximum tokens per leaf module
             agent_instructions: Custom agent instructions dict
             
         Returns:
@@ -178,5 +193,8 @@ class Config:
             main_model=main_model,
             cluster_model=cluster_model,
             fallback_model=fallback_model,
+            max_tokens=max_tokens,
+            max_token_per_module=max_token_per_module,
+            max_token_per_leaf_module=max_token_per_leaf_module,
             agent_instructions=agent_instructions
         )

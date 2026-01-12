@@ -20,7 +20,7 @@ def create_main_model(config: Config) -> OpenAIModel:
         ),
         settings=OpenAIModelSettings(
             temperature=0.0,
-            max_tokens=32768
+            max_tokens=config.max_tokens
         )
     )
 
@@ -35,7 +35,7 @@ def create_fallback_model(config: Config) -> OpenAIModel:
         ),
         settings=OpenAIModelSettings(
             temperature=0.0,
-            max_tokens=32768
+            max_tokens=config.max_tokens
         )
     )
 
@@ -81,6 +81,6 @@ def call_llm(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         temperature=temperature,
-        max_tokens=32768
+        max_tokens=config.max_tokens
     )
     return response.choices[0].message.content

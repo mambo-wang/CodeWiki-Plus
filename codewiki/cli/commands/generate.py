@@ -102,6 +102,24 @@ def parse_patterns(patterns_str: str) -> List[str]:
     is_flag=True,
     help="Show detailed progress and debug information",
 )
+@click.option(
+    "--max-tokens",
+    type=int,
+    default=None,
+    help="Maximum tokens for LLM response (overrides config)",
+)
+@click.option(
+    "--max-token-per-module",
+    type=int,
+    default=None,
+    help="Maximum tokens per module for clustering (overrides config)",
+)
+@click.option(
+    "--max-token-per-leaf-module",
+    type=int,
+    default=None,
+    help="Maximum tokens per leaf module (overrides config)",
+)
 @click.pass_context
 def generate_command(
     ctx,
@@ -114,7 +132,10 @@ def generate_command(
     focus: Optional[str],
     doc_type: Optional[str],
     instructions: Optional[str],
-    verbose: bool
+    verbose: bool,
+    max_tokens: Optional[int],
+    max_token_per_module: Optional[int],
+    max_token_per_leaf_module: Optional[int]
 ):
     """
     Generate comprehensive documentation for a code repository.
@@ -147,6 +168,14 @@ def generate_command(
     \b
     # Custom instructions
     $ codewiki generate --instructions "Focus on public APIs and include usage examples"
+    
+    \b
+    # Override max tokens for this generation
+    $ codewiki generate --max-tokens 16384
+    
+    \b
+    # Set all max token limits
+    $ codewiki generate --max-tokens 32768 --max-token-per-module 40000 --max-token-per-leaf-module 20000
     """
     logger = create_logger(verbose=verbose)
     start_time = time.time()
@@ -276,6 +305,15 @@ def generate_command(
                 if instructions:
                     logger.debug(f"Custom instructions: {instructions}")
         
+        # Log max token settings if verbose
+        if verbose:
+            effective_max_tokens = max_tokens if max_tokens is not None else config.max_tokens
+            effective_max_token_per_module = max_token_per_module if max_token_per_module is not None else config.max_token_per_module
+            effective_max_token_per_leaf = max_token_per_leaf_module if max_token_per_leaf_module is not None else config.max_token_per_leaf_module
+            logger.debug(f"Max tokens: {effective_max_tokens}")
+            logger.debug(f"Max token/module: {effective_max_token_per_module}")
+            logger.debug(f"Max token/leaf module: {effective_max_token_per_leaf}")
+        
         # Get agent instructions (merge runtime with persistent)
         agent_instructions_dict = None
         if runtime_instructions and not runtime_instructions.is_empty():
@@ -302,6 +340,10 @@ def generate_command(
                 'base_url': config.base_url,
                 'api_key': api_key,
                 'agent_instructions': agent_instructions_dict,
+                # Max token settings (runtime overrides take precedence)
+                'max_tokens': max_tokens if max_tokens is not None else config.max_tokens,
+                'max_token_per_module': max_token_per_module if max_token_per_module is not None else config.max_token_per_module,
+                'max_token_per_leaf_module': max_token_per_leaf_module if max_token_per_leaf_module is not None else config.max_token_per_leaf_module,
             },
             verbose=verbose,
             generate_html=github_pages
