@@ -63,12 +63,30 @@ def config_group():
     type=str,
     help="Fallback model for documentation generation"
 )
+@click.option(
+    "--max-tokens",
+    type=int,
+    help="Maximum tokens for LLM response (default: 32768)"
+)
+@click.option(
+    "--max-token-per-module",
+    type=int,
+    help="Maximum tokens per module for clustering (default: 36369)"
+)
+@click.option(
+    "--max-token-per-leaf-module",
+    type=int,
+    help="Maximum tokens per leaf module (default: 16000)"
+)
 def config_set(
     api_key: Optional[str],
     base_url: Optional[str],
     main_model: Optional[str],
     cluster_model: Optional[str],
-    fallback_model: Optional[str]
+    fallback_model: Optional[str],
+    max_tokens: Optional[int],
+    max_token_per_module: Optional[int],
+    max_token_per_leaf_module: Optional[int]
 ):
     """
     Set configuration values for CodeWiki.
@@ -88,10 +106,18 @@ def config_set(
     \b
     # Update only API key
     $ codewiki config set --api-key sk-new-key
+    
+    \b
+    # Set max tokens for LLM response
+    $ codewiki config set --max-tokens 16384
+    
+    \b
+    # Set all max token settings
+    $ codewiki config set --max-tokens 32768 --max-token-per-module 40000 --max-token-per-leaf-module 20000
     """
     try:
         # Check if at least one option is provided
-        if not any([api_key, base_url, main_model, cluster_model, fallback_model]):
+        if not any([api_key, base_url, main_model, cluster_model, fallback_model, max_tokens, max_token_per_module, max_token_per_leaf_module]):
             click.echo("No options provided. Use --help for usage information.")
             sys.exit(EXIT_CONFIG_ERROR)
         
@@ -113,6 +139,21 @@ def config_set(
         if fallback_model:
             validated_data['fallback_model'] = validate_model_name(fallback_model)
         
+        if max_tokens is not None:
+            if max_tokens < 1:
+                raise ConfigurationError("max_tokens must be a positive integer")
+            validated_data['max_tokens'] = max_tokens
+        
+        if max_token_per_module is not None:
+            if max_token_per_module < 1:
+                raise ConfigurationError("max_token_per_module must be a positive integer")
+            validated_data['max_token_per_module'] = max_token_per_module
+        
+        if max_token_per_leaf_module is not None:
+            if max_token_per_leaf_module < 1:
+                raise ConfigurationError("max_token_per_leaf_module must be a positive integer")
+            validated_data['max_token_per_leaf_module'] = max_token_per_leaf_module
+        
         # Create config manager and save
         manager = ConfigManager()
         manager.load()  # Load existing config if present
@@ -122,7 +163,10 @@ def config_set(
             base_url=validated_data.get('base_url'),
             main_model=validated_data.get('main_model'),
             cluster_model=validated_data.get('cluster_model'),
-            fallback_model=validated_data.get('fallback_model')
+            fallback_model=validated_data.get('fallback_model'),
+            max_tokens=validated_data.get('max_tokens'),
+            max_token_per_module=validated_data.get('max_token_per_module'),
+            max_token_per_leaf_module=validated_data.get('max_token_per_leaf_module')
         )
         
         # Display success messages
@@ -158,6 +202,15 @@ def config_set(
         
         if fallback_model:
             click.secho(f"✓ Fallback model: {fallback_model}", fg="green")
+        
+        if max_tokens:
+            click.secho(f"✓ Max tokens: {max_tokens}", fg="green")
+        
+        if max_token_per_module:
+            click.secho(f"✓ Max token per module: {max_token_per_module}", fg="green")
+        
+        if max_token_per_leaf_module:
+            click.secho(f"✓ Max token per leaf module: {max_token_per_leaf_module}", fg="green")
         
         click.echo("\n" + click.style("Configuration updated successfully.", fg="green", bold=True))
         
@@ -215,6 +268,9 @@ def config_show(output_json: bool):
                 "cluster_model": config.cluster_model if config else "",
                 "fallback_model": config.fallback_model if config else "glm-4p5",
                 "default_output": config.default_output if config else "docs",
+                "max_tokens": config.max_tokens if config else 32768,
+                "max_token_per_module": config.max_token_per_module if config else 36369,
+                "max_token_per_leaf_module": config.max_token_per_leaf_module if config else 16000,
                 "agent_instructions": config.agent_instructions.to_dict() if config and config.agent_instructions else {},
                 "config_file": str(manager.config_file_path)
             }
@@ -247,6 +303,13 @@ def config_show(output_json: bool):
             click.secho("Output Settings", fg="cyan", bold=True)
             if config:
                 click.echo(f"  Default Output:   {config.default_output}")
+            
+            click.echo()
+            click.secho("Token Settings", fg="cyan", bold=True)
+            if config:
+                click.echo(f"  Max Tokens:              {config.max_tokens}")
+                click.echo(f"  Max Token/Module:        {config.max_token_per_module}")
+                click.echo(f"  Max Token/Leaf Module:   {config.max_token_per_leaf_module}")
             
             click.echo()
             click.secho("Agent Instructions", fg="cyan", bold=True)

@@ -105,6 +105,9 @@ codewiki config set \
   --cluster-model <model-name> \
   --fallback-model <model-name>
 
+# Configure max token settings
+codewiki config set --max-tokens 32768 --max-token-per-module 36369 --max-token-per-leaf-module 16000
+
 # Show current configuration
 codewiki config show
 
@@ -195,6 +198,33 @@ codewiki config agent --clear
 | `--focus` | Modules to document in detail | Standalone option | `src/core,src/api` |
 | `--doc-type` | Documentation style | Standalone option | `api`, `architecture`, `user-guide`, `developer` |
 | `--instructions` | Custom agent instructions | Standalone option | Free-form text |
+
+### Token Settings
+
+CodeWiki allows you to configure maximum token limits for LLM calls. This is useful for:
+- Adapting to different model context windows
+- Controlling costs by limiting response sizes
+- Optimizing for faster response times
+
+```bash
+# Set max tokens for LLM responses (default: 32768)
+codewiki config set --max-tokens 16384
+
+# Set max tokens for module clustering (default: 36369)
+codewiki config set --max-token-per-module 40000
+
+# Set max tokens for leaf modules (default: 16000)
+codewiki config set --max-token-per-leaf-module 20000
+
+# Override at runtime for a single generation
+codewiki generate --max-tokens 16384 --max-token-per-module 40000
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--max-tokens` | Maximum output tokens for LLM response | 32768 |
+| `--max-token-per-module` | Input tokens threshold for module clustering | 36369 |
+| `--max-token-per-leaf-module` | Input tokens threshold for leaf modules | 16000 |
 
 ### Configuration Storage
 

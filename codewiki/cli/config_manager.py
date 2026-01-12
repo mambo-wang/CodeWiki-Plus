@@ -88,7 +88,10 @@ class ConfigManager:
         main_model: Optional[str] = None,
         cluster_model: Optional[str] = None,
         fallback_model: Optional[str] = None,
-        default_output: Optional[str] = None
+        default_output: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        max_token_per_module: Optional[int] = None,
+        max_token_per_leaf_module: Optional[int] = None
     ):
         """
         Save configuration to file and keyring.
@@ -100,6 +103,9 @@ class ConfigManager:
             cluster_model: Clustering model
             fallback_model: Fallback model
             default_output: Default output directory
+            max_tokens: Maximum tokens for LLM response
+            max_token_per_module: Maximum tokens per module for clustering
+            max_token_per_leaf_module: Maximum tokens per leaf module
         """
         # Ensure config directory exists
         try:
@@ -133,6 +139,12 @@ class ConfigManager:
             self._config.fallback_model = fallback_model
         if default_output is not None:
             self._config.default_output = default_output
+        if max_tokens is not None:
+            self._config.max_tokens = max_tokens
+        if max_token_per_module is not None:
+            self._config.max_token_per_module = max_token_per_module
+        if max_token_per_leaf_module is not None:
+            self._config.max_token_per_leaf_module = max_token_per_leaf_module
         
         # Validate configuration (only if base fields are set)
         if self._config.base_url and self._config.main_model and self._config.cluster_model:

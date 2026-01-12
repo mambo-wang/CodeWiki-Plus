@@ -113,6 +113,9 @@ class Configuration:
         cluster_model: Model for module clustering
         fallback_model: Fallback model for documentation generation
         default_output: Default output directory
+        max_tokens: Maximum tokens for LLM response (default: 32768)
+        max_token_per_module: Maximum tokens per module for clustering (default: 36369)
+        max_token_per_leaf_module: Maximum tokens per leaf module (default: 16000)
         agent_instructions: Custom agent instructions for documentation generation
     """
     base_url: str
@@ -120,6 +123,9 @@ class Configuration:
     cluster_model: str
     fallback_model: str = "glm-4p5"
     default_output: str = "docs"
+    max_tokens: int = 32768
+    max_token_per_module: int = 36369
+    max_token_per_leaf_module: int = 16000
     agent_instructions: AgentInstructions = field(default_factory=AgentInstructions)
     
     def validate(self):
@@ -141,6 +147,9 @@ class Configuration:
             'main_model': self.main_model,
             'cluster_model': self.cluster_model,
             'default_output': self.default_output,
+            'max_tokens': self.max_tokens,
+            'max_token_per_module': self.max_token_per_module,
+            'max_token_per_leaf_module': self.max_token_per_leaf_module,
         }
         if self.agent_instructions and not self.agent_instructions.is_empty():
             result['agent_instructions'] = self.agent_instructions.to_dict()
@@ -167,6 +176,9 @@ class Configuration:
             cluster_model=data.get('cluster_model', ''),
             fallback_model=data.get('fallback_model', 'glm-4p5'),
             default_output=data.get('default_output', 'docs'),
+            max_tokens=data.get('max_tokens', 32768),
+            max_token_per_module=data.get('max_token_per_module', 36369),
+            max_token_per_leaf_module=data.get('max_token_per_leaf_module', 16000),
             agent_instructions=agent_instructions,
         )
     
@@ -217,6 +229,9 @@ class Configuration:
             main_model=self.main_model,
             cluster_model=self.cluster_model,
             fallback_model=self.fallback_model,
+            max_tokens=self.max_tokens,
+            max_token_per_module=self.max_token_per_module,
+            max_token_per_leaf_module=self.max_token_per_leaf_module,
             agent_instructions=final_instructions.to_dict() if final_instructions else None
         )
 
