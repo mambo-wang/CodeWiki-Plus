@@ -14,3 +14,4 @@ class CodeWikiDeps:
     max_depth: int
     current_depth: int
     config: Config  # LLM configuration
+    custom_instructions: str = None

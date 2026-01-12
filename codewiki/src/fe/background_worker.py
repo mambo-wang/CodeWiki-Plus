@@ -16,7 +16,7 @@ from typing import Dict
 from dataclasses import asdict
 
 from codewiki.src.be.documentation_generator import DocumentationGenerator
-from codewiki.src.config import Config
+from codewiki.src.config import Config, MAIN_MODEL
 from .models import JobStatus
 from .cache_manager import CacheManager
 from .github_processor import GitHubRepoProcessor

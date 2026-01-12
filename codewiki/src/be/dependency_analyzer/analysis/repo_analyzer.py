@@ -19,9 +19,11 @@ class RepoAnalyzer:
         include_patterns: Optional[List[str]] = None,
         exclude_patterns: Optional[List[str]] = None,
     ) -> None:
+        # Include patterns: if specified, use ONLY those patterns (replaces defaults)
         self.include_patterns = (
             include_patterns if include_patterns is not None else DEFAULT_INCLUDE_PATTERNS
         )
+        # Exclude patterns: if specified, MERGE with default ignore patterns
         self.exclude_patterns = (
             list(DEFAULT_IGNORE_PATTERNS) + exclude_patterns
             if exclude_patterns is not None

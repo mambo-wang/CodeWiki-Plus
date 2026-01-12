@@ -42,8 +42,6 @@ from codewiki.src.be.agent_tools.str_replace_editor import str_replace_editor_to
 from codewiki.src.be.agent_tools.generate_sub_module_documentations import generate_sub_module_documentation_tool
 from codewiki.src.be.llm_services import create_fallback_models
 from codewiki.src.be.prompt_template import (
-    SYSTEM_PROMPT,
-    LEAF_SYSTEM_PROMPT,
     format_user_prompt,
     format_system_prompt,
     format_leaf_system_prompt,
@@ -64,12 +62,11 @@ class AgentOrchestrator:
     def __init__(self, config: Config):
         self.config = config
         self.fallback_models = create_fallback_models(config)
+        self.custom_instructions = config.get_prompt_addition() if config else None
     
     def create_agent(self, module_name: str, components: Dict[str, Any], 
                     core_component_ids: List[str]) -> Agent:
         """Create an appropriate agent based on module complexity."""
-        # Get custom instructions from config
-        custom_instructions = self.config.get_prompt_addition() if self.config else None
         
         if is_complex_module(components, core_component_ids):
             return Agent(
@@ -81,7 +78,7 @@ class AgentOrchestrator:
                     str_replace_editor_tool, 
                     generate_sub_module_documentation_tool
                 ],
-                system_prompt=format_system_prompt(module_name, custom_instructions),
+                system_prompt=format_system_prompt(module_name, self.custom_instructions),
             )
         else:
             return Agent(
@@ -89,7 +86,7 @@ class AgentOrchestrator:
                 name=module_name,
                 deps_type=CodeWikiDeps,
                 tools=[read_code_components_tool, str_replace_editor_tool],
-                system_prompt=format_leaf_system_prompt(module_name, custom_instructions),
+                system_prompt=format_leaf_system_prompt(module_name, self.custom_instructions),
             )
     
     async def process_module(self, module_name: str, components: Dict[str, Node], 
@@ -115,7 +112,8 @@ class AgentOrchestrator:
             module_tree=module_tree,
             max_depth=self.config.max_depth,
             current_depth=1,
-            config=self.config
+            config=self.config,
+            custom_instructions=self.custom_instructions
         )
 
         # check if overview docs already exists
