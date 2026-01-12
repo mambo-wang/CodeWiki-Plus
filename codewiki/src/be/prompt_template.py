@@ -42,6 +42,7 @@ Generate documentation following this structure:
 - `read_code_components`: Explore additional code dependencies not included in the provided components
 - `generate_sub_module_documentation`: Generate detailed documentation for individual sub-modules via sub-agents
 </AVAILABLE_TOOLS>
+{custom_instructions}
 """.strip()
 
 LEAF_SYSTEM_PROMPT = """
@@ -73,6 +74,7 @@ Generate documentation following the following requirements:
 - `str_replace_editor`: File system operations for creating and editing documentation files
 - `read_code_components`: Explore additional code dependencies not included in the provided components
 </AVAILABLE_TOOLS>
+{custom_instructions}
 """.strip()
 
 USER_PROMPT = """
@@ -335,3 +337,39 @@ def format_cluster_prompt(potential_core_components: str, module_tree: dict[str,
         return CLUSTER_REPO_PROMPT.format(potential_core_components=potential_core_components)
     else:
         return CLUSTER_MODULE_PROMPT.format(potential_core_components=potential_core_components, module_tree=formatted_module_tree, module_name=module_name)
+
+
+def format_system_prompt(module_name: str, custom_instructions: str = None) -> str:
+    """
+    Format the system prompt with module name and optional custom instructions.
+    
+    Args:
+        module_name: Name of the module to document
+        custom_instructions: Optional custom instructions to append
+        
+    Returns:
+        Formatted system prompt string
+    """
+    custom_section = ""
+    if custom_instructions:
+        custom_section = f"\n\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
+    
+    return SYSTEM_PROMPT.format(module_name=module_name, custom_instructions=custom_section).strip()
+
+
+def format_leaf_system_prompt(module_name: str, custom_instructions: str = None) -> str:
+    """
+    Format the leaf system prompt with module name and optional custom instructions.
+    
+    Args:
+        module_name: Name of the module to document
+        custom_instructions: Optional custom instructions to append
+        
+    Returns:
+        Formatted leaf system prompt string
+    """
+    custom_section = ""
+    if custom_instructions:
+        custom_section = f"\n\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
+    
+    return LEAF_SYSTEM_PROMPT.format(module_name=module_name, custom_instructions=custom_section).strip()

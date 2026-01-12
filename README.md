@@ -134,10 +134,72 @@ codewiki generate --verbose
 codewiki generate --create-branch --github-pages --verbose
 ```
 
+### Customization Options
+
+CodeWiki supports customization for language-specific projects and documentation styles:
+
+```bash
+# C# project: only analyze .cs files, exclude test directories
+codewiki generate --include "*.cs" --exclude "Tests,Specs,*.test.cs"
+
+# Focus on specific modules with architecture-style docs
+codewiki generate --focus "src/core,src/api" --doc-type architecture
+
+# Add custom instructions for the AI agent
+codewiki generate --instructions "Focus on public APIs and include usage examples"
+```
+
+#### Pattern Behavior (Important!)
+
+- **`--include`**: When specified, **ONLY** these patterns are used (replaces defaults completely)
+  - Example: `--include "*.cs"` will analyze ONLY `.cs` files
+  - If omitted, all supported file types are analyzed
+  - Supports glob patterns: `*.py`, `src/**/*.ts`, `*.{js,jsx}`
+  
+- **`--exclude`**: When specified, patterns are **MERGED** with default ignore patterns
+  - Example: `--exclude "Tests,Specs"` will exclude these directories AND still exclude `.git`, `__pycache__`, `node_modules`, etc.
+  - Default patterns include: `.git`, `node_modules`, `__pycache__`, `*.pyc`, `bin/`, `dist/`, and many more
+  - Supports multiple formats:
+    - Exact names: `Tests`, `.env`, `config.local`
+    - Glob patterns: `*.test.js`, `*_test.py`, `*.min.*`
+    - Directory patterns: `build/`, `dist/`, `coverage/`
+
+#### Setting Persistent Defaults
+
+Save your preferred settings as defaults:
+
+```bash
+# Set include patterns for C# projects
+codewiki config agent --include "*.cs"
+
+# Exclude test projects by default (merged with default excludes)
+codewiki config agent --exclude "Tests,Specs,*.test.cs"
+
+# Set focus modules
+codewiki config agent --focus "src/core,src/api"
+
+# Set default documentation type
+codewiki config agent --doc-type architecture
+
+# View current agent settings
+codewiki config agent
+
+# Clear all agent settings
+codewiki config agent --clear
+```
+
+| Option | Description | Behavior | Example |
+|--------|-------------|----------|---------|
+| `--include` | File patterns to include | **Replaces** defaults | `*.cs`, `*.py`, `src/**/*.ts` |
+| `--exclude` | Patterns to exclude | **Merges** with defaults | `Tests,Specs`, `*.test.js`, `build/` |
+| `--focus` | Modules to document in detail | Standalone option | `src/core,src/api` |
+| `--doc-type` | Documentation style | Standalone option | `api`, `architecture`, `user-guide`, `developer` |
+| `--instructions` | Custom agent instructions | Standalone option | Free-form text |
+
 ### Configuration Storage
 
 - **API keys**: Securely stored in system keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service)
-- **Settings**: `~/.codewiki/config.json`
+- **Settings & Agent Instructions**: `~/.codewiki/config.json`
 
 ---
 
