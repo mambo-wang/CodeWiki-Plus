@@ -120,6 +120,12 @@ def parse_patterns(patterns_str: str) -> List[str]:
     default=None,
     help="Maximum tokens per leaf module (overrides config)",
 )
+@click.option(
+    "--max-depth",
+    type=int,
+    default=None,
+    help="Maximum depth for hierarchical decomposition (overrides config)",
+)
 @click.pass_context
 def generate_command(
     ctx,
@@ -135,7 +141,8 @@ def generate_command(
     verbose: bool,
     max_tokens: Optional[int],
     max_token_per_module: Optional[int],
-    max_token_per_leaf_module: Optional[int]
+    max_token_per_leaf_module: Optional[int],
+    max_depth: Optional[int]
 ):
     """
     Generate comprehensive documentation for a code repository.
@@ -176,6 +183,10 @@ def generate_command(
     \b
     # Set all max token limits
     $ codewiki generate --max-tokens 32768 --max-token-per-module 40000 --max-token-per-leaf-module 20000
+    
+    \b
+    # Override max depth for hierarchical decomposition
+    $ codewiki generate --max-depth 3
     """
     logger = create_logger(verbose=verbose)
     start_time = time.time()
@@ -310,9 +321,11 @@ def generate_command(
             effective_max_tokens = max_tokens if max_tokens is not None else config.max_tokens
             effective_max_token_per_module = max_token_per_module if max_token_per_module is not None else config.max_token_per_module
             effective_max_token_per_leaf = max_token_per_leaf_module if max_token_per_leaf_module is not None else config.max_token_per_leaf_module
+            effective_max_depth = max_depth if max_depth is not None else config.max_depth
             logger.debug(f"Max tokens: {effective_max_tokens}")
             logger.debug(f"Max token/module: {effective_max_token_per_module}")
             logger.debug(f"Max token/leaf module: {effective_max_token_per_leaf}")
+            logger.debug(f"Max depth: {effective_max_depth}")
         
         # Get agent instructions (merge runtime with persistent)
         agent_instructions_dict = None
@@ -344,6 +357,8 @@ def generate_command(
                 'max_tokens': max_tokens if max_tokens is not None else config.max_tokens,
                 'max_token_per_module': max_token_per_module if max_token_per_module is not None else config.max_token_per_module,
                 'max_token_per_leaf_module': max_token_per_leaf_module if max_token_per_leaf_module is not None else config.max_token_per_leaf_module,
+                # Max depth setting (runtime override takes precedence)
+                'max_depth': max_depth if max_depth is not None else config.max_depth,
             },
             verbose=verbose,
             generate_html=github_pages
