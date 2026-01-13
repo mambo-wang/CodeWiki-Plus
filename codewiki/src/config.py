@@ -158,6 +158,7 @@ class Config:
         max_tokens: int = DEFAULT_MAX_TOKENS,
         max_token_per_module: int = DEFAULT_MAX_TOKEN_PER_MODULE,
         max_token_per_leaf_module: int = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE,
+        max_depth: int = MAX_DEPTH,
         agent_instructions: Optional[Dict[str, Any]] = None
     ) -> 'Config':
         """
@@ -174,6 +175,7 @@ class Config:
             max_tokens: Maximum tokens for LLM response
             max_token_per_module: Maximum tokens per module for clustering
             max_token_per_leaf_module: Maximum tokens per leaf module
+            max_depth: Maximum depth for hierarchical decomposition
             agent_instructions: Custom agent instructions dict
             
         Returns:
@@ -187,7 +189,7 @@ class Config:
             output_dir=base_output_dir,
             dependency_graph_dir=os.path.join(base_output_dir, DEPENDENCY_GRAPHS_DIR),
             docs_dir=output_dir,
-            max_depth=MAX_DEPTH,
+            max_depth=max_depth,
             llm_base_url=llm_base_url,
             llm_api_key=llm_api_key,
             main_model=main_model,

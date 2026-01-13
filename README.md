@@ -108,6 +108,9 @@ codewiki config set \
 # Configure max token settings
 codewiki config set --max-tokens 32768 --max-token-per-module 36369 --max-token-per-leaf-module 16000
 
+# Configure max depth for hierarchical decomposition
+codewiki config set --max-depth 3
+
 # Show current configuration
 codewiki config show
 
@@ -216,8 +219,11 @@ codewiki config set --max-token-per-module 40000
 # Set max tokens for leaf modules (default: 16000)
 codewiki config set --max-token-per-leaf-module 20000
 
+# Set max depth for hierarchical decomposition (default: 2)
+codewiki config set --max-depth 3
+
 # Override at runtime for a single generation
-codewiki generate --max-tokens 16384 --max-token-per-module 40000
+codewiki generate --max-tokens 16384 --max-token-per-module 40000 --max-depth 3
 ```
 
 | Option | Description | Default |
@@ -225,6 +231,7 @@ codewiki generate --max-tokens 16384 --max-token-per-module 40000
 | `--max-tokens` | Maximum output tokens for LLM response | 32768 |
 | `--max-token-per-module` | Input tokens threshold for module clustering | 36369 |
 | `--max-token-per-leaf-module` | Input tokens threshold for leaf modules | 16000 |
+| `--max-depth` | Maximum depth for hierarchical decomposition | 2 |
 
 ### Configuration Storage
 

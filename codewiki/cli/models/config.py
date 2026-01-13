@@ -116,6 +116,7 @@ class Configuration:
         max_tokens: Maximum tokens for LLM response (default: 32768)
         max_token_per_module: Maximum tokens per module for clustering (default: 36369)
         max_token_per_leaf_module: Maximum tokens per leaf module (default: 16000)
+        max_depth: Maximum depth for hierarchical decomposition (default: 2)
         agent_instructions: Custom agent instructions for documentation generation
     """
     base_url: str
@@ -126,6 +127,7 @@ class Configuration:
     max_tokens: int = 32768
     max_token_per_module: int = 36369
     max_token_per_leaf_module: int = 16000
+    max_depth: int = 2
     agent_instructions: AgentInstructions = field(default_factory=AgentInstructions)
     
     def validate(self):
@@ -150,6 +152,7 @@ class Configuration:
             'max_tokens': self.max_tokens,
             'max_token_per_module': self.max_token_per_module,
             'max_token_per_leaf_module': self.max_token_per_leaf_module,
+            'max_depth': self.max_depth,
         }
         if self.agent_instructions and not self.agent_instructions.is_empty():
             result['agent_instructions'] = self.agent_instructions.to_dict()
@@ -179,6 +182,7 @@ class Configuration:
             max_tokens=data.get('max_tokens', 32768),
             max_token_per_module=data.get('max_token_per_module', 36369),
             max_token_per_leaf_module=data.get('max_token_per_leaf_module', 16000),
+            max_depth=data.get('max_depth', 2),
             agent_instructions=agent_instructions,
         )
     
@@ -232,6 +236,7 @@ class Configuration:
             max_tokens=self.max_tokens,
             max_token_per_module=self.max_token_per_module,
             max_token_per_leaf_module=self.max_token_per_leaf_module,
+            max_depth=self.max_depth,
             agent_instructions=final_instructions.to_dict() if final_instructions else None
         )
 
