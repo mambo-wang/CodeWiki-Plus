@@ -76,7 +76,7 @@ codewiki generate --github-pages --create-branch
 
 ## What is CodeWiki?
 
-CodeWiki is an open-source framework for **automated repository-level documentation** across seven programming languages. It generates holistic, architecture-aware documentation that captures not only individual functions but also their cross-file, cross-module, and system-level interactions.
+CodeWiki is an open-source framework for **automated repository-level documentation** across eight programming languages. It generates holistic, architecture-aware documentation that captures not only individual functions but also their cross-file, cross-module, and system-level interactions.
 
 ### Key Innovations
 
@@ -88,7 +88,7 @@ CodeWiki is an open-source framework for **automated repository-level documentat
 
 ### Supported Languages
 
-**🐍 Python** • **☕ Java** • **🟨 JavaScript** • **🔷 TypeScript** • **⚙️ C** • **🔧 C++** • **🪟 C#**
+**🐍 Python** • **☕ Java** • **🟨 JavaScript** • **🔷 TypeScript** • **⚙️ C** • **🔧 C++** • **🪟 C#** • **🎯 Kotlin**
 
 ---
 

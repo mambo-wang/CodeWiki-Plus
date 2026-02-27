@@ -135,7 +135,7 @@ class DependencyParser:
     
     def _file_to_module_path(self, file_path: str) -> str:
         path = file_path
-        extensions = ['.py', '.js', '.ts', '.java', '.cs', '.cpp', '.hpp', '.h', '.c', '.tsx', '.jsx', '.cc', '.mjs', '.cxx', '.cc', '.cjs']
+        extensions = ['.py', '.js', '.ts', '.java', '.cs', '.cpp', '.hpp', '.h', '.c', '.tsx', '.jsx', '.cc', '.mjs', '.cxx', '.cc', '.cjs', '.kt', '.kts']
         for ext in extensions:
             if path.endswith(ext):
                 path = path[:-len(ext)]

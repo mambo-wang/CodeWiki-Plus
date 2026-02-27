@@ -30,6 +30,8 @@ SUPPORTED_EXTENSIONS = {
     '.php',     # PHP
     '.phtml',   # PHP templates
     '.inc',     # PHP includes
+    '.kt',      # Kotlin
+    '.kts',     # Kotlin Scripts
 }
 
 
