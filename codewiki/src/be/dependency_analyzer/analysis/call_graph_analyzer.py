@@ -126,6 +126,8 @@ class CallGraphAnalyzer:
                 self._analyze_typescript_file(file_path, content, repo_dir)
             elif language == "java":
                 self._analyze_java_file(file_path, content, repo_dir)
+            elif language == "kotlin":
+                self._analyze_kotlin_file(file_path, content, repo_dir)
             elif language == "csharp":
                 self._analyze_csharp_file(file_path, content, repo_dir)
             elif language == "c":
@@ -280,6 +282,27 @@ class CallGraphAnalyzer:
         except Exception as e:
             logger.error(f"Failed to analyze Java file {file_path}: {e}", exc_info=True)
 
+    def _analyze_kotlin_file(self, file_path: str, content: str, repo_dir: str):
+        """
+        Analyze Kotlin file using tree-sitter based analyzer.
+
+        Args:
+            file_path: Relative path to the Kotlin file
+            content: File content string
+            repo_dir: Repository base directory
+        """
+        from codewiki.src.be.dependency_analyzer.analyzers.kotlin import analyze_kotlin_file
+
+        try:
+            functions, relationships = analyze_kotlin_file(file_path, content, repo_path=repo_dir)
+            for func in functions:
+                func_id = func.id if func.id else f"{file_path}:{func.name}"
+                self.functions[func_id] = func
+
+            self.call_relationships.extend(relationships)
+        except Exception as e:
+            logger.error(f"Failed to analyze Kotlin file {file_path}: {e}", exc_info=True)
+
     def _analyze_csharp_file(self, file_path: str, content: str, repo_dir: str):
         """
         Analyze C# file using tree-sitter based analyzer.
@@ -408,6 +431,8 @@ class CallGraphAnalyzer:
                 node_classes.append("lang-c")
             elif file_ext in [".cpp", ".cc", ".cxx", ".hpp", ".hxx"]:
                 node_classes.append("lang-cpp")
+            elif file_ext in [".kt", ".kts"]:
+                node_classes.append("lang-kotlin")
             elif file_ext in [".php", ".phtml", ".inc"]:
                 node_classes.append("lang-php")
 

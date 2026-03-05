@@ -5,7 +5,7 @@ This module contains patterns used to identify entry points, high-connectivity f
 and function definitions across multiple programming languages.
 """
 
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 DEFAULT_IGNORE_PATTERNS = {
     ".github",
@@ -156,6 +156,7 @@ DEFAULT_INCLUDE_PATTERNS = [
     "*.rb",
     "*.swift",
     "*.kt",
+    "*.kts",
     "*.scala",
     "*.clj",
     "*.hs",
@@ -407,6 +408,7 @@ FUNCTION_DEFINITION_PATTERNS = {
     "c": ["void {name}", "int {name}", "{name}("],
     "cpp": ["void {name}", "int {name}", "{name}("],
     "php": ["function {name}", "public function {name}", "private function {name}", "protected function {name}"],
+    "kotlin": ["fun {name}", "private fun {name}", "public fun {name}", "internal fun {name}", "protected fun {name}"],
     "general": ["{name}("],  # Fallback pattern
 }
 
@@ -533,7 +535,7 @@ def has_high_connectivity_potential(filename: str, filepath: str) -> bool:
     return False
 
 
-def is_critical_function(func_name: str, code_snippet: str = None) -> bool:
+def is_critical_function(func_name: str, code_snippet: Optional[str] = None) -> bool:
     """
     Check if a function is critical based on name and code patterns.
 
