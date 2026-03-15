@@ -1,6 +1,11 @@
 """
 LLM service factory for creating configured LLM clients.
+
+Includes a compatibility layer for OpenAI-compatible API proxies that may
+return slightly non-standard responses (e.g. choices[].index = None).
 """
+import logging
+from openai.types import chat
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.models.openai import OpenAIModelSettings
@@ -9,10 +14,29 @@ from openai import OpenAI
 
 from codewiki.src.config import Config
 
+logger = logging.getLogger(__name__)
 
-def create_main_model(config: Config) -> OpenAIModel:
+
+class CompatibleOpenAIModel(OpenAIModel):
+    """OpenAIModel subclass that patches non-standard API proxy responses.
+    
+    Some OpenAI-compatible proxies return responses with fields like
+    choices[].index set to None instead of an integer. This subclass
+    fixes those fields before pydantic validation runs.
+    """
+
+    def _validate_completion(self, response: chat.ChatCompletion) -> chat.ChatCompletion:
+        # Patch choices[].index: None -> sequential integer (0, 1, 2, ...)
+        if response.choices:
+            for i, choice in enumerate(response.choices):
+                if choice.index is None:
+                    choice.index = i
+        return super()._validate_completion(response)
+
+
+def create_main_model(config: Config) -> CompatibleOpenAIModel:
     """Create the main LLM model from configuration."""
-    return OpenAIModel(
+    return CompatibleOpenAIModel(
         model_name=config.main_model,
         provider=OpenAIProvider(
             base_url=config.llm_base_url,
@@ -25,9 +49,9 @@ def create_main_model(config: Config) -> OpenAIModel:
     )
 
 
-def create_fallback_model(config: Config) -> OpenAIModel:
+def create_fallback_model(config: Config) -> CompatibleOpenAIModel:
     """Create the fallback LLM model from configuration."""
-    return OpenAIModel(
+    return CompatibleOpenAIModel(
         model_name=config.fallback_model,
         provider=OpenAIProvider(
             base_url=config.llm_base_url,
