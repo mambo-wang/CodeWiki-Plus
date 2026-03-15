@@ -9,12 +9,42 @@ across different programming languages in a repository.
 from typing import Dict, List
 import logging
 import traceback
+import time
+import signal
 from pathlib import Path
+from contextlib import contextmanager
 from codewiki.src.be.dependency_analyzer.models.core import Node, CallRelationship
 from codewiki.src.be.dependency_analyzer.utils.patterns import CODE_EXTENSIONS
 from codewiki.src.be.dependency_analyzer.utils.security import safe_open_text
 
 logger = logging.getLogger(__name__)
+
+
+class TimeoutError(Exception):
+    """Raised when file parsing exceeds timeout."""
+    pass
+
+
+@contextmanager
+def timeout(seconds):
+    """Context manager for timeout on file parsing."""
+    def signal_handler(signum, frame):
+        raise TimeoutError(f"File parsing exceeded {seconds}s timeout")
+    
+    # Only use signal on Unix systems (not Windows)
+    try:
+        old_handler = signal.signal(signal.SIGALRM, signal_handler)
+        signal.alarm(seconds)
+        yield
+    except AttributeError:
+        # Windows doesn't support SIGALRM, skip timeout
+        yield
+    finally:
+        try:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+        except (AttributeError, ValueError):
+            pass
 
 
 class CallGraphAnalyzer:
@@ -35,17 +65,35 @@ class CallGraphAnalyzer:
         4. Returns all nodes and relationships 
         """
         logger.debug(f"Starting analysis of {len(code_files)} files")
+        logger.info(f"📊 Parsing {len(code_files)} source files (this may take a few minutes)...")
 
         self.functions = {}
         self.call_relationships = []
 
         files_analyzed = 0
-        for file_info in code_files:
-            logger.debug(f"Analyzing: {file_info['path']}")
-            self._analyze_code_file(base_dir, file_info)
-            files_analyzed += 1
-        logger.debug(
-            f"Analysis complete: {files_analyzed} files analyzed, {len(self.functions)} functions, {len(self.call_relationships)} relationships"
+        files_failed = 0
+        start_time = time.time()
+        
+        for idx, file_info in enumerate(code_files, 1):
+            file_path = file_info['path']
+            try:
+                # Log progress every file with elapsed time
+                if idx % max(1, len(code_files) // 10) == 0 or idx <= 5:
+                    elapsed = time.time() - start_time
+                    rate = idx / elapsed if elapsed > 0 else 0
+                    remaining = (len(code_files) - idx) / rate if rate > 0 else 0
+                    logger.info(f"  [{idx}/{len(code_files)}] {file_path} ({elapsed:.1f}s elapsed, ~{remaining:.1f}s remaining)")
+                
+                self._analyze_code_file(base_dir, file_info)
+                files_analyzed += 1
+            except Exception as e:
+                files_failed += 1
+                logger.warning(f"  ⚠️  [{idx}/{len(code_files)}] Failed to analyze {file_path}: {str(e)[:100]}")
+        
+        elapsed_time = time.time() - start_time
+        logger.info(
+            f"✓ Analysis complete: {files_analyzed}/{len(code_files)} files analyzed, "
+            f"{files_failed} failed, {len(self.functions)} functions, {len(self.call_relationships)} relationships ({elapsed_time:.1f}s)"
         )
 
         logger.debug("Resolving call relationships")
@@ -116,34 +164,38 @@ class CallGraphAnalyzer:
         file_path = base / file_info["path"]
 
         try:
-            content = safe_open_text(base, file_path)
-            language = file_info["language"]
-            if language == "python":
-                self._analyze_python_file(file_path, content, repo_dir)
-            elif language == "javascript":
-                self._analyze_javascript_file(file_path, content, repo_dir)
-            elif language == "typescript":
-                self._analyze_typescript_file(file_path, content, repo_dir)
-            elif language == "java":
-                self._analyze_java_file(file_path, content, repo_dir)
-            elif language == "kotlin":
-                self._analyze_kotlin_file(file_path, content, repo_dir)
-            elif language == "csharp":
-                self._analyze_csharp_file(file_path, content, repo_dir)
-            elif language == "c":
-                self._analyze_c_file(file_path, content, repo_dir)
-            elif language == "cpp":
-                self._analyze_cpp_file(file_path, content, repo_dir)
-            elif language == "php":
-                self._analyze_php_file(file_path, content, repo_dir)
-            # else:
-            #     logger.warning(
-            #         f"Unsupported language for call graph analysis: {language} for file {file_path}"
-            #     )
+            # Add timeout protection (30 seconds per file max)
+            with timeout(30):
+                content = safe_open_text(base, file_path)
+                language = file_info["language"]
+                if language == "python":
+                    self._analyze_python_file(file_path, content, repo_dir)
+                elif language == "javascript":
+                    self._analyze_javascript_file(file_path, content, repo_dir)
+                elif language == "typescript":
+                    self._analyze_typescript_file(file_path, content, repo_dir)
+                elif language == "java":
+                    self._analyze_java_file(file_path, content, repo_dir)
+                elif language == "kotlin":
+                    self._analyze_kotlin_file(file_path, content, repo_dir)
+                elif language == "csharp":
+                    self._analyze_csharp_file(file_path, content, repo_dir)
+                elif language == "c":
+                    self._analyze_c_file(file_path, content, repo_dir)
+                elif language == "cpp":
+                    self._analyze_cpp_file(file_path, content, repo_dir)
+                elif language == "php":
+                    self._analyze_php_file(file_path, content, repo_dir)
+                # else:
+                #     logger.warning(
+                #         f"Unsupported language for call graph analysis: {language} for file {file_path}"
+                #     )
 
+        except TimeoutError as e:
+            logger.warning(f"⏱️  Timeout analyzing {file_path}: {str(e)}")
         except Exception as e:
-            logger.error(f"⚠️ Error analyzing {file_path}: {str(e)}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.debug(f"Error analyzing {file_path}: {str(e)}")
+            logger.debug(f"Traceback: {traceback.format_exc()}")
 
     def _analyze_python_file(self, file_path: str, content: str, base_dir: str):
         """
