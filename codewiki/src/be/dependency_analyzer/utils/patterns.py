@@ -29,12 +29,17 @@ DEFAULT_IGNORE_PATTERNS = {
     ".hypothesis",
     "poetry.lock",
     "Pipfile.lock",
-    # JavaScript/FileSystemNode
+    # JavaScript/Node.js (CRITICAL: node_modules must be excluded)
+    "node_modules/",
+    "node_modules",
     "package-lock.json",
     "yarn.lock",
     ".npm",
     ".yarn",
     ".pnpm-store",
+    ".next/",
+    ".nuxt/",
+    ".turbo/",
     "bun.lock",
     "bun.lockb",
     # Java
