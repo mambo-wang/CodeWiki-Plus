@@ -51,7 +51,12 @@ dependencies = [
     "psutil>=7.0.0",
     "PyYAML>=6.0.2",
     "mermaid-parser-py>=0.0.2",
-    "mermaid-py>=0.8.0"
+    "mermaid-py>=0.8.0",
+    "fastapi>=0.116.0",
+    "uvicorn>=0.35.0",
+    "python-multipart>=0.0.20",
+    "colorama>=0.4.6",
+    "logfire>=4.1.0"
 ]
 
 [external]
