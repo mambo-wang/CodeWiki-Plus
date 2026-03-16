@@ -39,6 +39,139 @@ def parse_patterns(patterns_str: str) -> List[str]:
     return [p.strip() for p in patterns_str.split(',') if p.strip()]
 
 
+def _detect_changed_files(
+    repo_path: Path,
+    output_dir: Path,
+    logger,
+    verbose: bool
+) -> Optional[List[str]]:
+    """
+    Detect files changed since the last documentation generation.
+
+    Reads the commit_id from metadata.json and compares with current HEAD
+    using git diff. Returns list of changed file paths, or None if unable
+    to determine (e.g., no metadata, not a git repo).
+    """
+    import json
+
+    metadata_path = output_dir / "metadata.json"
+    if not metadata_path.exists():
+        if verbose:
+            logger.debug("No metadata.json found — cannot detect changes, running full generation.")
+        return None
+
+    try:
+        metadata = json.loads(metadata_path.read_text())
+        prev_commit = metadata.get("generation_info", {}).get("commit_id")
+        if not prev_commit:
+            if verbose:
+                logger.debug("No commit_id in metadata — running full generation.")
+            return None
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    # Get current HEAD commit
+    try:
+        import git
+        repo = git.Repo(repo_path, search_parent_directories=True)
+        current_commit = repo.head.commit.hexsha
+    except Exception:
+        if verbose:
+            logger.debug("Cannot access git repo — running full generation.")
+        return None
+
+    if prev_commit == current_commit:
+        if verbose:
+            logger.debug(f"HEAD is still at {current_commit[:8]} — no changes.")
+        return []
+
+    # Get changed files between previous and current commit
+    try:
+        diff_index = repo.commit(prev_commit).diff(current_commit)
+        changed = []
+        for diff in diff_index:
+            if diff.a_path:
+                changed.append(diff.a_path)
+            if diff.b_path and diff.b_path != diff.a_path:
+                changed.append(diff.b_path)
+
+        if verbose:
+            logger.debug(f"Changes between {prev_commit[:8]} and {current_commit[:8]}:")
+            for f in changed[:10]:
+                logger.debug(f"  {f}")
+            if len(changed) > 10:
+                logger.debug(f"  ... and {len(changed) - 10} more")
+
+        return changed
+    except Exception as e:
+        if verbose:
+            logger.debug(f"Git diff failed: {e} — running full generation.")
+        return None
+
+
+def _invalidate_affected_modules(
+    output_dir: Path,
+    changed_files: List[str],
+    logger,
+    verbose: bool
+):
+    """
+    Remove cached module documentation for modules that contain changed files.
+
+    Reads module_tree.json to find which modules contain changed files,
+    then deletes their .md files so they get regenerated.
+    """
+    import json
+
+    module_tree_path = output_dir / "module_tree.json"
+    if not module_tree_path.exists():
+        return
+
+    try:
+        module_tree = json.loads(module_tree_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return
+
+    changed_set = set(changed_files)
+    modules_to_invalidate = set()
+
+    def _find_affected(tree, parent_names=None):
+        if parent_names is None:
+            parent_names = []
+        for mod_name, mod_info in tree.items():
+            components = mod_info.get("components", [])
+            # Check if any component path overlaps with changed files
+            for comp in components:
+                # Component IDs may be class names, check if they match any changed file path
+                if any(changed_file in comp or comp in changed_file for changed_file in changed_set):
+                    modules_to_invalidate.add(mod_name)
+                    # Also invalidate parent modules
+                    for parent in parent_names:
+                        modules_to_invalidate.add(parent)
+                    break
+
+            children = mod_info.get("children", {})
+            if isinstance(children, dict) and children:
+                _find_affected(children, parent_names + [mod_name])
+
+    _find_affected(module_tree)
+
+    # Also remove overview.md since it depends on child docs
+    if modules_to_invalidate:
+        modules_to_invalidate.add("overview")
+
+    # Delete affected module docs
+    for mod_name in modules_to_invalidate:
+        doc_path = output_dir / f"{mod_name}.md"
+        if doc_path.exists():
+            doc_path.unlink()
+            if verbose:
+                logger.debug(f"Invalidated: {doc_path.name}")
+
+    if verbose:
+        logger.debug(f"Invalidated {len(modules_to_invalidate)} modules for regeneration.")
+
+
 @click.command(name="generate")
 @click.option(
     "--output",
@@ -126,6 +259,11 @@ def parse_patterns(patterns_str: str) -> List[str]:
     default=None,
     help="Maximum depth for hierarchical decomposition (overrides config)",
 )
+@click.option(
+    "--update",
+    is_flag=True,
+    help="Incremental update: only regenerate modules affected by changes since last generation",
+)
 @click.pass_context
 def generate_command(
     ctx,
@@ -142,7 +280,8 @@ def generate_command(
     max_tokens: Optional[int],
     max_token_per_module: Optional[int],
     max_token_per_leaf_module: Optional[int],
-    max_depth: Optional[int]
+    max_depth: Optional[int],
+    update: bool = False
 ):
     """
     Generate comprehensive documentation for a code repository.
@@ -246,8 +385,20 @@ def generate_command(
         
         logger.success(f"Output directory: {output_dir}")
         
+        # Incremental update: detect changed files and selectively regenerate
+        changed_files = None
+        if update and output_dir.exists():
+            changed_files = _detect_changed_files(repo_path, output_dir, logger, verbose)
+            if changed_files is not None and len(changed_files) == 0:
+                logger.success("No changes detected since last generation. Documentation is up to date.")
+                sys.exit(EXIT_SUCCESS)
+            if changed_files is not None:
+                logger.info(f"  Detected {len(changed_files)} changed files — regenerating affected modules.")
+                # Remove cached module docs for affected files so they get regenerated
+                _invalidate_affected_modules(output_dir, changed_files, logger, verbose)
+
         # Check for existing documentation
-        if output_dir.exists() and list(output_dir.glob("*.md")):
+        if not update and output_dir.exists() and list(output_dir.glob("*.md")):
             if not click.confirm(
                 f"\n{output_dir} already contains documentation. Overwrite?",
                 default=True
@@ -352,6 +503,8 @@ def generate_command(
                 'fallback_model': config.fallback_model,
                 'base_url': config.base_url,
                 'api_key': api_key,
+                'provider': getattr(config, 'provider', 'openai-compatible'),
+                'aws_region': getattr(config, 'aws_region', 'us-east-1'),
                 'agent_instructions': agent_instructions_dict,
                 # Max token settings (runtime overrides take precedence)
                 'max_tokens': max_tokens if max_tokens is not None else config.max_tokens,

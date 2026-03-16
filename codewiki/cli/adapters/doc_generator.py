@@ -137,6 +137,8 @@ class CLIDocumentationGenerator:
                 main_model=self.config.get('main_model'),
                 cluster_model=self.config.get('cluster_model'),
                 fallback_model=self.config.get('fallback_model'),
+                provider=self.config.get('provider', 'openai-compatible'),
+                aws_region=self.config.get('aws_region', 'us-east-1'),
                 max_tokens=self.config.get('max_tokens', 32768),
                 max_token_per_module=self.config.get('max_token_per_module', 36369),
                 max_token_per_leaf_module=self.config.get('max_token_per_leaf_module', 16000),

@@ -106,13 +106,15 @@ class AgentInstructions:
 class Configuration:
     """
     CodeWiki configuration data model.
-    
+
     Attributes:
         base_url: LLM API base URL
         main_model: Primary model for documentation generation
         cluster_model: Model for module clustering
         fallback_model: Fallback model for documentation generation
         default_output: Default output directory
+        provider: LLM provider type (openai-compatible, anthropic, bedrock)
+        aws_region: AWS region for Bedrock provider
         max_tokens: Maximum tokens for LLM response (default: 32768)
         max_token_per_module: Maximum tokens per module for clustering (default: 36369)
         max_token_per_leaf_module: Maximum tokens per leaf module (default: 16000)
@@ -124,6 +126,8 @@ class Configuration:
     cluster_model: str
     fallback_model: str = "glm-4p5"
     default_output: str = "docs"
+    provider: str = "openai-compatible"
+    aws_region: str = "us-east-1"
     max_tokens: int = 32768
     max_token_per_module: int = 36369
     max_token_per_leaf_module: int = 16000
@@ -149,6 +153,8 @@ class Configuration:
             'main_model': self.main_model,
             'cluster_model': self.cluster_model,
             'default_output': self.default_output,
+            'provider': self.provider,
+            'aws_region': self.aws_region,
             'max_tokens': self.max_tokens,
             'max_token_per_module': self.max_token_per_module,
             'max_token_per_leaf_module': self.max_token_per_leaf_module,
@@ -179,6 +185,8 @@ class Configuration:
             cluster_model=data.get('cluster_model', ''),
             fallback_model=data.get('fallback_model', 'glm-4p5'),
             default_output=data.get('default_output', 'docs'),
+            provider=data.get('provider', 'openai-compatible'),
+            aws_region=data.get('aws_region', 'us-east-1'),
             max_tokens=data.get('max_tokens', 32768),
             max_token_per_module=data.get('max_token_per_module', 36369),
             max_token_per_leaf_module=data.get('max_token_per_leaf_module', 16000),
@@ -233,6 +241,8 @@ class Configuration:
             main_model=self.main_model,
             cluster_model=self.cluster_model,
             fallback_model=self.fallback_model,
+            provider=self.provider,
+            aws_region=self.aws_region,
             max_tokens=self.max_tokens,
             max_token_per_module=self.max_token_per_module,
             max_token_per_leaf_module=self.max_token_per_leaf_module,

@@ -83,6 +83,16 @@ def config_group():
     type=int,
     help="Maximum depth for hierarchical decomposition (default: 2)"
 )
+@click.option(
+    "--provider",
+    type=click.Choice(['openai-compatible', 'anthropic', 'bedrock'], case_sensitive=False),
+    help="LLM provider type (default: openai-compatible)"
+)
+@click.option(
+    "--aws-region",
+    type=str,
+    help="AWS region for Bedrock provider (default: us-east-1)"
+)
 def config_set(
     api_key: Optional[str],
     base_url: Optional[str],
@@ -92,7 +102,9 @@ def config_set(
     max_tokens: Optional[int],
     max_token_per_module: Optional[int],
     max_token_per_leaf_module: Optional[int],
-    max_depth: Optional[int]
+    max_depth: Optional[int],
+    provider: Optional[str] = None,
+    aws_region: Optional[str] = None
 ):
     """
     Set configuration values for CodeWiki.
@@ -127,7 +139,7 @@ def config_set(
     """
     try:
         # Check if at least one option is provided
-        if not any([api_key, base_url, main_model, cluster_model, fallback_model, max_tokens, max_token_per_module, max_token_per_leaf_module, max_depth]):
+        if not any([api_key, base_url, main_model, cluster_model, fallback_model, max_tokens, max_token_per_module, max_token_per_leaf_module, max_depth, provider, aws_region]):
             click.echo("No options provided. Use --help for usage information.")
             sys.exit(EXIT_CONFIG_ERROR)
         
@@ -168,11 +180,17 @@ def config_set(
             if max_depth < 1:
                 raise ConfigurationError("max_depth must be a positive integer")
             validated_data['max_depth'] = max_depth
-        
+
+        if provider is not None:
+            validated_data['provider'] = provider
+
+        if aws_region is not None:
+            validated_data['aws_region'] = aws_region
+
         # Create config manager and save
         manager = ConfigManager()
         manager.load()  # Load existing config if present
-        
+
         manager.save(
             api_key=validated_data.get('api_key'),
             base_url=validated_data.get('base_url'),
@@ -182,7 +200,9 @@ def config_set(
             max_tokens=validated_data.get('max_tokens'),
             max_token_per_module=validated_data.get('max_token_per_module'),
             max_token_per_leaf_module=validated_data.get('max_token_per_leaf_module'),
-            max_depth=validated_data.get('max_depth')
+            max_depth=validated_data.get('max_depth'),
+            provider=validated_data.get('provider'),
+            aws_region=validated_data.get('aws_region')
         )
         
         # Display success messages
@@ -230,6 +250,12 @@ def config_set(
         
         if max_depth:
             click.secho(f"✓ Max depth: {max_depth}", fg="green")
+
+        if provider:
+            click.secho(f"✓ Provider: {provider}", fg="green")
+
+        if aws_region:
+            click.secho(f"✓ AWS Region: {aws_region}", fg="green")
         
         click.echo("\n" + click.style("Configuration updated successfully.", fg="green", bold=True))
         
