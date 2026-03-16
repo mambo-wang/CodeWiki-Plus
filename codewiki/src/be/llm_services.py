@@ -6,6 +6,7 @@ return slightly non-standard responses (e.g. choices[].index = None).
 """
 import logging
 from openai.types import chat
+
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.models.openai import OpenAIModelSettings
@@ -17,9 +18,40 @@ from codewiki.src.config import Config
 logger = logging.getLogger(__name__)
 
 
+def _should_use_max_completion_tokens(model_name: str, base_url: str) -> bool:
+    """
+    Determine whether to use max_completion_tokens instead of max_tokens.
+
+    Newer OpenAI models (o1, o3, gpt-4o, etc.) require max_completion_tokens.
+    Anthropic and other providers still use max_tokens.
+    """
+    model_lower = model_name.lower()
+    # OpenAI models that require max_completion_tokens
+    new_openai_patterns = ("o1", "o3", "gpt-4o", "gpt-4-turbo")
+    if any(pattern in model_lower for pattern in new_openai_patterns):
+        return True
+    # If base_url points to OpenAI directly, newer models may need it
+    if base_url and "api.openai.com" in base_url:
+        return True
+    return False
+
+
+def _build_model_settings(config: Config, model_name: str) -> OpenAIModelSettings:
+    """Build model settings with the correct token parameter."""
+    if _should_use_max_completion_tokens(model_name, config.llm_base_url):
+        return OpenAIModelSettings(
+            temperature=0.0,
+            max_completion_tokens=config.max_tokens
+        )
+    return OpenAIModelSettings(
+        temperature=0.0,
+        max_tokens=config.max_tokens
+    )
+
+
 class CompatibleOpenAIModel(OpenAIModel):
     """OpenAIModel subclass that patches non-standard API proxy responses.
-    
+
     Some OpenAI-compatible proxies return responses with fields like
     choices[].index set to None instead of an integer. This subclass
     fixes those fields before pydantic validation runs.
@@ -42,10 +74,7 @@ def create_main_model(config: Config) -> CompatibleOpenAIModel:
             base_url=config.llm_base_url,
             api_key=config.llm_api_key
         ),
-        settings=OpenAIModelSettings(
-            temperature=0.0,
-            max_tokens=config.max_tokens
-        )
+        settings=_build_model_settings(config, config.main_model)
     )
 
 
@@ -57,10 +86,7 @@ def create_fallback_model(config: Config) -> CompatibleOpenAIModel:
             base_url=config.llm_base_url,
             api_key=config.llm_api_key
         ),
-        settings=OpenAIModelSettings(
-            temperature=0.0,
-            max_tokens=config.max_tokens
-        )
+        settings=_build_model_settings(config, config.fallback_model)
     )
 
 
@@ -87,24 +113,33 @@ def call_llm(
 ) -> str:
     """
     Call LLM with the given prompt.
-    
+
     Args:
         prompt: The prompt to send
         config: Configuration containing LLM settings
         model: Model name (defaults to config.main_model)
         temperature: Temperature setting
-        
+
     Returns:
         LLM response text
     """
     if model is None:
         model = config.main_model
-    
+
     client = create_openai_client(config)
+
+    # Use the correct token parameter based on model/provider
+    token_kwargs = {}
+    if _should_use_max_completion_tokens(model, config.llm_base_url):
+        token_kwargs["max_completion_tokens"] = config.max_tokens
+        logger.debug("Using max_completion_tokens=%d for model %s", config.max_tokens, model)
+    else:
+        token_kwargs["max_tokens"] = config.max_tokens
+
     response = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         temperature=temperature,
-        max_tokens=config.max_tokens
+        **token_kwargs
     )
     return response.choices[0].message.content

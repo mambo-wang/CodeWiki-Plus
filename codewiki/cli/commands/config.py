@@ -490,13 +490,32 @@ def config_validate(quick: bool, verbose: bool):
         
         # Step 5: API connectivity test (unless --quick)
         if not quick:
+            if verbose:
+                click.echo()
+                click.echo("[5/5] Testing API connectivity...")
+                click.echo(f"      URL: {config.base_url}")
+
             try:
-                from openai import OpenAI
-                client = OpenAI(api_key=api_key, base_url=config.base_url)
-                response = client.models.list()
-                click.secho("✓ API connectivity test successful", fg="green")
+                base_url_lower = (config.base_url or "").lower()
+                if "api.anthropic.com" in base_url_lower:
+                    # Use Anthropic SDK for native Anthropic endpoints
+                    import anthropic
+                    client = anthropic.Anthropic(api_key=api_key)
+                    client.models.list(limit=1)
+                else:
+                    # Use OpenAI SDK for OpenAI-compatible endpoints
+                    from openai import OpenAI
+                    client = OpenAI(api_key=api_key, base_url=config.base_url)
+                    client.models.list()
+
+                if verbose:
+                    click.secho("      ✓ API responded successfully", fg="green")
+                else:
+                    click.secho("✓ API connectivity test successful", fg="green")
             except Exception as e:
                 click.secho("✗ API connectivity test failed", fg="red")
+                if verbose:
+                    click.echo(f"      Error: {e}")
                 sys.exit(EXIT_CONFIG_ERROR)
         
         # Success
