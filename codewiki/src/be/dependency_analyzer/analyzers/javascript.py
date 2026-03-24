@@ -94,14 +94,14 @@ class TreeSitterJSAnalyzer:
             return str(self.file_path)
 
     def _get_component_id(self, name: str, class_name: str = None, is_method: bool = False) -> str:
-        module_path = self._get_module_path()
-        
+        relative_path = self._get_relative_path()
+
         if is_method and class_name:
-            return f"{module_path}.{class_name}.{name}"
-        elif class_name and not is_method: 
-            return f"{module_path}.{name}"
-        else:  
-            return f"{module_path}.{name}"
+            return f"{relative_path}::{class_name}.{name}"
+        elif class_name and not is_method:
+            return f"{relative_path}::{name}"
+        else:
+            return f"{relative_path}::{name}"
 
     def _find_containing_class(self, node) -> Optional[str]:
         parent = node.parent
@@ -167,7 +167,7 @@ class TreeSitterJSAnalyzer:
             if child.type == "method_definition":
                 method_name = self._get_method_name(child)
                 if method_name:
-                    method_key = f"{self._get_module_path()}.{class_name}.{method_name}"
+                    method_key = f"{self._get_relative_path()}::{class_name}.{method_name}"
                     method_node = self._create_method_node(child, method_name, class_name)
                     if method_node:
                         self.top_level_nodes[method_key] = method_node
@@ -175,7 +175,7 @@ class TreeSitterJSAnalyzer:
                 # Handle arrow function properties
                 field_name = self._get_field_name(child)
                 if field_name and self._is_arrow_function_field(child):
-                    method_key = f"{self._get_module_path()}.{class_name}.{field_name}"
+                    method_key = f"{self._get_relative_path()}::{class_name}.{field_name}"
                     method_node = self._create_method_node(child, field_name, class_name)
                     if method_node:
                         self.top_level_nodes[method_key] = method_node
@@ -435,7 +435,7 @@ class TreeSitterJSAnalyzer:
                         if child.type in ["identifier", "type_identifier"]:
                             base_class = self._get_node_text(child)
                             caller_id = self._get_component_id(current_top_level)
-                            callee_id = f"{self._get_module_path()}.{base_class}" 
+                            callee_id = f"{self._get_relative_path()}::{base_class}"
                             inheritance_rel = CallRelationship(
                                 caller=caller_id,
                                 callee=callee_id,
@@ -476,8 +476,8 @@ class TreeSitterJSAnalyzer:
             callee_name = self._extract_callee_name(node)
             if callee_name:
                 call_info = CallRelationship(
-                    caller=f"{self._get_module_path()}.{current_top_level}",
-                    callee=f"{self._get_module_path()}.{callee_name}",
+                    caller=f"{self._get_relative_path()}::{current_top_level}",
+                    callee=f"{self._get_relative_path()}::{callee_name}",
                     call_line=node.start_point[0] + 1,
                     is_resolved=False
                 )
@@ -498,8 +498,8 @@ class TreeSitterJSAnalyzer:
             call_text = self._get_node_text(node)
             is_method_call = "this." in call_text or "super." in call_text
             
-            caller_id = f"{self._get_module_path()}.{caller_name}"
-            
+            caller_id = f"{self._get_relative_path()}::{caller_name}"
+
             if is_method_call:
                 current_class = None
                 for node_key, node_obj in self.top_level_nodes.items():
@@ -508,11 +508,11 @@ class TreeSitterJSAnalyzer:
                         break
                 
                 if current_class:
-                    method_key = f"{self._get_module_path()}.{current_class}.{callee_name}"
+                    method_key = f"{self._get_relative_path()}::{current_class}.{callee_name}"
                     if method_key in self.top_level_nodes:
                         return None
             
-            callee_id = f"{self._get_module_path()}.{callee_name}"
+            callee_id = f"{self._get_relative_path()}::{callee_name}"
             if callee_name in self.top_level_nodes:
                 return CallRelationship(
                     caller=caller_id,
@@ -570,8 +570,8 @@ class TreeSitterJSAnalyzer:
                     
                     for base_type in base_types:
                         if base_type and not self._is_builtin_type_js(base_type):
-                            caller_id = f"{self._get_module_path()}.{caller_name}"
-                            callee_id = f"{self._get_module_path()}.{base_type}"
+                            caller_id = f"{self._get_relative_path()}::{caller_name}"
+                            callee_id = f"{self._get_relative_path()}::{base_type}"
                             
                             type_rel = CallRelationship(
                                 caller=caller_id,

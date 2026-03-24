@@ -44,8 +44,8 @@ class TreeSitterCSharpAnalyzer:
 			return str(self.file_path)
 	
 	def _get_component_id(self, name: str) -> str:
-		module_path = self._get_module_path()
-		return f"{module_path}.{name}" if module_path else name
+		rel_path = self._get_relative_path()
+		return f"{rel_path}::{name}"
 
 	def _analyze(self):
 		language_capsule = tree_sitter_c_sharp.language()

@@ -412,7 +412,11 @@ class CallGraphAnalyzer:
             func_lookup[func_info.name] = func_id
             if func_info.component_id:
                 func_lookup[func_info.component_id] = func_id
-                method_name = func_info.component_id.split(".")[-1]
+                # Extract short name: handle both new (path::Name) and legacy (path.Name) formats
+                if "::" in func_info.component_id:
+                    method_name = func_info.component_id.split("::")[-1]
+                else:
+                    method_name = func_info.component_id.split(".")[-1]
                 if method_name not in func_lookup:
                     func_lookup[method_name] = func_id
 
@@ -424,13 +428,16 @@ class CallGraphAnalyzer:
                 relationship.callee = func_lookup[callee_name]
                 relationship.is_resolved = True
                 resolved_count += 1
-            elif "." in callee_name:
+            elif "::" in callee_name or "." in callee_name:
                 if callee_name in func_lookup:
                     relationship.callee = func_lookup[callee_name]
                     relationship.is_resolved = True
                     resolved_count += 1
                 else:
-                    method_name = callee_name.split(".")[-1]
+                    if "::" in callee_name:
+                        method_name = callee_name.split("::")[-1]
+                    else:
+                        method_name = callee_name.split(".")[-1]
                     if method_name in func_lookup:
                         relationship.callee = func_lookup[method_name]
                         relationship.is_resolved = True

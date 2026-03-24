@@ -97,8 +97,12 @@ class DependencyParser:
             if legacy_id and legacy_id != component_id:
                 component_id_mapping[legacy_id] = component_id
             
-            if "." in component_id:
-                module_parts = component_id.split(".")[:-1]  
+            if "::" in component_id:
+                file_path_part = component_id.split("::")[0]
+                if file_path_part:
+                    self.modules.add(file_path_part)
+            elif "." in component_id:
+                module_parts = component_id.split(".")[:-1]
                 module_path = ".".join(module_parts)
                 if module_path:
                     self.modules.add(module_path)
