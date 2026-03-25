@@ -53,12 +53,12 @@ class PythonASTAnalyzer(ast.NodeVisitor):
             return str(self.file_path).replace('/', '.').replace('\\', '.')
     
     def _get_component_id(self, name: str) -> str:
-        """Generate dot-separated component ID."""
-        module_path = self._get_module_path()
+        """Generate component ID in relative_path::name format."""
+        rel_path = self._get_relative_path()
         if self.current_class_name:
-            return f"{module_path}.{self.current_class_name}.{name}"
+            return f"{rel_path}::{self.current_class_name}.{name}"
         else:
-            return f"{module_path}.{name}"
+            return f"{rel_path}::{name}"
 
     def generic_visit(self, node):
         """Override generic_visit to continue AST traversal."""
@@ -70,9 +70,9 @@ class PythonASTAnalyzer(ast.NodeVisitor):
         base_classes = [self._extract_base_class_name(base) for base in node.bases]
         base_classes = [name for name in base_classes if name is not None]
         
-        component_id = f"{self._get_module_path()}.{node.name}"
+        component_id = f"{self._get_relative_path()}::{node.name}"
         relative_path = self._get_relative_path()
-        
+
         class_node = Node(
             id=component_id,
             name=node.name,
@@ -98,7 +98,7 @@ class PythonASTAnalyzer(ast.NodeVisitor):
             if base_name in self.top_level_nodes:
                 self.call_relationships.append(CallRelationship(
                     caller=component_id,
-                    callee=f"{self._get_module_path()}.{base_name}",
+                    callee=f"{self._get_relative_path()}::{base_name}",
                     call_line=node.lineno,
                     is_resolved=True
                 ))
@@ -126,9 +126,9 @@ class PythonASTAnalyzer(ast.NodeVisitor):
         """Process function definition - only add to nodes if it's top-level."""
 
         if not self.current_class_name:
-            component_id = f"{self._get_module_path()}.{node.name}"
+            component_id = f"{self._get_relative_path()}::{node.name}"
             relative_path = self._get_relative_path()
-            
+
             func_node = Node(
                 id=component_id,
                 name=node.name,
@@ -175,12 +175,12 @@ class PythonASTAnalyzer(ast.NodeVisitor):
             call_name = self._get_call_name(node.func)
             if call_name:
                 if self.current_class_name:
-                    caller_id = f"{self._get_module_path()}.{self.current_class_name}"
+                    caller_id = f"{self._get_relative_path()}::{self.current_class_name}"
                 else:
-                    caller_id = f"{self._get_module_path()}.{self.current_function_name}"
-                
+                    caller_id = f"{self._get_relative_path()}::{self.current_function_name}"
+
                 if call_name in self.top_level_nodes:
-                    callee_id = f"{self._get_module_path()}.{call_name}"
+                    callee_id = f"{self._get_relative_path()}::{call_name}"
                 else:
                     callee_id = call_name
                 

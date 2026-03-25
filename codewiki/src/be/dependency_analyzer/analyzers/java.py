@@ -45,11 +45,11 @@ class TreeSitterJavaAnalyzer:
 			return str(self.file_path)
 	
 	def _get_component_id(self, name: str, parent_class: str = None) -> str:
-		module_path = self._get_module_path()
+		rel_path = self._get_relative_path()
 		if parent_class:
-			return f"{module_path}.{parent_class}.{name}"
+			return f"{rel_path}::{parent_class}.{name}"
 		else:
-			return f"{module_path}.{name}"
+			return f"{rel_path}::{name}"
 
 	def _analyze(self):
 		language_capsule = tree_sitter_java.language()

@@ -44,10 +44,10 @@ class TreeSitterCppAnalyzer:
 			return str(self.file_path)
 	
 	def _get_component_id(self, name: str, parent_class: str = None) -> str:
-		module_path = self._get_module_path()
+		rel_path = self._get_relative_path()
 		if parent_class:
-			return f"{module_path}.{parent_class}.{name}" if module_path else f"{parent_class}.{name}"
-		return f"{module_path}.{name}" if module_path else name
+			return f"{rel_path}::{parent_class}.{name}"
+		return f"{rel_path}::{name}"
 
 	def _analyze(self):
 		language_capsule = tree_sitter_cpp.language()

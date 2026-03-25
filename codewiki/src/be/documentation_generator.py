@@ -143,6 +143,9 @@ class DocumentationGenerator:
         if len(module_tree) > 0:
             for module_path, module_name in processing_order:
                 try:
+                    # Reload module tree to get latest hierarchical structure from sub-agent modifications
+                    module_tree = file_manager.load_json(module_tree_path)
+                    
                     # Get the module info from the tree
                     module_info = module_tree
                     for path_part in module_path:

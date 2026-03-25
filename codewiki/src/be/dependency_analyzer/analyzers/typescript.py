@@ -608,8 +608,8 @@ class TreeSitterTSAnalyzer:
                         if type_id:
                             dependency_name = self._get_node_text(type_id)
                             if dependency_name and dependency_name != caller_name:
-                                caller_id = f"{self._get_module_path()}.{caller_name}"
-                                callee_id = f"{self._get_module_path()}.{dependency_name}"
+                                caller_id = f"{self._get_relative_path()}::{caller_name}"
+                                callee_id = f"{self._get_relative_path()}::{dependency_name}"
                                 
                                 relationship = CallRelationship(
                                     caller=caller_id,
@@ -648,8 +648,7 @@ class TreeSitterTSAnalyzer:
             return str(self.file_path)
 
     def _get_component_id(self, name: str) -> str:
-        module_path = self._get_module_path()
-        return f"{module_path}.{name}"
+        return f"{self._get_relative_path()}::{name}"
 
     def _extract_inheritance(self, node) -> List[str]:
         """Extract inheritance/implementation relationships."""
@@ -920,8 +919,8 @@ class TreeSitterTSAnalyzer:
         return entity_name if entity_name in self.top_level_nodes else None
 
     def _add_relationship(self, caller_name: str, callee_name: str, call_line: int) -> None:
-        caller_id = f"{self._get_module_path()}.{caller_name}"
-        callee_id = f"{self._get_module_path()}.{callee_name}"  
+        caller_id = f"{self._get_relative_path()}::{caller_name}"
+        callee_id = f"{self._get_relative_path()}::{callee_name}"  
         
         relationship = CallRelationship(
             caller=caller_id,

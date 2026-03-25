@@ -148,17 +148,10 @@ class TreeSitterPHPAnalyzer:
 
     def _get_component_id(self, name: str, parent_class: str = None) -> str:
         """Generate component ID for a node."""
-        # Use namespace if available
-        if self.namespace_resolver.current_namespace:
-            ns_prefix = self.namespace_resolver.current_namespace.replace("\\", ".")
-            if parent_class:
-                return f"{ns_prefix}.{parent_class}.{name}"
-            return f"{ns_prefix}.{name}"
-
-        module_path = self._get_module_path()
+        rel_path = self._get_relative_path()
         if parent_class:
-            return f"{module_path}.{parent_class}.{name}"
-        return f"{module_path}.{name}"
+            return f"{rel_path}::{parent_class}.{name}"
+        return f"{rel_path}::{name}"
 
     def _analyze(self):
         """Parse and analyze the PHP file."""
@@ -442,7 +435,7 @@ class TreeSitterPHPAnalyzer:
                 if name_node:
                     fqn = name_node.text.decode().replace("\\", ".")
                     # Add relationship from file to imported class
-                    file_id = self._get_module_path()
+                    file_id = self._get_relative_path()
                     self.call_relationships.append(CallRelationship(
                         caller=file_id,
                         callee=fqn,
@@ -458,7 +451,7 @@ class TreeSitterPHPAnalyzer:
                         name_node = self._find_child_by_type(group_child, "namespace_name")
                         if name_node:
                             fqn = f"{prefix}\\{name_node.text.decode()}" if prefix else name_node.text.decode()
-                            file_id = self._get_module_path()
+                            file_id = self._get_relative_path()
                             self.call_relationships.append(CallRelationship(
                                 caller=file_id,
                                 callee=fqn.replace("\\", "."),

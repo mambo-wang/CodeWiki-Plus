@@ -1,4 +1,5 @@
 from pydantic_ai import RunContext, Tool, Agent
+from typing import Dict, List
 
 from codewiki.src.be.agent_tools.deps import CodeWikiDeps
 from codewiki.src.be.agent_tools.read_code_components import read_code_components_tool
@@ -15,12 +16,14 @@ logger = logging.getLogger(__name__)
 
 async def generate_sub_module_documentation(
     ctx: RunContext[CodeWikiDeps],
-    sub_module_specs: dict[str, list[str]]
+    sub_module_specs: Dict[str, List[str]]
 ) -> str:
-    """Generate detailed description of a given sub-module specs to the sub-agents
+    """Delegate documentation generation of sub-modules to sub-agents. Each sub-module will be documented separately.
 
     Args:
-        sub_module_specs: The specs of the sub-modules to generate documentation for. E.g. {"sub_module_1": ["core_component_1.1", "core_component_1.2"], "sub_module_2": ["core_component_2.1", "core_component_2.2"], ...}
+        sub_module_specs: A dictionary mapping sub-module names to their core component IDs. 
+            Example: {"authentication": ["auth_handler.py::AuthHandler", "auth_middleware.py::verify_token"], "database": ["db_client.py::DBClient", "models.py::UserModel"]}
+            Each key is a descriptive sub-module name, and the value is a list of component IDs from the current module's core components that belong to that sub-module.
     """
 
     deps = ctx.deps
@@ -89,4 +92,8 @@ async def generate_sub_module_documentation(
     return f"Generate successfully. Documentations: {', '.join([key + '.md' for key in sub_module_specs.keys()])} are saved in the working directory."
 
 
-generate_sub_module_documentation_tool = Tool(function=generate_sub_module_documentation, name="generate_sub_module_documentation", description="Generate detailed description of a given sub-module specs to the sub-agents", takes_ctx=True)
+generate_sub_module_documentation_tool = Tool(
+    function=generate_sub_module_documentation, 
+    name="generate_sub_module_documentation", 
+    takes_ctx=True
+)

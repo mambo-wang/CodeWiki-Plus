@@ -265,12 +265,26 @@ def format_user_prompt(module_name: str, core_component_ids: list[str], componen
                 lines.append(f"{'  ' * indent}{key} (current module)")
             else:
                 lines.append(f"{'  ' * indent}{key}")
-            
-            lines.append(f"{'  ' * (indent + 1)} Core components: {', '.join(value['components'])}")
+
+            # Group components by file
+            from collections import defaultdict
+            by_file = defaultdict(list)
+            for c in value['components']:
+                if "::" in c:
+                    fpath, name = c.split("::", 1)
+                    by_file[fpath].append(name)
+                else:
+                    by_file[""].append(c)
+            for fpath, names in by_file.items():
+                if fpath:
+                    lines.append(f"{'  ' * (indent + 1)} {fpath}: {', '.join(names)}")
+                else:
+                    lines.append(f"{'  ' * (indent + 1)} {', '.join(names)}")
+
             if isinstance(value["children"], dict) and len(value["children"]) > 0:
                 lines.append(f"{'  ' * (indent + 1)} Children:")
                 _format_module_tree(value["children"], indent + 2)
-    
+
     _format_module_tree(module_tree, 0)
     formatted_module_tree = "\n".join(lines)
 
@@ -326,7 +340,21 @@ def format_cluster_prompt(potential_core_components: str, module_tree: dict[str,
             else:
                 lines.append(f"{'  ' * indent}{key}")
             
-            lines.append(f"{'  ' * (indent + 1)} Core components: {', '.join(value['components'])}")
+            # Group components by file
+            from collections import defaultdict
+            by_file = defaultdict(list)
+            for c in value['components']:
+                if "::" in c:
+                    fpath, name = c.split("::", 1)
+                    by_file[fpath].append(name)
+                else:
+                    by_file[""].append(c)
+            for fpath, names in by_file.items():
+                if fpath:
+                    lines.append(f"{'  ' * (indent + 1)} {fpath}: {', '.join(names)}")
+                else:
+                    lines.append(f"{'  ' * (indent + 1)} {', '.join(names)}")
+
             if ("children" in value) and isinstance(value["children"], dict) and len(value["children"]) > 0:
                 lines.append(f"{'  ' * (indent + 1)} Children:")
                 _format_module_tree(value["children"], indent + 2)
