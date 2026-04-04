@@ -42,15 +42,32 @@ codewiki --version
 
 ### 2. Configure Your Environment
 
-CodeWiki supports multiple models via an OpenAI-compatible SDK layer.
+CodeWiki supports multiple LLM providers: **OpenAI-compatible**, **Anthropic**, **AWS Bedrock**, and **Azure OpenAI**.
 
 ```bash
+# Anthropic
 codewiki config set \
   --api-key YOUR_API_KEY \
   --base-url https://api.anthropic.com \
   --main-model claude-sonnet-4 \
   --cluster-model claude-sonnet-4 \
   --fallback-model glm-4p5
+
+# Azure OpenAI
+codewiki config set \
+  --provider azure-openai \
+  --api-key YOUR_AZURE_KEY \
+  --base-url https://YOUR_RESOURCE.openai.azure.com \
+  --azure-deployment YOUR_DEPLOYMENT \
+  --main-model gpt-4o \
+  --cluster-model gpt-4o
+
+# AWS Bedrock
+codewiki config set \
+  --provider bedrock \
+  --aws-region us-east-1 \
+  --main-model anthropic.claude-sonnet-4-v2:0 \
+  --cluster-model anthropic.claude-sonnet-4-v2:0
 ```
 
 ### 3. Generate Documentation
@@ -138,6 +155,9 @@ codewiki generate --verbose
 
 # Full-featured generation
 codewiki generate --create-branch --github-pages --verbose
+
+# Incremental update (only regenerate changed modules since last run)
+codewiki generate --update
 ```
 
 ### Customization Options
@@ -235,7 +255,7 @@ codewiki generate --max-tokens 16384 --max-token-per-module 40000 --max-depth 3
 
 ### Configuration Storage
 
-- **API keys**: Securely stored in system keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service)
+- **API keys**: Securely stored in system keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service). Falls back to `~/.codewiki/credentials.json` in headless/container environments. Set `CODEWIKI_NO_KEYRING=1` to force file-based storage.
 - **Settings & Agent Instructions**: `~/.codewiki/config.json`
 
 ---
@@ -331,7 +351,7 @@ CodeWiki employs a three-stage process for comprehensive documentation generatio
 
 - **Python 3.12+**
 - **Node.js** (for Mermaid diagram validation)
-- **LLM API access** (Anthropic Claude, OpenAI, etc.)
+- **LLM API access** (Anthropic Claude, OpenAI, Azure OpenAI, AWS Bedrock)
 - **Git** (for branch creation features)
 
 ---
@@ -339,6 +359,7 @@ CodeWiki employs a three-stage process for comprehensive documentation generatio
 ## Additional Resources
 
 ### Documentation & Guides
+- **[MCP Server](codewiki/mcp/)** - Model Context Protocol server for IDE integrations
 - **[Docker Deployment](docker/DOCKER_README.md)** - Containerized deployment instructions
 - **[Development Guide](DEVELOPMENT.md)** - Project structure, architecture, and contributing guidelines
 - **[CodeWikiBench](https://github.com/FSoft-AI4Code/CodeWikiBench)** - Repository-level documentation benchmark
