@@ -85,13 +85,23 @@ def config_group():
 )
 @click.option(
     "--provider",
-    type=click.Choice(['openai-compatible', 'anthropic', 'bedrock'], case_sensitive=False),
+    type=click.Choice(['openai-compatible', 'anthropic', 'bedrock', 'azure-openai'], case_sensitive=False),
     help="LLM provider type (default: openai-compatible)"
 )
 @click.option(
     "--aws-region",
     type=str,
     help="AWS region for Bedrock provider (default: us-east-1)"
+)
+@click.option(
+    "--api-version",
+    type=str,
+    help="Azure OpenAI API version (default: 2024-12-01-preview)"
+)
+@click.option(
+    "--azure-deployment",
+    type=str,
+    help="Azure OpenAI deployment name"
 )
 def config_set(
     api_key: Optional[str],
@@ -104,7 +114,9 @@ def config_set(
     max_token_per_leaf_module: Optional[int],
     max_depth: Optional[int],
     provider: Optional[str] = None,
-    aws_region: Optional[str] = None
+    aws_region: Optional[str] = None,
+    api_version: Optional[str] = None,
+    azure_deployment: Optional[str] = None
 ):
     """
     Set configuration values for CodeWiki.
@@ -139,7 +151,7 @@ def config_set(
     """
     try:
         # Check if at least one option is provided
-        if not any([api_key, base_url, main_model, cluster_model, fallback_model, max_tokens, max_token_per_module, max_token_per_leaf_module, max_depth, provider, aws_region]):
+        if not any([api_key, base_url, main_model, cluster_model, fallback_model, max_tokens, max_token_per_module, max_token_per_leaf_module, max_depth, provider, aws_region, api_version, azure_deployment]):
             click.echo("No options provided. Use --help for usage information.")
             sys.exit(EXIT_CONFIG_ERROR)
         
@@ -187,6 +199,12 @@ def config_set(
         if aws_region is not None:
             validated_data['aws_region'] = aws_region
 
+        if api_version is not None:
+            validated_data['api_version'] = api_version
+
+        if azure_deployment is not None:
+            validated_data['azure_deployment'] = azure_deployment
+
         # Create config manager and save
         manager = ConfigManager()
         manager.load()  # Load existing config if present
@@ -202,7 +220,9 @@ def config_set(
             max_token_per_leaf_module=validated_data.get('max_token_per_leaf_module'),
             max_depth=validated_data.get('max_depth'),
             provider=validated_data.get('provider'),
-            aws_region=validated_data.get('aws_region')
+            aws_region=validated_data.get('aws_region'),
+            api_version=validated_data.get('api_version'),
+            azure_deployment=validated_data.get('azure_deployment')
         )
         
         # Display success messages
@@ -256,7 +276,13 @@ def config_set(
 
         if aws_region:
             click.secho(f"✓ AWS Region: {aws_region}", fg="green")
-        
+
+        if api_version:
+            click.secho(f"✓ API Version: {api_version}", fg="green")
+
+        if azure_deployment:
+            click.secho(f"✓ Azure Deployment: {azure_deployment}", fg="green")
+
         click.echo("\n" + click.style("Configuration updated successfully.", fg="green", bold=True))
         
     except ConfigurationError as e:
@@ -342,6 +368,12 @@ def config_show(output_json: bool):
                 click.echo(f"  Main Model:       {config.main_model or 'Not set'}")
                 click.echo(f"  Cluster Model:    {config.cluster_model or 'Not set'}")
                 click.echo(f"  Fallback Model:   {config.fallback_model or 'Not set'}")
+                click.echo(f"  Provider:         {config.provider}")
+                if config.provider == "bedrock":
+                    click.echo(f"  AWS Region:       {config.aws_region}")
+                elif config.provider == "azure-openai":
+                    click.echo(f"  API Version:      {config.api_version}")
+                    click.echo(f"  Azure Deployment: {config.azure_deployment or 'Not set'}")
             else:
                 click.secho("  Not configured", fg="yellow")
             
@@ -523,7 +555,17 @@ def config_validate(quick: bool, verbose: bool):
 
             try:
                 base_url_lower = (config.base_url or "").lower()
-                if "api.anthropic.com" in base_url_lower:
+                provider = getattr(config, 'provider', 'openai-compatible')
+                if provider == "azure-openai" or ".openai.azure.com" in base_url_lower:
+                    # Use Azure OpenAI SDK
+                    from openai import AzureOpenAI
+                    client = AzureOpenAI(
+                        api_key=api_key,
+                        api_version=config.api_version,
+                        azure_endpoint=config.base_url,
+                    )
+                    client.models.list()
+                elif "api.anthropic.com" in base_url_lower:
                     # Use Anthropic SDK for native Anthropic endpoints
                     import anthropic
                     client = anthropic.Anthropic(api_key=api_key)

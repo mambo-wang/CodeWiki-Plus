@@ -4,7 +4,7 @@ LLM service factory for creating configured LLM clients.
 Includes a compatibility layer for OpenAI-compatible API proxies that may
 return slightly non-standard responses (e.g. choices[].index = None).
 
-Supports multiple providers: openai-compatible, anthropic, bedrock.
+Supports multiple providers: openai-compatible, anthropic, bedrock, azure-openai.
 """
 import logging
 from openai.types import chat
@@ -174,6 +174,9 @@ def call_llm(
     if provider in ("bedrock", "anthropic"):
         return _call_llm_via_litellm(prompt, config, model, temperature)
 
+    if provider == "azure-openai":
+        return _call_llm_via_azure(prompt, config, model, temperature)
+
     # Default: OpenAI-compatible
     client = create_openai_client(config)
 
@@ -223,5 +226,37 @@ def _call_llm_via_litellm(
         temperature=temperature,
         max_tokens=config.max_tokens,
         api_key=config.llm_api_key if config.provider != "bedrock" else None,
+    )
+    return response.choices[0].message.content
+
+
+def _call_llm_via_azure(
+    prompt: str,
+    config: Config,
+    model: str,
+    temperature: float = 0.0
+) -> str:
+    """
+    Call LLM via Azure OpenAI.
+
+    Uses the AzureOpenAI client from the openai package with
+    azure_endpoint, api_version, and deployment name.
+    """
+    from openai import AzureOpenAI
+
+    client = AzureOpenAI(
+        api_key=config.llm_api_key,
+        api_version=config.api_version,
+        azure_endpoint=config.llm_base_url,
+    )
+
+    deployment = config.azure_deployment or model
+    logger.debug("Calling Azure OpenAI deployment %s (api_version=%s)", deployment, config.api_version)
+
+    response = client.chat.completions.create(
+        model=deployment,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=temperature,
+        max_tokens=config.max_tokens,
     )
     return response.choices[0].message.content

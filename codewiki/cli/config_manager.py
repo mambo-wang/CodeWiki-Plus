@@ -133,7 +133,9 @@ class ConfigManager:
         max_token_per_leaf_module: Optional[int] = None,
         max_depth: Optional[int] = None,
         provider: Optional[str] = None,
-        aws_region: Optional[str] = None
+        aws_region: Optional[str] = None,
+        api_version: Optional[str] = None,
+        azure_deployment: Optional[str] = None
     ):
         """
         Save configuration to file and keyring.
@@ -149,8 +151,10 @@ class ConfigManager:
             max_token_per_module: Maximum tokens per module for clustering
             max_token_per_leaf_module: Maximum tokens per leaf module
             max_depth: Maximum depth for hierarchical decomposition
-            provider: LLM provider type (openai-compatible, anthropic, bedrock)
+            provider: LLM provider type (openai-compatible, anthropic, bedrock, azure-openai)
             aws_region: AWS region for Bedrock provider
+            api_version: Azure OpenAI API version
+            azure_deployment: Azure OpenAI deployment name
         """
         # Ensure config directory exists
         try:
@@ -196,6 +200,10 @@ class ConfigManager:
             self._config.provider = provider
         if aws_region is not None:
             self._config.aws_region = aws_region
+        if api_version is not None:
+            self._config.api_version = api_version
+        if azure_deployment is not None:
+            self._config.azure_deployment = azure_deployment
 
         # Validate configuration (only if base fields are set)
         if self._config.base_url and self._config.main_model and self._config.cluster_model:
