@@ -10,7 +10,7 @@ import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import List, Optional, Tuple, Literal
+from typing import Annotated, List, Literal, Optional, Tuple
 import io
 
 import logging
@@ -19,10 +19,34 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from pydantic import BeforeValidator
 from pydantic_ai import RunContext, Tool
 
 from .deps import CodeWikiDeps
 from ..utils import validate_mermaid_diagrams
+
+
+def _coerce_json_string(value):
+    """Coerce a JSON encoded string to its parsed Python value before pydantic
+    strict validation runs. No op on already typed values.
+
+    Some local models routed through OpenAI compatible endpoints (LiteLLM,
+    vLLM, Ollama, etc.) emit list and int tool args as JSON encoded strings
+    (e.g. `"[1, 50]"` instead of `[1, 50]`) which strict pydantic validation
+    rejects. This validator parses them so the tool accepts both shapes.
+    Anthropic native API users are unaffected because they already emit
+    structured values.
+    """
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return value
+
+
+ViewRange = Annotated[Optional[List[int]], BeforeValidator(_coerce_json_string)]
+InsertLine = Annotated[Optional[int], BeforeValidator(_coerce_json_string)]
 
 
 # There are some super strange "ascii can't decode x" errors,
@@ -713,10 +737,10 @@ async def str_replace_editor(
     path: Optional[str] = None,
     file: Optional[str] = None,
     file_text: Optional[str] = None,
-    view_range: Optional[List[int]] = None,
+    view_range: ViewRange = None,
     old_str: Optional[str] = None,
     new_str: Optional[str] = None,
-    insert_line: Optional[int] = None,
+    insert_line: InsertLine = None,
 ) -> str:
     """
     Custom editing tool for viewing, creating and editing files
