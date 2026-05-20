@@ -1,5 +1,4 @@
 from pydantic_ai import RunContext, Tool, Agent
-from typing import Dict, List
 
 from codewiki.src.be.agent_tools.deps import CodeWikiDeps
 from codewiki.src.be.agent_tools.read_code_components import read_code_components_tool
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 async def generate_sub_module_documentation(
     ctx: RunContext[CodeWikiDeps],
-    sub_module_specs: Dict[str, List[str]]
+    sub_module_specs: dict[str, list[str]]
 ) -> str:
     """Delegate documentation generation of sub-modules to sub-agents. Each sub-module will be documented separately.
 

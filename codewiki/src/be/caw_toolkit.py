@@ -20,7 +20,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING
 
 from caw import ToolKit, tool
 
@@ -73,7 +73,7 @@ class CawToolKit(
             "where the part before '::' is the file path and the part after is the component name."
         )
     )
-    async def read_code_components(self, component_ids: List[str]) -> str:
+    async def read_code_components(self, component_ids: list[str]) -> str:
         results = []
         for cid in component_ids:
             if cid not in self._deps.components:
@@ -106,13 +106,13 @@ class CawToolKit(
         self,
         working_dir: str,
         command: str,
-        path: Optional[str] = None,
-        file: Optional[str] = None,
-        file_text: Optional[str] = None,
-        view_range: Union[List[int], str, None] = None,
-        old_str: Optional[str] = None,
-        new_str: Optional[str] = None,
-        insert_line: Union[int, str, None] = None,
+        path: str | None = None,
+        file: str | None = None,
+        file_text: str | None = None,
+        view_range: list[int] | str | None = None,
+        old_str: str | None = None,
+        new_str: str | None = None,
+        insert_line: int | str | None = None,
     ) -> str:
         from codewiki.src.be.agent_tools.str_replace_editor import EditTool
         from codewiki.src.be.utils import validate_mermaid_diagrams
@@ -166,7 +166,7 @@ class CawToolKit(
         )
     )
     async def generate_sub_module_documentation(
-        self, sub_module_specs: Dict[str, List[str]]
+        self, sub_module_specs: dict[str, list[str]]
     ) -> str:
         if not self._allow_subagent:
             return (
@@ -182,7 +182,7 @@ class CawToolKit(
     # Internal: synchronous recursion driver
     # ------------------------------------------------------------------
 
-    def _run_sub_modules(self, sub_module_specs: Dict[str, List[str]]) -> str:
+    def _run_sub_modules(self, sub_module_specs: dict[str, list[str]]) -> str:
         deps = self._deps
         previous_module_name = deps.current_module_name
 

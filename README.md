@@ -73,13 +73,13 @@ codewiki config set \
 # Install the Claude Code CLI and run `claude login` first.
 codewiki config set \
   --provider claude-code \
-  --main-model claude-sonnet-4-5
+  --main-model claude-sonnet-4-6
 
 # Subscription mode (Codex) — uses your existing Codex CLI login.
 # Install the Codex CLI and run `codex login` first.
 codewiki config set \
   --provider codex \
-  --main-model gpt-5.2-codex
+  --main-model gpt-5.4
 ```
 
 **Subscription mode** routes every LLM call through the local `claude` / `codex` CLI binary (via the [`caw`](https://github.com/zzjas/caw) library), so you can run CodeWiki on a Claude Pro/Max or Codex subscription instead of paying per-token API usage. Claude Code's built-in `Write`/`Edit`/`Bash` tools are disabled inside CodeWiki's agent loop so documentation writes still go through CodeWiki's Mermaid-validating editor.
