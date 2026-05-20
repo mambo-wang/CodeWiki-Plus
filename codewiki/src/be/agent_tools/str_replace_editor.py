@@ -40,7 +40,7 @@ def _coerce_json_string(value):
     if isinstance(value, str):
         try:
             return json.loads(value)
-        except (json.JSONDecodeError, ValueError):
+        except ValueError:
             pass
     return value
 

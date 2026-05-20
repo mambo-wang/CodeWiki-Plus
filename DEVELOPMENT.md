@@ -14,7 +14,10 @@ codewiki/
 │   │   └── adapters/         # External integrations
 │   ├── src/                  # Web application
 │   │   ├── be/               # Backend (dependency analysis, agents)
-│   │   │   ├── agent_orchestrator.py
+│   │   │   ├── backend.py            # LLMBackend abstraction + factory
+│   │   │   ├── pydantic_ai_backend.py  # API-key backend (OpenAI/Anthropic/Bedrock/Azure)
+│   │   │   ├── caw_backend.py        # Subscription backend (claude / codex CLI via caw)
+│   │   │   ├── caw_toolkit.py        # CodeWiki tools exposed to caw via MCP
 │   │   │   ├── agent_tools/
 │   │   │   ├── cluster_modules.py
 │   │   │   ├── dependency_analyzer/
@@ -83,11 +86,15 @@ pip install -r requirements.txt
 - Feature-oriented module partitioning
 - Topological sorting for dependency ordering
 
-#### 3. Agent System (`src/be/agent_orchestrator.py`)
+#### 3. Agent System (`src/be/backend.py`, `pydantic_ai_backend.py`, `caw_backend.py`)
 
-- Recursive agent-based documentation generation
-- Dynamic delegation for complex modules
-- Cross-module reference management
+- ``LLMBackend`` abstracts the API-key and CLI-subscription paths.
+- ``PydanticAIBackend`` runs the per-module agent via pydantic-ai (used by
+  ``openai-compatible`` / ``anthropic`` / ``bedrock`` / ``azure-openai``).
+- ``CawBackend`` routes the per-module agent through the ``claude`` /
+  ``codex`` CLI via the ``caw`` library (used by the ``claude-code`` /
+  ``codex`` providers).  CodeWiki's tools are exposed to the CLI via an MCP
+  server defined in ``caw_toolkit.py``.
 
 #### 4. Agent Tools (`src/be/agent_tools/`)
 
@@ -168,7 +175,7 @@ class AgentInstructions:
 5. **Use in relevant components**:
    - File filtering → `dependency_analyzer/ast_parser.py`
    - Prompts → `be/prompt_template.py`
-   - Agent creation → `be/agent_orchestrator.py`
+   - Agent creation → `be/pydantic_ai_backend.py` (API path) or `be/caw_backend.py` (subscription path)
 
 ---
 

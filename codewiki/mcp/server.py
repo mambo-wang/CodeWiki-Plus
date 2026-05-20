@@ -164,7 +164,9 @@ async def _handle_generate_docs(arguments: dict[str, Any]) -> list[TextContent]:
     config = manager.get_config()
     api_key = manager.get_api_key()
 
-    if not api_key:
+    from codewiki.src.be.backend import is_caw_provider
+    caw_mode = bool(config) and is_caw_provider(getattr(config, "provider", ""))
+    if not api_key and not caw_mode:
         return [TextContent(type="text", text="API key not configured. Run 'codewiki config set --api-key <key>'")]
 
     # Build agent instructions from arguments

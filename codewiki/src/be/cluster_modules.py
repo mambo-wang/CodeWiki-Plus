@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Callable, Optional
 from collections import defaultdict
 import logging
 import traceback
@@ -9,6 +9,8 @@ from codewiki.src.be.llm_services import call_llm
 from codewiki.src.be.utils import count_tokens
 from codewiki.src.config import Config
 from codewiki.src.be.prompt_template import format_cluster_prompt
+
+Completer = Callable[[str], str]
 
 
 def format_potential_core_components(leaf_nodes: List[str], components: Dict[str, Node]) -> tuple[str, str]:
@@ -47,10 +49,18 @@ def cluster_modules(
     config: Config,
     current_module_tree: dict[str, Any] = {},
     current_module_name: str = None,
-    current_module_path: List[str] = []
+    current_module_path: List[str] = [],
+    completer: Optional[Completer] = None,
 ) -> Dict[str, Any]:
     """
     Cluster the potential core components into modules.
+
+    Args:
+        completer: optional ``(prompt: str) -> str`` callable.  When provided,
+            clustering calls go through this completer instead of the legacy
+            ``call_llm``.  This is how the LLMBackend abstraction injects
+            subscription-mode (caw) routing.  If ``None``, falls back to
+            ``call_llm`` for backward compatibility with direct callers.
     """
     potential_core_components, potential_core_components_with_code = format_potential_core_components(leaf_nodes, components)
 
@@ -59,7 +69,10 @@ def cluster_modules(
         return {}
 
     prompt = format_cluster_prompt(potential_core_components, current_module_tree, current_module_name)
-    response = call_llm(prompt, config, model=config.cluster_model)
+    if completer is not None:
+        response = completer(prompt)
+    else:
+        response = call_llm(prompt, config, model=config.cluster_model)
 
     #parse the response
     try:
@@ -107,7 +120,15 @@ def cluster_modules(
         
         current_module_path.append(module_name)
         module_info["children"] = {}
-        module_info["children"] = cluster_modules(valid_sub_leaf_nodes, components, config, current_module_tree, module_name, current_module_path)
+        module_info["children"] = cluster_modules(
+            valid_sub_leaf_nodes,
+            components,
+            config,
+            current_module_tree,
+            module_name,
+            current_module_path,
+            completer=completer,
+        )
         current_module_path.pop()
 
     return module_tree

@@ -42,7 +42,7 @@ codewiki --version
 
 ### 2. Configure Your Environment
 
-CodeWiki supports multiple LLM providers: **OpenAI-compatible**, **Anthropic**, **AWS Bedrock**, and **Azure OpenAI**.
+CodeWiki supports multiple LLM providers: **OpenAI-compatible**, **Anthropic**, **AWS Bedrock**, **Azure OpenAI**, plus subscription mode via **Claude Code** and **Codex** CLIs (no API key required).
 
 ```bash
 # Anthropic
@@ -68,7 +68,21 @@ codewiki config set \
   --aws-region us-east-1 \
   --main-model anthropic.claude-sonnet-4-v2:0 \
   --cluster-model anthropic.claude-sonnet-4-v2:0
+
+# Subscription mode (Claude Code) — uses your existing Claude OAuth login.
+# Install the Claude Code CLI and run `claude login` first.
+codewiki config set \
+  --provider claude-code \
+  --main-model claude-sonnet-4-5
+
+# Subscription mode (Codex) — uses your existing Codex CLI login.
+# Install the Codex CLI and run `codex login` first.
+codewiki config set \
+  --provider codex \
+  --main-model gpt-5.2-codex
 ```
+
+**Subscription mode** routes every LLM call through the local `claude` / `codex` CLI binary (via the [`caw`](https://github.com/zzjas/caw) library), so you can run CodeWiki on a Claude Pro/Max or Codex subscription instead of paying per-token API usage. Claude Code's built-in `Write`/`Edit`/`Bash` tools are disabled inside CodeWiki's agent loop so documentation writes still go through CodeWiki's Mermaid-validating editor.
 
 ### 3. Generate Documentation
 
