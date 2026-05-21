@@ -49,8 +49,11 @@ def _detect_changed_files(
     Detect files changed since the last documentation generation.
 
     Reads the commit_id from metadata.json and compares with current HEAD
-    using git diff. Returns list of changed file paths, or None if unable
-    to determine (e.g., no metadata, not a git repo).
+    using git diff. When running inside a subdirectory of a monorepo,
+    only files under that subdirectory are returned.
+
+    Returns list of changed file paths relative to repo_path, or None if
+    unable to determine (e.g., no metadata, not a git repo).
     """
     import json
 
@@ -85,6 +88,21 @@ def _detect_changed_files(
             logger.debug(f"HEAD is still at {current_commit[:8]} — no changes.")
         return []
 
+    # Determine subdirectory prefix relative to the git root
+    if repo.working_tree_dir is None:
+        if verbose:
+            logger.debug("Bare git repository — running full generation.")
+        return None
+    git_root = Path(repo.working_tree_dir).resolve()
+    repo_path_resolved = repo_path.resolve()
+    try:
+        subpath_prefix = repo_path_resolved.relative_to(git_root).as_posix()
+    except ValueError:
+        # repo_path is outside git root — shouldn't happen, but fall back to full generation
+        if verbose:
+            logger.debug("Repo path is outside git root — running full generation.")
+        return None
+
     # Get changed files between previous and current commit
     try:
         diff_index = repo.commit(prev_commit).diff(current_commit)
@@ -95,14 +113,27 @@ def _detect_changed_files(
             if diff.b_path and diff.b_path != diff.a_path:
                 changed.append(diff.b_path)
 
+        # Filter to files under the current subdirectory and strip the prefix
+        # so paths align with module_tree.json component paths
+        filtered = []
+        if subpath_prefix == ".":
+            filtered = changed
+        else:
+            prefix = subpath_prefix + "/"
+            for path in changed:
+                if path.startswith(prefix):
+                    filtered.append(path[len(prefix):])
+
         if verbose:
             logger.debug(f"Changes between {prev_commit[:8]} and {current_commit[:8]}:")
-            for f in changed[:10]:
+            if subpath_prefix != ".":
+                logger.debug(f"  Scoped to subdirectory: {subpath_prefix}")
+            for f in filtered[:10]:
                 logger.debug(f"  {f}")
-            if len(changed) > 10:
-                logger.debug(f"  ... and {len(changed) - 10} more")
+            if len(filtered) > 10:
+                logger.debug(f"  ... and {len(filtered) - 10} more")
 
-        return changed
+        return filtered
     except Exception as e:
         if verbose:
             logger.debug(f"Git diff failed: {e} — running full generation.")
