@@ -45,14 +45,23 @@ codewiki --version
 CodeWiki supports multiple LLM providers: **OpenAI-compatible**, **Anthropic**, **AWS Bedrock**, **Azure OpenAI**, plus subscription mode via **Claude Code** and **Codex** CLIs (no API key required).
 
 ```bash
-# Anthropic
+# OpenAI-compatible
 codewiki config set \
   --provider openai-compatible \
-  --api-key 3rRvIM7UNTmwt9ugiFi0Zkjgn0JA8WOjEUMfATsO \
-  --base-url  https://gateway.ai.cloudflare.com/v1/def31e2cf1530789c604bdaa2abbfcf1/openai-proxy/compat \
-  --main-model openai/gpt-5.4 \
-  --cluster-model openai/gpt-5.4 \
-  --fallback-model openai/gpt-5.3
+  --api-key YOUR_API_KEY \
+  --base-url https://api.anthropic.com \
+  --main-model claude-sonnet-4 \
+  --cluster-model claude-sonnet-4 \
+  --fallback-model glm-4p5
+
+# Anthropic
+codewiki config set \
+  --provider anthropic \
+  --api-key YOUR_API_KEY \
+  --base-url https://api.anthropic.com \
+  --main-model claude-sonnet-4 \
+  --cluster-model claude-sonnet-4 \
+  --fallback-model glm-4p5
 
 # Azure OpenAI
 codewiki config set \

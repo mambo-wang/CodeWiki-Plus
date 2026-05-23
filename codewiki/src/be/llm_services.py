@@ -13,7 +13,7 @@ from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.models.openai import OpenAIModelSettings
 from pydantic_ai.models.fallback import FallbackModel
-from openai import OpenAI
+from openai import OpenAI, BadRequestError
 
 from codewiki.src.config import Config
 
@@ -24,12 +24,12 @@ def _should_use_max_completion_tokens(model_name: str, base_url: str) -> bool:
     """
     Determine whether to use max_completion_tokens instead of max_tokens.
 
-    Newer OpenAI models (o1, o3, gpt-4o, etc.) require max_completion_tokens.
-    Anthropic and other providers still use max_tokens.
+    Newer OpenAI models (o1, o3, o4, gpt-4o, gpt-5, etc.) require
+    max_completion_tokens. Anthropic and other providers still use max_tokens.
     """
     model_lower = model_name.lower()
     # OpenAI models that require max_completion_tokens
-    new_openai_patterns = ("o1", "o3", "gpt-4o", "gpt-4-turbo")
+    new_openai_patterns = ("o1", "o3", "o4", "gpt-4o", "gpt-4-turbo", "gpt-5")
     if any(pattern in model_lower for pattern in new_openai_patterns):
         return True
     # If base_url points to OpenAI directly, newer models may need it
@@ -180,21 +180,49 @@ def call_llm(
     # Default: OpenAI-compatible
     client = create_openai_client(config)
 
-    # Use the correct token parameter based on model/provider
-    token_kwargs = {}
-    if _should_use_max_completion_tokens(model, config.llm_base_url):
-        token_kwargs["max_completion_tokens"] = config.max_tokens
-        logger.debug("Using max_completion_tokens=%d for model %s", config.max_tokens, model)
-    else:
-        token_kwargs["max_tokens"] = config.max_tokens
+    # Use the correct token parameter based on model/provider; if the server
+    # rejects our choice, swap to the other token kwarg and retry once.
+    use_completion_tokens = _should_use_max_completion_tokens(model, config.llm_base_url)
+    primary_key = "max_completion_tokens" if use_completion_tokens else "max_tokens"
+    fallback_key = "max_tokens" if use_completion_tokens else "max_completion_tokens"
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=temperature,
-        **token_kwargs
-    )
+    base_kwargs = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+    }
+
+    try:
+        response = client.chat.completions.create(
+            **base_kwargs,
+            **{primary_key: config.max_tokens},
+        )
+    except BadRequestError as e:
+        if _is_unsupported_token_param_error(e, primary_key):
+            logger.info(
+                "Provider rejected %s for model %s; retrying with %s.",
+                primary_key, model, fallback_key,
+            )
+            response = client.chat.completions.create(
+                **base_kwargs,
+                **{fallback_key: config.max_tokens},
+            )
+        else:
+            raise
     return response.choices[0].message.content
+
+
+def _is_unsupported_token_param_error(err: BadRequestError, param: str) -> bool:
+    """Return True if *err* is the OpenAI "unsupported_parameter" error for *param*."""
+    body = getattr(err, "body", None) or {}
+    if isinstance(body, dict):
+        error = body.get("error") or {}
+        if isinstance(error, dict):
+            if error.get("param") == param and error.get("code") == "unsupported_parameter":
+                return True
+    # Fallback: message-based sniff for proxies that don't preserve structure
+    msg = str(err).lower()
+    return "unsupported parameter" in msg and param in msg
 
 
 def _call_llm_via_litellm(
