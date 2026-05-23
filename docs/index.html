@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CodeWiki</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.0.0/marked.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --secondary-color: #f1f5f9;
+            --text-color: #334155;
+            --border-color: #e2e8f0;
+            --hover-color: #f8fafc;
+            --code-bg: #f8fafc;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: #ffffff;
+        }
+        
+        .container {
+            display: flex;
+            min-height: 100vh;
+        }
+        
+        .sidebar {
+            width: 320px;
+            background-color: var(--secondary-color);
+            border-right: 1px solid var(--border-color);
+            padding: 20px;
+            overflow-y: auto;
+            position: fixed;
+            height: 100vh;
+        }
+        
+        .content {
+            flex: 1;
+            margin-left: 320px;
+            padding: 40px 60px;
+            max-width: calc(100% - 320px);
+        }
+        
+        .logo {
+            font-size: 20px;
+            font-weight: bold;
+            color: var(--primary-color);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .repo-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            background: white;
+            color: var(--primary-color);
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            margin-bottom: 20px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .repo-link:hover {
+            background: var(--hover-color);
+            border-color: var(--primary-color);
+        }
+        
+        .repo-info {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .repo-info h4 {
+            margin: 0 0 10px 0;
+            font-size: 12px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .info-row {
+            font-size: 11px;
+            color: #475569;
+            line-height: 1.6;
+            margin-bottom: 4px;
+        }
+        
+        .info-row strong {
+            font-weight: 600;
+            min-width: 80px;
+            display: inline-block;
+        }
+        
+        .nav-section {
+            margin-bottom: 20px;
+        }
+        
+        .nav-section h3 {
+            font-size: 12px;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+            padding: 8px 12px;
+        }
+        
+        .nav-item {
+            display: block;
+            padding: 10px 12px;
+            color: var(--text-color);
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            margin-bottom: 2px;
+            cursor: pointer;
+        }
+        
+        .nav-item:hover {
+            background-color: white;
+            color: var(--primary-color);
+        }
+        
+        .nav-item.active {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        
+        .nav-subsection {
+            margin-left: 15px;
+            margin-top: 5px;
+        }
+        
+        .nav-subsection .nav-item {
+            font-size: 13px;
+            padding: 8px 12px;
+        }
+        
+        .nav-subsection .nav-subsection {
+            margin-left: 20px;
+        }
+        
+        .nav-subsection .nav-subsection .nav-item {
+            font-size: 12px;
+            padding: 6px 10px;
+        }
+        
+        .markdown-content {
+            max-width: 100%;
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .markdown-content h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 1rem;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+        
+        .markdown-content h2 {
+            font-size: 2rem;
+            font-weight: 600;
+            color: #334155;
+            margin-top: 2.5rem;
+            margin-bottom: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-color);
+        }
+        
+        .markdown-content h3 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #475569;
+            margin-top: 2rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .markdown-content h4 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #475569;
+            margin-top: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .markdown-content p {
+            margin-bottom: 1rem;
+            color: #475569;
+        }
+        
+        .markdown-content ul, .markdown-content ol {
+            margin-bottom: 1rem;
+            padding-left: 2rem;
+        }
+        
+        .markdown-content li {
+            margin-bottom: 0.5rem;
+            color: #475569;
+        }
+        
+        .markdown-content code {
+            background-color: var(--code-bg);
+            padding: 0.2em 0.4em;
+            border-radius: 0.25rem;
+            font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+            color: #e11d48;
+        }
+        
+        .markdown-content pre {
+            background-color: var(--code-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            padding: 1.25rem;
+            overflow-x: auto;
+            margin-bottom: 1.5rem;
+            line-height: 1.5;
+        }
+        
+        .markdown-content pre code {
+            background-color: transparent;
+            padding: 0;
+            color: var(--text-color);
+            font-size: 0.875rem;
+        }
+        
+        .markdown-content blockquote {
+            border-left: 4px solid var(--primary-color);
+            padding-left: 1rem;
+            margin: 1.5rem 0;
+            font-style: italic;
+            color: #64748b;
+            background: var(--hover-color);
+            padding: 1rem 1rem 1rem 1.5rem;
+            border-radius: 0 0.5rem 0.5rem 0;
+        }
+        
+        .markdown-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+        }
+        
+        .markdown-content th, .markdown-content td {
+            border: 1px solid var(--border-color);
+            padding: 0.75rem;
+            text-align: left;
+        }
+        
+        .markdown-content th {
+            background-color: var(--secondary-color);
+            font-weight: 600;
+            color: var(--text-color);
+        }
+        
+        .markdown-content tr:hover {
+            background-color: var(--hover-color);
+        }
+        
+        .markdown-content a {
+            color: var(--primary-color);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s;
+        }
+        
+        .markdown-content a:hover {
+            border-bottom-color: var(--primary-color);
+        }
+        
+        .markdown-content img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 0.5rem;
+            margin: 1rem 0;
+        }
+        
+        .mermaid {
+            margin: 2rem 0;
+            padding: 1.5rem;
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            overflow-x: auto;
+        }
+        
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 400px;
+            color: #64748b;
+        }
+        
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid var(--secondary-color);
+            border-top-color: var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .error {
+            padding: 2rem;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 0.5rem;
+            color: #991b1b;
+            margin: 2rem 0;
+        }
+        
+        .error h3 {
+            margin-bottom: 0.5rem;
+        }
+        
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 100%;
+                position: relative;
+                height: auto;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+            }
+            
+            .content {
+                margin-left: 0;
+                padding: 20px;
+                max-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <nav class="sidebar">
+            <a href="https://github.com/FSoft-AI4Code/CodeWiki" class="repo-link" target="_blank">🔗 View Repository</a>
+            <div class="logo">📚 CodeWiki</div>
+            
+            <div class="repo-info" id="repo-info" style="display: block;">
+                <h4>Generation Info</h4>
+                <div id="info-content"><div class="info-row"><strong>Model:</strong> claude-haiku-4-5</div>
+                <div class="info-row"><strong>Generated:</strong> 2026-05-23</div>
+                <div class="info-row"><strong>Components:</strong> 438</div>
+                <div class="info-row"><strong>Max Depth:</strong> 3</div></div>
+            </div>
+            
+            <div class="nav-section">
+                <div class="nav-item active" data-file="overview.md">
+                    📄 Overview
+                </div>
+            </div>
+            
+            <div id="navigation"></div>
+        </nav>
+        
+        <main class="content">
+            <div id="loading" class="loading">
+                <div class="loading-spinner"></div>
+                <p>Loading documentation...</p>
+            </div>
+            
+            <div id="content" class="markdown-content" style="display: none;"></div>
+        </main>
+    </div>
+    
+    <script>
+        // Embedded configuration
+        const CONFIG = {};
+        const MODULE_TREE = {
+  "cli_core": {
+    "path": "codewiki/cli",
+    "components": [
+      "codewiki/cli/adapters/doc_generator.py::CLIDocumentationGenerator",
+      "codewiki/cli/config_manager.py::ConfigManager",
+      "codewiki/cli/git_manager.py::GitManager",
+      "codewiki/cli/html_generator.py::HTMLGenerator"
+    ],
+    "children": {}
+  },
+  "cli_models": {
+    "path": "codewiki/cli/models",
+    "components": [
+      "codewiki/cli/models/config.py::Configuration",
+      "codewiki/cli/models/config.py::AgentInstructions",
+      "codewiki/cli/models/job.py::JobStatus",
+      "codewiki/cli/models/job.py::LLMConfig",
+      "codewiki/cli/models/job.py::DocumentationJob",
+      "codewiki/cli/models/job.py::GenerationOptions",
+      "codewiki/cli/models/job.py::JobStatistics"
+    ],
+    "children": {}
+  },
+  "cli_utils": {
+    "path": "codewiki/cli/utils",
+    "components": [
+      "codewiki/cli/utils/logging.py::CLILogger",
+      "codewiki/cli/utils/progress.py::ProgressTracker",
+      "codewiki/cli/utils/progress.py::ModuleProgressBar"
+    ],
+    "children": {}
+  },
+  "llm_backends": {
+    "path": "codewiki/src/be",
+    "components": [
+      "codewiki/src/be/backend.py::LLMBackend",
+      "codewiki/src/be/caw_backend.py::CawBackend",
+      "codewiki/src/be/pydantic_ai_backend.py::PydanticAIBackend",
+      "codewiki/src/be/llm_services.py::CompatibleOpenAIModel"
+    ],
+    "children": {}
+  },
+  "agent_tools": {
+    "path": "codewiki/src/be/agent_tools",
+    "components": [
+      "codewiki/src/be/agent_tools/deps.py::CodeWikiDeps",
+      "codewiki/src/be/agent_tools/str_replace_editor.py::EditTool",
+      "codewiki/src/be/agent_tools/str_replace_editor.py::WindowExpander",
+      "codewiki/src/be/agent_tools/str_replace_editor.py::Filemap",
+      "codewiki/src/be/caw_toolkit.py::CawToolKit"
+    ],
+    "children": {}
+  },
+  "documentation_generation": {
+    "path": "codewiki/src/be/documentation_generator.py",
+    "components": [
+      "codewiki/src/be/documentation_generator.py::DocumentationGenerator"
+    ],
+    "children": {}
+  },
+  "dependency_analysis_services": {
+    "path": "codewiki/src/be/dependency_analyzer/analysis",
+    "components": [
+      "codewiki/src/be/dependency_analyzer/analysis/analysis_service.py::AnalysisService",
+      "codewiki/src/be/dependency_analyzer/analysis/call_graph_analyzer.py::CallGraphAnalyzer",
+      "codewiki/src/be/dependency_analyzer/analysis/repo_analyzer.py::RepoAnalyzer"
+    ],
+    "children": {}
+  },
+  "language_analyzers": {
+    "path": "codewiki/src/be/dependency_analyzer/analyzers",
+    "components": [
+      "codewiki/src/be/dependency_analyzer/analyzers/c.py::TreeSitterCAnalyzer",
+      "codewiki/src/be/dependency_analyzer/analyzers/cpp.py::TreeSitterCppAnalyzer",
+      "codewiki/src/be/dependency_analyzer/analyzers/csharp.py::TreeSitterCSharpAnalyzer",
+      "codewiki/src/be/dependency_analyzer/analyzers/java.py::TreeSitterJavaAnalyzer",
+      "codewiki/src/be/dependency_analyzer/analyzers/javascript.py::TreeSitterJSAnalyzer",
+      "codewiki/src/be/dependency_analyzer/analyzers/kotlin.py::TreeSitterKotlinAnalyzer",
+      "codewiki/src/be/dependency_analyzer/analyzers/php.py::NamespaceResolver",
+      "codewiki/src/be/dependency_analyzer/analyzers/php.py::TreeSitterPHPAnalyzer",
+      "codewiki/src/be/dependency_analyzer/analyzers/python.py::PythonASTAnalyzer",
+      "codewiki/src/be/dependency_analyzer/analyzers/typescript.py::TreeSitterTSAnalyzer"
+    ],
+    "children": {
+      "c_analyzer": {
+        "components": [
+          "codewiki/src/be/dependency_analyzer/analyzers/c.py::TreeSitterCAnalyzer"
+        ],
+        "children": {}
+      },
+      "cpp_analyzer": {
+        "components": [
+          "codewiki/src/be/dependency_analyzer/analyzers/cpp.py::TreeSitterCppAnalyzer"
+        ],
+        "children": {}
+      },
+      "csharp_analyzer": {
+        "components": [
+          "codewiki/src/be/dependency_analyzer/analyzers/csharp.py::TreeSitterCSharpAnalyzer"
+        ],
+        "children": {}
+      },
+      "java_analyzer": {
+        "components": [
+          "codewiki/src/be/dependency_analyzer/analyzers/java.py::TreeSitterJavaAnalyzer"
+        ],
+        "children": {}
+      },
+      "javascript_analyzer": {
+        "components": [
+          "codewiki/src/be/dependency_analyzer/analyzers/javascript.py::TreeSitterJSAnalyzer"
+        ],
+        "children": {}
+      },
+      "kotlin_analyzer": {
+        "components": [
+          "codewiki/src/be/dependency_analyzer/analyzers/kotlin.py::TreeSitterKotlinAnalyzer"
+        ],
+        "children": {}
+      },
+      "php_analyzer": {
+        "components": [
+          "codewiki/src/be/dependency_analyzer/analyzers/php.py::NamespaceResolver",
+          "codewiki/src/be/dependency_analyzer/analyzers/php.py::TreeSitterPHPAnalyzer"
+        ],
+        "children": {}
+      },
+      "python_analyzer": {
+        "components": [
+          "codewiki/src/be/dependency_analyzer/analyzers/python.py::PythonASTAnalyzer"
+        ],
+        "children": {}
+      },
+      "typescript_analyzer": {
+        "components": [
+          "codewiki/src/be/dependency_analyzer/analyzers/typescript.py::TreeSitterTSAnalyzer"
+        ],
+        "children": {}
+      }
+    }
+  },
+  "dependency_graph_construction": {
+    "path": "codewiki/src/be/dependency_analyzer",
+    "components": [
+      "codewiki/src/be/dependency_analyzer/ast_parser.py::DependencyParser",
+      "codewiki/src/be/dependency_analyzer/dependency_graphs_builder.py::DependencyGraphBuilder"
+    ],
+    "children": {}
+  },
+  "dependency_analyzer_models": {
+    "path": "codewiki/src/be/dependency_analyzer/models",
+    "components": [
+      "codewiki/src/be/dependency_analyzer/models/analysis.py::NodeSelection",
+      "codewiki/src/be/dependency_analyzer/models/analysis.py::AnalysisResult",
+      "codewiki/src/be/dependency_analyzer/models/core.py::Node",
+      "codewiki/src/be/dependency_analyzer/models/core.py::Repository",
+      "codewiki/src/be/dependency_analyzer/models/core.py::CallRelationship"
+    ],
+    "children": {}
+  },
+  "dependency_analyzer_utils": {
+    "path": "codewiki/src/be/dependency_analyzer/utils",
+    "components": [
+      "codewiki/src/be/dependency_analyzer/utils/logging_config.py::ColoredFormatter"
+    ],
+    "children": {}
+  },
+  "frontend_web_app": {
+    "path": "codewiki/src/fe",
+    "components": [
+      "codewiki/src/fe/background_worker.py::BackgroundWorker",
+      "codewiki/src/fe/cache_manager.py::CacheManager",
+      "codewiki/src/fe/config.py::WebAppConfig",
+      "codewiki/src/fe/github_processor.py::GitHubRepoProcessor",
+      "codewiki/src/fe/routes.py::WebRoutes",
+      "codewiki/src/fe/template_utils.py::StringTemplateLoader"
+    ],
+    "children": {}
+  },
+  "frontend_models": {
+    "path": "codewiki/src/fe/models.py",
+    "components": [
+      "codewiki/src/fe/models.py::JobStatus",
+      "codewiki/src/fe/models.py::CacheEntry",
+      "codewiki/src/fe/models.py::RepositorySubmission",
+      "codewiki/src/fe/models.py::JobStatusResponse"
+    ],
+    "children": {}
+  },
+  "shared_config_and_utils": {
+    "path": "codewiki/src",
+    "components": [
+      "codewiki/src/config.py::Config",
+      "codewiki/src/utils.py::FileManager"
+    ],
+    "children": {}
+  }
+};
+        const METADATA = {
+  "generation_info": {
+    "timestamp": "2026-05-23T16:36:38.830589",
+    "main_model": "claude-haiku-4-5",
+    "generator_version": "1.0.1",
+    "repo_path": "/Users/anhnh2220.re/Documents/code/CodeWiki",
+    "commit_id": null
+  },
+  "statistics": {
+    "total_components": 438,
+    "leaf_nodes": 114,
+    "max_depth": 3
+  },
+  "files_generated": [
+    "overview.md",
+    "module_tree.json",
+    "first_module_tree.json",
+    "dependency_graph_construction.md",
+    "csharp_analyzer_fixed.md",
+    "python_analyzer.md",
+    "typescript_analyzer.md",
+    "javascript_analyzer.md",
+    "c_analyzer.md",
+    "php_analyzer.md",
+    "documentation_generation.md",
+    "shared_config_and_utils.md",
+    "frontend_web_app.md",
+    "cli_core.md",
+    "cpp_analyzer.md",
+    "cli_models.md",
+    "dependency_analyzer_utils.md",
+    "c_analyzer_final.md",
+    "frontend_models.md",
+    "cli_utils.md",
+    "kotlin_analyzer.md",
+    "java_analyzer.md",
+    "dependency_analyzer_models.md",
+    "csharp_analyzer_v2.md",
+    "llm_backends.md",
+    "csharp_analyzer.md",
+    "language_analyzers.md",
+    "dependency_analysis_services.md",
+    "c_analyzer_fixed.md"
+  ]
+};
+        const DOCS_BASE_PATH = '';
+        
+        // Initialize marked with options
+        marked.setOptions({
+            breaks: true,
+            gfm: true,
+            headerIds: true,
+            mangle: false
+        });
+        
+        // Initialize mermaid
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: 'default',
+            themeVariables: {
+                primaryColor: '#2563eb',
+                primaryTextColor: '#334155',
+                primaryBorderColor: '#e2e8f0',
+                lineColor: '#64748b',
+                secondaryColor: '#f1f5f9',
+                tertiaryColor: '#f8fafc'
+            },
+            flowchart: { htmlLabels: true, curve: 'basis' },
+            sequence: { mirrorActors: true, useMaxWidth: true }
+        });
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            if (MODULE_TREE) {
+                buildNavigation();
+            }
+            
+            // Load overview by default
+            loadDocument('overview.md');
+        });
+        
+        function buildNavigation() {
+            const nav = document.getElementById('navigation');
+            let html = '';
+            
+            for (const [key, data] of Object.entries(MODULE_TREE)) {
+                html += buildNavItem(key, data, 0);
+            }
+            
+            nav.innerHTML = html;
+            
+            // Add click handlers
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const file = this.getAttribute('data-file');
+                    if (file) {
+                        loadDocument(file);
+                        
+                        // Update active state
+                        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                        this.classList.add('active');
+                    }
+                });
+            });
+        }
+        
+        function buildNavItem(key, data, depth) {
+            const indentClass = depth > 0 ? 'nav-subsection' : 'nav-section';
+            const fileName = `${key}.md`;
+            
+            let html = `<div class="${indentClass}">`;
+            
+            if (data.components && data.components.length > 0) {
+                html += `<div class="nav-item" data-file="${fileName}">
+                    ${formatNavTitle(key)}
+                </div>`;
+            } else if (depth === 0) {
+                html += `<h3>${formatNavTitle(key)}</h3>`;
+            } else {
+                html += `<div class="nav-item" data-file="${fileName}">
+                    ${formatNavTitle(key)}
+                </div>`;
+            }
+            
+            if (data.children) {
+                for (const [childKey, childData] of Object.entries(data.children)) {
+                    html += buildNavItem(childKey, childData, depth + 1);
+                }
+            }
+            
+            html += '</div>';
+            return html;
+        }
+        
+        function formatNavTitle(key) {
+            return key
+                .replace(/_/g, ' ')
+                .split(' ')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(' ');
+        }
+        
+        async function loadDocument(filename) {
+            const loading = document.getElementById('loading');
+            const content = document.getElementById('content');
+            
+            loading.style.display = 'flex';
+            content.style.display = 'none';
+            
+            try {
+                const docPath = DOCS_BASE_PATH ? `${DOCS_BASE_PATH}/${filename}` : filename;
+                const response = await fetch(docPath);
+                if (!response.ok) {
+                    throw new Error(`Failed to load ${filename}`);
+                }
+                
+                const markdown = await response.text();
+                const html = await renderMarkdown(markdown);
+                
+                content.innerHTML = html;
+                loading.style.display = 'none';
+                content.style.display = 'block';
+                
+                // Render mermaid diagrams
+                await renderMermaidDiagrams();
+                
+                // Add click handlers for internal markdown links
+                setupMarkdownLinks();
+                
+                // Scroll to top
+                window.scrollTo(0, 0);
+                
+            } catch (error) {
+                console.error('Error loading document:', error);
+                showError(`Failed to load document: ${filename}`);
+            }
+        }
+        
+        function setupMarkdownLinks() {
+            // Use event delegation to intercept all link clicks in markdown content
+            const content = document.getElementById('content');
+            
+            // Remove any existing listener to avoid duplicates
+            const oldListener = content._markdownLinkListener;
+            if (oldListener) {
+                content.removeEventListener('click', oldListener);
+            }
+            
+            // Create new listener
+            const listener = function(e) {
+                // Find the closest anchor tag
+                const link = e.target.closest('a');
+                if (!link) return;
+                
+                const href = link.getAttribute('href');
+                if (!href) return;
+                
+                // Check if it's a markdown file link (ends with .md or .MD)
+                // Also handle cases with anchors like "file.md#section"
+                const mdMatch = href.match(/([^\/]*\.md(?:#.*)?$)/i);
+                if (mdMatch) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // Extract filename without anchor
+                    const fullMatch = mdMatch[1];
+                    const filename = fullMatch.split('#')[0];
+                    
+                    // Load the document
+                    loadDocument(filename);
+                    
+                    // Update active state in sidebar
+                    document.querySelectorAll('.nav-item').forEach(item => {
+                        if (item.getAttribute('data-file') === filename) {
+                            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                            item.classList.add('active');
+                        }
+                    });
+                }
+            };
+            
+            // Store listener reference for cleanup
+            content._markdownLinkListener = listener;
+            
+            // Attach listener
+            content.addEventListener('click', listener);
+        }
+        
+        async function renderMarkdown(markdown) {
+            // Convert markdown to HTML using marked
+            let html = marked.parse(markdown);
+            
+            // Process mermaid code blocks
+            html = html.replace(
+                /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g,
+                (match, code) => {
+                    const decodedCode = code
+                        .replace(/&lt;/g, '<')
+                        .replace(/&gt;/g, '>')
+                        .replace(/&amp;/g, '&')
+                        .replace(/&quot;/g, '"')
+                        .replace(/&#39;/g, "'");
+                    return `<div class="mermaid">${decodedCode}</div>`;
+                }
+            );
+            
+            return html;
+        }
+        
+        async function renderMermaidDiagrams() {
+            const mermaidElements = document.querySelectorAll('.mermaid');
+            
+            for (let i = 0; i < mermaidElements.length; i++) {
+                const element = mermaidElements[i];
+                const id = `mermaid-${Date.now()}-${i}`;
+                element.id = id;
+                
+                try {
+                    const { svg } = await mermaid.render(id + '-svg', element.textContent);
+                    element.innerHTML = svg;
+                } catch (error) {
+                    console.error('Mermaid rendering error:', error);
+                    element.innerHTML = `<pre>Error rendering diagram:\n${element.textContent}</pre>`;
+                }
+            }
+        }
+        
+        function showError(message) {
+            const loading = document.getElementById('loading');
+            const content = document.getElementById('content');
+            
+            loading.style.display = 'none';
+            content.style.display = 'block';
+            content.innerHTML = `
+                <div class="error">
+                    <h3>⚠️ Error</h3>
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
+

@@ -19,7 +19,12 @@
   <a href="#quick-start"><strong>Quick Start</strong></a> •
   <a href="#cli-commands"><strong>CLI Commands</strong></a> •
   <a href="#documentation-output"><strong>Output Structure</strong></a> •
+  <a href="./docs/index.html"><strong>Repo Docs</strong></a> •
   <a href="https://arxiv.org/abs/2510.24428"><strong>Paper</strong></a>
+</p>
+
+<p align="center">
+  📚 <strong>CodeWiki documents itself</strong> — browse the generated documentation for this repository at <a href="./docs/index.html"><code>docs/index.html</code></a> (open in a browser, or visit the hosted GitHub Pages site).
 </p>
 
 <p align="center">
@@ -317,6 +322,8 @@ Generated documentation includes both **textual descriptions** and **visual arti
 └── index.html               # Interactive viewer (with --github-pages)
 ```
 
+> **See it in action:** This repository's own docs are checked in under [`./docs/`](./docs/) — open [`./docs/index.html`](./docs/index.html) in a browser for the interactive viewer, or start from [`./docs/overview.md`](./docs/overview.md).
+
 ---
 
 ## Experimental Results
@@ -387,6 +394,7 @@ CodeWiki employs a three-stage process for comprehensive documentation generatio
 ## Additional Resources
 
 ### Documentation & Guides
+- **[This Repo's Generated Docs](./docs/index.html)** - Interactive documentation for CodeWiki itself, produced by CodeWiki (start at [`docs/overview.md`](./docs/overview.md))
 - **[MCP Server](codewiki/mcp/)** - Model Context Protocol server for IDE integrations
 - **[Docker Deployment](docker/DOCKER_README.md)** - Containerized deployment instructions
 - **[Development Guide](DEVELOPMENT.md)** - Project structure, architecture, and contributing guidelines

@@ -1,5 +1,6 @@
 import asyncio
 import re
+import sys
 import threading
 from pathlib import Path
 from typing import List, Tuple
@@ -143,7 +144,11 @@ def extract_mermaid_blocks(content: str) -> List[Tuple[int, str]]:
     return mermaid_blocks
 
 
-_PYTHONMONKEY_BROKEN = False
+# PythonMonkey 1.3.1 only supports Python 3.8–3.11. On 3.12+ it still imports,
+# but its SpiderMonkey cleanup runs on the wrong thread during _Py_Finalize and
+# segfaults at interpreter shutdown (macOS crash dialog after a successful run).
+# Skip it proactively so SpiderMonkey is never loaded into the process.
+_PYTHONMONKEY_BROKEN = sys.version_info >= (3, 12)
 
 
 async def _try_pythonmonkey_parse(diagram_content: str) -> str | None:
@@ -157,7 +162,6 @@ async def _try_pythonmonkey_parse(diagram_content: str) -> str | None:
     if _PYTHONMONKEY_BROKEN:
         return None
 
-    import sys
     import os
 
     try:
