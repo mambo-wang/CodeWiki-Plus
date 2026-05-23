@@ -205,8 +205,15 @@ class ConfigManager:
         if azure_deployment is not None:
             self._config.azure_deployment = azure_deployment
 
-        # Validate configuration (only if base fields are set)
-        if self._config.base_url and self._config.main_model and self._config.cluster_model:
+        # Validate configuration whenever the minimum required fields are set.
+        # Caw providers only need main_model; API providers need base_url +
+        # cluster_model on top of that.  The validate() method itself routes
+        # by provider, so we only gate on whether enough is set to validate.
+        from codewiki.src.be.backend import is_caw_provider
+        if is_caw_provider(self._config.provider):
+            if self._config.main_model:
+                self._config.validate()
+        elif self._config.base_url and self._config.main_model and self._config.cluster_model:
             self._config.validate()
         
         # Save API key to keyring, falling back to file
@@ -268,17 +275,22 @@ class ConfigManager:
     def is_configured(self) -> bool:
         """
         Check if configuration is complete and valid.
-        
+
+        Subscription-mode providers (claude-code, codex) do not require an
+        API key — they authenticate via the underlying CLI's OAuth.
+
         Returns:
             True if configured, False otherwise
         """
         if self._config is None:
             return False
-        
-        # Check if API key is set
-        if self.get_api_key() is None:
-            return False
-        
+
+        from codewiki.src.be.backend import is_caw_provider
+        if not is_caw_provider(self._config.provider):
+            # Check if API key is set
+            if self.get_api_key() is None:
+                return False
+
         # Check if config is complete
         return self._config.is_complete()
     

@@ -141,10 +141,17 @@ class Configuration:
     def validate(self):
         """
         Validate all configuration fields.
-        
+
+        Subscription-mode providers (claude-code, codex) authenticate via the
+        underlying CLI's OAuth and do not require a base URL or fallback model.
+
         Raises:
             ConfigurationError: If validation fails
         """
+        from codewiki.src.be.backend import is_caw_provider
+        if is_caw_provider(self.provider):
+            validate_model_name(self.main_model)
+            return
         validate_url(self.base_url)
         validate_model_name(self.main_model)
         validate_model_name(self.cluster_model)
@@ -204,10 +211,18 @@ class Configuration:
         )
     
     def is_complete(self) -> bool:
-        """Check if all required fields are set."""
+        """Check if all required fields are set.
+
+        Subscription-mode providers (claude-code, codex) only require
+        ``main_model``; ``base_url``, ``cluster_model`` and ``fallback_model``
+        are unused.
+        """
+        from codewiki.src.be.backend import is_caw_provider
+        if is_caw_provider(self.provider):
+            return bool(self.main_model)
         return bool(
-            self.base_url and 
-            self.main_model and 
+            self.base_url and
+            self.main_model and
             self.cluster_model and
             self.fallback_model
         )

@@ -85,8 +85,14 @@ def config_group():
 )
 @click.option(
     "--provider",
-    type=click.Choice(['openai-compatible', 'anthropic', 'bedrock', 'azure-openai'], case_sensitive=False),
-    help="LLM provider type (default: openai-compatible)"
+    type=click.Choice(
+        ['openai-compatible', 'anthropic', 'bedrock', 'azure-openai', 'claude-code', 'codex'],
+        case_sensitive=False,
+    ),
+    help=(
+        "LLM provider type (default: openai-compatible). "
+        "Use 'claude-code' or 'codex' to run on a CLI subscription instead of an API key."
+    ),
 )
 @click.option(
     "--aws-region",
@@ -127,24 +133,33 @@ def config_set(
       • Linux: Secret Service (GNOME Keyring, KWallet)
     
     Examples:
-    
+
     \b
-    # Set all configuration
+    # Set all configuration (API mode)
     $ codewiki config set --api-key sk-abc123 --base-url https://api.anthropic.com \\
         --main-model claude-sonnet-4 --cluster-model claude-sonnet-4 --fallback-model glm-4p5
-    
+
+    \b
+    # Subscription mode (Claude Code) — no API key needed,
+    # authenticate via 'claude login' on the host first
+    $ codewiki config set --provider claude-code --main-model claude-sonnet-4-5
+
+    \b
+    # Subscription mode (Codex)
+    $ codewiki config set --provider codex --main-model gpt-5.2-codex
+
     \b
     # Update only API key
     $ codewiki config set --api-key sk-new-key
-    
+
     \b
     # Set max tokens for LLM response
     $ codewiki config set --max-tokens 16384
-    
+
     \b
     # Set all max token settings
     $ codewiki config set --max-tokens 32768 --max-token-per-module 40000 --max-token-per-leaf-module 20000
-    
+
     \b
     # Set max depth for hierarchical decomposition
     $ codewiki config set --max-depth 3
@@ -354,26 +369,36 @@ def config_show(output_json: bool):
             click.echo("━" * 40)
             click.echo()
             
+            from codewiki.src.be.backend import is_caw_provider
+            caw_mode = bool(config) and is_caw_provider(config.provider)
+
             click.secho("Credentials", fg="cyan", bold=True)
-            if api_key:
+            if caw_mode:
+                cli_name = "claude" if config.provider == "claude-code" else "codex"
+                click.secho(
+                    f"  Subscription mode: authenticate via '{cli_name} login' (no API key needed)",
+                    fg="cyan",
+                )
+            elif api_key:
                 storage = "system keychain" if manager.keyring_available else "encrypted file"
                 click.echo(f"  API Key:          {mask_api_key(api_key)} (in {storage})")
             else:
                 click.secho("  API Key:          Not set", fg="yellow")
-            
+
             click.echo()
             click.secho("API Settings", fg="cyan", bold=True)
             if config:
-                click.echo(f"  Base URL:         {config.base_url or 'Not set'}")
-                click.echo(f"  Main Model:       {config.main_model or 'Not set'}")
-                click.echo(f"  Cluster Model:    {config.cluster_model or 'Not set'}")
-                click.echo(f"  Fallback Model:   {config.fallback_model or 'Not set'}")
                 click.echo(f"  Provider:         {config.provider}")
-                if config.provider == "bedrock":
-                    click.echo(f"  AWS Region:       {config.aws_region}")
-                elif config.provider == "azure-openai":
-                    click.echo(f"  API Version:      {config.api_version}")
-                    click.echo(f"  Azure Deployment: {config.azure_deployment or 'Not set'}")
+                click.echo(f"  Main Model:       {config.main_model or 'Not set'}")
+                if not caw_mode:
+                    click.echo(f"  Base URL:         {config.base_url or 'Not set'}")
+                    click.echo(f"  Cluster Model:    {config.cluster_model or 'Not set'}")
+                    click.echo(f"  Fallback Model:   {config.fallback_model or 'Not set'}")
+                    if config.provider == "bedrock":
+                        click.echo(f"  AWS Region:       {config.aws_region}")
+                    elif config.provider == "azure-openai":
+                        click.echo(f"  API Version:      {config.api_version}")
+                        click.echo(f"  Azure Deployment: {config.azure_deployment or 'Not set'}")
             else:
                 click.secho("  Not configured", fg="yellow")
             
@@ -479,75 +504,129 @@ def config_validate(quick: bool, verbose: bool):
         else:
             click.secho("✓ Configuration file exists", fg="green")
         
-        # Step 2: Check API key
+        # Load config early so we know the provider for the rest of the checks.
+        config = manager.get_config()
+        from codewiki.src.be.backend import is_caw_provider
+        caw_mode = bool(config) and is_caw_provider(config.provider)
+
+        # Step 2: Check API key (skipped for subscription providers)
         if verbose:
             click.echo()
             click.echo("[2/5] Checking API key...")
-            storage = "system keychain" if manager.keyring_available else "encrypted file"
-            click.echo(f"      Storage: {storage}")
-        
-        api_key = manager.get_api_key()
-        if not api_key:
-            click.secho("✗ API key missing", fg="red")
-            click.echo()
-            click.echo("Error: API key not set. Run 'codewiki config set --api-key <key>'")
-            sys.exit(EXIT_CONFIG_ERROR)
-        
-        if verbose:
-            click.secho(f"      ✓ API key retrieved", fg="green")
-            click.secho(f"      ✓ Length: {len(api_key)} characters", fg="green")
+
+        if caw_mode:
+            if verbose:
+                click.secho("      ✓ API key not required (subscription mode)", fg="green")
+            else:
+                click.secho("✓ API key not required (subscription mode)", fg="green")
         else:
-            click.secho("✓ API key present (stored in keychain)", fg="green")
-        
-        # Step 3: Check base URL
-        config = manager.get_config()
+            if verbose:
+                storage = "system keychain" if manager.keyring_available else "encrypted file"
+                click.echo(f"      Storage: {storage}")
+
+            api_key = manager.get_api_key()
+            if not api_key:
+                click.secho("✗ API key missing", fg="red")
+                click.echo()
+                click.echo("Error: API key not set. Run 'codewiki config set --api-key <key>'")
+                sys.exit(EXIT_CONFIG_ERROR)
+
+            if verbose:
+                click.secho(f"      ✓ API key retrieved", fg="green")
+                click.secho(f"      ✓ Length: {len(api_key)} characters", fg="green")
+            else:
+                click.secho("✓ API key present (stored in keychain)", fg="green")
+
+        # Step 3: Check base URL (skipped for subscription providers)
         if verbose:
             click.echo()
             click.echo("[3/5] Checking base URL...")
-            click.echo(f"      URL: {config.base_url}")
-        
-        if not config.base_url:
-            click.secho("✗ Base URL not set", fg="red")
-            sys.exit(EXIT_CONFIG_ERROR)
-        
-        try:
-            validate_url(config.base_url)
+
+        if caw_mode:
             if verbose:
-                click.secho("      ✓ Valid HTTPS URL", fg="green")
+                click.secho("      ✓ Base URL not required (subscription mode)", fg="green")
             else:
-                click.secho(f"✓ Base URL valid: {config.base_url}", fg="green")
-        except ConfigurationError as e:
-            click.secho(f"✗ Invalid base URL: {e.message}", fg="red")
-            sys.exit(EXIT_CONFIG_ERROR)
+                click.secho("✓ Base URL not required (subscription mode)", fg="green")
+        else:
+            if verbose:
+                click.echo(f"      URL: {config.base_url}")
+
+            if not config.base_url:
+                click.secho("✗ Base URL not set", fg="red")
+                sys.exit(EXIT_CONFIG_ERROR)
+
+            try:
+                validate_url(config.base_url)
+                if verbose:
+                    click.secho("      ✓ Valid HTTPS URL", fg="green")
+                else:
+                    click.secho(f"✓ Base URL valid: {config.base_url}", fg="green")
+            except ConfigurationError as e:
+                click.secho(f"✗ Invalid base URL: {e.message}", fg="red")
+                sys.exit(EXIT_CONFIG_ERROR)
         
         # Step 4: Check models
         if verbose:
             click.echo()
             click.echo("[4/5] Checking model configuration...")
             click.echo(f"      Main model: {config.main_model}")
-            click.echo(f"      Cluster model: {config.cluster_model}")
-            click.echo(f"      Fallback model: {config.fallback_model}")
-        
-        if not config.main_model or not config.cluster_model or not config.fallback_model:
-            click.secho("✗ Models not configured", fg="red")
-            sys.exit(EXIT_CONFIG_ERROR)
-        
-        if verbose:
-            click.secho("      ✓ Models configured", fg="green")
+            if not caw_mode:
+                click.echo(f"      Cluster model: {config.cluster_model}")
+                click.echo(f"      Fallback model: {config.fallback_model}")
+
+        if caw_mode:
+            if not config.main_model:
+                click.secho("✗ Main model not configured", fg="red")
+                sys.exit(EXIT_CONFIG_ERROR)
+            if verbose:
+                click.secho("      ✓ Main model configured", fg="green")
+            else:
+                click.secho(f"✓ Main model configured: {config.main_model}", fg="green")
         else:
-            click.secho(f"✓ Main model configured: {config.main_model}", fg="green")
-            click.secho(f"✓ Cluster model configured: {config.cluster_model}", fg="green")
-            click.secho(f"✓ Fallback model configured: {config.fallback_model}", fg="green")
-        
-        # Warn about non-top-tier cluster model
-        if not is_top_tier_model(config.cluster_model):
-            click.secho(
-                "⚠️  Cluster model is not top-tier. Consider using claude-sonnet-4 or gpt-4.",
-                fg="yellow"
-            )
-        
+            if not config.main_model or not config.cluster_model or not config.fallback_model:
+                click.secho("✗ Models not configured", fg="red")
+                sys.exit(EXIT_CONFIG_ERROR)
+
+            if verbose:
+                click.secho("      ✓ Models configured", fg="green")
+            else:
+                click.secho(f"✓ Main model configured: {config.main_model}", fg="green")
+                click.secho(f"✓ Cluster model configured: {config.cluster_model}", fg="green")
+                click.secho(f"✓ Fallback model configured: {config.fallback_model}", fg="green")
+
+            # Warn about non-top-tier cluster model
+            if not is_top_tier_model(config.cluster_model):
+                click.secho(
+                    "⚠️  Cluster model is not top-tier. Consider using claude-sonnet-4 or gpt-4.",
+                    fg="yellow"
+                )
+
         # Step 5: API connectivity test (unless --quick)
-        if not quick:
+        if caw_mode:
+            if verbose:
+                click.echo()
+                click.echo("[5/5] Checking CLI availability...")
+
+            import shutil
+            cli_name = "claude" if config.provider == "claude-code" else "codex"
+            cli_path = shutil.which(cli_name)
+            if not cli_path:
+                click.secho(f"✗ {cli_name} CLI not found in PATH", fg="red")
+                click.echo(
+                    f"\nInstall the {cli_name} CLI and run '{cli_name} login' "
+                    f"to authenticate, then re-run this command."
+                )
+                sys.exit(EXIT_CONFIG_ERROR)
+
+            if verbose:
+                click.secho(f"      ✓ {cli_name} CLI found at {cli_path}", fg="green")
+                click.secho(
+                    f"      ↳ Ensure '{cli_name} login' has been run on this host.",
+                    fg="cyan",
+                )
+            else:
+                click.secho(f"✓ {cli_name} CLI available (run '{cli_name} login' if not yet authenticated)", fg="green")
+        elif not quick:
             if verbose:
                 click.echo()
                 click.echo("[5/5] Testing API connectivity...")

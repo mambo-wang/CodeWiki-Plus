@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 # Local imports
 from codewiki.src.be.dependency_analyzer import DependencyGraphBuilder
-from codewiki.src.be.llm_services import call_llm
+from codewiki.src.be.backend import LLMBackend, get_backend
 from codewiki.src.be.prompt_template import (
     REPO_OVERVIEW_PROMPT,
     MODULE_OVERVIEW_PROMPT,
@@ -23,17 +23,16 @@ from codewiki.src.config import (
     OVERVIEW_FILENAME
 )
 from codewiki.src.utils import file_manager
-from codewiki.src.be.agent_orchestrator import AgentOrchestrator
 
 
 class DocumentationGenerator:
     """Main documentation generation orchestrator."""
-    
-    def __init__(self, config: Config, commit_id: str = None):
+
+    def __init__(self, config: Config, commit_id: str = None, backend: LLMBackend = None):
         self.config = config
         self.commit_id = commit_id
         self.graph_builder = DependencyGraphBuilder(config)
-        self.agent_orchestrator = AgentOrchestrator(config)
+        self.backend: LLMBackend = backend or get_backend(config)
     
     def create_documentation_metadata(self, working_dir: str, components: Dict[str, Any], num_leaf_nodes: int):
         """Create a metadata file with documentation generation information."""
@@ -113,13 +112,44 @@ class DocumentationGenerator:
             module_info = module_info["children"]
 
         for child_name, child_info in module_info.items():
-            if os.path.exists(os.path.join(working_dir, f"{child_name}.md")):
-                child_info["docs"] = file_manager.load_text(os.path.join(working_dir, f"{child_name}.md"))
+            child_docs_path = self._resolve_child_docs_path(working_dir, child_name)
+            if child_docs_path is not None:
+                child_info["docs"] = file_manager.load_text(child_docs_path)
             else:
-                logger.warning(f"Module docs not found at {os.path.join(working_dir, f"{child_name}.md")}")
+                logger.warning(f"Module docs not found at {os.path.join(working_dir, f'{child_name}.md')}")
                 child_info["docs"] = ""
 
         return processed_module_tree
+
+    @staticmethod
+    def _resolve_child_docs_path(working_dir: str, child_name: str) -> str | None:
+        """Resolve the on-disk path for a child module's .md doc.
+
+        Sub-agents sometimes save files under a sanitized variant of the
+        module name (spaces → underscores, lowercased, etc.) rather than the
+        exact key in the module tree. Try a small set of common variants
+        before giving up so the overview prompt still gets the children's
+        content as context.
+        """
+        candidates = []
+        seen = set()
+        base_variants = [
+            child_name,
+            child_name.replace(" ", "_"),
+            child_name.replace(" ", "-"),
+            child_name.replace(" ", ""),
+        ]
+        for variant in base_variants:
+            for cased in (variant, variant.lower()):
+                if cased not in seen:
+                    seen.add(cased)
+                    candidates.append(f"{cased}.md")
+
+        for filename in candidates:
+            candidate_path = os.path.join(working_dir, filename)
+            if os.path.exists(candidate_path):
+                return candidate_path
+        return None
 
     async def generate_module_documentation(self, components: Dict[str, Any], leaf_nodes: List[str]) -> str:
         """Generate documentation for all modules using dynamic programming approach."""
@@ -161,8 +191,12 @@ class DocumentationGenerator:
                     # Process the module
                     if self.is_leaf_module(module_info):
                         logger.info(f"📄 Processing leaf module: {module_key}")
-                        final_module_tree = await self.agent_orchestrator.process_module(
-                            module_name, components, module_info["components"], module_path, working_dir
+                        final_module_tree = await self.backend.run_module_agent(
+                            module_name=module_name,
+                            components=components,
+                            core_component_ids=module_info["components"],
+                            module_path=module_path,
+                            working_dir=working_dir,
                         )
                     else:
                         logger.info(f"📁 Processing parent module: {module_key}")
@@ -185,8 +219,12 @@ class DocumentationGenerator:
         else:
             logger.info(f"Processing whole repo because repo can fit in the context window")
             repo_name = os.path.basename(os.path.normpath(self.config.repo_path))
-            final_module_tree = await self.agent_orchestrator.process_module(
-                repo_name, components, leaf_nodes, [], working_dir
+            final_module_tree = await self.backend.run_module_agent(
+                module_name=repo_name,
+                components=components,
+                core_component_ids=leaf_nodes,
+                module_path=[],
+                working_dir=working_dir,
             )
 
             # save final_module_tree to module_tree.json
@@ -234,11 +272,20 @@ class DocumentationGenerator:
         )
         
         try:
-            parent_docs = call_llm(prompt, self.config)
-            
-            # Parse and save parent documentation
-            parent_content = parent_docs.split("<OVERVIEW>")[1].split("</OVERVIEW>")[0].strip()
-            # parent_content = prompt
+            parent_docs = self.backend.complete(prompt)
+
+            # Parse and save parent documentation. Subscription-CLI backends
+            # (claude-code / codex) sometimes ignore the <OVERVIEW> wrapper and
+            # return raw markdown; fall back to the response as-is in that case
+            # rather than crashing with an index error.
+            if "<OVERVIEW>" in parent_docs and "</OVERVIEW>" in parent_docs:
+                parent_content = parent_docs.split("<OVERVIEW>")[1].split("</OVERVIEW>")[0].strip()
+            else:
+                logger.warning(
+                    f"Overview response for {module_name} missing <OVERVIEW> wrapper; "
+                    f"using raw response as markdown."
+                )
+                parent_content = parent_docs.strip()
             file_manager.save_text(parent_content, parent_docs_path)
             
             logger.debug(f"Successfully generated parent documentation for: {module_name}")
@@ -271,7 +318,17 @@ class DocumentationGenerator:
                 module_tree = file_manager.load_json(first_module_tree_path)
             else:
                 logger.debug(f"Module tree not found at {module_tree_path}, clustering modules")
-                module_tree = cluster_modules(leaf_nodes, components, self.config)
+                # Bind cluster_model into the completer so the backend uses the
+                # configured clustering model (separate from main_model) when
+                # one is set.  Caw mode's cluster_model is typically empty —
+                # complete() falls back to its own _model in that case.
+                cluster_model = self.config.cluster_model or None
+                module_tree = cluster_modules(
+                    leaf_nodes,
+                    components,
+                    self.config,
+                    completer=lambda p: self.backend.complete(p, model=cluster_model),
+                )
                 file_manager.save_json(module_tree, first_module_tree_path)
             
             file_manager.save_json(module_tree, module_tree_path)

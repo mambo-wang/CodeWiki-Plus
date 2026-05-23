@@ -210,12 +210,12 @@ class CLIDocumentationGenerator:
         from codewiki.src.be.cluster_modules import cluster_modules
         from codewiki.src.utils import file_manager
         from codewiki.src.config import FIRST_MODULE_TREE_FILENAME, MODULE_TREE_FILENAME
-        
+
         working_dir = str(self.output_dir.absolute())
         file_manager.ensure_directory(working_dir)
         first_module_tree_path = os.path.join(working_dir, FIRST_MODULE_TREE_FILENAME)
         module_tree_path = os.path.join(working_dir, MODULE_TREE_FILENAME)
-        
+
         try:
             if os.path.exists(first_module_tree_path):
                 module_tree = file_manager.load_json(first_module_tree_path)
@@ -224,7 +224,13 @@ class CLIDocumentationGenerator:
             else:
                 if self.verbose:
                     self.progress_tracker.update_stage(0.3, f"Clustering {len(leaf_nodes)} leaf nodes with LLM...")
-                module_tree = cluster_modules(leaf_nodes, components, backend_config)
+                cluster_model = backend_config.cluster_model or None
+                module_tree = cluster_modules(
+                    leaf_nodes,
+                    components,
+                    backend_config,
+                    completer=lambda p: doc_generator.backend.complete(p, model=cluster_model),
+                )
                 file_manager.save_json(module_tree, first_module_tree_path)
 
             file_manager.save_json(module_tree, module_tree_path)

@@ -1,0 +1,45 @@
+{
+    "generation_info": {
+        "timestamp": "2026-05-23T16:36:38.830589",
+        "main_model": "claude-haiku-4-5",
+        "generator_version": "1.0.1",
+        "repo_path": "/Users/anhnh2220.re/Documents/code/CodeWiki",
+        "commit_id": null
+    },
+    "statistics": {
+        "total_components": 438,
+        "leaf_nodes": 114,
+        "max_depth": 3
+    },
+    "files_generated": [
+        "overview.md",
+        "module_tree.json",
+        "first_module_tree.json",
+        "dependency_graph_construction.md",
+        "csharp_analyzer_fixed.md",
+        "python_analyzer.md",
+        "typescript_analyzer.md",
+        "javascript_analyzer.md",
+        "c_analyzer.md",
+        "php_analyzer.md",
+        "documentation_generation.md",
+        "shared_config_and_utils.md",
+        "frontend_web_app.md",
+        "cli_core.md",
+        "cpp_analyzer.md",
+        "cli_models.md",
+        "dependency_analyzer_utils.md",
+        "c_analyzer_final.md",
+        "frontend_models.md",
+        "cli_utils.md",
+        "kotlin_analyzer.md",
+        "java_analyzer.md",
+        "dependency_analyzer_models.md",
+        "csharp_analyzer_v2.md",
+        "llm_backends.md",
+        "csharp_analyzer.md",
+        "language_analyzers.md",
+        "dependency_analysis_services.md",
+        "c_analyzer_fixed.md"
+    ]
+}

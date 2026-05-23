@@ -1,4 +1,7 @@
+import asyncio
 import re
+import sys
+import threading
 from pathlib import Path
 from typing import List, Tuple
 import logging
@@ -7,6 +10,23 @@ import traceback
 
 
 logger = logging.getLogger(__name__)
+
+
+# PythonMonkey (used by mermaid_parser.parse_mermaid_py) binds its JS engine
+# to the thread that first imported it — typically the main thread at module
+# load time. The caw backend dispatches MCP tool calls on a FastMCP
+# daemon-thread event loop, where parse_mermaid_py raises
+# "cannot find a running Python event-loop". Recording the main loop here
+# lets validate_single_diagram marshal the call back via
+# asyncio.run_coroutine_threadsafe so PythonMonkey finds its home loop.
+_main_loop: "asyncio.AbstractEventLoop | None" = None
+_main_loop_thread_ident: int | None = None
+
+
+def set_main_loop(loop: asyncio.AbstractEventLoop) -> None:
+    global _main_loop, _main_loop_thread_ident
+    _main_loop = loop
+    _main_loop_thread_ident = threading.get_ident()
 
 # ------------------------------------------------------------
 # ---------------------- Complexity Check --------------------
@@ -124,79 +144,109 @@ def extract_mermaid_blocks(content: str) -> List[Tuple[int, str]]:
     return mermaid_blocks
 
 
+# PythonMonkey 1.3.1 only supports Python 3.8–3.11. On 3.12+ it still imports,
+# but its SpiderMonkey cleanup runs on the wrong thread during _Py_Finalize and
+# segfaults at interpreter shutdown (macOS crash dialog after a successful run).
+# Skip it proactively so SpiderMonkey is never loaded into the process.
+_PYTHONMONKEY_BROKEN = sys.version_info >= (3, 12)
+
+
+async def _try_pythonmonkey_parse(diagram_content: str) -> str | None:
+    """Attempt to parse via PythonMonkey/mermaid-parser-py.
+
+    Returns the extracted parse-error message, "" on success, or None when
+    PythonMonkey itself is unusable (broken JS event loop binding on
+    Python 3.13+) so the caller can fall back to mermaid-py.
+    """
+    global _PYTHONMONKEY_BROKEN
+    if _PYTHONMONKEY_BROKEN:
+        return None
+
+    import os
+
+    try:
+        from mermaid_parser.parser import parse_mermaid_py
+    except Exception:
+        _PYTHONMONKEY_BROKEN = True
+        return None
+
+    old_stderr = sys.stderr
+    sys.stderr = open(os.devnull, 'w')
+    try:
+        if (
+            _main_loop is not None
+            and _main_loop.is_running()
+            and threading.get_ident() != _main_loop_thread_ident
+        ):
+            fut = asyncio.run_coroutine_threadsafe(
+                parse_mermaid_py(diagram_content), _main_loop
+            )
+            await asyncio.wrap_future(fut)
+        else:
+            await parse_mermaid_py(diagram_content)
+        return ""
+    except Exception as e:
+        error_str = str(e)
+        # PythonMonkey 1.3.1 only supports Python 3.8-3.11; on newer Pythons
+        # every JS call raises this. Latch the failure once so subsequent
+        # diagrams skip the broken path and go straight to mermaid-py.
+        if "cannot find a running Python event-loop" in error_str:
+            _PYTHONMONKEY_BROKEN = True
+            return None
+        match = re.search(r"Error:(.*?)(?=Stack Trace:|$)", error_str, re.DOTALL)
+        if match:
+            return match.group(0).strip()
+        # Unknown error from the JS parser — fall back rather than surface it.
+        return None
+    finally:
+        sys.stderr.close()
+        sys.stderr = old_stderr
+
+
+def _parse_via_mermaid_py(diagram_content: str) -> str:
+    """Validate via mermaid-py. Returns parse-error text, or "" if valid.
+
+    mermaid-py raises MermaidError on parse failure and returns an SVG body
+    on success — we must drive the result off the exception, not the body
+    text, otherwise a successful SVG gets reported as a parse error.
+    """
+    import mermaid as md
+    try:
+        md.Mermaid(diagram_content)
+        return ""
+    except Exception as e:
+        return str(e)
+
+
 async def validate_single_diagram(diagram_content: str, diagram_num: int, line_start: int) -> str:
     """
     Validate a single mermaid diagram.
-    
+
     Args:
         diagram_content: The mermaid diagram content
         diagram_num: Diagram number for error reporting
         line_start: Starting line number in the file
-        
+
     Returns:
         Error message if invalid, empty string if valid
     """
-    import sys
-    import os
-    from io import StringIO
-
-    core_error = ""
-    
-    try:
-        from mermaid_parser.parser import parse_mermaid_py
-        # logger.debug("Using mermaid-parser-py to validate mermaid diagrams")
-    
+    core_error = await _try_pythonmonkey_parse(diagram_content)
+    if core_error is None:
         try:
-            # Redirect stderr to suppress mermaid parser JavaScript errors
-            old_stderr = sys.stderr
-            sys.stderr = open(os.devnull, 'w')
-            
-            try:
-                json_output = await parse_mermaid_py(diagram_content)
-            finally:
-                # Restore stderr
-                sys.stderr.close()
-                sys.stderr = old_stderr
-        except Exception as e:
-            error_str = str(e)
-            
-            # Extract the core error information from the exception message
-            # Look for the pattern that contains "Parse error on line X:"
-            error_pattern = r"Error:(.*?)(?=Stack Trace:|$)"
-            match = re.search(error_pattern, error_str, re.DOTALL)
-            
-            if match:
-                core_error = match.group(0).strip()
-                core_error = core_error
-            else:
-                logger.error(f"No match found for error pattern, fallback to mermaid-py\n{error_str}")
-                logger.error(f"Traceback: {traceback.format_exc()}")
-                raise Exception(error_str)
-
-    except Exception as e:
-        logger.warning("Using mermaid-py to validate mermaid diagrams")
-        try:
-            import mermaid as md
-            # Create Mermaid object and check response
-            render = md.Mermaid(diagram_content)
-            core_error = render.svg_response.text
-            
+            core_error = _parse_via_mermaid_py(diagram_content)
         except Exception as e:
             return f"  Diagram {diagram_num}: Exception during validation - {str(e)}"
 
-    # Check if response indicates a parse error
-    if core_error:
-        # Extract line number from parse error and calculate actual line in markdown file
-        line_match = re.search(r'line (\d+)', core_error)
-        if line_match:
-            error_line_in_diagram = int(line_match.group(1))
-            actual_line_in_file = line_start + error_line_in_diagram
-            newline = '\n'
-            return f"Diagram {diagram_num}: Parse error on line {actual_line_in_file}:{newline}{newline.join(core_error.split(newline)[1:])}"
-        else:
-            return f"Diagram {diagram_num}: {core_error}"
-    
-    return ""  # No error
+    if not core_error:
+        return ""
+
+    line_match = re.search(r'line (\d+)', core_error)
+    if line_match:
+        error_line_in_diagram = int(line_match.group(1))
+        actual_line_in_file = line_start + error_line_in_diagram
+        newline = '\n'
+        return f"Diagram {diagram_num}: Parse error on line {actual_line_in_file}:{newline}{newline.join(core_error.split(newline)[1:])}"
+    return f"Diagram {diagram_num}: {core_error}"
 
 
 if __name__ == "__main__":
