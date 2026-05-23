@@ -24,7 +24,8 @@
 </p>
 
 <p align="center">
-  📚 <strong>CodeWiki documents itself</strong> — browse the generated documentation for this repository at <a href="./docs/index.html"><code>docs/index.html</code></a> (open in a browser, or visit the hosted GitHub Pages site).
+  📚 <strong>CodeWiki documents itself</strong> — browse the generated documentation for this repository at
+  <a href="https://fsoft-ai4code.github.io/CodeWiki/docs/index.html">CodeWiki docs</a>.
 </p>
 
 <p align="center">
