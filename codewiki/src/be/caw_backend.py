@@ -54,14 +54,26 @@ _CLI_BINARY = {
 }
 
 # Disable WRITER (Write/Edit/NotebookEdit) so the agent must use CodeWiki's
-# str_replace_editor and Mermaid validation runs.  EXEC (Bash), INTERACTION
-# (AskUserQuestion) and WEB (WebFetch/WebSearch) are also off — keeps behaviour
-# in line with the pydantic-ai path which exposes no shell, prompt or web
-# access.  PARALLEL (Task) stays enabled: Claude Code can fan out Read-heavy
-# exploration without affecting documentation correctness.
-_AGENT_TOOL_GROUP = (
-    ToolGroup.ALL - ToolGroup.WRITER - ToolGroup.EXEC - ToolGroup.INTERACTION - ToolGroup.WEB
-)
+# str_replace_editor and Mermaid validation runs.  INTERACTION (AskUserQuestion)
+# and WEB (WebFetch/WebSearch) are also off.  PARALLEL (Task) stays enabled:
+# Claude Code can fan out Read-heavy exploration without affecting
+# documentation correctness.
+_AGENT_TOOL_GROUP = ToolGroup.READER | ToolGroup.PARALLEL
+
+
+def _agent_tool_group_for_provider(provider: str) -> ToolGroup:
+    """Return the caw tool group needed for a module-agent session."""
+    if provider == "codex":
+        # Codex CLI 0.118+ discovers streamable-HTTP MCP servers in read-only
+        # or workspace-write sandbox mode, but cancels MCP tool calls in
+        # non-interactive `codex exec` with "user cancelled MCP tool call".
+        # In caw's Codex adapter, including EXEC maps the session to
+        # `--dangerously-bypass-approvals-and-sandbox`, which is currently the
+        # mode where CodeWiki's MCP tools run reliably.  Codex cannot enforce
+        # finer-grained built-in tool restrictions anyway, so prompts still
+        # direct the agent to use CodeWiki's str_replace_editor for writes.
+        return _AGENT_TOOL_GROUP | ToolGroup.EXEC
+    return _AGENT_TOOL_GROUP
 
 
 def _resolve_caw_provider(provider: str) -> str:
@@ -147,15 +159,21 @@ class CawBackend(LLMBackend):
         module_path: List[str],
         working_dir: str,
         start_depth: int = 1,
+        module_tree: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         # ``start_depth`` lets the recursion preserve max_depth across nested
         # _run_module_agent_sync calls — each fresh deps object would otherwise
         # reset current_depth to 1 and silently bypass max_depth guards.
+        # ``module_tree`` carries the parent's in-memory tree across the
+        # recursion.  Reloading from disk only works at the top level — by the
+        # time a sub-agent runs, the parent has staged new branches in memory
+        # but has not yet saved (save happens after agent.completion returns).
         from codewiki.src.be.caw_toolkit import CawToolKit  # local import to avoid cycles
 
         config = self._config
         module_tree_path = os.path.join(working_dir, MODULE_TREE_FILENAME)
-        module_tree = file_manager.load_json(module_tree_path)
+        if module_tree is None:
+            module_tree = file_manager.load_json(module_tree_path)
 
         overview_docs_path = os.path.join(working_dir, OVERVIEW_FILENAME)
         if os.path.exists(overview_docs_path):
@@ -196,7 +214,7 @@ class CawBackend(LLMBackend):
             provider=self._caw_provider,
             model=self._model,
             system_prompt=system_prompt,
-            tools=_AGENT_TOOL_GROUP,
+            tools=_agent_tool_group_for_provider(self._caw_provider),
             tool_servers=[toolkit],
         )
 

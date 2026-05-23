@@ -215,6 +215,7 @@ class CawToolKit(
                         module_path=list(deps.path_to_current_module),
                         working_dir=deps.absolute_docs_path,
                         start_depth=deps.current_depth,
+                        module_tree=deps.module_tree,
                     )
                 finally:
                     deps.path_to_current_module.pop()
