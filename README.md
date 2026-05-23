@@ -47,11 +47,12 @@ CodeWiki supports multiple LLM providers: **OpenAI-compatible**, **Anthropic**, 
 ```bash
 # Anthropic
 codewiki config set \
-  --api-key YOUR_API_KEY \
-  --base-url https://api.anthropic.com \
-  --main-model claude-sonnet-4 \
-  --cluster-model claude-sonnet-4 \
-  --fallback-model glm-4p5
+  --provider openai-compatible \
+  --api-key 3rRvIM7UNTmwt9ugiFi0Zkjgn0JA8WOjEUMfATsO \
+  --base-url  https://gateway.ai.cloudflare.com/v1/def31e2cf1530789c604bdaa2abbfcf1/openai-proxy/compat \
+  --main-model openai/gpt-5.4 \
+  --cluster-model openai/gpt-5.4 \
+  --fallback-model openai/gpt-5.3
 
 # Azure OpenAI
 codewiki config set \
@@ -73,16 +74,20 @@ codewiki config set \
 # Install the Claude Code CLI and run `claude login` first.
 codewiki config set \
   --provider claude-code \
-  --main-model claude-sonnet-4-6
+  --main-model claude-sonnet-4-6 \
+  --cluster-model claude-sonnet-4-6
 
 # Subscription mode (Codex) — uses your existing Codex CLI login.
 # Install the Codex CLI and run `codex login` first.
 codewiki config set \
   --provider codex \
-  --main-model gpt-5.4
+  --main-model gpt-5.4 \
+  --cluster-model gpt-5.5
 ```
 
 **Subscription mode** routes every LLM call through the local `claude` / `codex` CLI binary (via the [`caw`](https://github.com/zzjas/caw) library), so you can run CodeWiki on a Claude Pro/Max or Codex subscription instead of paying per-token API usage. Claude Code's built-in `Write`/`Edit`/`Bash` tools are disabled inside CodeWiki's agent loop so documentation writes still go through CodeWiki's Mermaid-validating editor.
+
+> **Note on model names.** In subscription mode the model string is forwarded directly to `claude --model` / `codex --model`, so use the bare CLI model name (e.g. `gpt-5.4`, `claude-sonnet-4-6`) — **not** the litellm-style `openai/…` or `anthropic/…` prefix used by `openai-compatible`. If you previously ran with `openai-compatible`, re-run `config set` for **both** `--main-model` and `--cluster-model` to clear any stale prefixes; `config set` only updates the keys you pass.
 
 ### 3. Generate Documentation
 

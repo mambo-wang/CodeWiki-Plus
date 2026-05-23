@@ -30,13 +30,14 @@ from caw import ToolGroup
 
 from codewiki.src.be.agent_tools.deps import CodeWikiDeps
 from codewiki.src.be.backend import LLMBackend
+from codewiki.src.be.cluster_modules import format_potential_core_components
 from codewiki.src.be.dependency_analyzer.models.core import Node
 from codewiki.src.be.prompt_template import (
     format_leaf_system_prompt,
     format_system_prompt,
     format_user_prompt,
 )
-from codewiki.src.be.utils import is_complex_module
+from codewiki.src.be.utils import count_tokens, is_complex_module, set_main_loop
 from codewiki.src.config import MODULE_TREE_FILENAME, OVERVIEW_FILENAME, Config
 from codewiki.src.utils import file_manager
 
@@ -86,6 +87,39 @@ def _resolve_caw_provider(provider: str) -> str:
         ) from e
 
 
+# --- caw codex tool_timeout_sec stopgap ---------------------------------------
+# Upstream caw's CodexSession._mcp_config_args (caw/providers/codex.py) emits
+# no per-server tool_timeout_sec flag, so codex cancels long sub-module
+# recursion. Remove this block once upstream lands a typed knob.
+_CODEX_PATCH_APPLIED = False
+_CODEX_TOOL_TIMEOUT_SEC = 86400  # 24 h
+
+
+def _patch_codex_tool_timeout() -> None:
+    global _CODEX_PATCH_APPLIED
+    if _CODEX_PATCH_APPLIED:
+        return
+    from caw.providers.codex import CodexSession
+
+    _orig = CodexSession._mcp_config_args
+
+    def _patched(self) -> list[str]:
+        args = list(_orig(self))
+        for srv in self._mcp_servers:
+            args += [
+                "-c",
+                f"mcp_servers.{srv.name}.tool_timeout_sec={_CODEX_TOOL_TIMEOUT_SEC}",
+            ]
+        return args
+
+    CodexSession._mcp_config_args = _patched
+    _CODEX_PATCH_APPLIED = True
+
+
+_patch_codex_tool_timeout()
+# --- end stopgap --------------------------------------------------------------
+
+
 class CawBackend(LLMBackend):
     """Routes LLM operations through the claude / codex CLI subscription."""
 
@@ -101,6 +135,17 @@ class CawBackend(LLMBackend):
             raise RuntimeError(
                 f"Subscription mode requires the '{cli}' CLI on PATH. "
                 f"Install it and run '{cli} login', then try again."
+            )
+
+        if self._caw_provider == "claude_code":
+            # Prevent claude-code CLI from cancelling long sub-module recursion;
+            # setdefault preserves a user-supplied value (e.g. shell override).
+            os.environ.setdefault("MCP_TOOL_TIMEOUT", "86400000")
+            os.environ.setdefault("MCP_TIMEOUT", "60000")
+            logger.info(
+                "claude-code MCP timeouts: MCP_TOOL_TIMEOUT=%s MCP_TIMEOUT=%s",
+                os.environ["MCP_TOOL_TIMEOUT"],
+                os.environ["MCP_TIMEOUT"],
             )
 
     # ------------------------------------------------------------------
@@ -142,6 +187,13 @@ class CawBackend(LLMBackend):
         # caw.completion shells out to a subprocess and blocks the calling
         # thread.  Push it off the event loop so the rest of the async
         # pipeline keeps moving.
+        # Mermaid validation goes through PythonMonkey, which binds its JS
+        # engine to the thread where it was first imported (the main
+        # thread).  caw routes MCP tool calls through a FastMCP daemon
+        # thread, so the validator would otherwise lose its event loop.
+        # Hand the main loop to utils so the worker-thread tool calls can
+        # marshal parse_mermaid_py back here.
+        set_main_loop(asyncio.get_running_loop())
         return await asyncio.to_thread(
             self._run_module_agent_sync,
             module_name,
@@ -185,8 +237,27 @@ class CawBackend(LLMBackend):
             return module_tree
 
         custom_instructions = config.get_prompt_addition()
-        is_complex = is_complex_module(components, core_component_ids)
-        if is_complex:
+
+        # Mirror PydanticAIBackend's early-cut: a module is only worth
+        # delegating to sub-agents when it spans multiple files AND has enough
+        # content to justify the cost AND we still have recursion budget.
+        # Without this gate the caw path would give every multi-file sub-module
+        # the recursive SYSTEM_PROMPT + delegation tool and fan out one extra
+        # agent call per sub-spec even when a single leaf write would suffice.
+        # See generate_sub_module_documentation_tool for the pydantic-ai
+        # equivalent.
+        _, components_with_code = format_potential_core_components(
+            core_component_ids, components
+        )
+        num_tokens = count_tokens(components_with_code)
+        can_delegate = (
+            is_complex_module(components, core_component_ids)
+            and start_depth < config.max_depth
+            and num_tokens >= config.max_token_per_leaf_module
+        )
+        logger.info(f"Module {module_name} can delegate: {can_delegate} - is_complex_module: {is_complex_module(components, core_component_ids)} - start_depth: {start_depth} - num_tokens: {num_tokens} - max_depth: {config.max_depth} - max_token_per_leaf_module: {config.max_token_per_leaf_module}")
+
+        if can_delegate:
             system_prompt = format_system_prompt(module_name, custom_instructions)
         else:
             system_prompt = format_leaf_system_prompt(module_name, custom_instructions)
@@ -205,10 +276,7 @@ class CawBackend(LLMBackend):
             custom_instructions=custom_instructions,
         )
 
-        # Sub-agent delegation is only meaningful for multi-file modules
-        # that have not yet reached the configured recursion depth.
-        allow_subagent = is_complex and start_depth < config.max_depth
-        toolkit = CawToolKit(deps=deps, backend=self, allow_subagent=allow_subagent)
+        toolkit = CawToolKit(deps=deps, backend=self, allow_subagent=can_delegate)
 
         agent = CawAgent(
             provider=self._caw_provider,
@@ -225,8 +293,24 @@ class CawBackend(LLMBackend):
             module_tree=deps.module_tree,
         )
 
+        # caw forks claude / codex via subprocess.Popen without a cwd, so the
+        # child CLI inherits Python's cwd — typically the repo root where the
+        # user invoked ``codewiki``.  Codex's native ``file_change`` tool
+        # (always present under the danger-full-access sandbox EXEC requires)
+        # then resolves relative paths against that cwd, dropping the .md at
+        # the repo root.  Pin cwd to the docs output dir for the duration of
+        # the agent run so file_change lands inside ``--output``.  Reads still
+        # go through MCP tools that use absolute paths from ``deps``, so
+        # they're cwd-independent.  Safe to mutate process-wide cwd because
+        # documentation_generator processes modules sequentially and recursive
+        # _run_module_agent_sync calls chdir to the same absolute_docs_path.
+        original_cwd = os.getcwd()
         try:
-            traj = agent.completion(user_prompt)
+            os.chdir(working_dir)
+            try:
+                traj = agent.completion(user_prompt)
+            finally:
+                os.chdir(original_cwd)
             logger.info(
                 "Module %s completed via caw (turns=%d, tool_calls=%d)",
                 module_name,

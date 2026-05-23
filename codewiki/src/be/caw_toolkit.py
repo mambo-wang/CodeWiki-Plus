@@ -17,12 +17,15 @@ validation runs uniformly across both backends.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from caw import ToolKit, tool
+from mcp.server.fastmcp import Context
 
 from codewiki.src.be.agent_tools.deps import CodeWikiDeps
 
@@ -30,6 +33,30 @@ if TYPE_CHECKING:
     from codewiki.src.be.caw_backend import CawBackend
 
 logger = logging.getLogger(__name__)
+
+
+_HEARTBEAT_INTERVAL_SEC = 10
+
+_VALID_WORKING_DIRS = ("repo", "docs")
+_VALID_EDITOR_COMMANDS = ("view", "create", "str_replace", "insert", "undo_edit")
+
+
+async def _heartbeat(ctx: Context, work: asyncio.Task) -> None:
+    # Keeps the codex / claude-code CLI from cancelling the parent tool call
+    # during long sub-module recursion. Failures are swallowed — a broken
+    # heartbeat must never abort real work.
+    progress = 0
+    while not work.done():
+        await asyncio.sleep(_HEARTBEAT_INTERVAL_SEC)
+        progress += 1
+        try:
+            await ctx.report_progress(
+                progress=progress,
+                total=None,
+                message="sub-module generation in progress",
+            )
+        except Exception:
+            pass
 
 
 def _coerce_json_arg(value):
@@ -117,6 +144,22 @@ class CawToolKit(
         from codewiki.src.be.agent_tools.str_replace_editor import EditTool
         from codewiki.src.be.utils import validate_mermaid_diagrams
 
+        # ``Literal`` annotations would be the cleanest way to constrain these,
+        # but ``from __future__ import annotations`` turns them into forward refs
+        # that FastMCP's pydantic schema rebuild cannot resolve.  Validate at
+        # call time instead so a bogus working_dir (empty string, ``"."``, etc.)
+        # cannot silently route writes to the repo root.
+        if working_dir not in _VALID_WORKING_DIRS:
+            return (
+                f"Error: invalid `working_dir`={working_dir!r}. "
+                f"Allowed values: {list(_VALID_WORKING_DIRS)}."
+            )
+        if command not in _VALID_EDITOR_COMMANDS:
+            return (
+                f"Error: invalid `command`={command!r}. "
+                f"Allowed values: {list(_VALID_EDITOR_COMMANDS)}."
+            )
+
         if path is None and file is None:
             return "Error: Either `path` or `file` parameter must be provided."
         if path is None:
@@ -124,15 +167,42 @@ class CawToolKit(
         if command != "view" and working_dir == "repo":
             return "The `view` command is the only allowed command when `working_dir` is `repo`."
 
+        # Reject absolute paths: ``Path("/abs/base") / "/abs/other"`` resolves to
+        # ``/abs/other``, which would silently bypass ``working_dir`` and let the
+        # agent write outside the docs path.  Force the agent to pass a path
+        # relative to the chosen working_dir.
+        if os.path.isabs(path):
+            return (
+                f"Error: `path` must be relative to `working_dir` ({working_dir!r}), "
+                f"got absolute path {path!r}. Pass a relative path like "
+                f"'module_name.md' (resolved under absolute_docs_path when "
+                f"working_dir='docs')."
+            )
+
         view_range = _coerce_json_arg(view_range)
         insert_line = _coerce_json_arg(insert_line)
 
         edit_tool = EditTool(self._deps.registry, self._deps.absolute_docs_path)
 
-        if working_dir == "docs":
-            absolute_path = str(Path(self._deps.absolute_docs_path) / path)
-        else:
-            absolute_path = str(Path(self._deps.absolute_repo_path) / path)
+        base_dir = (
+            self._deps.absolute_docs_path
+            if working_dir == "docs"
+            else self._deps.absolute_repo_path
+        )
+        absolute_path = str(Path(base_dir) / path)
+
+        # Defense in depth: even with a relative path, ``..`` segments could
+        # escape ``base_dir``.  Verify the resolved path stays inside.
+        try:
+            resolved = Path(absolute_path).resolve()
+            base_resolved = Path(base_dir).resolve()
+            resolved.relative_to(base_resolved)
+        except ValueError:
+            return (
+                f"Error: resolved path {absolute_path!r} escapes "
+                f"working_dir={working_dir!r} root {base_dir!r}. "
+                f"Pass a path that stays inside the working directory."
+            )
 
         edit_tool(
             command=command,
@@ -166,17 +236,33 @@ class CawToolKit(
         )
     )
     async def generate_sub_module_documentation(
-        self, sub_module_specs: dict[str, list[str]]
+        self, sub_module_specs: dict[str, list[str]], ctx: Context
     ) -> str:
         if not self._allow_subagent:
             return (
-                "generate_sub_module_documentation is not available for this module "
-                "(leaf module or max depth reached)."
+                "generate_sub_module_documentation is NOT available for this module "
+                "(leaf module: single-file or below the token threshold, or max recursion "
+                "depth reached). DO NOT call this tool again for this module. "
+                "Instead, write the documentation directly with `str_replace_editor` "
+                f"(create command) as a single `{self._deps.current_module_name}.md` "
+                "file covering the provided core components inline (architecture, "
+                "components, diagrams, etc.) — no sub-module fan-out."
             )
 
         # Run the blocking recursion in a worker thread so the caw MCP server's
-        # event loop stays responsive while sub-agents run.
-        return await asyncio.to_thread(self._run_sub_modules, sub_module_specs)
+        # event loop stays responsive while sub-agents run.  A heartbeat task
+        # emits MCP progress notifications so the CLI does not treat the long
+        # tool call as a stalled / cancelled invocation.
+        work = asyncio.create_task(
+            asyncio.to_thread(self._run_sub_modules, sub_module_specs)
+        )
+        heartbeat = asyncio.create_task(_heartbeat(ctx, work))
+        try:
+            return await work
+        finally:
+            heartbeat.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat
 
     # ------------------------------------------------------------------
     # Internal: synchronous recursion driver

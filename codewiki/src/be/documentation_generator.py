@@ -112,13 +112,44 @@ class DocumentationGenerator:
             module_info = module_info["children"]
 
         for child_name, child_info in module_info.items():
-            if os.path.exists(os.path.join(working_dir, f"{child_name}.md")):
-                child_info["docs"] = file_manager.load_text(os.path.join(working_dir, f"{child_name}.md"))
+            child_docs_path = self._resolve_child_docs_path(working_dir, child_name)
+            if child_docs_path is not None:
+                child_info["docs"] = file_manager.load_text(child_docs_path)
             else:
-                logger.warning(f"Module docs not found at {os.path.join(working_dir, f"{child_name}.md")}")
+                logger.warning(f"Module docs not found at {os.path.join(working_dir, f'{child_name}.md')}")
                 child_info["docs"] = ""
 
         return processed_module_tree
+
+    @staticmethod
+    def _resolve_child_docs_path(working_dir: str, child_name: str) -> str | None:
+        """Resolve the on-disk path for a child module's .md doc.
+
+        Sub-agents sometimes save files under a sanitized variant of the
+        module name (spaces → underscores, lowercased, etc.) rather than the
+        exact key in the module tree. Try a small set of common variants
+        before giving up so the overview prompt still gets the children's
+        content as context.
+        """
+        candidates = []
+        seen = set()
+        base_variants = [
+            child_name,
+            child_name.replace(" ", "_"),
+            child_name.replace(" ", "-"),
+            child_name.replace(" ", ""),
+        ]
+        for variant in base_variants:
+            for cased in (variant, variant.lower()):
+                if cased not in seen:
+                    seen.add(cased)
+                    candidates.append(f"{cased}.md")
+
+        for filename in candidates:
+            candidate_path = os.path.join(working_dir, filename)
+            if os.path.exists(candidate_path):
+                return candidate_path
+        return None
 
     async def generate_module_documentation(self, components: Dict[str, Any], leaf_nodes: List[str]) -> str:
         """Generate documentation for all modules using dynamic programming approach."""
@@ -243,9 +274,18 @@ class DocumentationGenerator:
         try:
             parent_docs = self.backend.complete(prompt)
 
-            # Parse and save parent documentation
-            parent_content = parent_docs.split("<OVERVIEW>")[1].split("</OVERVIEW>")[0].strip()
-            # parent_content = prompt
+            # Parse and save parent documentation. Subscription-CLI backends
+            # (claude-code / codex) sometimes ignore the <OVERVIEW> wrapper and
+            # return raw markdown; fall back to the response as-is in that case
+            # rather than crashing with an index error.
+            if "<OVERVIEW>" in parent_docs and "</OVERVIEW>" in parent_docs:
+                parent_content = parent_docs.split("<OVERVIEW>")[1].split("</OVERVIEW>")[0].strip()
+            else:
+                logger.warning(
+                    f"Overview response for {module_name} missing <OVERVIEW> wrapper; "
+                    f"using raw response as markdown."
+                )
+                parent_content = parent_docs.strip()
             file_manager.save_text(parent_content, parent_docs_path)
             
             logger.debug(f"Successfully generated parent documentation for: {module_name}")

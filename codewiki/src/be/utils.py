@@ -1,4 +1,6 @@
+import asyncio
 import re
+import threading
 from pathlib import Path
 from typing import List, Tuple
 import logging
@@ -7,6 +9,23 @@ import traceback
 
 
 logger = logging.getLogger(__name__)
+
+
+# PythonMonkey (used by mermaid_parser.parse_mermaid_py) binds its JS engine
+# to the thread that first imported it — typically the main thread at module
+# load time. The caw backend dispatches MCP tool calls on a FastMCP
+# daemon-thread event loop, where parse_mermaid_py raises
+# "cannot find a running Python event-loop". Recording the main loop here
+# lets validate_single_diagram marshal the call back via
+# asyncio.run_coroutine_threadsafe so PythonMonkey finds its home loop.
+_main_loop: "asyncio.AbstractEventLoop | None" = None
+_main_loop_thread_ident: int | None = None
+
+
+def set_main_loop(loop: asyncio.AbstractEventLoop) -> None:
+    global _main_loop, _main_loop_thread_ident
+    _main_loop = loop
+    _main_loop_thread_ident = threading.get_ident()
 
 # ------------------------------------------------------------
 # ---------------------- Complexity Check --------------------
@@ -152,7 +171,20 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
             sys.stderr = open(os.devnull, 'w')
             
             try:
-                json_output = await parse_mermaid_py(diagram_content)
+                if (
+                    _main_loop is not None
+                    and _main_loop.is_running()
+                    and threading.get_ident() != _main_loop_thread_ident
+                ):
+                    # Caller is on a worker-thread loop (caw FastMCP path).
+                    # Run the coroutine on the loop where PythonMonkey was
+                    # bound so its asyncio.get_running_loop() succeeds.
+                    fut = asyncio.run_coroutine_threadsafe(
+                        parse_mermaid_py(diagram_content), _main_loop
+                    )
+                    json_output = await asyncio.wrap_future(fut)
+                else:
+                    json_output = await parse_mermaid_py(diagram_content)
             finally:
                 # Restore stderr
                 sys.stderr.close()
