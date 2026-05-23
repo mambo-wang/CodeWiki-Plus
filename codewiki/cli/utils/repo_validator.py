@@ -116,36 +116,56 @@ def check_writable_output(output_dir: Path) -> Path:
     return output_dir
 
 
+def _get_git_repo(repo_path: Path):
+    """
+    Find a git repository starting at repo_path and searching parent directories.
+    
+    Args:
+        repo_path: Path to start searching from
+        
+    Returns:
+        git.Repo instance or None if no repository found
+    """
+    try:
+        import git
+        return git.Repo(repo_path, search_parent_directories=True)
+    except Exception:
+        return None
+
+
 def is_git_repository(repo_path: Path) -> bool:
     """
-    Check if path is a git repository.
+    Check if path is inside a git repository.
+    
+    Searches parent directories if .git is not directly at repo_path,
+    supporting monorepo subdirectories.
     
     Args:
         repo_path: Path to check
         
     Returns:
-        True if git repository, False otherwise
+        True if inside a git repository, False otherwise
     """
-    git_dir = repo_path / ".git"
-    return git_dir.exists() and git_dir.is_dir()
+    return _get_git_repo(repo_path) is not None
 
 
 def get_git_commit_hash(repo_path: Path) -> str:
     """
     Get current git commit hash.
     
+    Searches parent directories to support monorepo subdirectories.
+    
     Args:
-        repo_path: Repository path
+        repo_path: Path inside a git repository
         
     Returns:
-        Commit hash or empty string if not a git repo
+        Commit hash or empty string if not in a git repo
     """
-    if not is_git_repository(repo_path):
+    repo = _get_git_repo(repo_path)
+    if repo is None:
         return ""
     
     try:
-        import git
-        repo = git.Repo(repo_path)
         return repo.head.commit.hexsha
     except Exception:
         return ""
@@ -155,18 +175,19 @@ def get_git_branch(repo_path: Path) -> str:
     """
     Get current git branch name.
     
+    Searches parent directories to support monorepo subdirectories.
+    
     Args:
-        repo_path: Repository path
+        repo_path: Path inside a git repository
         
     Returns:
-        Branch name or empty string if not a git repo
+        Branch name or empty string if not in a git repo
     """
-    if not is_git_repository(repo_path):
+    repo = _get_git_repo(repo_path)
+    if repo is None:
         return ""
     
     try:
-        import git
-        repo = git.Repo(repo_path)
         return repo.active_branch.name
     except Exception:
         return ""
