@@ -207,7 +207,10 @@ class CLIDocumentationGenerator:
             self.progress_tracker.update_stage(0.5, "Clustering modules with LLM...")
         
         # Import clustering function
-        from codewiki.src.be.cluster_modules import cluster_modules
+        from codewiki.src.be.cluster_modules import (
+            cluster_modules,
+            get_clustering_input_token_count,
+        )
         from codewiki.src.utils import file_manager
         from codewiki.src.config import FIRST_MODULE_TREE_FILENAME, MODULE_TREE_FILENAME
 
@@ -223,7 +226,27 @@ class CLIDocumentationGenerator:
                     self.progress_tracker.update_stage(0.5, "Loaded cached module tree")
             else:
                 if self.verbose:
-                    self.progress_tracker.update_stage(0.3, f"Clustering {len(leaf_nodes)} leaf nodes with LLM...")
+                    clustering_tokens = get_clustering_input_token_count(
+                        leaf_nodes, components
+                    )
+                    self.progress_tracker.update_stage(
+                        0.3,
+                        (
+                            f"Preparing {len(leaf_nodes)} leaf nodes for clustering "
+                            f"({clustering_tokens} tokens, threshold "
+                            f"{backend_config.max_token_per_module})"
+                        ),
+                    )
+                    if clustering_tokens <= backend_config.max_token_per_module:
+                        self.progress_tracker.update_stage(
+                            0.4,
+                            "Skipping LLM clustering; selected leaf nodes fit within the module token threshold",
+                        )
+                    else:
+                        self.progress_tracker.update_stage(
+                            0.4,
+                            "Clustering modules with LLM...",
+                        )
                 cluster_model = backend_config.cluster_model or None
                 module_tree = cluster_modules(
                     leaf_nodes,
@@ -237,7 +260,16 @@ class CLIDocumentationGenerator:
             self.job.module_count = len(module_tree)
 
             if self.verbose:
-                self.progress_tracker.update_stage(1.0, f"Created {len(module_tree)} modules")
+                if len(module_tree) == 0:
+                    self.progress_tracker.update_stage(
+                        1.0,
+                        "Created 0 modules; continuing in whole-repository documentation mode",
+                    )
+                else:
+                    self.progress_tracker.update_stage(
+                        1.0,
+                        f"Created {len(module_tree)} modules",
+                    )
                 for mod_name in sorted(module_tree.keys()):
                     file_count = len(module_tree[mod_name]) if isinstance(module_tree[mod_name], list) else "?"
                     self.progress_tracker.update_stage(1.0, f"  Module: {mod_name} ({file_count} files)")
@@ -313,4 +345,3 @@ class CLIDocumentationGenerator:
             # Create our own if backend didn't
             with open(metadata_path, 'w') as f:
                 f.write(self.job.to_json())
-

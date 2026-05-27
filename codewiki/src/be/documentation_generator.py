@@ -15,7 +15,10 @@ from codewiki.src.be.prompt_template import (
     REPO_OVERVIEW_PROMPT,
     MODULE_OVERVIEW_PROMPT,
 )
-from codewiki.src.be.cluster_modules import cluster_modules
+from codewiki.src.be.cluster_modules import (
+    cluster_modules,
+    get_clustering_input_token_count,
+)
 from codewiki.src.config import (
     Config,
     FIRST_MODULE_TREE_FILENAME,
@@ -318,6 +321,15 @@ class DocumentationGenerator:
                 module_tree = file_manager.load_json(first_module_tree_path)
             else:
                 logger.debug(f"Module tree not found at {module_tree_path}, clustering modules")
+                clustering_tokens = get_clustering_input_token_count(
+                    leaf_nodes, components
+                )
+                logger.info(
+                    "Preparing %d leaf nodes for module clustering (%d tokens, threshold %d)",
+                    len(leaf_nodes),
+                    clustering_tokens,
+                    self.config.max_token_per_module,
+                )
                 # Bind cluster_model into the completer so the backend uses the
                 # configured clustering model (separate from main_model) when
                 # one is set.  Caw mode's cluster_model is typically empty —
@@ -333,7 +345,16 @@ class DocumentationGenerator:
             
             file_manager.save_json(module_tree, module_tree_path)
             
-            logger.debug(f"Grouped components into {len(module_tree)} modules")
+            if len(module_tree) == 0:
+                logger.info(
+                    "Module clustering produced no top-level modules; continuing in "
+                    "whole-repository documentation mode"
+                )
+            else:
+                logger.info(
+                    "Grouped components into %d top-level modules",
+                    len(module_tree),
+                )
             
             # Generate module documentation using dynamic programming approach
             # This processes leaf modules first, then parent modules

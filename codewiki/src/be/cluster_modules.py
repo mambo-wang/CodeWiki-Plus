@@ -43,6 +43,16 @@ def format_potential_core_components(leaf_nodes: List[str], components: Dict[str
     return potential_core_components, potential_core_components_with_code
 
 
+def get_clustering_input_token_count(
+    leaf_nodes: List[str], components: Dict[str, Node]
+) -> int:
+    """Count the tokens used to decide whether a module needs clustering."""
+    _, potential_core_components_with_code = format_potential_core_components(
+        leaf_nodes, components
+    )
+    return count_tokens(potential_core_components_with_code)
+
+
 def cluster_modules(
     leaf_nodes: List[str],
     components: Dict[str, Node],
@@ -62,13 +72,38 @@ def cluster_modules(
             subscription-mode (caw) routing.  If ``None``, falls back to
             ``call_llm`` for backward compatibility with direct callers.
     """
-    potential_core_components, potential_core_components_with_code = format_potential_core_components(leaf_nodes, components)
+    potential_core_components, potential_core_components_with_code = (
+        format_potential_core_components(leaf_nodes, components)
+    )
+    input_tokens = count_tokens(potential_core_components_with_code)
+    threshold = config.max_token_per_module
+    module_label = current_module_name or "repository"
 
-    if count_tokens(potential_core_components_with_code) <= config.max_token_per_module:
-        logger.debug(f"Skipping clustering for {current_module_name} because the potential core components are too few: {count_tokens(potential_core_components_with_code)} tokens")
+    logger.info(
+        "Module clustering input for %s: %d leaf nodes, %d tokens, threshold %d",
+        module_label,
+        len(leaf_nodes),
+        input_tokens,
+        threshold,
+    )
+
+    if input_tokens <= threshold:
+        logger.info(
+            "Skipping LLM module clustering for %s because %d tokens fit within the "
+            "%d-token threshold; using whole-module documentation mode.",
+            module_label,
+            input_tokens,
+            threshold,
+        )
         return {}
 
     prompt = format_cluster_prompt(potential_core_components, current_module_tree, current_module_name)
+    logger.info(
+        "Requesting LLM module clustering for %s because %d tokens exceed the %d-token threshold.",
+        module_label,
+        input_tokens,
+        threshold,
+    )
     if completer is not None:
         response = completer(prompt)
     else:
@@ -77,7 +112,12 @@ def cluster_modules(
     #parse the response
     try:
         if "<GROUPED_COMPONENTS>" not in response or "</GROUPED_COMPONENTS>" not in response:
-            logger.error(f"Invalid LLM response format - missing component tags: {response[:200]}...")
+            logger.warning(
+                "Invalid LLM clustering response for %s: missing <GROUPED_COMPONENTS> "
+                "tags; falling back to whole-module documentation. Response preview: %s...",
+                module_label,
+                response[:200],
+            )
             return {}
         
         response_content = response.split("<GROUPED_COMPONENTS>")[1].split("</GROUPED_COMPONENTS>")[0]
@@ -88,14 +128,31 @@ def cluster_modules(
             return {}
             
     except Exception as e:
-        logger.error(f"Failed to parse LLM response: {e}. Response: {response[:200]}...")
+        logger.warning(
+            "Failed to parse LLM clustering response for %s; falling back to "
+            "whole-module documentation. Error: %s. Response preview: %s...",
+            module_label,
+            e,
+            response[:200],
+        )
         logger.error(f"Traceback: {traceback.format_exc()}")
         return {}
 
     # check if the module tree is valid
     if len(module_tree) <= 1:
-        logger.debug(f"Skipping clustering for {current_module_name} because the module tree is too small: {len(module_tree)} modules")
+        logger.info(
+            "Skipping LLM clustering result for %s because it produced only "
+            "%d module(s); using whole-module documentation mode.",
+            module_label,
+            len(module_tree),
+        )
         return {}
+
+    logger.info(
+        "LLM module clustering for %s produced %d top-level modules.",
+        module_label,
+        len(module_tree),
+    )
 
     if current_module_tree == {}:
         current_module_tree = module_tree
