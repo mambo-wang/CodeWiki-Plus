@@ -39,6 +39,10 @@ class Node(BaseModel):
 
     component_id: Optional[str] = None
 
+    language: Optional[str] = None
+
+    qualified_name: Optional[str] = None
+
     def get_display_name(self) -> str:
         return self.display_name or self.name
 

@@ -7,6 +7,7 @@ import os
 from tree_sitter import Parser, Language
 import tree_sitter_c
 from codewiki.src.be.dependency_analyzer.models.core import Node, CallRelationship
+from codewiki.src.be.dependency_analyzer.utils.external_symbols import is_external_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,9 @@ class TreeSitterCAnalyzer:
 				base_classes=None,
 				class_name=None,
 				display_name=f"{node_type} {node_name}",
-				component_id=component_id
+				component_id=component_id,
+				language="c",
+				qualified_name=node_name
 			)
 
 			if node_type in ["function", "struct"]:
@@ -209,13 +212,7 @@ class TreeSitterCAnalyzer:
 	
 	def _is_system_function(self, func_name: str) -> bool:
 		"""Check if function is a system/library function."""
-		# Common C library functions
-		system_functions = {
-			"printf", "scanf", "malloc", "free", "strlen", "strcpy", "strcmp", 
-			"memcpy", "memset", "exit", "abort", "fopen", "fclose", "fread", "fwrite",
-			"SDL_Init", "SDL_CreateWindow", "SDL_Log", "SDL_GetError", "SDL_Quit"
-		}
-		return func_name in system_functions
+		return is_external_symbol("c", func_name)
 
 def analyze_c_file(file_path: str, content: str, repo_path: str = None) -> Tuple[List[Node], List[CallRelationship]]:
 	analyzer = TreeSitterCAnalyzer(file_path, content, repo_path)

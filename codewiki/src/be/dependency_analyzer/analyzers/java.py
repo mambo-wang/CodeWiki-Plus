@@ -3,10 +3,12 @@ from typing import List, Optional, Tuple
 from pathlib import Path
 import sys
 import os
+import re
 
 from tree_sitter import Parser, Language
 import tree_sitter_java
 from codewiki.src.be.dependency_analyzer.models.core import Node, CallRelationship
+from codewiki.src.be.dependency_analyzer.utils.external_symbols import is_external_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +19,8 @@ class TreeSitterJavaAnalyzer:
 		self.repo_path = repo_path or ""
 		self.nodes: List[Node] = []
 		self.call_relationships: List[CallRelationship] = []
+		self.package_name = self._extract_package_name()
+		self.import_map, self.wildcard_imports = self._extract_imports()
 		self._analyze()
 	
 	def _get_module_path(self) -> str:
@@ -51,6 +55,21 @@ class TreeSitterJavaAnalyzer:
 		else:
 			return f"{rel_path}::{name}"
 
+	def _extract_package_name(self) -> str:
+		match = re.search(r"^\s*package\s+([\w.]+)\s*;", self.content, re.MULTILINE)
+		return match.group(1) if match else ""
+
+	def _extract_imports(self) -> tuple[dict[str, str], list[str]]:
+		import_map: dict[str, str] = {}
+		wildcards: list[str] = []
+		for match in re.finditer(r"^\s*import\s+(?:static\s+)?([\w.]+)(\.\*)?\s*;", self.content, re.MULTILINE):
+			import_name = match.group(1)
+			if match.group(2):
+				wildcards.append(import_name)
+			else:
+				import_map[import_name.rsplit(".", 1)[-1]] = import_name
+		return import_map, wildcards
+
 	def _analyze(self):
 		language_capsule = tree_sitter_java.language()
 		java_language = Language(language_capsule)
@@ -68,38 +87,48 @@ class TreeSitterJavaAnalyzer:
 	def _extract_nodes(self, node, top_level_nodes, lines):
 		node_type = None
 		node_name = None
+		qualified_name = None
+		class_name = None
 		
 		if node.type == "class_declaration":
 			is_abstract = any(c.type == "modifier" and c.text.decode() == "abstract" for c in node.children)
 			node_type = "abstract class" if is_abstract else "class"
 			name_node = next((c for c in node.children if c.type == "identifier"), None)
 			node_name = name_node.text.decode() if name_node else None
+			qualified_name = self._qualified_type_name(node_name, self._find_containing_type_names(node))
 		elif node.type == "interface_declaration":
 			node_type = "interface"
 			name_node = next((c for c in node.children if c.type == "identifier"), None)
 			node_name = name_node.text.decode() if name_node else None
+			qualified_name = self._qualified_type_name(node_name, self._find_containing_type_names(node))
 		elif node.type == "enum_declaration":
 			node_type = "enum"
 			name_node = next((c for c in node.children if c.type == "identifier"), None)
 			node_name = name_node.text.decode() if name_node else None
+			qualified_name = self._qualified_type_name(node_name, self._find_containing_type_names(node))
 		elif node.type == "record_declaration":
 			node_type = "record"
 			name_node = next((c for c in node.children if c.type == "identifier"), None)
 			node_name = name_node.text.decode() if name_node else None
+			qualified_name = self._qualified_type_name(node_name, self._find_containing_type_names(node))
 		elif node.type == "annotation_type_declaration":
 			node_type = "annotation"
 			name_node = next((c for c in node.children if c.type == "identifier"), None)
 			node_name = name_node.text.decode() if name_node else None
+			qualified_name = self._qualified_type_name(node_name, self._find_containing_type_names(node))
 		elif node.type == "method_declaration":
 			node_type = "method"
 			name_node = next((c for c in node.children if c.type == "identifier"), None)
 			if name_node:
 				method_name = name_node.text.decode()
-				containing_class = self._find_containing_class_name(node)
-				if containing_class:
-					node_name = f"{containing_class}.{method_name}"
+				containing_types = self._find_containing_type_names(node)
+				if containing_types:
+					class_name = containing_types[-1]
+					node_name = f"{class_name}.{method_name}"
+					qualified_name = self._qualified_member_name(containing_types, method_name)
 				else:
 					node_name = method_name
+					qualified_name = self._qualify_name(method_name)
 		
 		if node_type and node_name:
 			component_id = self._get_component_id(node_name)
@@ -118,12 +147,18 @@ class TreeSitterJavaAnalyzer:
 				parameters=None,
 				node_type=node_type,
 				base_classes=None,
-				class_name=None,
+				class_name=class_name,
 				display_name=f"{node_type} {node_name}",
-				component_id=component_id
+				component_id=component_id,
+				language="java",
+				qualified_name=qualified_name
 			)
 			self.nodes.append(node_obj)
 			top_level_nodes[node_name] = node_obj
+			top_level_nodes[component_id] = node_obj
+			if qualified_name:
+				top_level_nodes[qualified_name] = node_obj
+				top_level_nodes.setdefault(qualified_name.split(".")[-1], node_obj)
 		
 		# Recursively process children
 		for child in node.children:
@@ -140,7 +175,7 @@ class TreeSitterJavaAnalyzer:
 				base_class_name = self._get_type_name(extends_node)
 				if class_name and base_class_name and not self._is_primitive_type(base_class_name):
 					caller_id = self._get_component_id(class_name)
-					callee_id = self._get_component_id(base_class_name)  
+					callee_id = self._resolve_java_type(base_class_name, node, top_level_nodes)
 					self.call_relationships.append(CallRelationship(
 						caller=caller_id,
 						callee=callee_id,  
@@ -162,7 +197,7 @@ class TreeSitterJavaAnalyzer:
 								interface_name = self._get_type_name(type_child)
 								if interface_name and not self._is_primitive_type(interface_name):
 									caller_id = self._get_component_id(implementer_name)
-									callee_id = self._get_component_id(interface_name)  
+									callee_id = self._resolve_java_type(interface_name, node, top_level_nodes)
 									self.call_relationships.append(CallRelationship(
 										caller=caller_id,
 										callee=callee_id,  
@@ -179,7 +214,7 @@ class TreeSitterJavaAnalyzer:
 				if field_type_name and not self._is_primitive_type(field_type_name):
 					self.call_relationships.append(CallRelationship(
 						caller=containing_class,
-						callee=field_type_name,  
+						callee=self._resolve_java_type(field_type_name, node, top_level_nodes),
 						call_line=node.start_point[0]+1,
 						is_resolved=False
 					))
@@ -192,32 +227,45 @@ class TreeSitterJavaAnalyzer:
 				object_name = None
 				method_name = None
 				
-				if node.children:
-					first_child = node.children[0]
-					if first_child.type == "identifier":
-						object_name = first_child.text.decode()
-						if len(node.children) >= 3:  
-							method_child = node.children[2]
-							if method_child.type == "identifier":
-								method_name = method_child.text.decode()
+				identifiers = [child.text.decode() for child in node.children if child.type == "identifier"]
+				if len(identifiers) >= 2:
+					object_name = identifiers[0]
+					method_name = identifiers[1]
+				elif identifiers:
+					method_name = identifiers[0]
 				
-				if object_name and method_name:
+				if method_name:
 					target_type = None
 					
 					caller_id = containing_method or containing_class
 					
-					if object_name in top_level_nodes:
+					if object_name and object_name[:1].isupper() and object_name in top_level_nodes:
 						target_type = object_name
-					else:
+					elif object_name:
 						target_type = self._find_variable_type(node, object_name, top_level_nodes)
+						if not target_type and object_name in top_level_nodes:
+							target_type = object_name
 
 					if target_type and not self._is_primitive_type(target_type):
-						self.call_relationships.append(CallRelationship(
-							caller=caller_id,
-							callee=target_type,
-							call_line=node.start_point[0]+1,
-							is_resolved=False
-						))
+						callee = self._resolve_java_member(method_name, node, top_level_nodes, target_type)
+						if callee not in top_level_nodes:
+							callee = None
+						if callee:
+							self.call_relationships.append(CallRelationship(
+								caller=caller_id,
+								callee=callee,
+								call_line=node.start_point[0]+1,
+								is_resolved=False
+							))
+					elif not object_name:
+						callee = self._resolve_java_member(method_name, node, top_level_nodes)
+						if callee in top_level_nodes:
+							self.call_relationships.append(CallRelationship(
+								caller=caller_id,
+								callee=callee,
+								call_line=node.start_point[0]+1,
+								is_resolved=False
+							))
 		
 		# 5. Object Creation
 		if node.type == "object_creation_expression":
@@ -226,12 +274,12 @@ class TreeSitterJavaAnalyzer:
 			if containing_class and type_node:
 				created_type = self._get_type_name(type_node)
 				if created_type and not self._is_primitive_type(created_type):
-					self.call_relationships.append(CallRelationship(
-						caller=containing_class,
-						callee=created_type,
-						call_line=node.start_point[0]+1,
-						is_resolved=False
-					))
+						self.call_relationships.append(CallRelationship(
+							caller=containing_class,
+							callee=self._resolve_java_type(created_type, node, top_level_nodes),
+							call_line=node.start_point[0]+1,
+							is_resolved=False
+						))
 		
 		# Recursively process children
 		for child in node.children:
@@ -245,7 +293,67 @@ class TreeSitterJavaAnalyzer:
 			"String", "Object", "List", "Set", "Map", "Collection", "Optional",
 			"void", "Void"
 		}
-		return type_name in primitives
+		simple = self._simple_type_name(type_name)
+		if simple in primitives:
+			return True
+		# Resolve through the import map first so a runtime type written with its
+		# simple name (imported from a `javax.*`/`java.*` package) is judged by its
+		# fully-qualified origin. The prefix rules in is_external_symbol then
+		# filter JDK/runtime packages, while project types — including sibling
+		# packages like `com.other.Bar` — fall through and resolve cross-file. This
+		# generalizes JDK filtering to any repository without enumerating types.
+		qualified = self.import_map.get(simple, simple)
+		return is_external_symbol("java", qualified)
+
+	def _resolve_java_type(self, type_name: str, context_node=None, top_level_nodes=None) -> str:
+		if not type_name:
+			return type_name
+		type_name = self._simple_type_name(type_name)
+		if "." in type_name:
+			return type_name
+		if type_name in self.import_map:
+			return self.import_map[type_name]
+		if context_node is not None and top_level_nodes is not None:
+			containing_types = self._find_containing_type_names(context_node)
+			for idx in range(len(containing_types), 0, -1):
+				candidate = self._qualify_name(".".join([*containing_types[:idx], type_name]))
+				if candidate in top_level_nodes:
+					return candidate
+		if self.package_name:
+			return f"{self.package_name}.{type_name}"
+		return type_name
+
+	def _resolve_java_member(self, member_name: str, context_node, top_level_nodes, target_type: str = None) -> str:
+		if target_type:
+			qualified_type = self._resolve_java_type(target_type, context_node, top_level_nodes)
+			candidate = f"{qualified_type}.{member_name}"
+			if candidate in top_level_nodes:
+				return candidate
+			simple_type = qualified_type.split(".")[-1]
+			simple_candidate = f"{simple_type}.{member_name}"
+			if simple_candidate in top_level_nodes:
+				return simple_candidate
+			return candidate
+
+		containing_types = self._find_containing_type_names(context_node)
+		for idx in range(len(containing_types), 0, -1):
+			candidate = self._qualified_member_name(containing_types[:idx], member_name)
+			if candidate in top_level_nodes:
+				return candidate
+		return self._qualify_name(member_name)
+
+	def _simple_type_name(self, type_name: str) -> str:
+		return type_name.strip().split("<", 1)[0].strip()
+
+	def _qualify_name(self, name: str) -> str:
+		return f"{self.package_name}.{name}" if self.package_name else name
+
+	def _qualified_type_name(self, name: str, containing_types: list[str]) -> str:
+		parts = [*containing_types, name] if name else containing_types
+		return self._qualify_name(".".join(parts)) if parts else ""
+
+	def _qualified_member_name(self, containing_types: list[str], member_name: str) -> str:
+		return self._qualify_name(".".join([*containing_types, member_name]))
 	
 	def _get_identifier_name(self, node):
 		"""Get identifier name from a node."""
@@ -331,14 +439,19 @@ class TreeSitterJavaAnalyzer:
 		return None
 	
 	def _find_containing_class_name(self, node):
+		names = self._find_containing_type_names(node)
+		return names[-1] if names else None
+
+	def _find_containing_type_names(self, node) -> list[str]:
+		names = []
 		current = node.parent
 		while current:
-			if current.type in ["class_declaration", "interface_declaration", "enum_declaration", "record_declaration"]:
+			if current.type in ["class_declaration", "interface_declaration", "enum_declaration", "record_declaration", "annotation_type_declaration"]:
 				name_node = next((c for c in current.children if c.type == "identifier"), None)
 				if name_node:
-					return name_node.text.decode()
+					names.append(name_node.text.decode())
 			current = current.parent
-		return None
+		return list(reversed(names))
 	
 	def _find_containing_method(self, node):
 		current = node.parent
