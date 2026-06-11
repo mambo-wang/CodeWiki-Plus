@@ -21,6 +21,7 @@ from codewiki.src.be.dependency_analyzer.utils.security import safe_open_text
 from codewiki.src.be.dependency_analyzer.utils.external_symbols import (
     CPP_STANDARD_HEADERS,
     is_external_symbol,
+    is_macro_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -157,19 +158,29 @@ class CallGraphAnalyzer:
         return code_files
 
     def _route_contextual_headers(self, code_files: List[Dict], base_dir: str) -> List[Dict]:
-        """Route ambiguous .h headers as C++ when repo or file content indicates C++."""
+        """Route ambiguous .h headers per file.
+
+        A header is parsed as C++ when its own content shows C++ signals, or
+        when the repository is C++-only (so even a signal-free header cannot be
+        C). In a mixed C/C++ repository, a plain C header stays routed as C.
+        """
         cpp_extensions = {".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hxx", ".h++"}
         has_cpp_files = any(
             file_info.get("extension", "").lower() in cpp_extensions
             or file_info.get("language") == "cpp"
             for file_info in code_files
         )
+        has_c_files = any(
+            file_info.get("extension", "").lower() == ".c" for file_info in code_files
+        )
 
         routed_files = []
         for file_info in code_files:
             routed = dict(file_info)
             if routed.get("extension", "").lower() == ".h":
-                if has_cpp_files or self._header_has_cpp_signal(base_dir, routed["path"]):
+                if self._header_has_cpp_signal(base_dir, routed["path"]):
+                    routed["language"] = "cpp"
+                elif has_cpp_files and not has_c_files:
                     routed["language"] = "cpp"
             routed_files.append(routed)
         return routed_files
@@ -181,9 +192,13 @@ class CallGraphAnalyzer:
         except Exception:
             return False
 
-        if re.search(r"\b(namespace|class|template|typename|public|private|protected)\b", content):
+        if re.search(
+            r"\b(?:namespace\s+[A-Za-z_{:]|class\s+[A-Za-z_]|template\s*<"
+            r"|typename\b|(?:public|private|protected)\s*:)",
+            content,
+        ):
             return True
-        if "::" in content or "std::" in content:
+        if "::" in content:
             return True
         for header in CPP_STANDARD_HEADERS:
             if f"#include <{header}>" in content:
@@ -464,15 +479,51 @@ class CallGraphAnalyzer:
                 relationship.is_resolved = True
                 resolved_count += 1
 
+        java_packages = self._java_project_packages()
         self.call_relationships = [
             relationship
             for relationship in self.call_relationships
             if relationship.is_resolved
-            or not is_external_symbol(
+            or not self._is_external_callee(
                 self._caller_language(relationship.caller),
                 relationship.callee,
+                java_packages,
             )
         ]
+
+    def _java_project_packages(self) -> set:
+        packages = set()
+        for func_info in self.functions.values():
+            if func_info.language == "java":
+                package = self._java_package_for_node(func_info)
+                if package:
+                    packages.add(package)
+        return packages
+
+    def _is_external_callee(self, language: Optional[str], callee: str, java_packages: set) -> bool:
+        """Classify a still-unresolved callee as external, after project
+        resolution has had its chance.
+
+        Rules are generic, not name lists: prefix/standard-library knowledge in
+        is_external_symbol, the C/C++ ALL_CAPS macro convention (macros are
+        never components, so such calls can never resolve), and Java package
+        origin — a dotted name qualified to a package with no prefix relation
+        to any project package came from a third-party import.
+        """
+        if is_external_symbol(language, callee):
+            return True
+        if language in ("c", "cpp") and is_macro_name(callee):
+            return True
+        if language == "java" and "." in callee and java_packages:
+            package = callee.rsplit(".", 1)[0]
+            if not any(
+                package == project
+                or package.startswith(project + ".")
+                or project.startswith(package + ".")
+                for project in java_packages
+            ):
+                return True
+        return False
 
     def _build_resolution_indexes(self) -> Dict[str, Dict[str, List[str]]]:
         exact: Dict[str, List[str]] = defaultdict(list)

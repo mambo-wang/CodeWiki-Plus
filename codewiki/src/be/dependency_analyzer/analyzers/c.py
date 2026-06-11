@@ -7,7 +7,6 @@ import os
 from tree_sitter import Parser, Language
 import tree_sitter_c
 from codewiki.src.be.dependency_analyzer.models.core import Node, CallRelationship
-from codewiki.src.be.dependency_analyzer.utils.external_symbols import is_external_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -162,17 +161,18 @@ class TreeSitterCAnalyzer:
 			if containing_function:
 				containing_function_id = self._get_component_id(containing_function)
 				
-				# Get called function name
+				# Get called function name. External/libc filtering happens in
+				# CallGraphAnalyzer after cross-file resolution, so a project
+				# function that shadows a libc name still gets its edges.
 				function_node = next((c for c in node.children if c.type == "identifier"), None)
 				if function_node:
 					called_function = function_node.text.decode()
-					if not self._is_system_function(called_function):
-						self.call_relationships.append(CallRelationship(
-							caller=containing_function_id,
-							callee=called_function,  # Use simple name for cross-file resolution
-							call_line=node.start_point[0]+1,
-							is_resolved=False  # Let CallGraphAnalyzer resolve
-						))
+					self.call_relationships.append(CallRelationship(
+						caller=containing_function_id,
+						callee=called_function,  # Use simple name for cross-file resolution
+						call_line=node.start_point[0]+1,
+						is_resolved=False  # Let CallGraphAnalyzer resolve
+					))
 		
 		# 2. function uses global variables
 		if node.type == "identifier":
@@ -209,10 +209,6 @@ class TreeSitterCAnalyzer:
 							return func_name
 			current = current.parent
 		return None
-	
-	def _is_system_function(self, func_name: str) -> bool:
-		"""Check if function is a system/library function."""
-		return is_external_symbol("c", func_name)
 
 def analyze_c_file(file_path: str, content: str, repo_path: str = None) -> Tuple[List[Node], List[CallRelationship]]:
 	analyzer = TreeSitterCAnalyzer(file_path, content, repo_path)

@@ -8,7 +8,10 @@ import re
 from tree_sitter import Parser, Language
 import tree_sitter_java
 from codewiki.src.be.dependency_analyzer.models.core import Node, CallRelationship
-from codewiki.src.be.dependency_analyzer.utils.external_symbols import is_external_symbol
+from codewiki.src.be.dependency_analyzer.utils.external_symbols import (
+	JAVA_OBJECT_METHODS,
+	is_external_symbol,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +176,7 @@ class TreeSitterJavaAnalyzer:
 			extends_node = next((c for c in node.children if c.type == "superclass"), None)
 			if extends_node:
 				base_class_name = self._get_type_name(extends_node)
-				if class_name and base_class_name and not self._is_primitive_type(base_class_name):
+				if class_name and base_class_name and not self._skip_type(base_class_name, node):
 					caller_id = self._get_component_id(class_name)
 					callee_id = self._resolve_java_type(base_class_name, node, top_level_nodes)
 					self.call_relationships.append(CallRelationship(
@@ -195,7 +198,7 @@ class TreeSitterJavaAnalyzer:
 						for type_child in child.children:
 							if type_child.type in ["type_identifier", "generic_type"]:
 								interface_name = self._get_type_name(type_child)
-								if interface_name and not self._is_primitive_type(interface_name):
+								if interface_name and not self._skip_type(interface_name, node):
 									caller_id = self._get_component_id(implementer_name)
 									callee_id = self._resolve_java_type(interface_name, node, top_level_nodes)
 									self.call_relationships.append(CallRelationship(
@@ -211,7 +214,7 @@ class TreeSitterJavaAnalyzer:
 			type_node = next((c for c in node.children if c.type in ["type_identifier", "generic_type"]), None)
 			if containing_class and type_node:
 				field_type_name = self._get_type_name(type_node)
-				if field_type_name and not self._is_primitive_type(field_type_name):
+				if field_type_name and not self._skip_type(field_type_name, node):
 					self.call_relationships.append(CallRelationship(
 						caller=containing_class,
 						callee=self._resolve_java_type(field_type_name, node, top_level_nodes),
@@ -236,19 +239,26 @@ class TreeSitterJavaAnalyzer:
 				
 				if method_name:
 					target_type = None
-					
+
 					caller_id = containing_method or containing_class
-					
+
 					if object_name and object_name[:1].isupper() and object_name in top_level_nodes:
 						target_type = object_name
 					elif object_name:
 						target_type = self._find_variable_type(node, object_name, top_level_nodes)
 						if not target_type and object_name in top_level_nodes:
 							target_type = object_name
+						if not target_type and object_name[:1].isupper() and not object_name.isupper():
+							# CamelCase receiver with no matching variable reads
+							# as a static call on a type from another file or an
+							# import; ALL_CAPS receivers are constants, not types.
+							target_type = object_name
 
-					if target_type and not self._is_primitive_type(target_type):
+					if target_type and not self._skip_type(target_type, node):
 						callee = self._resolve_java_member(method_name, node, top_level_nodes, target_type)
-						if callee not in top_level_nodes:
+						if callee not in top_level_nodes and method_name in JAVA_OBJECT_METHODS:
+							# Inherited java.lang.Object method that the project
+							# type does not override locally — never a project edge.
 							callee = None
 						if callee:
 							self.call_relationships.append(CallRelationship(
@@ -259,7 +269,7 @@ class TreeSitterJavaAnalyzer:
 							))
 					elif not object_name:
 						callee = self._resolve_java_member(method_name, node, top_level_nodes)
-						if callee in top_level_nodes:
+						if callee in top_level_nodes or self.import_map.get(method_name) == callee:
 							self.call_relationships.append(CallRelationship(
 								caller=caller_id,
 								callee=callee,
@@ -273,7 +283,7 @@ class TreeSitterJavaAnalyzer:
 			type_node = next((c for c in node.children if c.type in ["type_identifier", "generic_type"]), None)
 			if containing_class and type_node:
 				created_type = self._get_type_name(type_node)
-				if created_type and not self._is_primitive_type(created_type):
+				if created_type and not self._skip_type(created_type, node):
 						self.call_relationships.append(CallRelationship(
 							caller=containing_class,
 							callee=self._resolve_java_type(created_type, node, top_level_nodes),
@@ -286,12 +296,10 @@ class TreeSitterJavaAnalyzer:
 			self._extract_relationships(child, top_level_nodes)
 	
 	def _is_primitive_type(self, type_name: str) -> bool:
-		"""Check if type is a Java primitive or common built-in type."""
+		"""Check if type is a Java primitive or a JDK/runtime type."""
 		primitives = {
 			"boolean", "byte", "char", "double", "float", "int", "long", "short",
-			"Boolean", "Byte", "Character", "Double", "Float", "Integer", "Long", "Short",
-			"String", "Object", "List", "Set", "Map", "Collection", "Optional",
-			"void", "Void"
+			"void", "var",
 		}
 		simple = self._simple_type_name(type_name)
 		if simple in primitives:
@@ -302,7 +310,17 @@ class TreeSitterJavaAnalyzer:
 		# filter JDK/runtime packages, while project types — including sibling
 		# packages like `com.other.Bar` — fall through and resolve cross-file. This
 		# generalizes JDK filtering to any repository without enumerating types.
-		qualified = self.import_map.get(simple, simple)
+		# java.lang types (no import to consult) are covered by the curated set
+		# inside is_external_symbol.
+		qualified = self.import_map.get(simple)
+		if qualified is None:
+			# A wildcard import of a JDK package (`import java.util.*;`) is the
+			# only way a JDK type outside java.lang appears with no explicit
+			# import; project wildcard packages fall through to resolution.
+			for wildcard in self.wildcard_imports:
+				if is_external_symbol("java", f"{wildcard}.{simple}"):
+					return True
+			qualified = simple
 		return is_external_symbol("java", qualified)
 
 	def _resolve_java_type(self, type_name: str, context_node=None, top_level_nodes=None) -> str:
@@ -340,7 +358,42 @@ class TreeSitterJavaAnalyzer:
 			candidate = self._qualified_member_name(containing_types[:idx], member_name)
 			if candidate in top_level_nodes:
 				return candidate
+		# A static import maps the bare call to its declaring type, whether
+		# project (`com.foo.Util.checkNotNull`) or JDK (`java.util.Objects.requireNonNull`).
+		if member_name in self.import_map:
+			return self.import_map[member_name]
 		return self._qualify_name(member_name)
+
+	def _skip_type(self, type_name: str, context_node) -> bool:
+		"""Types that can never be project components: primitives, JDK/runtime
+		types, and generic type parameters in scope (e.g. the `K`/`V` of an
+		enclosing `class Cache<K, V>`)."""
+		if self._is_primitive_type(type_name):
+			return True
+		return self._simple_type_name(type_name) in self._find_type_parameters(context_node)
+
+	def _find_type_parameters(self, node) -> set:
+		params = set()
+		current = node
+		while current:
+			if current.type in [
+				"class_declaration",
+				"interface_declaration",
+				"record_declaration",
+				"method_declaration",
+			]:
+				type_parameters = next(
+					(c for c in current.children if c.type == "type_parameters"), None
+				)
+				if type_parameters:
+					for param in type_parameters.children:
+						if param.type == "type_parameter":
+							for child in param.children:
+								if child.type in ["type_identifier", "identifier"]:
+									params.add(child.text.decode())
+									break
+			current = current.parent
+		return params
 
 	def _simple_type_name(self, type_name: str) -> str:
 		return type_name.strip().split("<", 1)[0].strip()
@@ -384,15 +437,31 @@ class TreeSitterJavaAnalyzer:
 	
 	def _find_variable_type(self, node, variable_name, top_level_nodes):
 		method_node = node.parent
-		while method_node and method_node.type != "method_declaration":
+		while method_node and method_node.type not in ["method_declaration", "constructor_declaration"]:
 			method_node = method_node.parent
-		
+
 		if method_node:
 			for child in method_node.children:
-				if child.type == "block":
+				if child.type == "block" or child.type == "constructor_body":
 					variable_type = self._search_variable_declaration(child, variable_name)
 					if variable_type:
 						return variable_type
+				elif child.type == "formal_parameters":
+					for param in child.children:
+						if param.type in ["formal_parameter", "spread_parameter"]:
+							type_node = next(
+								(c for c in param.children if c.type in ["type_identifier", "generic_type"]),
+								None,
+							)
+							identifier_node = next(
+								(c for c in param.children if c.type == "identifier"), None
+							)
+							if (
+								type_node
+								and identifier_node
+								and identifier_node.text.decode() == variable_name
+							):
+								return self._get_type_name(type_node)
 		
 		class_node = node.parent
 		while class_node and class_node.type != "class_declaration":

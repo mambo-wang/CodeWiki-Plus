@@ -8,20 +8,12 @@ import re
 from tree_sitter import Parser, Language
 import tree_sitter_cpp
 from codewiki.src.be.dependency_analyzer.models.core import Node, CallRelationship
-from codewiki.src.be.dependency_analyzer.utils.external_symbols import is_external_symbol
+from codewiki.src.be.dependency_analyzer.utils.external_symbols import (
+	is_external_symbol,
+	is_macro_name,
+)
 
 logger = logging.getLogger(__name__)
-
-# ALL_CAPS tokens that are common standard constants/keywords, not declaration
-# macros, so they must never be stripped from specifier position.
-_NON_MACRO_UPPER = {
-	"FALSE",
-	"TRUE",
-	"NULL",
-	"EOF",
-	"EXIT_SUCCESS",
-	"EXIT_FAILURE",
-}
 
 # An ALL_CAPS attribute/specifier macro sitting in front of a declaration, e.g.
 # `EXPORT_API void foo()` or `CONSTEXPR auto bar()`. Matched at line start or
@@ -31,22 +23,15 @@ _NON_MACRO_UPPER = {
 _SPECIFIER_MACRO_RE = re.compile(r"(^\s*|[{};>,]\s*)([A-Z][A-Z0-9_]*[A-Z0-9])(\s+)(?=[A-Za-z_~])")
 # Same, but for function-like specifier macros such as `VISIBILITY("default") void f()`.
 _SPECIFIER_MACRO_CALL_RE = re.compile(r"(^\s*|[{};>,]\s*)([A-Z][A-Z0-9_]*[A-Z0-9])\s*\([^()]*\)(\s+)(?=[A-Za-z_~])")
+# An export/visibility macro between a class-like keyword and the type name,
+# e.g. `class LIB_API logger {`. Without this the macro is taken as the type
+# name and the real name is lost.
+_KEYWORD_MACRO_RE = re.compile(r"\b(class|struct|union|enum)(\s+)([A-Z][A-Z0-9_]*[A-Z0-9])\s+(?=[A-Za-z_~])")
 # A line that is nothing but a bare ALL_CAPS macro (optionally a macro call),
 # e.g. namespace-bracket macros like `LIB_BEGIN_NAMESPACE`. Left in place these
 # break parsing of the declaration that follows, so the line is blanked. Begin/
 # end pairs are both removed, keeping any braces they expand to balanced.
 _STANDALONE_MACRO_RE = re.compile(r"^\s*([A-Z][A-Z0-9_]*[A-Z0-9])(\s*\([^()]*\))?\s*$")
-
-
-_ALL_CAPS_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
-
-
-def _is_macro_name(token: str) -> bool:
-	"""Heuristic: an ALL_CAPS identifier (with an underscore or 4+ chars) reads
-	as a macro by C/C++ naming convention, not a function or type."""
-	if not token or not _ALL_CAPS_RE.match(token):
-		return False
-	return (len(token) >= 4 or "_" in token) and token not in _NON_MACRO_UPPER
 
 class TreeSitterCppAnalyzer:
 	def __init__(self, file_path: str, content: str, repo_path: str = None):
@@ -91,9 +76,7 @@ class TreeSitterCppAnalyzer:
 		language_capsule = tree_sitter_cpp.language()
 		cpp_language = Language(language_capsule)
 		parser = Parser(cpp_language)
-		parse_content = self._normalize_for_parser(self.content)
-		tree = parser.parse(bytes(parse_content, "utf8"))
-		root = tree.root_node
+		root = self._parse_with_macro_recovery(parser)
 		lines = self.content.splitlines()
 		
 		top_level_nodes = {}
@@ -103,6 +86,39 @@ class TreeSitterCppAnalyzer:
 		
 		# extract relationships between top-level nodes
 		self._extract_relationships(root, top_level_nodes)
+
+	def _parse_with_macro_recovery(self, parser):
+		"""Parse the original source; if it has syntax errors, retry with macro
+		normalization and keep whichever parse has fewer errors.
+
+		Normalization strips ALL_CAPS tokens by naming convention, which is
+		wrong for code whose *types* are ALL_CAPS (e.g. Win32 `HANDLE`/`DWORD`).
+		Comparing error counts makes the heuristic self-correcting: clean files
+		are never touched, and normalization is only kept when it demonstrably
+		recovers structure.
+		"""
+		tree = parser.parse(bytes(self.content, "utf8"))
+		if not tree.root_node.has_error:
+			return tree.root_node
+
+		normalized = self._normalize_for_parser(self.content)
+		if normalized == self.content:
+			return tree.root_node
+
+		normalized_tree = parser.parse(bytes(normalized, "utf8"))
+		if self._count_parse_errors(normalized_tree.root_node) < self._count_parse_errors(tree.root_node):
+			return normalized_tree.root_node
+		return tree.root_node
+
+	def _count_parse_errors(self, root) -> int:
+		errors = 0
+		stack = [root]
+		while stack:
+			node = stack.pop()
+			if node.is_error or node.is_missing:
+				errors += 1
+			stack.extend(node.children)
+		return errors
 
 	def _normalize_for_parser(self, content: str) -> str:
 		"""Strip ALL_CAPS attribute/specifier macros that sit in front of a
@@ -116,7 +132,7 @@ class TreeSitterCppAnalyzer:
 		for line in content.splitlines():
 			updated = line
 			standalone = _STANDALONE_MACRO_RE.match(updated)
-			if standalone and _is_macro_name(standalone.group(1)):
+			if standalone and is_macro_name(standalone.group(1)):
 				normalized_lines.append("")
 				continue
 			for pattern in (_SPECIFIER_MACRO_CALL_RE, _SPECIFIER_MACRO_RE):
@@ -124,9 +140,13 @@ class TreeSitterCppAnalyzer:
 				while previous != updated:
 					previous = updated
 					updated = pattern.sub(
-						lambda m: (m.group(1) + m.group(3)) if _is_macro_name(m.group(2)) else m.group(0),
+						lambda m: (m.group(1) + m.group(3)) if is_macro_name(m.group(2)) else m.group(0),
 						updated,
 					)
+			updated = _KEYWORD_MACRO_RE.sub(
+				lambda m: (m.group(1) + m.group(2)) if is_macro_name(m.group(3)) else m.group(0),
+				updated,
+			)
 			normalized_lines.append(updated)
 		return "\n".join(normalized_lines)
 	
@@ -194,6 +214,21 @@ class TreeSitterCppAnalyzer:
 					elif child.type == "identifier":
 						node_name = child.text.decode()
 						break
+		elif node.type == "alias_declaration":
+			# using name = type; — aliases are real API surface (e.g. a
+			# library's public alias for an internal template), so they are
+			# extracted as components and can resolve call/type references.
+			node_type = "type_alias"
+			for child in node.children:
+				if child.type == "type_identifier":
+					node_name = child.text.decode()
+					break
+		elif node.type == "type_definition":
+			# typedef ... name; — the alias name is the trailing type_identifier
+			node_type = "type_alias"
+			identifiers = [c for c in node.children if c.type == "type_identifier"]
+			if identifiers:
+				node_name = identifiers[-1].text.decode()
 		elif node.type == "namespace_definition":
 			node_type = "namespace"
 			found_namespace_keyword = False
@@ -241,7 +276,7 @@ class TreeSitterCppAnalyzer:
 				top_level_nodes[f"{containing_class}.{node_name}"] = node_obj
 				top_level_nodes.setdefault(node_name, node_obj)
 			
-			if node_type in ["class", "struct", "function", "method"]:
+			if node_type in ["class", "struct", "function", "method", "type_alias"]:
 				self.nodes.append(node_obj)
 		
 		# Recursively process children
@@ -356,7 +391,24 @@ class TreeSitterCppAnalyzer:
 							call_line=node.start_point[0]+1,
 							is_resolved=True
 						))
-					elif not self._is_system_function(called_function):
+					elif receiver_name is not None:
+						# A member call whose receiver type could not be
+						# resolved: a name matching an STL member here is
+						# overwhelmingly likely external, so suppress it.
+						if not self._is_system_function(called_function):
+							self.call_relationships.append(CallRelationship(
+								caller=containing_function_id,
+								callee=called_function,
+								call_line=node.start_point[0]+1,
+								is_resolved=False
+							))
+					elif (
+						not is_macro_name(called_function)
+						and called_function not in self._find_template_parameters(node)
+					):
+						# Plain calls are emitted for cross-file resolution;
+						# external filtering happens centrally after the
+						# project resolver has had its chance.
 						self.call_relationships.append(CallRelationship(
 							caller=containing_function_id,
 							callee=called_function,
@@ -368,10 +420,13 @@ class TreeSitterCppAnalyzer:
 			# Find the containing class
 			containing_class = self._find_containing_class(node)
 			if containing_class:
+				template_params = self._find_template_parameters(node)
 				# Extract base class names
 				for child in node.children:
 					if child.type == "type_identifier":
 						base_class = child.text.decode()
+						if base_class in template_params or is_macro_name(base_class):
+							continue
 						containing_class_id = self._get_component_id(containing_class)
 						self.call_relationships.append(CallRelationship(
 							caller=containing_class_id,
@@ -559,6 +614,25 @@ class TreeSitterCppAnalyzer:
 			current = current.parent
 		return None
 
+	def _find_template_parameters(self, node) -> set:
+		"""Collect template type-parameter names in scope at this node, so a
+		reference to `T`/`Char`/... is not reported as an unresolved project
+		symbol."""
+		params = set()
+		current = node.parent
+		while current:
+			if current.type == "template_declaration":
+				param_list = next(
+					(c for c in current.children if c.type == "template_parameter_list"), None
+				)
+				if param_list:
+					for param in param_list.children:
+						for child in getattr(param, "children", []):
+							if child.type == "type_identifier":
+								params.add(child.text.decode())
+			current = current.parent
+		return params
+
 	def _is_system_function(self, func_name: str) -> bool:
 		"""Check if a call target is external rather than a project function.
 
@@ -571,7 +645,7 @@ class TreeSitterCppAnalyzer:
 		"""
 		if is_external_symbol("cpp", func_name):
 			return True
-		return _is_macro_name(func_name)
+		return is_macro_name(func_name)
 
 	def _find_method_component(self, method_name, top_level_nodes, class_name: str = None):
 		if class_name:
