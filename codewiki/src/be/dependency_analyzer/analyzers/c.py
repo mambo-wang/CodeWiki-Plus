@@ -132,7 +132,9 @@ class TreeSitterCAnalyzer:
 				base_classes=None,
 				class_name=None,
 				display_name=f"{node_type} {node_name}",
-				component_id=component_id
+				component_id=component_id,
+				language="c",
+				qualified_name=node_name
 			)
 
 			if node_type in ["function", "struct"]:
@@ -159,17 +161,18 @@ class TreeSitterCAnalyzer:
 			if containing_function:
 				containing_function_id = self._get_component_id(containing_function)
 				
-				# Get called function name
+				# Get called function name. External/libc filtering happens in
+				# CallGraphAnalyzer after cross-file resolution, so a project
+				# function that shadows a libc name still gets its edges.
 				function_node = next((c for c in node.children if c.type == "identifier"), None)
 				if function_node:
 					called_function = function_node.text.decode()
-					if not self._is_system_function(called_function):
-						self.call_relationships.append(CallRelationship(
-							caller=containing_function_id,
-							callee=called_function,  # Use simple name for cross-file resolution
-							call_line=node.start_point[0]+1,
-							is_resolved=False  # Let CallGraphAnalyzer resolve
-						))
+					self.call_relationships.append(CallRelationship(
+						caller=containing_function_id,
+						callee=called_function,  # Use simple name for cross-file resolution
+						call_line=node.start_point[0]+1,
+						is_resolved=False  # Let CallGraphAnalyzer resolve
+					))
 		
 		# 2. function uses global variables
 		if node.type == "identifier":
@@ -206,16 +209,6 @@ class TreeSitterCAnalyzer:
 							return func_name
 			current = current.parent
 		return None
-	
-	def _is_system_function(self, func_name: str) -> bool:
-		"""Check if function is a system/library function."""
-		# Common C library functions
-		system_functions = {
-			"printf", "scanf", "malloc", "free", "strlen", "strcpy", "strcmp", 
-			"memcpy", "memset", "exit", "abort", "fopen", "fclose", "fread", "fwrite",
-			"SDL_Init", "SDL_CreateWindow", "SDL_Log", "SDL_GetError", "SDL_Quit"
-		}
-		return func_name in system_functions
 
 def analyze_c_file(file_path: str, content: str, repo_path: str = None) -> Tuple[List[Node], List[CallRelationship]]:
 	analyzer = TreeSitterCAnalyzer(file_path, content, repo_path)

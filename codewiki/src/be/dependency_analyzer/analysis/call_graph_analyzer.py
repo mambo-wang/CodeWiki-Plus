@@ -6,16 +6,23 @@ Coordinates language-specific analyzers to build comprehensive call graphs
 across different programming languages in a repository.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 import logging
 import traceback
 import time
 import signal
+import re
+from collections import defaultdict
 from pathlib import Path
 from contextlib import contextmanager
 from codewiki.src.be.dependency_analyzer.models.core import Node, CallRelationship
 from codewiki.src.be.dependency_analyzer.utils.patterns import CODE_EXTENSIONS
 from codewiki.src.be.dependency_analyzer.utils.security import safe_open_text
+from codewiki.src.be.dependency_analyzer.utils.external_symbols import (
+    CPP_STANDARD_HEADERS,
+    is_external_symbol,
+    is_macro_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +76,7 @@ class CallGraphAnalyzer:
 
         self.functions = {}
         self.call_relationships = []
+        code_files = self._route_contextual_headers(code_files, base_dir)
 
         files_analyzed = 0
         files_failed = 0
@@ -148,6 +156,54 @@ class CallGraphAnalyzer:
 
         traverse(file_tree)
         return code_files
+
+    def _route_contextual_headers(self, code_files: List[Dict], base_dir: str) -> List[Dict]:
+        """Route ambiguous .h headers per file.
+
+        A header is parsed as C++ when its own content shows C++ signals, or
+        when the repository is C++-only (so even a signal-free header cannot be
+        C). In a mixed C/C++ repository, a plain C header stays routed as C.
+        """
+        cpp_extensions = {".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hxx", ".h++"}
+        has_cpp_files = any(
+            file_info.get("extension", "").lower() in cpp_extensions
+            or file_info.get("language") == "cpp"
+            for file_info in code_files
+        )
+        has_c_files = any(
+            file_info.get("extension", "").lower() == ".c" for file_info in code_files
+        )
+
+        routed_files = []
+        for file_info in code_files:
+            routed = dict(file_info)
+            if routed.get("extension", "").lower() == ".h":
+                if self._header_has_cpp_signal(base_dir, routed["path"]):
+                    routed["language"] = "cpp"
+                elif has_cpp_files and not has_c_files:
+                    routed["language"] = "cpp"
+            routed_files.append(routed)
+        return routed_files
+
+    def _header_has_cpp_signal(self, base_dir: str, relative_path: str) -> bool:
+        base = Path(base_dir)
+        try:
+            content = safe_open_text(base, base / relative_path)
+        except Exception:
+            return False
+
+        if re.search(
+            r"\b(?:namespace\s+[A-Za-z_{:]|class\s+[A-Za-z_]|template\s*<"
+            r"|typename\b|(?:public|private|protected)\s*:)",
+            content,
+        ):
+            return True
+        if "::" in content:
+            return True
+        for header in CPP_STANDARD_HEADERS:
+            if f"#include <{header}>" in content:
+                return True
+        return False
 
     def _analyze_code_file(self, repo_dir: str, file_info: Dict):
         """
@@ -406,42 +462,156 @@ class CallGraphAnalyzer:
         Attempts to match function calls to actual function definitions,
         handling cross-language calls where possible.
         """
-        func_lookup = {}
+        indexes = self._build_resolution_indexes()
         for func_id, func_info in self.functions.items():
-            func_lookup[func_id] = func_id
-            func_lookup[func_info.name] = func_id
-            if func_info.component_id:
-                func_lookup[func_info.component_id] = func_id
-                # Extract short name: handle both new (path::Name) and legacy (path.Name) formats
-                if "::" in func_info.component_id:
-                    method_name = func_info.component_id.split("::")[-1]
-                else:
-                    method_name = func_info.component_id.split(".")[-1]
-                if method_name not in func_lookup:
-                    func_lookup[method_name] = func_id
+            if not func_info.language:
+                file_ext = Path(func_info.file_path).suffix.lower()
+                func_info.language = CODE_EXTENSIONS.get(file_ext)
 
         resolved_count = 0
         for relationship in self.call_relationships:
-            callee_name = relationship.callee
+            if relationship.is_resolved and relationship.callee in self.functions:
+                continue
 
-            if callee_name in func_lookup:
-                relationship.callee = func_lookup[callee_name]
+            resolved_id = self._resolve_callee(relationship, indexes)
+            if resolved_id:
+                relationship.callee = resolved_id
                 relationship.is_resolved = True
                 resolved_count += 1
-            elif "::" in callee_name or "." in callee_name:
-                if callee_name in func_lookup:
-                    relationship.callee = func_lookup[callee_name]
-                    relationship.is_resolved = True
-                    resolved_count += 1
-                else:
-                    if "::" in callee_name:
-                        method_name = callee_name.split("::")[-1]
-                    else:
-                        method_name = callee_name.split(".")[-1]
-                    if method_name in func_lookup:
-                        relationship.callee = func_lookup[method_name]
-                        relationship.is_resolved = True
-                        resolved_count += 1
+
+        java_packages = self._java_project_packages()
+        self.call_relationships = [
+            relationship
+            for relationship in self.call_relationships
+            if relationship.is_resolved
+            or not self._is_external_callee(
+                self._caller_language(relationship.caller),
+                relationship.callee,
+                java_packages,
+            )
+        ]
+
+    def _java_project_packages(self) -> set:
+        packages = set()
+        for func_info in self.functions.values():
+            if func_info.language == "java":
+                package = self._java_package_for_node(func_info)
+                if package:
+                    packages.add(package)
+        return packages
+
+    def _is_external_callee(self, language: Optional[str], callee: str, java_packages: set) -> bool:
+        """Classify a still-unresolved callee as external, after project
+        resolution has had its chance.
+
+        Rules are generic, not name lists: prefix/standard-library knowledge in
+        is_external_symbol, the C/C++ ALL_CAPS macro convention (macros are
+        never components, so such calls can never resolve), and Java package
+        origin — a dotted name qualified to a package with no prefix relation
+        to any project package came from a third-party import.
+        """
+        if is_external_symbol(language, callee):
+            return True
+        if language in ("c", "cpp") and is_macro_name(callee):
+            return True
+        if language == "java" and "." in callee and java_packages:
+            package = callee.rsplit(".", 1)[0]
+            if not any(
+                package == project
+                or package.startswith(project + ".")
+                or project.startswith(package + ".")
+                for project in java_packages
+            ):
+                return True
+        return False
+
+    def _build_resolution_indexes(self) -> Dict[str, Dict[str, List[str]]]:
+        exact: Dict[str, List[str]] = defaultdict(list)
+        simple: Dict[str, List[str]] = defaultdict(list)
+
+        def add(index: Dict[str, List[str]], key: Optional[str], func_id: str) -> None:
+            if key and func_id not in index[key]:
+                index[key].append(func_id)
+
+        for func_id, func_info in self.functions.items():
+            add(exact, func_id, func_id)
+            add(exact, func_info.component_id, func_id)
+            add(exact, func_info.qualified_name, func_id)
+            add(exact, func_info.name, func_id)
+
+            names = {func_info.name}
+            if func_info.component_id:
+                names.add(func_info.component_id.split("::")[-1])
+            if func_info.qualified_name:
+                names.add(func_info.qualified_name.split(".")[-1])
+                parts = func_info.qualified_name.split(".")
+                if len(parts) >= 2:
+                    names.add(".".join(parts[-2:]))
+
+            for name in names:
+                add(simple, name, func_id)
+                if name and "." in name:
+                    add(simple, name.split(".")[-1], func_id)
+
+        return {"exact": exact, "simple": simple}
+
+    def _resolve_callee(self, relationship: CallRelationship, indexes: Dict[str, Dict[str, List[str]]]) -> Optional[str]:
+        callee_name = relationship.callee
+
+        exact_match = self._unique_match(indexes["exact"], callee_name)
+        if exact_match:
+            return exact_match
+
+        if "::" in callee_name:
+            suffix = callee_name.split("::")[-1]
+            exact_match = self._unique_match(indexes["exact"], suffix)
+            if exact_match:
+                return exact_match
+            simple_match = self._unique_match(indexes["simple"], suffix)
+            if simple_match:
+                return simple_match
+
+        if "." in callee_name:
+            exact_match = self._unique_match(indexes["exact"], callee_name)
+            if exact_match:
+                return exact_match
+            simple_match = self._unique_match(indexes["simple"], callee_name)
+            if simple_match:
+                return simple_match
+            tail_match = self._unique_match(indexes["simple"], callee_name.split(".")[-1])
+            if tail_match:
+                return tail_match
+
+        caller = self.functions.get(relationship.caller)
+        if caller and caller.language == "java" and "." not in callee_name:
+            package = self._java_package_for_node(caller)
+            if package:
+                same_package_match = self._unique_match(indexes["exact"], f"{package}.{callee_name}")
+                if same_package_match:
+                    return same_package_match
+
+        return self._unique_match(indexes["simple"], callee_name)
+
+    def _unique_match(self, index: Dict[str, List[str]], key: str) -> Optional[str]:
+        matches = index.get(key, [])
+        return matches[0] if len(matches) == 1 else None
+
+    def _java_package_for_node(self, node: Node) -> str:
+        qualified_name = node.qualified_name or ""
+        parts = qualified_name.split(".")
+        if len(parts) < 2:
+            return ""
+        if node.component_type == "method" and len(parts) >= 3:
+            return ".".join(parts[:-2])
+        return ".".join(parts[:-1])
+
+    def _caller_language(self, caller_id: str) -> Optional[str]:
+        caller = self.functions.get(caller_id)
+        if caller and caller.language:
+            return caller.language
+        if caller:
+            return CODE_EXTENSIONS.get(Path(caller.file_path).suffix.lower())
+        return None
 
     def _deduplicate_relationships(self):
         """
@@ -480,15 +650,16 @@ class CallGraphAnalyzer:
                 node_classes.append("node-function")
 
             file_ext = Path(func_info.file_path).suffix.lower()
+            language = func_info.language or CODE_EXTENSIONS.get(file_ext, "unknown")
             if file_ext == ".py":
                 node_classes.append("lang-python")
             elif file_ext == ".js":
                 node_classes.append("lang-javascript")
             elif file_ext == ".ts":
                 node_classes.append("lang-typescript")
-            elif file_ext in [".c", ".h"]:
+            elif language == "c":
                 node_classes.append("lang-c")
-            elif file_ext in [".cpp", ".cc", ".cxx", ".hpp", ".hxx"]:
+            elif language == "cpp" or file_ext in [".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hxx", ".h++"]:
                 node_classes.append("lang-cpp")
             elif file_ext in [".kt", ".kts"]:
                 node_classes.append("lang-kotlin")
@@ -502,7 +673,7 @@ class CallGraphAnalyzer:
                         "label": func_info.name,
                         "file": func_info.file_path,
                         "type": func_info.node_type or "function",
-                        "language": CODE_EXTENSIONS.get(file_ext, "unknown"),
+                        "language": language,
                     },
                     "classes": " ".join(node_classes),
                 }
@@ -616,4 +787,3 @@ class CallGraphAnalyzer:
             for rel in self.call_relationships
             if rel.caller in selected_func_ids and rel.callee in selected_func_ids
         ]
-
