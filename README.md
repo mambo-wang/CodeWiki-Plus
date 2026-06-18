@@ -1,468 +1,190 @@
-<h1 align="center">CodeWiki: Evaluating AI's Ability to Generate Holistic Documentation for Large-Scale Codebases</h1>
+<h1 align="center">CodeWiki-CN</h1>
 
 <p align="center">
-  <strong>AI-Powered Repository Documentation Generation</strong> • <strong>Multi-Language Support</strong> • <strong>Architecture-Aware Analysis</strong>
-</p>
-
-<p align="center">
-  Generate holistic, structured documentation for large-scale codebases • Cross-module interactions • Visual artifacts and diagrams
+  <strong>用 AI IDE 驱动的代码仓库文档生成工具</strong><br>
+  <strong>AI IDE-Driven Code Documentation Generator</strong>
 </p>
 
 <p align="center">
   <a href="https://python.org/"><img alt="Python version" src="https://img.shields.io/badge/python-3.12+-blue?style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" /></a>
-  <a href="https://github.com/FSoft-AI4Code/CodeWiki/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/FSoft-AI4Code/CodeWiki?style=flat-square" /></a>
-  <a href="https://arxiv.org/abs/2510.24428"><img alt="arXiv" src="https://img.shields.io/badge/arXiv-2510.24428-b31b1b?style=flat-square" /></a>
+  <a href="https://github.com/FSoft-AI4Code/CodeWiki"><img alt="Upstream: CodeWiki" src="https://img.shields.io/badge/upstream-FSoft--AI4Code%2FCodeWiki-orange?style=flat-square" /></a>
 </p>
 
 <p align="center">
-  <a href="#quick-start"><strong>Quick Start</strong></a> •
-  <a href="#ide-driven-mode-zero-llm-config"><strong>IDE Mode</strong></a> •
-  <a href="#cli-commands"><strong>CLI Commands</strong></a> •
-  <a href="#documentation-output"><strong>Output Structure</strong></a> •
-  <a href="./docs/index.html"><strong>Repo Docs</strong></a> •
-  <a href="https://arxiv.org/abs/2510.24428"><strong>Paper</strong></a>
-</p>
-
-<p align="center">
-  📚 <strong>CodeWiki documents itself</strong> — browse the generated documentation for this repository at
-  <a href="https://fsoft-ai4code.github.io/CodeWiki/docs/index.html">CodeWiki docs</a>.
-</p>
-
-<p align="center">
-  <img src="./img/framework-overview.png" alt="CodeWiki Framework" width="600" style="border: 2px solid #e1e4e8; border-radius: 12px; padding: 20px;"/>
+  <a href="#zh"><strong>中文</strong></a> | <a href="#en"><strong>English</strong></a>
 </p>
 
 ---
 
-## Quick Start
+<a id="zh"></a>
 
-### 1. Install CodeWiki
+## 中文
+
+### 这个项目是什么？
+
+CodeWiki-CN 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) 的中国社区分支，核心改动是**让 CodeWiki 无需配置任何大模型 API，直接由 AI IDE（CodeBuddy、Cursor、Claude Desktop 等）自身的模型驱动 Wiki 文档生成**。
+
+### 为什么要做这个改造？
+
+原版 CodeWiki 是一个非常优秀的仓库级文档生成框架，它通过 Tree-sitter AST 解析、依赖图构建、拓扑排序等工具链实现高质量的代码文档生成。但它有一个使用门槛：**必须自行配置 LLM API**（申请 API Key、选择 provider、处理模型兼容性），且整个生成过程是黑盒的，用户无法中途干预。
+
+实际上，CodeWiki 的核心工具链——AST 解析、依赖图、Mermaid 校验——完全不需要 LLM。真正需要 LLM 智能的 4 个环节（模块聚类、文档撰写、子模块递归、总览合成），恰好是 AI IDE 的 Agent 最擅长做的事情。
+
+因此，我们将 CodeWiki 的 MCP Server 从"黑盒式一键生成"拆分为**9 个细粒度工具**，让它退化为纯工具链服务器。AI IDE 的 Agent 通过 MCP 协议调用这些工具，用自己的推理能力完成全部文档生成工作：
+
+```
+改造前：
+  IDE → generate_docs(repo) → [CodeWiki 内部调用 LLM API] → 结果
+
+改造后：
+  IDE Agent → analyze_repo → read_code → (Agent 自己推理) → write_doc → overview
+              ↑ 纯工具       ↑ 纯工具    ↑ IDE 自身模型      ↑ 纯工具
+```
+
+### 快速开始（以 CodeBuddy 为例）
+
+整个过程只需 4 步，不需要任何 API Key。
+
+**第 1 步：安装 CodeWiki-CN**
 
 ```bash
-# Install from source
-pip install git+https://github.com/FSoft-AI4Code/CodeWiki.git
-
-# Verify installation
-codewiki --version
-```
-
-### 2. Configure Your Environment
-
-CodeWiki supports multiple LLM providers: **OpenAI-compatible**, **Anthropic**, **AWS Bedrock**, **Azure OpenAI**, plus subscription mode via **Claude Code** and **Codex** CLIs (no API key required).
-
-```bash
-# OpenAI-compatible
-codewiki config set \
-  --provider openai-compatible \
-  --api-key YOUR_API_KEY \
-  --base-url https://api.anthropic.com \
-  --main-model claude-sonnet-4 \
-  --cluster-model claude-sonnet-4 \
-  --fallback-model glm-4p5
-
-# Anthropic
-codewiki config set \
-  --provider anthropic \
-  --api-key YOUR_API_KEY \
-  --base-url https://api.anthropic.com \
-  --main-model claude-sonnet-4 \
-  --cluster-model claude-sonnet-4 \
-  --fallback-model glm-4p5
-
-# Azure OpenAI
-codewiki config set \
-  --provider azure-openai \
-  --api-key YOUR_AZURE_KEY \
-  --base-url https://YOUR_RESOURCE.openai.azure.com \
-  --azure-deployment YOUR_DEPLOYMENT \
-  --main-model gpt-4o \
-  --cluster-model gpt-4o
-
-# AWS Bedrock
-codewiki config set \
-  --provider bedrock \
-  --aws-region us-east-1 \
-  --main-model anthropic.claude-sonnet-4-v2:0 \
-  --cluster-model anthropic.claude-sonnet-4-v2:0
-
-# Subscription mode (Claude Code) — uses your existing Claude OAuth login.
-# Install the Claude Code CLI and run `claude login` first.
-codewiki config set \
-  --provider claude-code \
-  --main-model claude-sonnet-4-6 \
-  --cluster-model claude-sonnet-4-6
-
-# Subscription mode (Codex) — uses your existing Codex CLI login.
-# Install the Codex CLI and run `codex login` first.
-codewiki config set \
-  --provider codex \
-  --main-model gpt-5.4 \
-  --cluster-model gpt-5.5
-```
-
-**Subscription mode** routes every LLM call through the local `claude` / `codex` CLI binary (via the [`caw`](https://github.com/zzjas/caw) library), so you can run CodeWiki on a Claude Pro/Max or Codex subscription instead of paying per-token API usage. Claude Code's built-in `Write`/`Edit`/`Bash` tools are disabled inside CodeWiki's agent loop so documentation writes still go through CodeWiki's Mermaid-validating editor.
-
-> **Note on model names.** In subscription mode the model string is forwarded directly to `claude --model` / `codex --model`, so use the bare CLI model name (e.g. `gpt-5.4`, `claude-sonnet-4-6`) — **not** the litellm-style `openai/…` or `anthropic/…` prefix used by `openai-compatible`. If you previously ran with `openai-compatible`, re-run `config set` for **both** `--main-model` and `--cluster-model` to clear any stale prefixes; `config set` only updates the keys you pass.
-
-### 3. Generate Documentation
-
-```bash
-# Navigate to your project
-cd /path/to/your/project
-
-# Generate documentation
-codewiki generate
-
-# Generate with HTML viewer for GitHub Pages
-codewiki generate --github-pages --create-branch
-```
-
-**That's it!** Your documentation will be generated in `./docs/` with comprehensive repository-level analysis.
-
-### Usage Example
-
-![CLI Usage Example](https://github.com/FSoft-AI4Code/CodeWiki/releases/download/assets/cli-usage-example.gif)
-
----
-
-## IDE-Driven Mode (Zero LLM Config)
-
-CodeWiki also supports being driven entirely by AI IDEs (CodeBuddy, Cursor, Claude Desktop, etc.) via **MCP (Model Context Protocol)** — no API key or LLM configuration needed. The IDE's own AI agent orchestrates the documentation pipeline using CodeWiki as a pure toolchain.
-
-### How It Works
-
-```
-IDE Agent (provides LLM intelligence)
-    │
-    ├── analyze_repo        → Tree-sitter AST parsing, dependency graph (no LLM)
-    ├── read_code_components → Read source code by component ID (no LLM)
-    ├── view_repo_file      → Browse repository files (no LLM)
-    ├── save_module_tree    → Persist your clustering decisions (no LLM)
-    ├── get_processing_order → Leaf-first documentation order (no LLM)
-    ├── write_doc_file      → Create .md with Mermaid validation (no LLM)
-    ├── edit_doc_file       → Edit docs with undo support (no LLM)
-    └── get_prompt          → Retrieve proven prompt templates (no LLM)
-```
-
-### Quick Setup (CodeBuddy / Cursor / Claude Desktop)
-
-**1. Install CodeWiki:**
-```bash
+git clone https://github.com/mambo-wang/CodeWiki-CN.git
+cd CodeWiki-CN
 pip install -e .
 ```
 
-**2. Configure MCP Server** in your IDE's MCP settings:
+验证安装：
+
+```bash
+python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
+```
+
+**第 2 步：配置 MCP Server**
+
+在 CodeBuddy 的 MCP 设置中添加以下配置（通常在设置界面的"工具"或"MCP"板块）：
+
 ```json
 {
   "mcpServers": {
     "codewiki": {
       "command": "python",
       "args": ["-m", "codewiki.mcp.server"],
-      "cwd": "/path/to/CodeWiki-CN"
+      "cwd": "/你的路径/CodeWiki-CN"
     }
   }
 }
 ```
 
-**3. Ask your AI agent:**
+> 将 `/你的路径/CodeWiki-CN` 替换为你实际克隆 CodeWiki-CN 的绝对路径。
+
+配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 9 个工具（`analyze_repo`、`read_code_components` 等）。
+
+**第 3 步：配置项目规则（Rule）**
+
+本项目已预置 CodeBuddy 规则文件：
+
 ```
-Please analyze this repository and generate comprehensive Wiki documentation.
+.codebuddy/rules/codewiki-wiki-generator/RULE.mdc
 ```
 
-The agent will automatically follow CodeWiki's proven 5-stage pipeline: analyze → cluster → document modules → synthesize overviews → finalize.
+该规则定义了 Wiki 生成的 5 阶段工作流（分析 → 聚类 → 逐模块文档 → 总览 → 清理），当你在 Agent 对话中提及"生成文档"或"Wiki"时，CodeBuddy 会自动加载这些指令。
 
-> **Full guide:** See [IDE_DRIVEN_GUIDE.md](IDE_DRIVEN_GUIDE.md) for the complete walkthrough, prompt customization, and advanced usage.
+如果你使用的是 **Cursor**，项目中也提供了 `.cursorrules` 文件，打开项目后自动生效。
 
----
+**第 4 步：在 Agent 模式中输入提示词**
 
-## What is CodeWiki?
+打开 CodeBuddy 的 Agent 模式，用 CodeBuddy 打开你要生成文档的目标项目，然后输入：
 
-CodeWiki is an open-source framework for **automated repository-level documentation** across eight programming languages. It generates holistic, architecture-aware documentation that captures not only individual functions but also their cross-file, cross-module, and system-level interactions.
+```
+帮我分析当前仓库并生成 Wiki 文档，输出到 repowiki 目录。请使用中文撰写文档。
+```
 
-### Key Innovations
+Agent 会自动按照以下流程工作：
 
-| Innovation | Description | Impact |
-|------------|-------------|--------|
-| **Hierarchical Decomposition** | Dynamic programming-inspired strategy that preserves architectural context | Handles codebases of arbitrary size (86K-1.4M LOC tested) |
-| **Recursive Agentic System** | Adaptive multi-agent processing with dynamic delegation capabilities | Maintains quality while scaling to repository-level scope |
-| **Multi-Modal Synthesis** | Generates textual documentation, architecture diagrams, data flows, and sequence diagrams | Comprehensive understanding from multiple perspectives |
+```
+阶段 1: 调用 analyze_repo → 得到 session_id、组件索引、叶节点列表
+  ↓
+阶段 2: 调用 get_prompt("cluster") 获取聚类规则
+        调用 read_code_components 阅读源码
+        自主推理，将组件分组为 3-8 个逻辑模块
+        调用 save_module_tree 保存聚类结果
+  ↓
+阶段 3: 按叶优先顺序逐模块生成文档
+        每个叶模块：read_code → 分析推理 → write_doc_file
+        每个父模块：读取子文档 → 合成总览 → write_doc_file
+  ↓
+阶段 4: 生成仓库总览 overview.md
+  ↓
+阶段 5: 调用 close_session 释放资源
+```
 
-### Supported Languages
+生成的文档结构：
 
-**🐍 Python** • **☕ Java** • **🟨 JavaScript** • **🔷 TypeScript** • **⚙️ C** • **🔧 C++** • **🪟 C#** • **🎯 Kotlin**
+```
+repowiki/
+├── overview.md              # 仓库总览（从这里开始阅读）
+├── module1.md               # 各模块文档
+├── module2.md               # ...
+├── module_tree.json         # 模块层级结构
+├── first_module_tree.json   # 初始聚类结果
+└── metadata.json            # 生成元数据
+```
 
----
+### MCP 工具速查
 
-## CLI Commands
+所有工具均不需要 LLM 配置，由 IDE Agent 通过 MCP 协议调用：
 
-### Configuration Management
+| 工具 | 用途 |
+|------|------|
+| `analyze_repo` | 分析仓库，构建依赖图，返回组件索引 |
+| `read_code_components` | 根据组件 ID 读取源码 |
+| `view_repo_file` | 只读浏览仓库中的文件/目录 |
+| `write_doc_file` | 创建 .md 文档（自动 Mermaid 校验） |
+| `edit_doc_file` | 编辑文档（替换/插入/撤销） |
+| `save_module_tree` | 保存模块聚类结果 |
+| `get_processing_order` | 获取叶优先的文档生成顺序 |
+| `get_prompt` | 获取各阶段的提示词模板 |
+| `close_session` | 关闭会话释放资源 |
+
+> 另有 2 个遗留工具（`generate_docs`、`get_module_tree`）保留向后兼容，需先通过 `codewiki config set` 配置 LLM API。
+
+### 支持的其他 AI IDE
+
+除 CodeBuddy 外，任何支持 MCP stdio 协议的 AI IDE 均可使用：
+
+**Cursor**：在 Settings → MCP 中添加相同的 Server 配置，项目规则通过 `.cursorrules` 自动加载。
+
+**Claude Desktop**：在 `~/Library/Application Support/Claude/claude_desktop_config.json`（macOS）中添加 MCP 配置。
+
+**其他 IDE**：指定 `command: "python"`, `args: ["-m", "codewiki.mcp.server"]` 即可。
+
+### 原始 CLI 模式（仍然可用）
+
+如果你更习惯命令行一键生成，原始的 CLI 方式完全不受影响。需要先配置 LLM API：
 
 ```bash
-# Set up your API configuration
 codewiki config set \
-  --api-key <your-api-key> \
-  --base-url <provider-url> \
-  --main-model <model-name> \
-  --cluster-model <model-name> \
-  --fallback-model <model-name>
+  --provider openai-compatible \
+  --api-key YOUR_KEY \
+  --base-url https://api.example.com \
+  --main-model claude-sonnet-4 \
+  --cluster-model claude-sonnet-4
 
-# Configure max token settings
-codewiki config set --max-tokens 32768 --max-token-per-module 36369 --max-token-per-leaf-module 16000
-
-# Configure max depth for hierarchical decomposition
-codewiki config set --max-depth 3
-
-# Show current configuration
-codewiki config show
-
-# Validate your configuration
-codewiki config validate
-```
-
-### Documentation Generation
-
-```bash
-# Basic generation
 codewiki generate
-
-# Custom output directory
-codewiki generate --output ./documentation
-
-# Create git branch for documentation
-codewiki generate --create-branch
-
-# Generate HTML viewer for GitHub Pages
-codewiki generate --github-pages
-
-# Enable verbose logging
-codewiki generate --verbose
-
-# Full-featured generation
-codewiki generate --create-branch --github-pages --verbose
-
-# Incremental update (only regenerate changed modules since last run)
-codewiki generate --update
 ```
 
-### Customization Options
+支持 OpenAI、Anthropic、Azure OpenAI、AWS Bedrock 以及 Claude Code / Codex 订阅模式。详见[上游项目 README](https://github.com/FSoft-AI4Code/CodeWiki)。
 
-CodeWiki supports customization for language-specific projects and documentation styles:
+### 支持的语言
 
-```bash
-# C# project: only analyze .cs files, exclude test directories
-codewiki generate --include "*.cs" --exclude "Tests,Specs,*.test.cs"
+Python、Java、JavaScript、TypeScript、C、C++、C#、Kotlin
 
-# Focus on specific modules with architecture-style docs
-codewiki generate --focus "src/core,src/api" --doc-type architecture
+### 致谢
 
-# Add custom instructions for the AI agent
-codewiki generate --instructions "Focus on public APIs and include usage examples"
-```
+本项目的核心工具链（Tree-sitter AST 解析、依赖图构建、拓扑排序、Mermaid 校验）全部来自 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) 上游项目。我们在此基础上将 MCP Server 从黑盒模式拆分为细粒度工具集，使其能够被 AI IDE 的 Agent 直接驱动。
 
-#### Pattern Behavior (Important!)
-
-- **`--include`**: When specified, **ONLY** these patterns are used (replaces defaults completely)
-  - Example: `--include "*.cs"` will analyze ONLY `.cs` files
-  - If omitted, all supported file types are analyzed
-  - Supports glob patterns: `*.py`, `src/**/*.ts`, `*.{js,jsx}`
-  
-- **`--exclude`**: When specified, patterns are **MERGED** with default ignore patterns
-  - Example: `--exclude "Tests,Specs"` will exclude these directories AND still exclude `.git`, `__pycache__`, `node_modules`, etc.
-  - Default patterns include: `.git`, `node_modules`, `__pycache__`, `*.pyc`, `bin/`, `dist/`, and many more
-  - Supports multiple formats:
-    - Exact names: `Tests`, `.env`, `config.local`
-    - Glob patterns: `*.test.js`, `*_test.py`, `*.min.*`
-    - Directory patterns: `build/`, `dist/`, `coverage/`
-
-#### Setting Persistent Defaults
-
-Save your preferred settings as defaults:
-
-```bash
-# Set include patterns for C# projects
-codewiki config agent --include "*.cs"
-
-# Exclude test projects by default (merged with default excludes)
-codewiki config agent --exclude "Tests,Specs,*.test.cs"
-
-# Set focus modules
-codewiki config agent --focus "src/core,src/api"
-
-# Set default documentation type
-codewiki config agent --doc-type architecture
-
-# View current agent settings
-codewiki config agent
-
-# Clear all agent settings
-codewiki config agent --clear
-```
-
-| Option | Description | Behavior | Example |
-|--------|-------------|----------|---------|
-| `--include` | File patterns to include | **Replaces** defaults | `*.cs`, `*.py`, `src/**/*.ts` |
-| `--exclude` | Patterns to exclude | **Merges** with defaults | `Tests,Specs`, `*.test.js`, `build/` |
-| `--focus` | Modules to document in detail | Standalone option | `src/core,src/api` |
-| `--doc-type` | Documentation style | Standalone option | `api`, `architecture`, `user-guide`, `developer` |
-| `--instructions` | Custom agent instructions | Standalone option | Free-form text |
-
-### Token Settings
-
-CodeWiki allows you to configure maximum token limits for LLM calls. This is useful for:
-- Adapting to different model context windows
-- Controlling costs by limiting response sizes
-- Optimizing for faster response times
-
-```bash
-# Set max tokens for LLM responses (default: 32768)
-codewiki config set --max-tokens 16384
-
-# Set max tokens for module clustering (default: 36369)
-codewiki config set --max-token-per-module 40000
-
-# Set max tokens for leaf modules (default: 16000)
-codewiki config set --max-token-per-leaf-module 20000
-
-# Set max depth for hierarchical decomposition (default: 2)
-codewiki config set --max-depth 3
-
-# Override at runtime for a single generation
-codewiki generate --max-tokens 16384 --max-token-per-module 40000 --max-depth 3
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--max-tokens` | Maximum output tokens for LLM response | 32768 |
-| `--max-token-per-module` | Input tokens threshold for module clustering | 36369 |
-| `--max-token-per-leaf-module` | Input tokens threshold for leaf modules | 16000 |
-| `--max-depth` | Maximum depth for hierarchical decomposition | 2 |
-
-### Configuration Storage
-
-- **API keys**: Securely stored in system keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service). Falls back to `~/.codewiki/credentials.json` in headless/container environments. Set `CODEWIKI_NO_KEYRING=1` to force file-based storage.
-- **Settings & Agent Instructions**: `~/.codewiki/config.json`
-
----
-
-## Documentation Output
-
-Generated documentation includes both **textual descriptions** and **visual artifacts** for comprehensive understanding.
-
-### Textual Documentation
-- Repository overview with architecture guide
-- Module-level documentation with API references
-- Usage examples and implementation patterns
-- Cross-module interaction analysis
-
-### Visual Artifacts
-- System architecture diagrams (Mermaid)
-- Data flow visualizations
-- Dependency graphs and module relationships
-- Sequence diagrams for complex interactions
-
-### Output Structure
-
-```
-./docs/
-├── overview.md              # Repository overview (start here!)
-├── module1.md               # Module documentation
-├── module2.md               # Additional modules...
-├── module_tree.json         # Hierarchical module structure
-├── first_module_tree.json   # Initial clustering result
-├── metadata.json            # Generation metadata
-└── index.html               # Interactive viewer (with --github-pages)
-```
-
-> **See it in action:** This repository's own docs are checked in under [`./docs/`](./docs/) — open [`./docs/index.html`](./docs/index.html) in a browser for the interactive viewer, or start from [`./docs/overview.md`](./docs/overview.md).
-
----
-
-## Experimental Results
-
-CodeWiki has been evaluated on **CodeWikiBench**, the first benchmark specifically designed for repository-level documentation quality assessment.
-
-### Performance by Language Category
-
-| Language Category | CodeWiki (Sonnet-4) | DeepWiki | Improvement |
-|-------------------|---------------------|----------|-------------|
-| High-Level (Python, JS, TS) | **79.14%** | 68.67% | **+10.47%** |
-| Managed (C#, Java) | **68.84%** | 64.80% | **+4.04%** |
-| Systems (C, C++) | 53.24% | 56.39% | -3.15% |
-| **Overall Average** | **68.79%** | **64.06%** | **+4.73%** |
-
-### Results on Representative Repositories
-
-| Repository | Language | LOC | CodeWiki-Sonnet-4 | DeepWiki | Improvement |
-|------------|----------|-----|-------------------|----------|-------------|
-| All-Hands-AI--OpenHands | Python | 229K | **82.45%** | 73.04% | **+9.41%** |
-| puppeteer--puppeteer | TypeScript | 136K | **83.00%** | 64.46% | **+18.54%** |
-| sveltejs--svelte | JavaScript | 125K | **71.96%** | 68.51% | **+3.45%** |
-| Unity-Technologies--ml-agents | C# | 86K | **79.78%** | 74.80% | **+4.98%** |
-| elastic--logstash | Java | 117K | **57.90%** | 54.80% | **+3.10%** |
-
-**View comprehensive results:** See [paper](https://arxiv.org/abs/2510.24428) for complete evaluation on 21 repositories spanning all supported languages.
-
----
-
-## How It Works
-
-### Architecture Overview
-
-CodeWiki employs a three-stage process for comprehensive documentation generation:
-
-1. **Hierarchical Decomposition**: Uses dynamic programming-inspired algorithms to partition repositories into coherent modules while preserving architectural context across multiple granularity levels.
-
-2. **Recursive Multi-Agent Processing**: Implements adaptive multi-agent processing with dynamic task delegation, allowing the system to handle complex modules at scale while maintaining quality.
-
-3. **Multi-Modal Synthesis**: Integrates textual descriptions with visual artifacts including architecture diagrams, data-flow representations, and sequence diagrams for comprehensive understanding.
-
-### Data Flow
-
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Codebase      │───▶│  Hierarchical    │───▶│  Multi-Agent    │
-│   Analysis      │    │  Decomposition   │    │  Processing     │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                                │                        │
-                                ▼                        ▼
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Visual        │◀───│  Multi-Modal     │◀───│  Structured     │
-│   Artifacts     │    │  Synthesis       │    │  Content        │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-```
-
----
-
-## Requirements
-
-- **Python 3.12+**
-- **Node.js** (for Mermaid diagram validation)
-- **LLM API access** (Anthropic Claude, OpenAI, Azure OpenAI, AWS Bedrock)
-- **Git** (for branch creation features)
-
----
-
-## Additional Resources
-
-### Documentation & Guides
-- **[IDE-Driven Guide](IDE_DRIVEN_GUIDE.md)** - Use CodeWiki with AI IDEs (CodeBuddy, Cursor, etc.) via MCP, zero LLM config needed
-- **[This Repo's Generated Docs](./docs/index.html)** - Interactive documentation for CodeWiki itself, produced by CodeWiki (start at [`docs/overview.md`](./docs/overview.md))
-- **[MCP Server](codewiki/mcp/)** - Model Context Protocol server for IDE integrations
-- **[Docker Deployment](docker/DOCKER_README.md)** - Containerized deployment instructions
-- **[Development Guide](DEVELOPMENT.md)** - Project structure, architecture, and contributing guidelines
-- **[CodeWikiBench](https://github.com/FSoft-AI4Code/CodeWikiBench)** - Repository-level documentation benchmark
-- **[Live Demo](https://fsoft-ai4code.github.io/codewiki-demo/)** - Interactive demo and examples
-
-### Academic Resources
-- **[Paper](https://arxiv.org/abs/2510.24428)** - Full research paper with detailed methodology and results
-- **[Citation](#citation)** - How to cite CodeWiki in your research
-
----
-
-## Citation
-
-If you use CodeWiki in your research, please cite:
+上游论文：[CodeWiki: Evaluating AI's Ability to Generate Holistic Documentation for Large-Scale Codebases](https://arxiv.org/abs/2510.24428)
 
 ```bibtex
 @misc{hoang2025codewikievaluatingaisability,
@@ -478,20 +200,151 @@ If you use CodeWiki in your research, please cite:
 
 ---
 
-## Star History
+<a id="en"></a>
 
-<p align="center">
-  <a href="https://star-history.com/#FSoft-AI4Code/CodeWiki&Date">
-   <picture>
-     <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=FSoft-AI4Code/CodeWiki&type=Date&theme=dark" />
-     <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=FSoft-AI4Code/CodeWiki&type=Date" />
-     <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=FSoft-AI4Code/CodeWiki&type=Date" />
-   </picture>
-  </a>
-</p>
+## English
+
+### What is this project?
+
+CodeWiki-CN is a community fork of [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) that enables **zero-LLM-config Wiki generation** driven entirely by AI IDEs (CodeBuddy, Cursor, Claude Desktop, etc.) via MCP (Model Context Protocol).
+
+### Why this fork?
+
+The original CodeWiki is an excellent repository-level documentation framework. However, it requires users to configure their own LLM API (API key, provider, model selection), and the generation pipeline runs as a black box with no user intervention.
+
+In practice, CodeWiki's core toolchain—Tree-sitter AST parsing, dependency graph construction, topological sorting, and Mermaid validation—does not need an LLM at all. The 4 stages that do require LLM intelligence (module clustering, document writing, sub-module recursion, and overview synthesis) are exactly what AI IDE Agents excel at.
+
+We refactored CodeWiki's MCP Server from a "one-click black box" into **9 fine-grained tools**, turning it into a pure toolchain server. The AI IDE's Agent calls these tools via MCP and uses its own reasoning to complete all documentation work:
+
+```
+Before:
+  IDE → generate_docs(repo) → [CodeWiki calls LLM API internally] → result
+
+After:
+  IDE Agent → analyze_repo → read_code → (Agent reasons) → write_doc → overview
+              ↑ pure tool     ↑ pure tool  ↑ IDE's own model ↑ pure tool
+```
+
+### Quick Start (CodeBuddy Example)
+
+4 steps, no API key needed.
+
+**Step 1: Install CodeWiki-CN**
+
+```bash
+git clone https://github.com/mambo-wang/CodeWiki-CN.git
+cd CodeWiki-CN
+pip install -e .
+```
+
+**Step 2: Configure MCP Server**
+
+Add the following to your CodeBuddy MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "codewiki": {
+      "command": "python",
+      "args": ["-m", "codewiki.mcp.server"],
+      "cwd": "/your/path/to/CodeWiki-CN"
+    }
+  }
+}
+```
+
+> Replace `/your/path/to/CodeWiki-CN` with the actual absolute path where you cloned CodeWiki-CN.
+
+**Step 3: Project Rules**
+
+A CodeBuddy rule file is pre-configured at:
+
+```
+.codebuddy/rules/codewiki-wiki-generator/RULE.mdc
+```
+
+It defines the 5-stage Wiki generation workflow (analyze → cluster → document modules → synthesize overviews → cleanup). CodeBuddy auto-loads it when you mention "generate docs" or "Wiki" in Agent mode.
+
+For **Cursor**, a `.cursorrules` file is also provided and loads automatically when the project is opened.
+
+**Step 4: Prompt your AI Agent**
+
+Open the target project in CodeBuddy, switch to Agent mode, and enter:
+
+```
+Analyze the current repository and generate Wiki documentation into the repowiki directory. Write docs in English.
+```
+
+The Agent follows a 5-stage pipeline:
+
+```
+Stage 1: Call analyze_repo → get session_id, component index, leaf nodes
+Stage 2: Call get_prompt("cluster") for clustering rules
+         Read source code, reason about grouping, call save_module_tree
+Stage 3: Document each module leaf-first
+         Leaf modules: read_code → reason → write_doc_file
+         Parent modules: read child docs → synthesize → write_doc_file
+Stage 4: Generate repository overview (overview.md)
+Stage 5: Call close_session to free resources
+```
+
+### MCP Tools
+
+All tools require zero LLM config. The IDE Agent invokes them via MCP:
+
+| Tool | Purpose |
+|------|---------|
+| `analyze_repo` | Parse repo, build dependency graph, return component index |
+| `read_code_components` | Read source code by component ID |
+| `view_repo_file` | Read-only file/directory browsing |
+| `write_doc_file` | Create .md docs with automatic Mermaid validation |
+| `edit_doc_file` | Edit docs (str_replace / insert / undo) |
+| `save_module_tree` | Persist module clustering results |
+| `get_processing_order` | Get leaf-first documentation order |
+| `get_prompt` | Retrieve prompt templates for each stage |
+| `close_session` | Close session and free resources |
+
+> 2 legacy tools (`generate_docs`, `get_module_tree`) are retained for backward compatibility and require `codewiki config set` first.
+
+### Other Supported AI IDEs
+
+Any AI IDE supporting MCP stdio protocol works:
+
+**Cursor**: Add the same MCP config in Settings → MCP. Rules auto-load via `.cursorrules`.
+
+**Claude Desktop**: Add MCP config to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS).
+
+**Others**: Specify `command: "python"`, `args: ["-m", "codewiki.mcp.server"]`.
+
+### Original CLI Mode (Still Available)
+
+The original CLI workflow remains fully functional. Configure LLM API first:
+
+```bash
+codewiki config set \
+  --provider openai-compatible \
+  --api-key YOUR_KEY \
+  --base-url https://api.example.com \
+  --main-model claude-sonnet-4 \
+  --cluster-model claude-sonnet-4
+
+codewiki generate
+```
+
+Supports OpenAI, Anthropic, Azure OpenAI, AWS Bedrock, and Claude Code / Codex subscription mode. See [upstream README](https://github.com/FSoft-AI4Code/CodeWiki) for details.
+
+### Supported Languages
+
+Python, Java, JavaScript, TypeScript, C, C++, C#, Kotlin
+
+### Acknowledgements
+
+The core toolchain (Tree-sitter AST parsing, dependency graph, topological sort, Mermaid validation) comes from the [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) upstream project. We refactored the MCP Server into fine-grained tools to enable direct orchestration by AI IDE Agents.
+
+Paper: [CodeWiki: Evaluating AI's Ability to Generate Holistic Documentation for Large-Scale Codebases](https://arxiv.org/abs/2510.24428)
 
 ---
 
 ## License
 
-This project is licensed under the MIT License.
+MIT
