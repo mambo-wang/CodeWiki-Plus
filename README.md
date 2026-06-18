@@ -17,6 +17,7 @@
 
 <p align="center">
   <a href="#quick-start"><strong>Quick Start</strong></a> •
+  <a href="#ide-driven-mode-zero-llm-config"><strong>IDE Mode</strong></a> •
   <a href="#cli-commands"><strong>CLI Commands</strong></a> •
   <a href="#documentation-output"><strong>Output Structure</strong></a> •
   <a href="./docs/index.html"><strong>Repo Docs</strong></a> •
@@ -122,6 +123,56 @@ codewiki generate --github-pages --create-branch
 ### Usage Example
 
 ![CLI Usage Example](https://github.com/FSoft-AI4Code/CodeWiki/releases/download/assets/cli-usage-example.gif)
+
+---
+
+## IDE-Driven Mode (Zero LLM Config)
+
+CodeWiki also supports being driven entirely by AI IDEs (CodeBuddy, Cursor, Claude Desktop, etc.) via **MCP (Model Context Protocol)** — no API key or LLM configuration needed. The IDE's own AI agent orchestrates the documentation pipeline using CodeWiki as a pure toolchain.
+
+### How It Works
+
+```
+IDE Agent (provides LLM intelligence)
+    │
+    ├── analyze_repo        → Tree-sitter AST parsing, dependency graph (no LLM)
+    ├── read_code_components → Read source code by component ID (no LLM)
+    ├── view_repo_file      → Browse repository files (no LLM)
+    ├── save_module_tree    → Persist your clustering decisions (no LLM)
+    ├── get_processing_order → Leaf-first documentation order (no LLM)
+    ├── write_doc_file      → Create .md with Mermaid validation (no LLM)
+    ├── edit_doc_file       → Edit docs with undo support (no LLM)
+    └── get_prompt          → Retrieve proven prompt templates (no LLM)
+```
+
+### Quick Setup (CodeBuddy / Cursor / Claude Desktop)
+
+**1. Install CodeWiki:**
+```bash
+pip install -e .
+```
+
+**2. Configure MCP Server** in your IDE's MCP settings:
+```json
+{
+  "mcpServers": {
+    "codewiki": {
+      "command": "python",
+      "args": ["-m", "codewiki.mcp.server"],
+      "cwd": "/path/to/CodeWiki-CN"
+    }
+  }
+}
+```
+
+**3. Ask your AI agent:**
+```
+Please analyze this repository and generate comprehensive Wiki documentation.
+```
+
+The agent will automatically follow CodeWiki's proven 5-stage pipeline: analyze → cluster → document modules → synthesize overviews → finalize.
+
+> **Full guide:** See [IDE_DRIVEN_GUIDE.md](IDE_DRIVEN_GUIDE.md) for the complete walkthrough, prompt customization, and advanced usage.
 
 ---
 
@@ -395,6 +446,7 @@ CodeWiki employs a three-stage process for comprehensive documentation generatio
 ## Additional Resources
 
 ### Documentation & Guides
+- **[IDE-Driven Guide](IDE_DRIVEN_GUIDE.md)** - Use CodeWiki with AI IDEs (CodeBuddy, Cursor, etc.) via MCP, zero LLM config needed
 - **[This Repo's Generated Docs](./docs/index.html)** - Interactive documentation for CodeWiki itself, produced by CodeWiki (start at [`docs/overview.md`](./docs/overview.md))
 - **[MCP Server](codewiki/mcp/)** - Model Context Protocol server for IDE integrations
 - **[Docker Deployment](docker/DOCKER_README.md)** - Containerized deployment instructions
