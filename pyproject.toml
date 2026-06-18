@@ -101,7 +101,9 @@ packages = [
     "codewiki.src.be.dependency_analyzer.analyzers",
     "codewiki.src.be.dependency_analyzer.models",
     "codewiki.src.be.dependency_analyzer.utils",
-    "codewiki.src.fe"
+    "codewiki.src.fe",
+    "codewiki.mcp",
+    "codewiki.mcp.tools"
 ]
 
 [tool.setuptools.package-data]

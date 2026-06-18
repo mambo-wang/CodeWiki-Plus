@@ -42,6 +42,12 @@ CodeWiki-CN 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWi
               ↑ 纯工具       ↑ 纯工具    ↑ IDE 自身模型      ↑ 纯工具
 ```
 
+### 前置条件
+
+- **Python 3.12+**
+- **Node.js**（用于 Mermaid 图表校验，不安装则图表校验会静默跳过）
+- 一个支持 MCP 的 AI IDE（CodeBuddy、Cursor、Claude Desktop 等）
+
 ### 快速开始（以 CodeBuddy 为例）
 
 整个过程只需 4 步，不需要任何 API Key。
@@ -224,6 +230,12 @@ After:
   IDE Agent → analyze_repo → read_code → (Agent reasons) → write_doc → overview
               ↑ pure tool     ↑ pure tool  ↑ IDE's own model ↑ pure tool
 ```
+
+### Prerequisites
+
+- **Python 3.12+**
+- **Node.js** (for Mermaid diagram validation; without it, validation is silently skipped)
+- An MCP-compatible AI IDE (CodeBuddy, Cursor, Claude Desktop, etc.)
 
 ### Quick Start (CodeBuddy Example)
 
