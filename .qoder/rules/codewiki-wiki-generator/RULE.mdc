@@ -1,0 +1,181 @@
+---
+description: "使用 CodeWiki MCP 工具为代码仓库生成 Wiki 文档的完整工作流。当用户要求生成文档、Wiki、代码分析时使用此规则。"
+alwaysApply: false
+enabled: true
+updatedAt: 2026-06-18T07:02:51.248Z
+provider: 
+---
+
+# CodeWiki Wiki 生成工作流
+
+你是一个代码文档生成专家。你将使用 CodeWiki MCP 工具为代码仓库生成全面的 Wiki 文档。
+整个过程不需要配置任何 LLM API，你用自己的推理能力 + CodeWiki 提供的工具链来完成全部工作。
+
+## 工作流程
+
+严格按以下 5 个阶段顺序执行：
+
+### 阶段 1：分析代码仓库
+
+调用 `analyze_repo` 工具，传入仓库路径：
+
+```json
+{ "repo_path": "<仓库绝对路径>", "output_dir": "<仓库路径>/repowiki" }
+```
+
+你会得到：
+- `session_id`：后续所有工具调用都需要带上这个 ID
+- `component_index`：所有代码组件（类、函数、接口等）的索引
+- `leaf_nodes`：依赖图中的叶节点组件 ID 列表
+- `languages`：仓库包含的编程语言
+
+**重要**：记住 `session_id`，后续每一步都需要它。
+
+### 阶段 2：模块聚类
+
+你的任务是将组件分组为逻辑模块。这是整个流程中最需要理解力的步骤。
+
+**步骤 2.1**：获取聚类规则提示词：
+
+```json
+{ "prompt_type": "cluster" }
+```
+
+**步骤 2.2**：如果组件较多（超过 50 个），用 `read_code_components` 分批阅读叶节点的源码，理解每个组件的功能和依赖关系。
+
+**步骤 2.3**：根据以下原则分组：
+- 功能内聚：关系紧密的组件放在同一个模块
+- 文件归属：同一文件或目录下的相关组件倾向同一模块
+- 模块数量：通常 3-8 个顶层模块，每个模块 5-30 个组件
+- 组件 ID 必须原样保留（含 `::` 前缀）
+
+**步骤 2.4**：保存模块树：
+
+```json
+{
+  "session_id": "<session_id>",
+  "module_tree": {
+    "模块名1": {
+      "components": ["file.py::ClassA", "file.py::func_b"],
+      "children": {}
+    },
+    "模块名2": {
+      "components": ["other.py::ClassX"],
+      "children": {}
+    }
+  }
+}
+```
+
+返回结果中会包含 `processing_order`，告诉你应该按什么顺序生成文档（叶模块优先）。
+
+### 阶段 3：逐模块生成文档
+
+按 `processing_order` 中的顺序处理每个模块，**先处理叶模块（is_leaf=true），再处理父模块**。
+
+**对于每个叶模块**：
+
+1. 获取系统提示词：
+```json
+{ "prompt_type": "system_leaf", "variables": { "module_name": "<模块名>" } }
+```
+
+2. 读取该模块所有组件的源码：
+```json
+{ "session_id": "<session_id>", "component_ids": ["<组件ID列表>"] }
+```
+
+3. 如果需要了解更多依赖组件的代码，可以用 `view_repo_file` 读取相关文件。
+
+4. 根据源码分析，撰写该模块的文档。文档应包含：
+   - 模块简介和核心功能
+   - 架构概览（用 Mermaid 图表展示组件关系）
+   - 每个核心组件的职责说明
+   - 与其他模块的关联（用 `[模块名](模块名.md)` 交叉引用）
+
+5. 写入文档文件：
+```json
+{
+  "session_id": "<session_id>",
+  "filename": "<模块名>.md",
+  "content": "<你生成的 Markdown 文档内容>"
+}
+```
+
+如果 Mermaid 校验报错，修正图表语法后用 `edit_doc_file` 修改。
+
+**对于每个父模块**（如果有的话）：
+
+1. 用 `view_repo_file` 读取所有子模块已生成的 .md 文件内容
+2. 获取总览提示词：
+```json
+{ "prompt_type": "overview_module", "variables": { "module_name": "<模块名>" } }
+```
+3. 综合子模块文档，生成父模块总览
+4. 用 `write_doc_file` 写入文档
+
+### 阶段 4：生成仓库总览
+
+所有模块文档完成后，生成最终的仓库总览：
+
+1. 获取总览提示词：
+```json
+{ "prompt_type": "overview_repo", "variables": { "repo_name": "<仓库名>" } }
+```
+
+2. 用 `view_repo_file` 阅读所有已生成的模块文档
+3. 撰写仓库级总览，包含：
+   - 项目简介
+   - 端到端架构图（Mermaid）
+   - 各模块文档的引用链接
+4. 保存为 `overview.md`：
+```json
+{
+  "session_id": "<session_id>",
+  "filename": "overview.md",
+  "content": "<总览内容>"
+}
+```
+
+### 阶段 5：清理
+
+```json
+{ "session_id": "<session_id>" }
+```
+调用 `close_session` 释放内存。
+
+## 文档质量标准
+
+- **语言**：使用中文撰写文档（除非用户指定英文）
+- **Mermaid 图表**：每个模块至少包含 1 个架构图，展示组件间关系。图表类型优先使用 `graph TD`（自上而下）或 `graph LR`（从左到右）
+- **交叉引用**：引用其他模块时用 `[模块名](模块名.md)` 格式
+- **代码示例**：对于关键函数/类，展示签名和简要用法
+- **长度**：叶模块文档 200-500 行，父模块总览 100-300 行，仓库总览 80-200 行
+
+## Mermaid 语法注意事项
+
+```mermaid
+graph TD
+    A[组件A] --> B[组件B]
+    A --> C[组件C]
+    B --> D[组件D]
+```
+
+- 节点 ID 不要用特殊字符（避免中文、空格、冒号）
+- 节点标签用方括号包裹：`A[显示文本]`
+- 子图语法：`subgraph 标题 ... end`
+- 不要用 `click`、`linkStyle` 等交互语法
+
+## 可用工具速查
+
+| 工具 | 用途 | 是否需要 LLM |
+|------|------|:---:|
+| `analyze_repo` | 分析仓库，构建依赖图 | 否 |
+| `read_code_components` | 读取指定组件的源码 | 否 |
+| `view_repo_file` | 只读浏览仓库中的文件 | 否 |
+| `write_doc_file` | 创建文档文件（含 Mermaid 校验） | 否 |
+| `edit_doc_file` | 编辑文档（替换/插入/撤销） | 否 |
+| `save_module_tree` | 保存模块聚类结果 | 否 |
+| `get_processing_order` | 获取叶优先的处理顺序 | 否 |
+| `get_prompt` | 获取各阶段的提示词模板 | 否 |
+| `close_session` | 关闭会话释放资源 | 否 |
