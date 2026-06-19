@@ -525,6 +525,8 @@ def generate_command(
             agent_instructions_dict = config.agent_instructions.to_dict()
         
         # Create generator
+        # Get commit_id early so it can be stored in metadata.json for --update support
+        commit_id = get_git_commit_hash(repo_path)
         generator = CLIDocumentationGenerator(
             repo_path=repo_path,
             output_dir=output_dir,
@@ -545,7 +547,8 @@ def generate_command(
                 'max_depth': max_depth if max_depth is not None else config.max_depth,
             },
             verbose=verbose,
-            generate_html=github_pages
+            generate_html=github_pages,
+            commit_id=commit_id,
         )
         
         # Run generation
@@ -556,7 +559,6 @@ def generate_command(
         
         # Get repository info
         repo_url = None
-        commit_hash = get_git_commit_hash(repo_path)
         current_branch = get_git_branch(repo_path)
         
         if is_git_repository(repo_path):
