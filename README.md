@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="img/logo-banner.png" alt="CodeWiki-CN" width="700" />
+</p>
+
 <h1 align="center">CodeWiki-CN</h1>
 
 <p align="center">
