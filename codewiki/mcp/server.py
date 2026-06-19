@@ -72,7 +72,11 @@ def _fine_grained_tools() -> list[Tool]:
                 "using Tree-sitter AST parsing. Returns a component index and leaf nodes. "
                 "No LLM required. This is the entry point for the wiki generation pipeline. "
                 "After calling this, use get_prompt('cluster') to learn clustering rules, "
-                "then save_module_tree to persist your grouping."
+                "then save_module_tree to persist your grouping. "
+                "INCREMENTAL UPDATE: If docs already exist in output_dir (metadata.json + "
+                "module_tree.json), the response includes a 'changes' field showing which "
+                "files changed and which modules need updating. Use this to do targeted "
+                "edits instead of regenerating everything."
             ),
             inputSchema={
                 "type": "object",

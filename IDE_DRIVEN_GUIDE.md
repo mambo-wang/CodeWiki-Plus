@@ -197,6 +197,85 @@ python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
 
 ---
 
+## 增量更新
+
+### 原版 `--update` 的问题
+
+原始 CodeWiki CLI 提供了 `codewiki generate --update` 增量更新命令，但存在一个 bug：CLI 适配器创建 `DocumentationGenerator` 时未传入 `commit_id`，导致 `metadata.json` 中 `commit_id` 始终为 `null`。`_detect_changed_files()` 读到 `null` 后直接退化为全量生成。只有 Web 模式（`background_worker.py`）才正确写入了 `commit_id`，所以 CLI 下的 `--update` 实际上**永远等同于全量生成**。
+
+### MCP 增量更新方案
+
+我们在 `analyze_repo` 工具中重新实现了增量检测，并将其升级为双策略模式：
+
+```
+第一次调用 analyze_repo：
+  → 生成全量文档（changes 字段为 null）
+
+代码变更后再次调用 analyze_repo：
+  → 自动检测变更，返回 changes 字段
+  → AI Agent 只更新受影响的模块文档
+```
+
+**变更检测策略**（按优先级）：
+
+1. **Git 策略**：读取 `metadata.json` 中的 `commit_id`，与当前 HEAD 做 `git diff`，同时检查 `git status` 捕获未提交的变更
+2. **Mtime 策略**（非 git 仓库回退）：对比源文件修改时间与 `metadata.json` 中的 `timestamp`
+
+**返回结构**：
+
+```json
+{
+  "changes": {
+    "has_previous": true,
+    "no_changes": false,
+    "method": "git",
+    "changed_files": ["auth.py"],
+    "affected_modules": ["认证模块"],
+    "cascade_modules": ["核心系统", "overview"]
+  }
+}
+```
+
+- `affected_modules`：直接受影响的模块，需要更新文档
+- `cascade_modules`：间接受影响的父模块（子文档变了，总览也要刷新）和 `overview`
+
+### Agent 增量更新流程
+
+当 `analyze_repo` 返回 `changes` 且 `no_changes: false` 时，Agent 执行：
+
+```
+1. 只处理 affected_modules 中的模块：
+   ├── read_code_components → 读取变更组件源码
+   └── edit_doc_file(str_replace) → 局部修改文档（而非整篇重写）
+
+2. 处理 cascade_modules 中的父模块：
+   ├── view_repo_file → 读取已更新的子文档
+   └── edit_doc_file → 刷新总览部分
+
+3. 最后更新 overview.md
+```
+
+相比全量生成的 5 阶段流程，增量更新通常只需处理 1-3 个模块，耗时大幅缩短。
+
+### 实现细节
+
+核心代码在 `codewiki/mcp/tools/analysis.py`，新增 4 个函数（约 170 行）：
+
+| 函数 | 职责 |
+|------|------|
+| `_detect_changes()` | 主入口，协调 git/mtime 策略，调用模块映射 |
+| `_detect_via_git()` | Git 检测：commit diff + uncommitted changes |
+| `_detect_via_mtime()` | Mtime 回退：扫描源文件修改时间 |
+| `_find_affected_modules()` | 子串匹配变更文件 → 模块映射（复用原版逻辑） |
+
+`handle_analyze_repo()` 在构建完组件索引后调用 `_detect_changes()`，将结果附加到返回 JSON 的 `changes` 字段中。首次运行（无旧文档）时 `changes` 为 `null`，行为和之前完全一致。
+
+### 同时修复的架构问题
+
+改造过程中发现 `codewiki/__init__.py` 无条件 `import` 了 CLI 模块，导致启动 MCP Server 也必须安装 `keyring`、`click` 等 CLI 专属依赖。已将该 import 移除，MCP Server 现在可以轻量启动。CLI 入口（`__main__.py` 和 `pyproject.toml` 的 `codewiki = "codewiki.cli.main:cli"`）均直接从 `codewiki.cli.main` 导入，不受影响。
+
+---
+
 ## 输出结构
 
 生成的文档结构与原始 CodeWiki 一致：
@@ -249,3 +328,9 @@ A: 在对话中明确指定："Please generate the Wiki documentation in English
 
 **Q: 会话超时了怎么办？**
 A: 会话默认 2 小时超时。超时后重新调用 `analyze_repo` 即可创建新会话。
+
+**Q: 代码改了之后如何增量更新文档？**
+A: 直接对 AI Agent 说"更新 Wiki 文档"。Agent 调用 `analyze_repo` 时会自动检测变更，返回的 `changes` 字段会指出哪些模块受影响。Agent 只更新受影响的模块文档，而非全部重新生成。支持 git 仓库和非 git 仓库两种检测方式。
+
+**Q: 增量更新的粒度是什么？**
+A: 模块级。一个模块内任一组件的源文件变更，该模块的整篇文档会被标记为需要更新。同时其父模块的总览也会被标记（级联更新）。`overview.md` 在任何变更时都会刷新。

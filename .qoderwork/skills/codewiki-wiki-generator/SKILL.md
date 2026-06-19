@@ -100,6 +100,37 @@ cd CodeWiki-CN && pip install -e .
 
 调用 `close_session` → `{"session_id": "<session_id>"}` 释放内存。
 
+## 增量更新模式
+
+当仓库已生成过文档（`output_dir` 下存在 `metadata.json` 和 `module_tree.json`），`analyze_repo` 的返回结果会包含 `changes` 字段：
+
+```json
+{
+  "changes": {
+    "has_previous": true,
+    "no_changes": false,
+    "method": "git",
+    "changed_files": ["auth.py", "utils.py::hash_password"],
+    "affected_modules": ["认证模块"],
+    "cascade_modules": ["核心系统", "overview"]
+  }
+}
+```
+
+**变更检测策略**：优先使用 `git diff`（对比 commit SHA + 检查工作区未提交变更），非 git 仓库回退到对比文件修改时间。
+
+**增量更新流程**：
+
+1. 调用 `analyze_repo`，检查 `changes` 字段
+2. 如果 `no_changes: true`，告知用户文档已是最新，无需操作
+3. 如果 `no_changes: false`，**只更新 `affected_modules` 中列出的模块**：
+   - 用 `read_code_components` 读取变更组件的新源码
+   - 用 `edit_doc_file`（`str_replace`）局部修改对应文档，而非整篇重写
+4. 对 `cascade_modules` 中的父模块，读取已更新的子文档后同步刷新总览
+5. 最后更新 `overview.md`
+
+增量更新的粒度是**模块级**——一个模块内任一组件变更，该模块文档需要更新。相比全量生成，增量更新通常只需处理 1-3 个模块。
+
 ## 工具速查表
 
 | 工具 | 用途 |
