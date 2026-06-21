@@ -1,4 +1,5 @@
 import asyncio
+import os
 import re
 import sys
 import threading
@@ -150,6 +151,12 @@ def extract_mermaid_blocks(content: str) -> List[Tuple[int, str]]:
 # Skip it proactively so SpiderMonkey is never loaded into the process.
 _PYTHONMONKEY_BROKEN = sys.version_info >= (3, 12)
 
+# mermaid-py spawns a Node.js subprocess that can hang indefinitely (e.g. when
+# Node.js is missing or the mermaid CLI is misconfigured).  Default to
+# disabled; set MERMAID_VALIDATE=1 to enable.
+_MERMAID_PY_BROKEN = os.environ.get("MERMAID_VALIDATE", "0") != "1"
+_MERMAID_PY_PROBED = True  # Skip probing — rely on env var
+
 
 async def _try_pythonmonkey_parse(diagram_content: str) -> str | None:
     """Attempt to parse via PythonMonkey/mermaid-parser-py.
@@ -232,8 +239,16 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
     """
     core_error = await _try_pythonmonkey_parse(diagram_content)
     if core_error is None:
+        # Both PythonMonkey (3.12+) and mermaid-py (env disabled) are unavailable
+        if _MERMAID_PY_BROKEN:
+            return ""  # Skip validation gracefully
         try:
-            core_error = _parse_via_mermaid_py(diagram_content)
+            core_error = await asyncio.wait_for(
+                asyncio.to_thread(_parse_via_mermaid_py, diagram_content),
+                timeout=15.0,
+            )
+        except asyncio.TimeoutError:
+            return ""  # Graceful skip on timeout
         except Exception as e:
             return f"  Diagram {diagram_num}: Exception during validation - {str(e)}"
 

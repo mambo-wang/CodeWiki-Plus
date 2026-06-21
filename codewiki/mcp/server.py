@@ -415,21 +415,26 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Route tool calls to the appropriate handler."""
     try:
         # --- Fine-grained tools (no LLM config needed) ---
+        # Synchronous handlers run via asyncio.to_thread() so they never
+        # block the event loop (which would hang the MCP stdio server).
         if name == "analyze_repo":
             from codewiki.mcp.tools.analysis import handle_analyze_repo
+            # NOTE: Tree-sitter C extensions are not thread-safe, so this
+            # must run on the main thread (blocking the event loop is
+            # acceptable for this one-time heavy operation).
             return [_text(handle_analyze_repo(arguments, _store))]
 
         elif name == "read_code_components":
             from codewiki.mcp.tools.code_reader import handle_read_code_components
-            return [_text(handle_read_code_components(arguments, _store))]
+            return [_text(await asyncio.to_thread(handle_read_code_components, arguments, _store))]
 
         elif name == "list_components":
             from codewiki.mcp.tools.analysis import handle_list_components
-            return [_text(handle_list_components(arguments, _store))]
+            return [_text(await asyncio.to_thread(handle_list_components, arguments, _store))]
 
         elif name == "view_repo_file":
             from codewiki.mcp.tools.code_reader import handle_view_repo_file
-            return [_text(handle_view_repo_file(arguments, _store))]
+            return [_text(await asyncio.to_thread(handle_view_repo_file, arguments, _store))]
 
         elif name == "write_doc_file":
             from codewiki.mcp.tools.doc_writer import handle_write_doc_file
@@ -443,15 +448,15 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         elif name == "save_module_tree":
             from codewiki.mcp.tools.module_tree import handle_save_module_tree
-            return [_text(handle_save_module_tree(arguments, _store))]
+            return [_text(await asyncio.to_thread(handle_save_module_tree, arguments, _store))]
 
         elif name == "get_processing_order":
             from codewiki.mcp.tools.module_tree import handle_get_processing_order
-            return [_text(handle_get_processing_order(arguments, _store))]
+            return [_text(await asyncio.to_thread(handle_get_processing_order, arguments, _store))]
 
         elif name == "get_prompt":
             from codewiki.mcp.tools.prompt_server import handle_get_prompt
-            return [_text(handle_get_prompt(arguments, _store))]
+            return [_text(await asyncio.to_thread(handle_get_prompt, arguments, _store))]
 
         elif name == "close_session":
             sid = arguments["session_id"]
