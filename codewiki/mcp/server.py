@@ -5,6 +5,7 @@ Provides two sets of tools:
 
 **Fine-grained tools (IDE-driven, zero LLM config):**
   - ``analyze_repo``      — Parse a repo and build a dependency graph (session-based)
+  - ``list_components``   — Paginated browsing of the component index
   - ``read_code_components`` — Read source code for given component IDs
   - ``view_repo_file``    — Read-only file/directory browsing
   - ``write_doc_file``    — Create a documentation .md file with Mermaid validation
@@ -97,8 +98,42 @@ def _fine_grained_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Comma-separated patterns to exclude (e.g., '*test*,*spec*')",
                     },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Pagination offset for component index (default: 0)",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max components to return per page (default: 100, max: 200)",
+                    },
                 },
                 "required": ["repo_path"],
+            },
+        ),
+        Tool(
+            name="list_components",
+            description=(
+                "Browse the component index from an existing analyze_repo session. "
+                "Returns a paginated slice with component id, type, and file path. "
+                "Use this instead of re-running analyze_repo to see more components."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session ID from analyze_repo",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Pagination offset (default: 0)",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max components to return per page (default: 100)",
+                    },
+                },
+                "required": ["session_id"],
             },
         ),
         Tool(
@@ -387,6 +422,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         elif name == "read_code_components":
             from codewiki.mcp.tools.code_reader import handle_read_code_components
             return [_text(handle_read_code_components(arguments, _store))]
+
+        elif name == "list_components":
+            from codewiki.mcp.tools.analysis import handle_list_components
+            return [_text(handle_list_components(arguments, _store))]
 
         elif name == "view_repo_file":
             from codewiki.mcp.tools.code_reader import handle_view_repo_file

@@ -20,21 +20,36 @@ from codewiki.mcp.session import SessionState, SessionStore
 logger = logging.getLogger(__name__)
 
 
-def _build_component_index(components: Dict[str, Any], max_items: int = 500) -> Tuple[list, bool]:
+def _build_component_index(
+    components: Dict[str, Any],
+    offset: int = 0,
+    limit: int = 100,
+) -> Tuple[list, Dict[str, int]]:
     """Build a lightweight component index for the MCP response.
 
-    Returns (index_list, truncated) where *truncated* is True when the
-    index was capped at *max_items*.
+    Returns (index_list, pagination_info).  Each entry only carries *id*,
+    *type*, and *file* — dependency details are available on demand via
+    ``read_code_components``.
     """
+    all_ids = list(components.keys())
+    total = len(all_ids)
+    limit = min(max(limit, 1), 200)  # clamp to [1, 200]
+    page_ids = all_ids[offset : offset + limit]
     index: list[dict] = []
-    for comp_id, node in list(components.items())[:max_items]:
+    for comp_id in page_ids:
+        node = components[comp_id]
         index.append({
             "id": comp_id,
             "type": getattr(node, "component_type", "unknown"),
             "file": getattr(node, "relative_path", ""),
-            "depends_on": list(getattr(node, "depends_on", []))[:20],
         })
-    return index, len(components) > max_items
+    pagination = {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": (offset + limit) < total,
+    }
+    return index, pagination
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +301,10 @@ def handle_analyze_repo(
         leaf_nodes=leaf_nodes,
     )
 
-    index, truncated = _build_component_index(components)
+    # Pagination for the component index
+    offset = int(arguments.get("offset", 0))
+    limit = int(arguments.get("limit", 100))
+    index, pagination = _build_component_index(components, offset=offset, limit=limit)
 
     # Language stats
     languages: Dict[str, int] = {}
@@ -305,9 +323,9 @@ def handle_analyze_repo(
         "languages": languages,
         "total_components": len(components),
         "total_leaf_nodes": len(leaf_nodes),
-        "leaf_nodes": leaf_nodes[:100],
+        "leaf_nodes": leaf_nodes[:50],
         "component_index": index,
-        "component_index_truncated": truncated,
+        "pagination": pagination,
         "changes": changes,
         "hint": (
             "Use read_code_components(session_id, component_ids) to read source code. "
@@ -315,10 +333,38 @@ def handle_analyze_repo(
             "Call get_prompt('cluster') for clustering rules."
         ),
     }
+    if pagination["has_more"]:
+        result["hint"] += (
+            f" Component index has {pagination['total']} items; "
+            f"call analyze_repo again with offset={offset + limit} to see the next page."
+        )
     if changes and not changes.get("no_changes"):
         result["hint"] = (
             "Incremental update detected. Only update affected modules listed in "
             "'changes.affected_modules'. Use edit_doc_file for targeted updates. "
             "Refresh cascade parent modules in 'changes.cascade_modules'."
         )
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+
+def handle_list_components(
+    arguments: Dict[str, Any],
+    store: SessionStore,
+) -> str:
+    """Return a paginated slice of the component index from an existing session."""
+    session = store.get(arguments["session_id"])
+    if session is None:
+        return json.dumps({"error": "Session not found or expired."})
+
+    offset = int(arguments.get("offset", 0))
+    limit = int(arguments.get("limit", 100))
+    index, pagination = _build_component_index(
+        session.components, offset=offset, limit=limit,
+    )
+
+    result = {
+        "session_id": session.session_id,
+        "component_index": index,
+        "pagination": pagination,
+    }
     return json.dumps(result, indent=2, ensure_ascii=False)
