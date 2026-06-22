@@ -239,16 +239,15 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
     """
     core_error = await _try_pythonmonkey_parse(diagram_content)
     if core_error is None:
-        # Both PythonMonkey (3.12+) and mermaid-py (env disabled) are unavailable
         if _MERMAID_PY_BROKEN:
-            return ""  # Skip validation gracefully
+            return f"  Diagram {diagram_num}: validation skipped (set MERMAID_VALIDATE=1 to enable)"
         try:
             core_error = await asyncio.wait_for(
                 asyncio.to_thread(_parse_via_mermaid_py, diagram_content),
                 timeout=15.0,
             )
         except asyncio.TimeoutError:
-            return ""  # Graceful skip on timeout
+            return f"  Diagram {diagram_num}: validation timed out (15s) — diagram may be invalid"
         except Exception as e:
             return f"  Diagram {diagram_num}: Exception during validation - {str(e)}"
 

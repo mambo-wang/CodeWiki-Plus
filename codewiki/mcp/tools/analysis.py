@@ -33,7 +33,8 @@ def _build_component_index(
     """
     all_ids = list(components.keys())
     total = len(all_ids)
-    limit = min(max(limit, 1), 200)  # clamp to [1, 200]
+    offset = max(0, int(offset))       # prevent negative-index wrapping
+    limit = min(max(int(limit), 1), 200)  # clamp to [1, 200]
     page_ids = all_ids[offset : offset + limit]
     index: list[dict] = []
     for comp_id in page_ids:
@@ -336,7 +337,7 @@ def handle_analyze_repo(
     if pagination["has_more"]:
         result["hint"] += (
             f" Component index has {pagination['total']} items; "
-            f"call analyze_repo again with offset={offset + limit} to see the next page."
+            f"call list_components(session_id='{session.session_id}', offset={offset + limit}) to see the next page."
         )
     if changes and not changes.get("no_changes"):
         result["hint"] = (

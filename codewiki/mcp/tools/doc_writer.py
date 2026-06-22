@@ -6,16 +6,42 @@ directory, with automatic Mermaid diagram validation after every write.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from codewiki.mcp.session import SessionState, SessionStore
 
 logger = logging.getLogger(__name__)
+
+# Max edit history entries per file (prevent unbounded memory growth)
+_MAX_HISTORY_PER_FILE = 20
+
+
+def _is_within(path: Path, base: Path) -> bool:
+    """Return True if *path* resolves to somewhere inside *base*."""
+    try:
+        path.resolve().relative_to(base.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _safe_doc_path(session: SessionState, filename: str) -> Path | None:
+    """Resolve *filename* within session.output_dir, guarding against traversal."""
+    if not filename.endswith(".md"):
+        filename += ".md"
+    output_base = Path(session.output_dir).resolve()
+    doc_path = (output_base / filename).resolve()
+    if not _is_within(doc_path, output_base):
+        return None
+    return doc_path
+
+
+def _ensure_parent_dirs(path: Path) -> None:
+    """Create parent directories if they don't exist."""
+    path.parent.mkdir(parents=True, exist_ok=True)
 
 
 async def _validate_mermaid(file_path: str, relative_path: str) -> str:
@@ -27,9 +53,20 @@ async def _validate_mermaid(file_path: str, relative_path: str) -> str:
         return f"Mermaid validation skipped: {e}"
 
 
-def _ensure_parent_dirs(path: Path) -> None:
-    """Create parent directories if they don't exist."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+def _save_history(session: SessionState, doc_path: Path, content: str) -> None:
+    """Append *content* to edit history for *doc_path*, capped at _MAX_HISTORY_PER_FILE."""
+    history = session.registry.get("file_history")
+    if history is None:
+        history = {}
+    elif isinstance(history, str):
+        history = json.loads(history)
+    key = str(doc_path)
+    entry = history.setdefault(key, [])
+    entry.append(content)
+    # Trim to last N entries
+    if len(entry) > _MAX_HISTORY_PER_FILE:
+        del entry[: len(entry) - _MAX_HISTORY_PER_FILE]
+    session.registry["file_history"] = history  # keep as native dict
 
 
 async def handle_write_doc_file(
@@ -43,11 +80,12 @@ async def handle_write_doc_file(
         return json.dumps({"error": f"Session {session_id} not found or expired."})
 
     filename = arguments["filename"]
-    if not filename.endswith(".md"):
-        filename += ".md"
+    doc_path = _safe_doc_path(session, filename)
+    if doc_path is None:
+        return json.dumps({"error": "Filename escapes output directory."})
+
     content = arguments["content"]
 
-    doc_path = Path(session.output_dir) / filename
     _ensure_parent_dirs(doc_path)
 
     if doc_path.exists():
@@ -81,36 +119,39 @@ async def handle_edit_doc_file(
         return json.dumps({"error": f"Session {session_id} not found or expired."})
 
     filename = arguments["filename"]
-    if not filename.endswith(".md"):
-        filename += ".md"
+    doc_path = _safe_doc_path(session, filename)
+    if doc_path is None:
+        return json.dumps({"error": "Filename escapes output directory."})
 
-    doc_path = Path(session.output_dir) / filename
     command = arguments["command"]
 
     if command == "undo":
         # Undo via registry history
-        history_key = str(doc_path)
-        history = session.registry.get("file_history", "{}")
-        file_history = json.loads(history) if isinstance(history, str) else history
-        path_history = file_history.get(history_key, [])
+        history = session.registry.get("file_history", {})
+        if isinstance(history, str):
+            history = json.loads(history)
+        path_history = history.get(str(doc_path), [])
         if not path_history:
             return json.dumps({"error": f"No edit history found for {filename}."})
         old_content = path_history.pop()
-        file_history[history_key] = path_history
-        session.registry["file_history"] = json.dumps(file_history)
+        history[str(doc_path)] = path_history
+        session.registry["file_history"] = history
         doc_path.write_text(old_content, encoding="utf-8")
-        return json.dumps({"status": "undone", "filename": filename})
+
+        # Validate Mermaid after undo
+        mermaid_result = await _validate_mermaid(str(doc_path), filename)
+        return json.dumps({
+            "status": "undone",
+            "filename": filename,
+            "mermaid_validation": mermaid_result,
+        }, ensure_ascii=False)
 
     if not doc_path.exists():
         return json.dumps({"error": f"File not found: {filename}. Use write_doc_file to create it."})
 
     # Save current content to history before editing
     current_content = doc_path.read_text(encoding="utf-8")
-    history_key = str(doc_path)
-    history = session.registry.get("file_history", "{}")
-    file_history = json.loads(history) if isinstance(history, str) else history
-    file_history.setdefault(history_key, []).append(current_content)
-    session.registry["file_history"] = json.dumps(file_history)
+    _save_history(session, doc_path, current_content)
 
     if command == "str_replace":
         old_str = arguments.get("old_str")

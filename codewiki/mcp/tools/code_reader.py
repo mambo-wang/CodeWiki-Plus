@@ -8,10 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from codewiki.mcp.session import SessionState, SessionStore
 
@@ -20,11 +18,23 @@ logger = logging.getLogger(__name__)
 # Truncation guard for very large responses
 _MAX_RESPONSE_LEN = 32000
 
+# Max components per read_code_components call
+_MAX_COMPONENTS_PER_CALL = 50
+
 
 def _maybe_truncate(text: str, limit: int = _MAX_RESPONSE_LEN) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "\n\n<response clipped — use view_repo_file with view_range to read more>"
+
+
+def _is_within(path: Path, base: Path) -> bool:
+    """Return True if *path* resolves to somewhere inside *base*."""
+    try:
+        path.resolve().relative_to(base.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 def handle_read_code_components(
@@ -38,8 +48,11 @@ def handle_read_code_components(
         return json.dumps({"error": f"Session {session_id} not found or expired."})
 
     component_ids: List[str] = arguments["component_ids"]
-    components = session.components
+    # Cap the number of components to avoid oversized responses
+    if len(component_ids) > _MAX_COMPONENTS_PER_CALL:
+        component_ids = component_ids[:_MAX_COMPONENTS_PER_CALL]
 
+    components = session.components
     results = []
     for cid in component_ids:
         node = components.get(cid)
@@ -52,6 +65,8 @@ def handle_read_code_components(
             results.append(f"## {cid} ({getattr(node, 'component_type', '')})\n```{fence}\n{code}\n```\n")
 
     output = "\n".join(results)
+    if len(arguments["component_ids"]) > _MAX_COMPONENTS_PER_CALL:
+        output = f"<only first {_MAX_COMPONENTS_PER_CALL} components shown; call again with the remaining IDs>\n\n" + output
     return _maybe_truncate(output)
 
 
@@ -66,20 +81,43 @@ def handle_view_repo_file(
         return json.dumps({"error": f"Session {session_id} not found or expired."})
 
     rel_path = arguments["path"]
-    abs_path = Path(session.repo_path) / rel_path
+    repo_base = Path(session.repo_path).resolve()
+    abs_path = (repo_base / rel_path).resolve()
+
+    # Path traversal guard
+    if not _is_within(abs_path, repo_base):
+        return json.dumps({"error": "Path escapes repository directory."})
 
     if not abs_path.exists():
         return json.dumps({"error": f"Path not found: {rel_path}"})
 
-    # Directory listing
+    # Directory listing — use pathlib instead of shelling out
     if abs_path.is_dir():
-        out = subprocess.run(
-            rf"find {abs_path} -maxdepth 2 -not -path '*/\.*'",
-            shell=True,
-            capture_output=True,
-        )
-        listing = out.stdout.decode("utf-8", errors="replace")
-        listing = listing.replace(str(abs_path), rel_path)
+        entries: list[str] = []
+        for child in sorted(abs_path.iterdir()):
+            if child.name.startswith("."):
+                continue
+            rel_child = child.relative_to(repo_base)
+            suffix = "/" if child.is_dir() else ""
+            entries.append(f"{rel_child}{suffix}")
+        # Also list one level deeper if there aren't too many entries
+        if len(entries) <= 50:
+            expanded: list[str] = []
+            for child in sorted(abs_path.iterdir()):
+                if child.name.startswith("."):
+                    continue
+                rel_child = child.relative_to(repo_base)
+                suffix = "/" if child.is_dir() else ""
+                expanded.append(f"{rel_child}{suffix}")
+                if child.is_dir():
+                    for sub in sorted(child.iterdir()):
+                        if sub.name.startswith("."):
+                            continue
+                        rel_sub = sub.relative_to(repo_base)
+                        sub_suffix = "/" if sub.is_dir() else ""
+                        expanded.append(f"  {rel_sub}{sub_suffix}")
+            entries = expanded
+        listing = "\n".join(entries)
         return f"Directory listing for {rel_path}:\n{listing}"
 
     # File view
