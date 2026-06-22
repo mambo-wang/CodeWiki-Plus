@@ -15,11 +15,14 @@ from codewiki.mcp.session import SessionState, SessionStore
 
 logger = logging.getLogger(__name__)
 
-# Truncation guard for very large responses
-_MAX_RESPONSE_LEN = 32000
+# Truncation guard for very large responses (leave room for LLM output)
+_MAX_RESPONSE_LEN = 24000
 
 # Max components per read_code_components call
-_MAX_COMPONENTS_PER_CALL = 50
+_MAX_COMPONENTS_PER_CALL = 20
+
+# Max chars of source code per component (large files truncated)
+_MAX_COMPONENT_SOURCE_LEN = 8000
 
 
 def _maybe_truncate(text: str, limit: int = _MAX_RESPONSE_LEN) -> str:
@@ -62,6 +65,11 @@ def handle_read_code_components(
             lang = getattr(node, "language", "")
             fence = lang if lang else ""
             code = getattr(node, "source_code", "").strip()
+            if len(code) > _MAX_COMPONENT_SOURCE_LEN:
+                code = code[:_MAX_COMPONENT_SOURCE_LEN] + (
+                    f"\n\n... <truncated {len(code) - _MAX_COMPONENT_SOURCE_LEN} chars; "
+                    f"use view_repo_file to read the full source>"
+                )
             results.append(f"## {cid} ({getattr(node, 'component_type', '')})\n```{fence}\n{code}\n```\n")
 
     output = "\n".join(results)

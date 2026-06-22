@@ -150,12 +150,12 @@ def main():
     print("\n[9] read_code_components cap")
     comp_ids = page1["component_index"]
     if comp_ids:
-        ids = [c["id"] for c in comp_ids] * 20  # 100 IDs, should be capped to 50
+        ids = [c["id"] for c in comp_ids] * 20  # 100 IDs, should be capped to 20
         read_result = handle_read_code_components({
             "session_id": session_id,
             "component_ids": ids,
         }, store)
-        check("caps to 50 components", "only first 50" in read_result, read_result[-100:])
+        check("caps to 20 components", "only first 20" in read_result, read_result[:100])
 
     # -- 10. close_session --
     print("\n[10] close_session")

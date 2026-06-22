@@ -44,7 +44,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
-from codewiki.mcp.session import SessionStore
+from codewiki.mcp.session import SessionState, SessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -460,6 +460,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         elif name == "close_session":
             sid = arguments["session_id"]
+            session = _store.get(sid)
+            if session:
+                _write_generation_metadata(session)
             removed = _store.remove(sid)
             return [_text(json.dumps({
                 "status": "closed" if removed else "not_found",
@@ -597,6 +600,39 @@ async def _legacy_get_module_tree(arguments: dict[str, Any]) -> list[TextContent
 
 def _text(content: str) -> TextContent:
     return TextContent(type="text", text=content)
+
+
+def _write_generation_metadata(session: SessionState) -> None:
+    """Write ``metadata.json`` to the session's output directory.
+
+    Records the current git commit and timestamp so that
+    :func:`_detect_changes` can diff against this baseline on the next
+    ``analyze_repo`` call, enabling incremental updates.
+    """
+    try:
+        output_dir = Path(session.output_dir)
+        repo_path = Path(session.repo_path)
+
+        commit_id: str | None = None
+        try:
+            import git
+            repo = git.Repo(repo_path, search_parent_directories=True)
+            commit_id = repo.head.commit.hexsha
+        except Exception:
+            pass
+
+        from datetime import datetime
+        metadata = {
+            "generation_info": {
+                "commit_id": commit_id,
+                "timestamp": datetime.now().isoformat(),
+            },
+        }
+        (output_dir / "metadata.json").write_text(
+            json.dumps(metadata, indent=2, ensure_ascii=False)
+        )
+    except Exception as e:
+        logger.warning("Failed to write metadata.json: %s", e)
 
 
 # ===================================================================
