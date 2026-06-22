@@ -9,7 +9,7 @@
 - **零 LLM 配置**：无需自行配置大模型 API，由 AI IDE 自身模型驱动
 - **9 种语言支持**：Python、Java、JavaScript、TypeScript、C、C++、C#、Kotlin、PHP
 - **IDE 原生集成**：通过 MCP 协议与 CodeBuddy、Cursor、Claude Desktop 等 AI IDE 无缝对接
-- **双模式运行**：CLI 模式（`codewiki generate`）+ MCP Server 模式（9 个细粒度工具）
+- **双模式运行**：CLI 模式（`codewiki generate`）+ MCP Server 模式（10 个细粒度工具）
 - **增量生成**：基于 Git diff 检测变更，仅重新生成受影响模块
 
 ## 端到端架构
@@ -87,7 +87,7 @@ graph LR
 | [Agent 工具](Agent 工具.md) | `codewiki/src/be/agent_tools/` | 13 | AI Agent 基础设施：依赖注入、代码读取、文档委托、文件编辑器 |
 | [CLI 工具](CLI 工具.md) | `codewiki/cli/utils/` | 43 | CLI 基础工具：异常处理、文件系统、验证、日志、进度、仓库校验 |
 | [CLI 核心](CLI 核心.md) | `codewiki/cli/` | 26 | CLI 入口和命令：config/generate 命令组、配置管理、Git 管理、HTML 生成 |
-| [MCP 服务](MCP 服务.md) | `codewiki/mcp/` | 27 | MCP 协议服务器：9 个细粒度工具 + 会话管理 + 提示词服务 |
+| [MCP 服务](MCP 服务.md) | `codewiki/mcp/` | 38 | MCP 协议服务器：10 个细粒度工具 + 线程安全会话管理 + 增量更新 + 安全加固 |
 | [依赖分析器](依赖分析器.md) | `codewiki/src/be/dependency_analyzer/` | 61 | 代码分析引擎：多语言 Tree-sitter 解析、依赖图构建、拓扑排序 |
 | [共享配置](共享配置.md) | `codewiki/src/` | 4 | 全局配置和工具：Config 类、FileManager、CLI/MCP 双上下文 |
 | [前端服务](前端服务.md) | `codewiki/src/fe/` | 27 | Web 应用：FastAPI 路由、Jinja2 模板、文档可视化、缓存管理 |
