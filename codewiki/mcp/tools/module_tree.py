@@ -81,17 +81,21 @@ def handle_save_module_tree(
     # Cache in session
     session.module_tree = module_tree
 
-    # Compute processing order
+    # Compute processing order and write to workspace file
     order = _get_processing_order(module_tree)
+    order_file = None
+    if session.workspace is not None:
+        order_path = session.workspace.write_json("processing_order.json", order)
+        order_file = str(order_path)
 
     result = {
         "status": "saved",
         "module_count": len(module_tree),
-        "processing_order": order,
         "tree_path": working_path,
         "first_tree_path": first_path,
+        "processing_order_file": order_file,
         "hint": (
-            "Use get_processing_order(session_id) to retrieve this order again. "
+            "Read the processing_order.json file for the leaf-first generation order. "
             "Process leaf modules first (is_leaf=true), then parent modules. "
             "For each leaf module: get_prompt('system_leaf') + read_code_components + write_doc_file. "
             "For each parent module: get_prompt('overview_module') + write_doc_file."
@@ -104,7 +108,7 @@ def handle_get_processing_order(
     arguments: Dict[str, Any],
     store: SessionStore,
 ) -> str:
-    """Return the leaf-first processing order for the saved module tree."""
+    """Write the leaf-first processing order to a workspace file and return its path."""
     session_id = arguments["session_id"]
     session = store.get(session_id)
     if session is None:
@@ -125,9 +129,16 @@ def handle_get_processing_order(
 
     order = _get_processing_order(module_tree)
 
+    # Write to workspace file
+    order_file = None
+    if session.workspace is not None:
+        order_path = session.workspace.write_json("processing_order.json", order)
+        order_file = str(order_path)
+
     result = {
         "session_id": session_id,
         "module_count": len(module_tree),
-        "order": order,
+        "processing_order_file": order_file,
+        "hint": "Read the processing_order.json file for the full leaf-first order.",
     }
     return json.dumps(result, indent=2, ensure_ascii=False)

@@ -5,15 +5,17 @@ Provides two sets of tools:
 
 **Fine-grained tools (IDE-driven, zero LLM config):**
   - ``analyze_repo``      — Parse a repo and build a dependency graph (session-based)
-  - ``list_components``   — Paginated browsing of the component index
-  - ``read_code_components`` — Read source code for given component IDs
-  - ``view_repo_file``    — Read-only file/directory browsing
+  - ``read_code_components`` — Write component source code to workspace files
   - ``write_doc_file``    — Create a documentation .md file with Mermaid validation
   - ``edit_doc_file``     — Edit a documentation file (str_replace / insert / undo)
   - ``save_module_tree``  — Persist IDE agent's module clustering
   - ``get_processing_order`` — Get leaf-first documentation order
   - ``get_prompt``        — Retrieve CodeWiki's prompt templates
-  - ``close_session``     — Clean up a session
+  - ``close_session``     — Clean up a session and workspace files
+
+Large analysis results (component index, source code, processing order) are
+written to workspace files on disk.  The IDE agent reads these files directly
+instead of receiving large payloads through the MCP stdio channel.
 
 **Legacy tools (require CodeWiki LLM config):**
   - ``generate_docs``     — Full documentation generation (black-box)
@@ -70,14 +72,16 @@ def _fine_grained_tools() -> list[Tool]:
             name="analyze_repo",
             description=(
                 "Analyze a code repository's structure, dependencies, and components "
-                "using Tree-sitter AST parsing. Returns a component index and leaf nodes. "
-                "No LLM required. This is the entry point for the wiki generation pipeline. "
+                "using Tree-sitter AST parsing. No LLM required. "
+                "Writes the full component index, leaf nodes, and language stats to "
+                "workspace files on disk, and returns file paths plus a compact summary. "
+                "Read the workspace files for complete data. "
+                "This is the entry point for the wiki generation pipeline. "
                 "After calling this, use get_prompt('cluster') to learn clustering rules, "
                 "then save_module_tree to persist your grouping. "
                 "INCREMENTAL UPDATE: If docs already exist in output_dir (metadata.json + "
                 "module_tree.json), the response includes a 'changes' field showing which "
-                "files changed and which modules need updating. Use this to do targeted "
-                "edits instead of regenerating everything."
+                "files changed and which modules need updating."
             ),
             inputSchema={
                 "type": "object",
@@ -98,50 +102,17 @@ def _fine_grained_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Comma-separated patterns to exclude (e.g., '*test*,*spec*')",
                     },
-                    "offset": {
-                        "type": "integer",
-                        "description": "Pagination offset for component index (default: 0)",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max components to return per page (default: 100, max: 200)",
-                    },
                 },
                 "required": ["repo_path"],
             },
         ),
         Tool(
-            name="list_components",
-            description=(
-                "Browse the component index from an existing analyze_repo session. "
-                "Returns a paginated slice with component id, type, and file path. "
-                "Use this instead of re-running analyze_repo to see more components."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID from analyze_repo",
-                    },
-                    "offset": {
-                        "type": "integer",
-                        "description": "Pagination offset (default: 0)",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max components to return per page (default: 100)",
-                    },
-                },
-                "required": ["session_id"],
-            },
-        ),
-        Tool(
             name="read_code_components",
             description=(
-                "Read the source code for a list of component IDs. "
+                "Write the source code for a list of component IDs to workspace files. "
                 "Component IDs have the form 'file_path::ComponentName'. "
-                "Returns the source code with language-aware code fences."
+                "Each component's full source is written to an individual .src file "
+                "in the session's sources/ directory. Returns file paths — no truncation."
             ),
             inputSchema={
                 "type": "object",
@@ -157,32 +128,6 @@ def _fine_grained_tools() -> list[Tool]:
                     },
                 },
                 "required": ["session_id", "component_ids"],
-            },
-        ),
-        Tool(
-            name="view_repo_file",
-            description=(
-                "Read-only view of a file or directory inside the analyzed repository. "
-                "Use this to explore code that isn't in the component index."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID from analyze_repo",
-                    },
-                    "path": {
-                        "type": "string",
-                        "description": "Relative path within the repository",
-                    },
-                    "view_range": {
-                        "type": "array",
-                        "items": {"type": "integer"},
-                        "description": "Optional [start_line, end_line] (1-indexed, -1 for end)",
-                    },
-                },
-                "required": ["session_id", "path"],
             },
         ),
         Tool(
@@ -254,7 +199,8 @@ def _fine_grained_tools() -> list[Tool]:
             description=(
                 "Save the IDE agent's module clustering result. "
                 "Accepts a JSON module tree and persists it to disk. "
-                "Returns the recommended leaf-first processing order."
+                "Computes the leaf-first processing order and writes it to a workspace file. "
+                "Returns the file path for the processing order."
             ),
             inputSchema={
                 "type": "object",
@@ -277,8 +223,8 @@ def _fine_grained_tools() -> list[Tool]:
         Tool(
             name="get_processing_order",
             description=(
-                "Get the leaf-first processing order for documentation generation. "
-                "Process leaf modules (is_leaf=true) before parent modules."
+                "Compute and write the leaf-first processing order to a workspace file. "
+                "Returns the file path. Process leaf modules (is_leaf=true) before parent modules."
             ),
             inputSchema={
                 "type": "object",
@@ -428,14 +374,6 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             from codewiki.mcp.tools.code_reader import handle_read_code_components
             return [_text(await asyncio.to_thread(handle_read_code_components, arguments, _store))]
 
-        elif name == "list_components":
-            from codewiki.mcp.tools.analysis import handle_list_components
-            return [_text(await asyncio.to_thread(handle_list_components, arguments, _store))]
-
-        elif name == "view_repo_file":
-            from codewiki.mcp.tools.code_reader import handle_view_repo_file
-            return [_text(await asyncio.to_thread(handle_view_repo_file, arguments, _store))]
-
         elif name == "write_doc_file":
             from codewiki.mcp.tools.doc_writer import handle_write_doc_file
             result = await handle_write_doc_file(arguments, _store)
@@ -463,6 +401,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             session = _store.get(sid)
             if session:
                 _write_generation_metadata(session)
+                # Clean up workspace files on disk
+                if session.workspace is not None:
+                    session.workspace.cleanup()
             removed = _store.remove(sid)
             return [_text(json.dumps({
                 "status": "closed" if removed else "not_found",
@@ -570,7 +511,7 @@ async def _legacy_get_module_tree(arguments: dict[str, Any]) -> list[TextContent
             "error": f"Module tree not found at {module_tree_path}. Run 'codewiki generate' first."
         }))]
 
-    module_tree = json.loads(module_tree_path.read_text())
+    module_tree = json.loads(module_tree_path.read_text(encoding="utf-8"))
 
     def _summarize_tree(tree, depth=0):
         lines = []

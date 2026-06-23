@@ -12,9 +12,12 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from codewiki.src.be.dependency_analyzer.models.core import Node
+
+if TYPE_CHECKING:
+    from codewiki.mcp.workspace import SessionWorkspace
 
 
 # Sessions auto-expire after this many seconds of inactivity.
@@ -35,6 +38,7 @@ class SessionState:
     leaf_nodes: List[str]
     module_tree: Dict[str, Any] = field(default_factory=dict)
     registry: Dict[str, Any] = field(default_factory=dict)
+    workspace: Optional[SessionWorkspace] = field(default=None)
     created_at: float = field(default_factory=time.time)
     last_accessed: float = field(default_factory=time.time)
 
@@ -60,6 +64,7 @@ class SessionStore:
         output_dir: str,
         components: Dict[str, Node],
         leaf_nodes: List[str],
+        workspace: Optional[SessionWorkspace] = None,
     ) -> SessionState:
         """Create a new session and return it."""
         with self._lock:
@@ -70,6 +75,9 @@ class SessionStore:
                     self._sessions,
                     key=lambda sid: self._sessions[sid].last_accessed,
                 )
+                evicted = self._sessions[oldest_id]
+                if evicted.workspace is not None:
+                    evicted.workspace.cleanup()
                 del self._sessions[oldest_id]
             session_id = uuid.uuid4().hex[:12]
             # Ensure no collision
@@ -81,6 +89,7 @@ class SessionStore:
                 output_dir=output_dir,
                 components=components,
                 leaf_nodes=leaf_nodes,
+                workspace=workspace,
             )
             self._sessions[session_id] = state
             return state
@@ -92,6 +101,8 @@ class SessionStore:
             if state is None:
                 return None
             if state.is_expired:
+                if state.workspace is not None:
+                    state.workspace.cleanup()
                 del self._sessions[session_id]
                 return None
             state.touch()
@@ -106,4 +117,7 @@ class SessionStore:
         """Remove all expired sessions.  Caller must hold _lock."""
         expired = [sid for sid, s in self._sessions.items() if s.is_expired]
         for sid in expired:
+            state = self._sessions[sid]
+            if state.workspace is not None:
+                state.workspace.cleanup()
             del self._sessions[sid]

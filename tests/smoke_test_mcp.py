@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Smoke test for CodeWiki MCP tools — verifies core functionality after fixes.
+"""Smoke test for CodeWiki MCP tools — verifies core functionality after
+the file-side-channel optimization.
 
 Run: python3 tests/smoke_test_mcp.py
 """
@@ -15,8 +16,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from codewiki.mcp.session import SessionStore, SessionState
-from codewiki.mcp.tools.analysis import handle_analyze_repo, handle_list_components
-from codewiki.mcp.tools.code_reader import handle_read_code_components, handle_view_repo_file
+from codewiki.mcp.tools.analysis import handle_analyze_repo
+from codewiki.mcp.tools.code_reader import handle_read_code_components
 from codewiki.mcp.tools.doc_writer import handle_write_doc_file, handle_edit_doc_file
 
 # Use the repo itself as a test target
@@ -37,7 +38,7 @@ def check(name: str, condition: bool, detail: str = ""):
 
 
 def main():
-    print("=== CodeWiki MCP Smoke Test ===\n")
+    print("=== CodeWiki MCP Smoke Test (File-Side-Channel) ===\n")
 
     store = SessionStore()
     output_dir = tempfile.mkdtemp(prefix="codewiki_smoke_")
@@ -47,60 +48,91 @@ def main():
     result = json.loads(handle_analyze_repo({
         "repo_path": REPO_PATH,
         "output_dir": output_dir,
-        "limit": 5,
     }, store))
     check("returns session_id", "session_id" in result, str(result)[:200])
-    check("returns pagination", "pagination" in result, str(result.get("pagination", "")))
-    check("returns component_index", "component_index" in result, str(result.keys()))
-    check("pagination has total", "total" in result.get("pagination", {}), str(result.get("pagination")))
+    check("returns workspace_dir", "workspace_dir" in result, str(result.keys()))
+    check("returns stats", "stats" in result, str(result.keys()))
+    check("returns files", "files" in result, str(result.keys()))
+    check("stats has total_components",
+          "total_components" in result.get("stats", {}),
+          str(result.get("stats")))
+    check("stats has total_leaf_nodes",
+          "total_leaf_nodes" in result.get("stats", {}),
+          str(result.get("stats")))
 
     session_id = result.get("session_id")
+    workspace_dir = result.get("workspace_dir")
     check("session_id is non-empty", session_id and len(session_id) == 12, str(session_id))
+    check("workspace_dir exists on disk",
+          workspace_dir and Path(workspace_dir).is_dir(),
+          str(workspace_dir))
 
-    # -- 2. list_components pagination --
-    print("\n[2] list_components pagination")
-    page1 = json.loads(handle_list_components({
-        "session_id": session_id,
-        "offset": 0,
-        "limit": 5,
-    }, store))
-    check("page1 returns 5 items", len(page1.get("component_index", [])) == 5, str(len(page1.get("component_index", []))))
+    # -- 2. Workspace files verification --
+    print("\n[2] Workspace files verification")
+    ws = Path(workspace_dir)
+    check("component_index.json exists", (ws / "component_index.json").exists(), "")
+    check("leaf_nodes.json exists", (ws / "leaf_nodes.json").exists(), "")
+    check("languages.json exists", (ws / "languages.json").exists(), "")
+    check("summary.json exists", (ws / "summary.json").exists(), "")
+    check("sources/ directory exists", (ws / "sources").is_dir(), "")
 
-    page2 = json.loads(handle_list_components({
-        "session_id": session_id,
-        "offset": 5,
-        "limit": 5,
-    }, store))
-    check("page2 returns 5 items", len(page2.get("component_index", [])) == 5, str(len(page2.get("component_index", []))))
-    check("page2 offset != page1", page2["component_index"][0]["id"] != page1["component_index"][0]["id"], "same items returned")
+    # Read component_index.json and verify structure
+    comp_index = json.loads((ws / "component_index.json").read_text(encoding="utf-8"))
+    check("component_index is a list", isinstance(comp_index, list), type(comp_index).__name__)
+    check("component_index non-empty", len(comp_index) > 0, f"len={len(comp_index)}")
+    if comp_index:
+        first = comp_index[0]
+        check("component has id/type/file",
+              all(k in first for k in ("id", "type", "file")),
+              str(first.keys()))
 
-    # -- 3. view_repo_file path traversal guard --
-    print("\n[3] view_repo_file path traversal guard")
-    traversal = json.loads(handle_view_repo_file({
-        "session_id": session_id,
-        "path": "../../etc/passwd",
-    }, store))
-    check("rejects ../../etc/passwd", "error" in traversal, str(traversal))
+    # Read leaf_nodes.json
+    leaf_nodes = json.loads((ws / "leaf_nodes.json").read_text(encoding="utf-8"))
+    check("leaf_nodes is a list", isinstance(leaf_nodes, list), type(leaf_nodes).__name__)
+    total_leaf = result["stats"]["total_leaf_nodes"]
+    check("leaf_nodes matches stats count",
+          len(leaf_nodes) == total_leaf,
+          f"file={len(leaf_nodes)} vs stats={total_leaf}")
 
-    abs_traversal = json.loads(handle_view_repo_file({
-        "session_id": session_id,
-        "path": "/etc/passwd",
-    }, store))
-    check("rejects /etc/passwd", "error" in abs_traversal, str(abs_traversal))
+    # -- 3. read_code_components (writes to workspace files) --
+    print("\n[3] read_code_components")
+    if comp_index:
+        ids = [c["id"] for c in comp_index[:5]]
+        read_result = json.loads(handle_read_code_components({
+            "session_id": session_id,
+            "component_ids": ids,
+        }, store))
+        check("returns written count", "written" in read_result, str(read_result.keys()))
+        check("returns source_dir", "source_dir" in read_result, str(read_result.keys()))
+        check("returns files mapping", "files" in read_result, str(read_result.keys()))
+        check("written == requested",
+              read_result.get("written") == len(ids),
+              f"written={read_result.get('written')}, requested={len(ids)}")
 
-    # -- 4. view_repo_file normal read --
-    print("\n[4] view_repo_file normal read")
-    file_view = handle_view_repo_file({
-        "session_id": session_id,
-        "path": "pyproject.toml",
-    }, store)
-    check("reads pyproject.toml", "pyproject" in file_view or "build-system" in file_view, file_view[:100])
+        # Verify source files exist on disk
+        source_dir = Path(read_result["source_dir"])
+        check("source_dir exists", source_dir.is_dir(), str(source_dir))
+        for fname, cid in read_result.get("files", {}).items():
+            src_file = source_dir / fname
+            if src_file.exists():
+                content = src_file.read_text(encoding="utf-8")
+                check(f"source file has content ({fname})",
+                      len(content) > 0, f"empty: {fname}")
+                check(f"source file has header ({fname})",
+                      "Component:" in content, f"no header: {fname[:50]}")
+                break  # just check first one
 
-    dir_view = handle_view_repo_file({
-        "session_id": session_id,
-        "path": "codewiki/mcp/tools",
-    }, store)
-    check("lists directory", "Directory listing" in dir_view, dir_view[:100])
+    # -- 4. read_code_components no cap (removed 20-component limit) --
+    print("\n[4] read_code_components no cap")
+    if len(comp_index) > 20:
+        many_ids = [c["id"] for c in comp_index[:30]]
+        many_result = json.loads(handle_read_code_components({
+            "session_id": session_id,
+            "component_ids": many_ids,
+        }, store))
+        check("no 20-component cap",
+              many_result.get("written") == 30,
+              f"written={many_result.get('written')}")
 
     # -- 5. write_doc_file path traversal guard --
     print("\n[5] write_doc_file path traversal guard")
@@ -146,29 +178,19 @@ def main():
     undone_content = (Path(output_dir) / "test_doc.md").read_text()
     check("content reverted", "# Test\n" in undone_content, undone_content[:100])
 
-    # -- 9. read_code_components cap --
-    print("\n[9] read_code_components cap")
-    comp_ids = page1["component_index"]
-    if comp_ids:
-        ids = [c["id"] for c in comp_ids] * 20  # 100 IDs, should be capped to 20
-        read_result = handle_read_code_components({
-            "session_id": session_id,
-            "component_ids": ids,
-        }, store)
-        check("caps to 20 components", "only first 20" in read_result, read_result[:100])
-
-    # -- 10. close_session --
-    print("\n[10] close_session")
-    from codewiki.mcp.server import _store as server_store
-    # Simulate close_session via store directly
+    # -- 9. close_session with workspace cleanup --
+    print("\n[9] close_session with workspace cleanup")
+    check("workspace exists before close", ws.exists(), "")
+    # Simulate close_session cleanup
+    session = store.get(session_id)
+    if session and session.workspace:
+        session.workspace.cleanup()
     removed = store.remove(session_id)
     check("session removed", removed, "")
-    # Verify session is gone
-    gone = store.get(session_id)
-    check("session is None after close", gone is None, "")
+    check("workspace dir cleaned up", not ws.exists(), f"still exists: {ws}")
 
-    # -- 11. SessionStore thread safety --
-    print("\n[11] SessionStore thread safety")
+    # -- 10. SessionStore thread safety --
+    print("\n[10] SessionStore thread safety")
     import threading
     errors = []
     def worker():
@@ -186,8 +208,8 @@ def main():
         t.join()
     check("no concurrent access errors", len(errors) == 0, str(errors[:3]))
 
-    # -- 12. SessionStore max sessions --
-    print("\n[12] SessionStore max sessions")
+    # -- 11. SessionStore max sessions --
+    print("\n[11] SessionStore max sessions")
     store2 = SessionStore()
     created = []
     for i in range(15):
