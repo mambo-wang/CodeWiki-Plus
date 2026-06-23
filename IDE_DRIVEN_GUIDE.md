@@ -43,12 +43,13 @@ CodeWiki 原始设计需要用户自行配置 LLM API（API Key + base_url），
 
 ```
 codewiki/mcp/
-├── server.py                  # 重构：11 个工具注册（9 新 + 2 遗留）
+├── server.py                  # 重构：10 个工具注册（8 新 + 2 遗留）
 ├── session.py                 # 新增：会话状态管理（SessionStore）
+├── workspace.py               # 新增：文件侧通道（大结果写入 .codewiki/sessions/）
 └── tools/
     ├── __init__.py            # 新增：工具包入口
-    ├── analysis.py            # 新增：analyze_repo 增强版
-    ├── code_reader.py         # 新增：read_code_components + view_repo_file
+    ├── analysis.py            # 新增：analyze_repo 增强版 + 增量更新检测
+    ├── code_reader.py         # 新增：read_code_components（源码写入 workspace 文件）
     ├── doc_writer.py          # 新增：write_doc_file + edit_doc_file
     ├── module_tree.py         # 新增：save_module_tree + get_processing_order
     └── prompt_server.py       # 新增：get_prompt 提示词模板服务
@@ -59,8 +60,7 @@ codewiki/mcp/
 | 工具 | 用途 | 是否需要 LLM |
 |------|------|:---:|
 | `analyze_repo` | 分析仓库，构建依赖图，返回组件索引 | 否 |
-| `read_code_components` | 根据组件 ID 读取源码 | 否 |
-| `view_repo_file` | 只读浏览仓库中的文件/目录 | 否 |
+| `read_code_components` | 根据组件 ID 读取源码（写入 workspace 文件） | 否 |
 | `write_doc_file` | 创建 .md 文档（含 Mermaid 校验） | 否 |
 | `edit_doc_file` | 编辑文档（替换/插入/撤销） | 否 |
 | `save_module_tree` | 保存 IDE Agent 的模块聚类结果 | 否 |
@@ -69,6 +69,24 @@ codewiki/mcp/
 | `close_session` | 关闭会话释放资源 | 否 |
 | `generate_docs` | [遗留] 一键生成（需配置 LLM） | **是** |
 | `get_module_tree` | [遗留] 获取已有模块树 | 否 |
+
+### 文件侧通道（File-Side-Channel）
+
+为避免大段数据通过 MCP stdio 传输导致性能瓶颈，我们引入了文件侧通道架构：`analyze_repo` 和 `read_code_components` 等大结果不直接返回给 Agent，而是写入 `{repo_path}/.codewiki/sessions/{session_id}/` 目录下的文件，MCP 响应仅包含文件路径和摘要信息。Agent 直接读取磁盘文件获取完整数据。
+
+```
+.codewiki/sessions/{session_id}/
+├── component_index.json    # 组件索引
+├── leaf_nodes.json         # 叶节点列表
+├── languages.json          # 检测到的语言
+├── summary.json            # 分析摘要统计
+├── changes.json            # 增量变更检测结果（仅增量模式）
+├── processing_order.json   # 文档生成顺序
+└── sources/
+    └── {component_id}.src  # 各组件源码
+```
+
+`close_session` 会自动清理整个 session 目录。
 
 ### 向后兼容
 
@@ -112,7 +130,13 @@ python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
 }
 ```
 
-**步骤 2**：项目规则已自动配置在 `.codebuddy/rules/codewiki-wiki-generator/RULE.mdc`。当你在 Agent 模式中提及"生成文档"或"Wiki"时，CodeBuddy 会自动加载该规则。
+**步骤 2**：将技能文件拷贝到 CodeBuddy 的技能目录：
+
+```bash
+cp -r skills/codewiki-wiki-generator .codebuddy/skills/
+```
+
+当你在 Agent 模式中提及"生成文档"或"Wiki"时，CodeBuddy 会自动加载该技能。
 
 **步骤 3**：打开 CodeBuddy Agent 模式，输入：
 
@@ -136,9 +160,7 @@ python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
 }
 ```
 
-**步骤 2**：项目规则已配置在 `.cursorrules`，Cursor 打开项目后自动加载。
-
-**步骤 3**：在 Cursor Agent 模式中输入：
+**步骤 2**：在 Cursor Agent 模式中输入：
 
 ```
 请为当前仓库生成 Wiki 文档，输出到 docs 目录。
@@ -181,8 +203,7 @@ python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
 阶段 3: 逐模块生成
   │  对每个叶模块：
   │  ├── get_prompt("system_leaf") → 获取文档撰写指令
-  │  ├── read_code_components → 读源码
-  │  ├── view_repo_file → 按需补充读取
+  │  ├── read_code_components → 读源码（从 workspace .src 文件）
   │  └── write_doc_file → 写出 .md（自动 Mermaid 校验）
   │
   │  对每个父模块：
@@ -249,7 +270,7 @@ python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
    └── edit_doc_file(str_replace) → 局部修改文档（而非整篇重写）
 
 2. 处理 cascade_modules 中的父模块：
-   ├── view_repo_file → 读取已更新的子文档
+   ├── 读取已更新的子文档
    └── edit_doc_file → 刷新总览部分
 
 3. 最后更新 overview.md

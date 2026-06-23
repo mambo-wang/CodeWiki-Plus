@@ -35,7 +35,7 @@ CodeWiki-CN 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWi
 
 实际上，CodeWiki 的核心工具链——AST 解析、依赖图、Mermaid 校验——完全不需要 LLM。真正需要 LLM 智能的 4 个环节（模块聚类、文档撰写、子模块递归、总览合成），恰好是 AI IDE 的 Agent 最擅长做的事情。
 
-因此，我们将 CodeWiki 的 MCP Server 从"黑盒式一键生成"拆分为**9 个细粒度工具**，让它退化为纯工具链服务器。AI IDE 的 Agent 通过 MCP 协议调用这些工具，用自己的推理能力完成全部文档生成工作：
+因此，我们将 CodeWiki 的 MCP Server 从"黑盒式一键生成"拆分为**8 个细粒度工具**，让它退化为纯工具链服务器。AI IDE 的 Agent 通过 MCP 协议调用这些工具，用自己的推理能力完成全部文档生成工作：
 
 ```
 改造前：
@@ -88,19 +88,23 @@ python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
 
 > 将 `/你的路径/CodeWiki-CN` 替换为你实际克隆 CodeWiki-CN 的绝对路径。
 
-配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 9 个工具（`analyze_repo`、`read_code_components` 等）。
+配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 10 个工具（8 个细粒度 + 2 个遗留）。
 
-**第 3 步：配置项目规则（Rule）**
+**第 3 步：配置技能（Skill）**
 
-本项目已预置 CodeBuddy 规则文件：
+本项目已预置 CodeBuddy 技能文件：
 
 ```
-.codebuddy/rules/codewiki-wiki-generator/RULE.mdc
+skills/codewiki-wiki-generator/SKILL.md
 ```
 
-该规则定义了 Wiki 生成的 5 阶段工作流（分析 → 聚类 → 逐模块文档 → 总览 → 清理），当你在 Agent 对话中提及"生成文档"或"Wiki"时，CodeBuddy 会自动加载这些指令。
+使用前需将该技能文件夹拷贝到 CodeBuddy 的技能目录下：
 
-如果你使用的是 **Cursor**，项目中也提供了 `.cursorrules` 文件，打开项目后自动生效。
+```bash
+cp -r skills/codewiki-wiki-generator .codebuddy/skills/
+```
+
+该技能定义了 Wiki 生成的 5 阶段工作流（分析 → 聚类 → 逐模块文档 → 总览 → 清理），当你在 Agent 对话中提及"生成文档"或"Wiki"时，CodeBuddy 会自动加载这些指令。
 
 **第 4 步：在 Agent 模式中输入提示词**
 
@@ -149,7 +153,6 @@ repowiki/
 |------|------|
 | `analyze_repo` | 分析仓库，构建依赖图，返回组件索引 |
 | `read_code_components` | 根据组件 ID 读取源码 |
-| `view_repo_file` | 只读浏览仓库中的文件/目录 |
 | `write_doc_file` | 创建 .md 文档（自动 Mermaid 校验） |
 | `edit_doc_file` | 编辑文档（替换/插入/撤销） |
 | `save_module_tree` | 保存模块聚类结果 |
@@ -163,7 +166,7 @@ repowiki/
 
 除 CodeBuddy 外，任何支持 MCP stdio 协议的 AI IDE 均可使用：
 
-**Cursor**：在 Settings → MCP 中添加相同的 Server 配置，项目规则通过 `.cursorrules` 自动加载。
+**Cursor**：在 Settings → MCP 中添加相同的 Server 配置。
 
 **Claude Desktop**：在 `~/Library/Application Support/Claude/claude_desktop_config.json`（macOS）中添加 MCP 配置。
 
@@ -224,7 +227,7 @@ The original CodeWiki is an excellent repository-level documentation framework. 
 
 In practice, CodeWiki's core toolchain—Tree-sitter AST parsing, dependency graph construction, topological sorting, and Mermaid validation—does not need an LLM at all. The 4 stages that do require LLM intelligence (module clustering, document writing, sub-module recursion, and overview synthesis) are exactly what AI IDE Agents excel at.
 
-We refactored CodeWiki's MCP Server from a "one-click black box" into **9 fine-grained tools**, turning it into a pure toolchain server. The AI IDE's Agent calls these tools via MCP and uses its own reasoning to complete all documentation work:
+We refactored CodeWiki's MCP Server from a "one-click black box" into **8 fine-grained tools**, turning it into a pure toolchain server. The AI IDE's Agent calls these tools via MCP and uses its own reasoning to complete all documentation work:
 
 ```
 Before:
@@ -271,17 +274,21 @@ Add the following to your CodeBuddy MCP settings:
 
 > Replace `/your/path/to/CodeWiki-CN` with the actual absolute path where you cloned CodeWiki-CN.
 
-**Step 3: Project Rules**
+**Step 3: Configure Skill**
 
-A CodeBuddy rule file is pre-configured at:
+A CodeBuddy skill file is pre-configured at:
 
 ```
-.codebuddy/rules/codewiki-wiki-generator/RULE.mdc
+skills/codewiki-wiki-generator/SKILL.md
+```
+
+Copy it to CodeBuddy's skill directory before use:
+
+```bash
+cp -r skills/codewiki-wiki-generator .codebuddy/skills/
 ```
 
 It defines the 5-stage Wiki generation workflow (analyze → cluster → document modules → synthesize overviews → cleanup). CodeBuddy auto-loads it when you mention "generate docs" or "Wiki" in Agent mode.
-
-For **Cursor**, a `.cursorrules` file is also provided and loads automatically when the project is opened.
 
 **Step 4: Prompt your AI Agent**
 
@@ -312,7 +319,6 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP:
 |------|---------|
 | `analyze_repo` | Parse repo, build dependency graph, return component index |
 | `read_code_components` | Read source code by component ID |
-| `view_repo_file` | Read-only file/directory browsing |
 | `write_doc_file` | Create .md docs with automatic Mermaid validation |
 | `edit_doc_file` | Edit docs (str_replace / insert / undo) |
 | `save_module_tree` | Persist module clustering results |
@@ -326,7 +332,7 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP:
 
 Any AI IDE supporting MCP stdio protocol works:
 
-**Cursor**: Add the same MCP config in Settings → MCP. Rules auto-load via `.cursorrules`.
+**Cursor**: Add the same MCP config in Settings → MCP.
 
 **Claude Desktop**: Add MCP config to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS).
 
