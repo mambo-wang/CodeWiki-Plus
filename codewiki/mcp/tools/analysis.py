@@ -132,7 +132,7 @@ def _detect_via_git(
         for item in repo.untracked_files:
             if item not in changed:
                 changed.append(item)
-        for file_path in [d.a_path for d in repo.index.diff(None)]:
+        for file_path in [d.a_path for d in repo.index.diff("HEAD")]:
             if file_path and file_path not in changed:
                 changed.append(file_path)
     except Exception:
@@ -176,7 +176,7 @@ def _detect_via_mtime(
                 continue
             try:
                 if filepath.stat().st_mtime > prev_time:
-                    rel_path = str(filepath.relative_to(repo_path))
+                    rel_path = filepath.relative_to(repo_path).as_posix()
                     changed.append(rel_path)
             except OSError:
                 continue
@@ -203,8 +203,16 @@ def _find_affected_modules(
             components = mod_info.get("components", [])
             hit = False
             for comp in components:
-                if any(cf in comp or comp in cf for cf in changed_files):
-                    hit = True
+                comp_file = comp.split("::")[0]
+                for cf in changed_files:
+                    if comp_file == cf or comp_file.endswith("/" + cf) or cf.endswith("/" + comp_file):
+                        hit = True
+                        break
+                    # Changed dir contains the component file, or vice versa
+                    if cf.startswith(comp_file + "/") or comp_file.startswith(cf + "/"):
+                        hit = True
+                        break
+                if hit:
                     break
             if hit:
                 affected.add(mod_name)

@@ -172,7 +172,7 @@ async def handle_edit_doc_file(
         replacement_line = current_content.split(old_str)[0].count("\n")
         lines = new_content.split("\n")
         start = max(0, replacement_line - 4)
-        end = min(len(lines), replacement_line + new_str.count("\n") + 5)
+        end = min(len(lines), start + new_str.count("\n") + 9)
         snippet = "\n".join(f"{i + start + 1:6}\t{lines[i]}" for i in range(start, end))
 
     elif command == "insert":
@@ -189,7 +189,7 @@ async def handle_edit_doc_file(
         doc_path.write_text(new_content, encoding="utf-8")
 
         start = max(0, insert_line - 4)
-        end = min(len(lines), insert_line + len(new_str_lines) + 4)
+        end = min(len(lines), start + len(new_str_lines) + 8)
         snippet = "\n".join(f"{i + start + 1:6}\t{lines[i]}" for i in range(start, end))
 
     else:

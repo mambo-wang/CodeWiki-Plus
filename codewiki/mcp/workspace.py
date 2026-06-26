@@ -20,6 +20,7 @@ Directory layout (relative to ``repo_path``)::
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -38,8 +39,13 @@ def _safe_filename(component_id: str) -> str:
 
     Component IDs look like ``src/main.py::MyClass``.  We replace any
     character that is not a word char, hyphen, or dot with ``__``.
+    A short hash suffix is appended to prevent collisions when different
+    component IDs sanitize to the same string (e.g. ``src/a-b.py`` vs
+    ``src/a_b.py``).
     """
-    return re.sub(r"[^\w\-.]", "__", component_id) + ".src"
+    sanitized = re.sub(r"[^\w\-.]", "__", component_id)
+    hash_suffix = hashlib.sha1(component_id.encode()).hexdigest()[:8]
+    return f"{sanitized}_{hash_suffix}.src"
 
 
 class SessionWorkspace:

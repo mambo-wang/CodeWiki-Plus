@@ -152,9 +152,9 @@ def extract_mermaid_blocks(content: str) -> List[Tuple[int, str]]:
 _PYTHONMONKEY_BROKEN = sys.version_info >= (3, 12)
 
 # mermaid-py spawns a Node.js subprocess that can hang indefinitely (e.g. when
-# Node.js is missing or the mermaid CLI is misconfigured).  Default to
-# disabled; set MERMAID_VALIDATE=1 to enable.
-_MERMAID_PY_BROKEN = os.environ.get("MERMAID_VALIDATE", "0") != "1"
+# Node.js is missing or the mermaid CLI is misconfigured).  Enabled by default;
+# set MERMAID_VALIDATE=0 to disable.
+_MERMAID_PY_BROKEN = os.environ.get("MERMAID_VALIDATE", "1") == "0"
 _MERMAID_PY_PROBED = True  # Skip probing — rely on env var
 
 
@@ -240,7 +240,7 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
     core_error = await _try_pythonmonkey_parse(diagram_content)
     if core_error is None:
         if _MERMAID_PY_BROKEN:
-            return f"  Diagram {diagram_num}: validation skipped (set MERMAID_VALIDATE=1 to enable)"
+            return f"  Diagram {diagram_num}: validation skipped (mermaid-py unavailable; set MERMAID_VALIDATE=0 to suppress)"
         try:
             core_error = await asyncio.wait_for(
                 asyncio.to_thread(_parse_via_mermaid_py, diagram_content),
