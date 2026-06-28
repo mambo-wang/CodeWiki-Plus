@@ -19,6 +19,9 @@ from codewiki.mcp.session import SessionStore, SessionState
 from codewiki.mcp.tools.analysis import handle_analyze_repo
 from codewiki.mcp.tools.code_reader import handle_read_code_components
 from codewiki.mcp.tools.doc_writer import handle_write_doc_file, handle_edit_doc_file
+from codewiki.mcp.tools.crosslink import handle_list_dependencies
+from codewiki.mcp.tools.wiki_lint import handle_lint_wiki
+from codewiki.mcp.tools.knowledge_loop import handle_ingest_note, handle_query_wiki
 
 # Use the repo itself as a test target
 REPO_PATH = str(Path(__file__).resolve().parent.parent)
@@ -178,8 +181,124 @@ def main():
     undone_content = (Path(output_dir) / "test_doc.md").read_text()
     check("content reverted", "# Test\n" in undone_content, undone_content[:100])
 
-    # -- 9. close_session with workspace cleanup --
-    print("\n[9] close_session with workspace cleanup")
+    # -- 9. Schema auto-generation --
+    print("\n[9] Schema auto-generation (LLM Wiki)")
+    schema_path = Path(output_dir) / "schema.yaml"
+    check("schema.yaml exists", schema_path.exists(), f"not found in {output_dir}")
+    if schema_path.exists():
+        schema_content = schema_path.read_text(encoding="utf-8")
+        check("schema has version", "version:" in schema_content, schema_content[:200])
+        check("schema has project", "project:" in schema_content, schema_content[:200])
+        check("schema has conventions", "conventions:" in schema_content, schema_content[:200])
+        check("schema has languages", "languages:" in schema_content, schema_content[:200])
+
+    # -- 10. list_dependencies --
+    print("\n[10] list_dependencies (LLM Wiki)")
+    deps_result = json.loads(handle_list_dependencies({
+        "session_id": session_id,
+        "direction": "both",
+        "limit": 10,
+    }, store))
+    check("returns dependencies", "dependencies" in deps_result, str(deps_result.keys())[:200])
+    check("returns pagination", "pagination" in deps_result, str(deps_result.keys())[:200])
+    if deps_result.get("dependencies"):
+        first_dep = deps_result["dependencies"][0]
+        check("dep has source/target", "source" in first_dep and "target" in first_dep, str(first_dep.keys()))
+
+    # Module-level dependencies
+    deps_module = json.loads(handle_list_dependencies({
+        "session_id": session_id,
+        "module_level": True,
+        "limit": 5,
+    }, store))
+    check("module_level works",
+          "pagination" in deps_module,
+          str(deps_module.keys())[:200])
+
+    # -- 11. lint_wiki --
+    print("\n[11] lint_wiki (LLM Wiki)")
+    lint_result = json.loads(handle_lint_wiki({
+        "session_id": session_id,
+        "checks": ["all"],
+    }, store))
+    check("returns total_issues", "total_issues" in lint_result, str(lint_result.keys())[:200])
+    check("returns by_severity", "by_severity" in lint_result, str(lint_result.keys())[:200])
+    check("returns issues list", "issues" in lint_result, str(lint_result.keys())[:200])
+    check("returns summary", "summary" in lint_result, str(lint_result.keys())[:200])
+    check("checks_run includes all",
+          len(lint_result.get("checks_run", [])) > 0,
+          str(lint_result.get("checks_run")))
+
+    # Lint without session (output_dir mode)
+    lint_nosess = json.loads(handle_lint_wiki({
+        "output_dir": output_dir,
+        "checks": ["broken_links"],
+    }, store))
+    check("lint works without session",
+          "total_issues" in lint_nosess,
+          str(lint_nosess.keys())[:200])
+
+    # -- 12. ingest_note --
+    print("\n[12] ingest_note (LLM Wiki)")
+    note_result = json.loads(handle_ingest_note({
+        "session_id": session_id,
+        "note_type": "decision",
+        "title": "Smoke test decision",
+        "content": "This is a test decision note for the smoke test. We chose to use MCP tools for documentation generation.",
+    }, store))
+    check("note ingested", note_result.get("status") == "ingested", str(note_result))
+    check("note_path exists", "note_path" in note_result, str(note_result.keys())[:200])
+    if note_result.get("note_path"):
+        note_file = Path(note_result["note_path"])
+        check("note file created", note_file.exists(), str(note_file))
+        if note_file.exists():
+            note_content = note_file.read_text(encoding="utf-8")
+            check("note has frontmatter", "---" in note_content, note_content[:100])
+
+    # Check decisions_index.json
+    index_path = Path(output_dir) / "decisions_index.json"
+    check("decisions_index.json exists", index_path.exists(), "")
+    if index_path.exists():
+        index_data = json.loads(index_path.read_text(encoding="utf-8"))
+        check("index has entries", len(index_data.get("entries", [])) > 0, str(index_data))
+
+    # Duplicate protection
+    note_dup = json.loads(handle_ingest_note({
+        "session_id": session_id,
+        "note_type": "decision",
+        "title": "Smoke test decision",
+        "content": "This is a different content for duplicate detection.",
+    }, store))
+    check("duplicate handled (still ingested)",
+          note_dup.get("status") == "ingested",
+          str(note_dup))
+
+    # -- 13. query_wiki --
+    print("\n[13] query_wiki (LLM Wiki)")
+    query_result = json.loads(handle_query_wiki({
+        "session_id": session_id,
+        "query": "test decision MCP",
+        "include_notes": True,
+    }, store))
+    check("returns results", "results" in query_result, str(query_result.keys())[:200])
+    check("returns context_package", "context_package" in query_result, str(query_result.keys())[:200])
+    check("returns keywords", "keywords" in query_result, str(query_result.keys())[:200])
+    # Should find the ingested note
+    note_results = [r for r in query_result.get("results", []) if r.get("source") == "note"]
+    check("finds ingested note", len(note_results) > 0,
+          f"note results: {len(note_results)}, total: {len(query_result.get('results', []))}")
+
+    # Query without session (output_dir mode)
+    query_nosess = json.loads(handle_query_wiki({
+        "output_dir": output_dir,
+        "query": "test",
+    }, store))
+    check("query works without session",
+          "results" in query_nosess,
+          str(query_nosess.keys())[:200])
+
+    # -- 14. close_session with workspace cleanup --
+    print("\n[14] close_session with workspace cleanup")
     check("workspace exists before close", ws.exists(), "")
     # Simulate close_session cleanup
     session = store.get(session_id)
@@ -189,8 +308,8 @@ def main():
     check("session removed", removed, "")
     check("workspace dir cleaned up", not ws.exists(), f"still exists: {ws}")
 
-    # -- 10. SessionStore thread safety --
-    print("\n[10] SessionStore thread safety")
+    # -- 15. SessionStore thread safety --
+    print("\n[15] SessionStore thread safety")
     import threading
     errors = []
     def worker():
@@ -208,8 +327,8 @@ def main():
         t.join()
     check("no concurrent access errors", len(errors) == 0, str(errors[:3]))
 
-    # -- 11. SessionStore max sessions --
-    print("\n[11] SessionStore max sessions")
+    # -- 16. SessionStore max sessions --
+    print("\n[16] SessionStore max sessions")
     store2 = SessionStore()
     created = []
     for i in range(15):

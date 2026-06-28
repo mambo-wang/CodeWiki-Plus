@@ -35,7 +35,7 @@ CodeWiki-CN 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWi
 
 实际上，CodeWiki 的核心工具链——AST 解析、依赖图、Mermaid 校验——完全不需要 LLM。真正需要 LLM 智能的 4 个环节（模块聚类、文档撰写、子模块递归、总览合成），恰好是 AI IDE 的 Agent 最擅长做的事情。
 
-因此，我们将 CodeWiki 的 MCP Server 从"黑盒式一键生成"拆分为**8 个细粒度工具**，让它退化为纯工具链服务器。AI IDE 的 Agent 通过 MCP 协议调用这些工具，用自己的推理能力完成全部文档生成工作：
+因此，我们将 CodeWiki 的 MCP Server 从"黑盒式一键生成"拆分为**12 个细粒度工具**，让它退化为纯工具链服务器。AI IDE 的 Agent 通过 MCP 协议调用这些工具，用自己的推理能力完成全部文档生成工作：
 
 ```
 改造前：
@@ -88,7 +88,7 @@ python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
 
 > 将 `/你的路径/CodeWiki-CN` 替换为你实际克隆 CodeWiki-CN 的绝对路径。
 
-配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 10 个工具（8 个细粒度 + 2 个遗留）。
+配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 14 个工具（12 个细粒度 + 2 个遗留）。
 
 **第 3 步：配置技能（Skill）**
 
@@ -138,8 +138,16 @@ Agent 会自动按照以下流程工作：
 ```
 repowiki/
 ├── overview.md              # 仓库总览（从这里开始阅读）
+├── index.md                 # 自动生成的文档目录索引
+├── log.md                   # 操作日志（记录每次写入/编辑）
+├── schema.yaml              # 项目文档规范（自动生成，可自定义）
 ├── module1.md               # 各模块文档
 ├── module2.md               # ...
+├── notes/                   # 开发知识笔记
+│   ├── decision-xxx.md      #   架构决策记录
+│   ├── lesson-xxx.md        #   经验教训
+│   └── ...
+├── decisions_index.json     # 决策笔记索引
 ├── module_tree.json         # 模块层级结构
 ├── first_module_tree.json   # 初始聚类结果
 └── metadata.json            # 生成元数据
@@ -149,18 +157,49 @@ repowiki/
 
 所有工具均不需要 LLM 配置，由 IDE Agent 通过 MCP 协议调用：
 
+**文档生成管线（8 个）：**
+
 | 工具 | 用途 |
 |------|------|
-| `analyze_repo` | 分析仓库，构建依赖图，返回组件索引 |
+| `analyze_repo` | 分析仓库，构建依赖图，返回组件索引；支持增量更新检测 |
 | `read_code_components` | 根据组件 ID 读取源码 |
-| `write_doc_file` | 创建 .md 文档（自动 Mermaid 校验） |
+| `write_doc_file` | 创建 .md 文档（自动 Mermaid 校验 + 自动交叉链接注入） |
 | `edit_doc_file` | 编辑文档（替换/插入/撤销） |
 | `save_module_tree` | 保存模块聚类结果 |
 | `get_processing_order` | 获取叶优先的文档生成顺序 |
-| `get_prompt` | 获取各阶段的提示词模板 |
-| `close_session` | 关闭会话释放资源 |
+| `get_prompt` | 获取各阶段的提示词模板（含 3 个 Wiki 知识管理模板） |
+| `close_session` | 关闭会话释放资源，写入生成元数据 |
+
+**LLM Wiki 知识管理（4 个）：**
+
+| 工具 | 用途 |
+|------|------|
+| `list_dependencies` | 查询组件/模块依赖关系，支持分页、方向过滤、高影响力组件排名 |
+| `lint_wiki` | 文档-代码一致性检查：过期引用、断链、未覆盖组件、循环依赖、覆盖率统计 |
+| `ingest_note` | 将开发笔记（决策/经验/架构/修复）归档到 notes/ 目录，自动关联模块和标签 |
+| `query_wiki` | 全文搜索已生成文档和归档笔记，支持作用域过滤、代码引用映射、上下文摘要 |
 
 > 另有 2 个遗留工具（`generate_docs`、`get_module_tree`）保留向后兼容，需先通过 `codewiki config set` 配置 LLM API。
+
+### 增量更新
+
+`analyze_repo` 内置增量检测，首次生成后再次调用时，会自动比对上次生成状态：
+
+- **Git 策略（优先）**：通过 `git diff` 比对当前 HEAD 与上次生成时的 commit，识别变更文件
+- **Mtime 策略（回退）**：非 Git 仓库通过文件修改时间检测变更
+
+检测到的变更会映射到受影响的模块（`affected_modules`）和需要级联刷新的父模块（`cascade_modules`），Agent 只需重新生成受影响的模块文档，而非全量重写。
+
+### LLM Wiki 知识系统
+
+除了文档生成，CodeWiki-CN 还内置了 LLM Wiki 知识管理能力，让生成出的 Wiki 持续演进为项目的活知识库：
+
+- **schema.yaml**：每次 `analyze_repo` 自动生成项目文档"宪法"，包含命名规范、必需章节、文档维度、lint 设置等。支持用户自定义字段，增量更新时自动合并保留
+- **交叉链接注入**：`write_doc_file` 根据组件级依赖关系自动在文档末尾注入"相关模块"章节（Depends on / Used by），通过 `schema.yaml` 中的 `auto_crosslink` 开关控制
+- **文档健康检查**：`lint_wiki` 执行 5 项检查（过期引用、断链、未覆盖高影响力组件、循环依赖、覆盖率），输出带严重级别的诊断报告
+- **知识笔记归档**：`ingest_note` 支持将开发过程中的架构决策、经验教训、Bug 修复等结构化笔记存入 `notes/` 目录，自动关联模块和提取标签
+- **全文搜索**：`query_wiki` 对文档和笔记进行 TF-IDF 风格的相关性搜索，支持中英双语停用词、作用域过滤和代码引用映射
+- **自动索引与日志**：每次写入/编辑/归档操作自动更新 `index.md`（文档目录）和 `log.md`（操作日志）
 
 ### 支持的其他 AI IDE
 
@@ -191,7 +230,7 @@ codewiki generate
 
 ### 支持的语言
 
-Python、Java、JavaScript、TypeScript、C、C++、C#、Kotlin
+Python、Java、JavaScript、TypeScript、C、C++、C#、Kotlin、Go、PHP
 
 ### 致谢
 
@@ -227,7 +266,7 @@ The original CodeWiki is an excellent repository-level documentation framework. 
 
 In practice, CodeWiki's core toolchain—Tree-sitter AST parsing, dependency graph construction, topological sorting, and Mermaid validation—does not need an LLM at all. The 4 stages that do require LLM intelligence (module clustering, document writing, sub-module recursion, and overview synthesis) are exactly what AI IDE Agents excel at.
 
-We refactored CodeWiki's MCP Server from a "one-click black box" into **8 fine-grained tools**, turning it into a pure toolchain server. The AI IDE's Agent calls these tools via MCP and uses its own reasoning to complete all documentation work:
+We refactored CodeWiki's MCP Server from a "one-click black box" into **12 fine-grained tools**, turning it into a pure toolchain server. The AI IDE's Agent calls these tools via MCP and uses its own reasoning to complete all documentation work:
 
 ```
 Before:
@@ -311,22 +350,73 @@ Stage 4: Generate repository overview (overview.md)
 Stage 5: Call close_session to free resources
 ```
 
+Generated output structure:
+
+```
+repowiki/
+├── overview.md              # Repository overview (start reading here)
+├── index.md                 # Auto-generated document index
+├── log.md                   # Operation log (records every write/edit)
+├── schema.yaml              # Project documentation spec (auto-generated, customizable)
+├── module1.md               # Module documentation files
+├── module2.md               # ...
+├── notes/                   # Development knowledge notes
+│   ├── decision-xxx.md      #   Architecture decision records
+│   ├── lesson-xxx.md        #   Lessons learned
+│   └── ...
+├── decisions_index.json     # Decision notes index
+├── module_tree.json         # Module hierarchy structure
+├── first_module_tree.json   # Initial clustering result
+└── metadata.json            # Generation metadata
+```
+
 ### MCP Tools
 
 All tools require zero LLM config. The IDE Agent invokes them via MCP:
 
+**Documentation Pipeline (8):**
+
 | Tool | Purpose |
 |------|---------|
-| `analyze_repo` | Parse repo, build dependency graph, return component index |
+| `analyze_repo` | Parse repo, build dependency graph, return component index; includes incremental change detection |
 | `read_code_components` | Read source code by component ID |
-| `write_doc_file` | Create .md docs with automatic Mermaid validation |
+| `write_doc_file` | Create .md docs with automatic Mermaid validation + crosslink injection |
 | `edit_doc_file` | Edit docs (str_replace / insert / undo) |
 | `save_module_tree` | Persist module clustering results |
 | `get_processing_order` | Get leaf-first documentation order |
-| `get_prompt` | Retrieve prompt templates for each stage |
-| `close_session` | Close session and free resources |
+| `get_prompt` | Retrieve prompt templates for each stage (includes 3 Wiki knowledge management templates) |
+| `close_session` | Close session, write generation metadata |
+
+**LLM Wiki Knowledge Management (4):**
+
+| Tool | Purpose |
+|------|---------|
+| `list_dependencies` | Query component/module dependencies with pagination, direction filtering, and high-impact ranking |
+| `lint_wiki` | Doc-code consistency checks: stale refs, broken links, undocumented components, circular deps, coverage stats |
+| `ingest_note` | File structured notes (decisions/lessons/architecture/fixes) into notes/ with auto module matching and tagging |
+| `query_wiki` | Full-text search across generated docs and ingested notes with scope filtering and code reference mapping |
 
 > 2 legacy tools (`generate_docs`, `get_module_tree`) are retained for backward compatibility and require `codewiki config set` first.
+
+### Incremental Updates
+
+`analyze_repo` includes built-in change detection. On subsequent calls after the first generation, it automatically compares the current state against the previous run:
+
+- **Git strategy (preferred)**: Compares current HEAD with the stored commit via `git diff` to identify changed files
+- **Mtime strategy (fallback)**: For non-Git repos, detects changes by comparing file modification times
+
+Detected changes are mapped to affected modules (`affected_modules`) and parent modules requiring cascade refresh (`cascade_modules`). The Agent only regenerates impacted module docs instead of rewriting everything.
+
+### LLM Wiki Knowledge System
+
+Beyond documentation generation, CodeWiki-CN includes an LLM Wiki knowledge management system that lets the generated Wiki evolve into a living knowledge base:
+
+- **schema.yaml**: Auto-generated on every `analyze_repo` call — the project's documentation "constitution" with naming conventions, required sections, documentation dimensions, and lint settings. User customizations are preserved during incremental updates via automatic merge
+- **Crosslink Injection**: `write_doc_file` automatically appends a "Related Modules" section (Depends on / Used by) based on component-level dependencies, controlled by `auto_crosslink` in `schema.yaml`
+- **Documentation Health Checks**: `lint_wiki` runs 5 checks (stale refs, broken links, undocumented high-impact components, circular dependencies, coverage) and outputs a severity-tagged diagnostic report
+- **Knowledge Note Ingestion**: `ingest_note` files structured notes (architecture decisions, lessons learned, bug fixes) into the `notes/` directory with automatic module association and tag extraction
+- **Full-text Search**: `query_wiki` provides TF-IDF-style relevance search across docs and notes, with bilingual stopwords (Chinese + English), scope filtering, and code reference mapping
+- **Auto Index & Log**: Every write/edit/ingest operation automatically updates `index.md` (document directory) and `log.md` (operation log)
 
 ### Other Supported AI IDEs
 
@@ -357,7 +447,7 @@ Supports OpenAI, Anthropic, Azure OpenAI, AWS Bedrock, and Claude Code / Codex s
 
 ### Supported Languages
 
-Python, Java, JavaScript, TypeScript, C, C++, C#, Kotlin
+Python, Java, JavaScript, TypeScript, C, C++, C#, Kotlin, Go, PHP
 
 ### Acknowledgements
 

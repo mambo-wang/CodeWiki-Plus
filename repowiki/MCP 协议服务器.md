@@ -32,19 +32,26 @@ graph TD
 
 ### MCP 工具集
 
-[MCP 工具集](MCP%20工具集.md) 是 MCP 服务器的功能核心，提供了 7 个工具函数，覆盖文档生成全流程的各个环节。
+[MCP 工具集](MCP%20工具集.md) 是 MCP 服务器的功能核心，提供了 14 个细粒度工具函数，覆盖文档生成全流程的各个环节以及 LLM Wiki 知识管理能力。
 
 **工具清单：**
 
 | 工具名 | 所在文件 | 功能 |
 |--------|---------|------|
-| `analyze_repo` | analysis.py | 分析仓库依赖结构，创建会话和工作区 |
+| `analyze_repo` | analysis.py | 分析仓库依赖结构，创建会话和工作区，自动生成 schema.yaml |
+| `list_components` | analysis.py | 分页浏览组件索引（无需重新分析） |
 | `read_code_components` | code_reader.py | 将组件源码写入工作区文件（避免内联传输） |
-| `write_doc_file` | doc_writer.py | 在输出目录创建新文档文件 |
+| `view_repo_file` | code_reader.py | 只读浏览仓库文件/目录 |
+| `write_doc_file` | doc_writer.py | 在输出目录创建新文档（自动 Mermaid 校验 + 可选 crosslink 注入） |
 | `edit_doc_file` | doc_writer.py | 编辑已有文档（支持 str_replace/insert/undo） |
 | `save_module_tree` | module_tree.py | 保存模块聚类树（双文件策略：快照 + 工作副本） |
 | `get_processing_order` | module_tree.py | 获取叶子优先的处理顺序 |
-| `get_prompt` | prompt_server.py | 获取提示词模板（cluster/system_leaf/overview_module） |
+| `get_prompt` | prompt_server.py | 获取提示词模板（cluster/system_leaf/overview_module/wiki_query 等） |
+| `close_session` | server.py | 关闭会话释放资源，更新 metadata.json |
+| `list_dependencies` | crosslink.py | 查询组件/模块间依赖关系（depends_on / depended_by） |
+| `lint_wiki` | wiki_lint.py | 文档-代码一致性检查（断链、过期引用、覆盖率） |
+| `ingest_note` | knowledge_loop.py | 沉淀知识笔记（决策、经验教训、架构理由） |
+| `query_wiki` | knowledge_loop.py | 搜索文档 + 笔记，获取开发上下文 |
 
 **工具调用全流程：**
 
@@ -71,6 +78,10 @@ graph TD
 - **Mermaid 自动验证**：每次 `write_doc_file` 和 `edit_doc_file` 操作后自动校验 Mermaid 图表语法
 - **编辑可撤销**：`edit_doc_file` 内置编辑历史栈，支持安全的 undo 操作
 - **增量更新感知**：通过 git 差异或文件修改时间检测仓库变更，智能引导智能体仅更新受影响模块
+- **Crosslink 自动注入**：`write_doc_file` 根据 schema.yaml 配置自动在文档末尾注入模块间交叉引用
+- **LLM Wiki 知识管理**：通过 `list_dependencies`、`lint_wiki`、`ingest_note`、`query_wiki` 四个工具实现知识闭环——查询上下文 → 编码开发 → 沉淀决策
+- **Schema 配置驱动**：自动生成的 `schema.yaml` 支持自定义 crosslink、lint 阈值、文档维度等配置
+- **自动索引维护**：每次文档操作后自动重建 `index.md`（内容目录）和追加 `log.md`（操作日志）
 
 ### MCP 会话与工作区
 
@@ -132,12 +143,18 @@ graph TD
     subgraph Server["MCP 协议服务器"]
         subgraph Tools["MCP 工具集"]
             Analyze["analyze_repo"]
+            ListComp["list_components"]
             ReadCode["read_code_components"]
+            ViewFile["view_repo_file"]
             WriteDoc["write_doc_file"]
             EditDoc["edit_doc_file"]
             SaveTree["save_module_tree"]
             GetOrder["get_processing_order"]
             GetPrompt["get_prompt"]
+            ListDeps["list_dependencies"]
+            LintWiki["lint_wiki"]
+            IngestNote["ingest_note"]
+            QueryWiki["query_wiki"]
         end
         subgraph Session["会话与工作区"]
             Store["SessionStore"]

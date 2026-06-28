@@ -79,6 +79,29 @@ _PROMPT_CATALOG: Dict[str, Dict[str, str]] = {
             "Save the result as overview.md."
         ),
     },
+    # --- LLM Wiki prompts ---
+    "wiki_query": {
+        "description": "Guidance for using query_wiki results as development context.",
+        "usage_hint": (
+            "Call this BEFORE starting a new feature to learn how to use "
+            "query_wiki results effectively. Use query_wiki with a natural "
+            "language query about the area you're about to work on."
+        ),
+    },
+    "wiki_ingest": {
+        "description": "Guidance for creating knowledge notes after completing a task.",
+        "usage_hint": (
+            "Call this AFTER finishing a feature or bug fix to learn how to "
+            "distill key decisions into ingest_note calls."
+        ),
+    },
+    "wiki_lint_report": {
+        "description": "Guidance for interpreting lint_wiki results and planning fixes.",
+        "usage_hint": (
+            "Call this after running lint_wiki to understand the results "
+            "and create a prioritized fix plan."
+        ),
+    },
 }
 
 
@@ -171,6 +194,51 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
         return REPO_OVERVIEW_PROMPT.format(
             repo_name=repo_name,
             repo_structure=repo_structure if isinstance(repo_structure, str) else json.dumps(repo_structure, indent=4),
+        )
+
+    # --- LLM Wiki static prompts ---
+    elif prompt_type == "wiki_query":
+        return (
+            "## Wiki Query Guide\n\n"
+            "1. Call `query_wiki` with a natural language query about the area you plan to work on.\n"
+            "2. Review the `results` array — each result has a `source` (doc/note), `snippet`, and `relevance_score`.\n"
+            "3. Use `related_components` to identify which code components are involved.\n"
+            "4. Read the referenced doc/note files via `view_repo_file` for full context.\n"
+            "5. If `scope` is specified, results are limited to that module's docs.\n"
+            "6. The `context_package` field provides a ready-to-use summary for your planning.\n\n"
+            "**Tip**: Query before coding to avoid repeating past mistakes. "
+            "Use `list_dependencies` with `module_level: true` to understand the dependency graph."
+        )
+
+    elif prompt_type == "wiki_ingest":
+        return (
+            "## Knowledge Ingestion Guide\n\n"
+            "After completing a task, distill key decisions into a note:\n\n"
+            "1. **Title**: What decision was made? (e.g., 'Choose JWT over Session auth')\n"
+            "2. **Content** should include:\n"
+            "   - **Background**: Why was this needed?\n"
+            "   - **Decision**: What was chosen and why?\n"
+            "   - **Alternatives considered**: What else was evaluated?\n"
+            "   - **Impact**: Which modules/components are affected?\n"
+            "3. Call `ingest_note` with `note_type: 'decision'` (or 'lesson', 'architecture', 'bug_fix').\n"
+            "4. If `related_modules` is omitted, the system auto-matches from content.\n"
+            "5. Notes are stored in `repowiki/notes/` and indexed in `decisions_index.json`.\n\n"
+            "**Tip**: Keep notes concise (200-500 words). Focus on the 'why', not the 'what'."
+        )
+
+    elif prompt_type == "wiki_lint_report":
+        return (
+            "## Lint Report Interpretation Guide\n\n"
+            "After running `lint_wiki`, review the results by priority:\n\n"
+            "1. **Errors** (fix first): Stale references to deleted modules, broken links.\n"
+            "   - Use `edit_doc_file` with `str_replace` to update or remove references.\n"
+            "2. **Warnings**: Undocumented high-impact components.\n"
+            "   - Consider adding these to an existing module or creating a new doc.\n"
+            "3. **Info**: Circular dependencies, coverage statistics.\n"
+            "   - Cycles may be intentional; coverage below 50% indicates gaps.\n\n"
+            "**Workflow**: Run `lint_wiki` after each documentation update cycle. "
+            "Fix errors before closing the session. Use `get_prompt('wiki_lint_report')` "
+            "to share this guide with team members."
         )
 
     return f"Unknown prompt type: {prompt_type}"

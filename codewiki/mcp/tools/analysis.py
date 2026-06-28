@@ -325,6 +325,40 @@ def handle_analyze_repo(
     }
     workspace.write_json("summary.json", summary)
 
+    # 6. LLM Wiki: auto-generate schema.yaml
+    schema_info = None
+    try:
+        from codewiki.mcp.tools.schema_generator import generate_schema
+        # Collect module names from existing module_tree.json (if any)
+        module_names: list[str] = []
+        mt_path = output_dir / "module_tree.json"
+        if mt_path.exists():
+            try:
+                mt = json.loads(mt_path.read_text(encoding="utf-8"))
+                if isinstance(mt, dict):
+                    module_names = list(mt.keys())
+            except (json.JSONDecodeError, OSError):
+                pass
+        schema_info = generate_schema(
+            repo_name=repo_path.name,
+            components=components,
+            languages=list(languages.keys()),
+            output_dir=output_dir,
+            module_names=module_names,
+        )
+        workspace.write_json("schema.json", schema_info)
+    except Exception as e:
+        logger.warning("Schema generation skipped: %s", e)
+
+    # LLM Wiki: update index.md and log.md
+    try:
+        from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
+        append_log(str(output_dir), "analyze_repo",
+                   f"分析仓库 {repo_path.name}，{len(components)} 个组件")
+        rebuild_index(str(output_dir))
+    except Exception as e:
+        logger.warning("Index/log update failed (non-fatal): %s", e)
+
     # -- Return compact MCP response --
     result = {
         "session_id": session.session_id,
@@ -341,6 +375,7 @@ def handle_analyze_repo(
             "leaf_nodes": str(workspace.root / "leaf_nodes.json"),
             "languages": str(workspace.root / "languages.json"),
             "summary": str(workspace.root / "summary.json"),
+            "schema": str(workspace.root / "schema.json") if schema_info else None,
         },
         "changes": changes,
         "hint": (

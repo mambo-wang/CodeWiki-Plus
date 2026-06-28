@@ -242,6 +242,8 @@ cp -r skills/codewiki-wiki-generator .codebuddy/skills/
 1. **Git 策略**：读取 `metadata.json` 中的 `commit_id`，与当前 HEAD 做 `git diff`，同时检查 `git status` 捕获未提交的变更
 2. **Mtime 策略**（非 git 仓库回退）：对比源文件修改时间与 `metadata.json` 中的 `timestamp`
 
+> **注意**：`metadata.json` 仅在 `close_session` 时写入。如果上一次会话未调用 `close_session` 就结束，`metadata.json` 不存在，下次 `analyze_repo` 会静默回退为全量分析。因此**务必在流程末尾调用 `close_session`** 以确保增量更新可用。
+
 **返回结构**：
 
 ```json

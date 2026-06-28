@@ -69,6 +69,128 @@ def _save_history(session: SessionState, doc_path: Path, content: str) -> None:
     session.registry["file_history"] = history  # keep as native dict
 
 
+def _inject_crosslinks(
+    session: SessionState,
+    filename: str,
+    doc_path: Path,
+) -> dict | None:
+    """Append a crosslinks section to *doc_path* if auto_crosslink is enabled.
+
+    Returns a summary dict if crosslinks were injected, None otherwise.
+    """
+    from codewiki.src.config import SCHEMA_FILENAME
+
+    # Check schema.yaml for auto_crosslink flag
+    schema_path = Path(session.output_dir) / SCHEMA_FILENAME
+    if not schema_path.exists():
+        return None
+    try:
+        import yaml
+        schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+        if not schema or not schema.get("conventions", {}).get("auto_crosslink", False):
+            return None
+    except Exception:
+        return None
+
+    module_tree = session.module_tree
+    if not module_tree:
+        return None
+
+    # Derive module name from filename (e.g. "auth_module.md" -> "auth_module")
+    mod_name = filename.replace(".md", "")
+
+    # Find this module in module_tree and get its components
+    module_components: list[str] = []
+
+    def _find_components(tree: dict, target: str) -> list[str]:
+        for name, info in tree.items():
+            if name.lower().replace(" ", "_") == target.lower().replace(" ", "_"):
+                return info.get("components", [])
+            children = info.get("children", {})
+            if isinstance(children, dict):
+                found = _find_components(children, target)
+                if found:
+                    return found
+        return []
+
+    module_components = _find_components(module_tree, mod_name)
+    if not module_components:
+        return None
+
+    # Compute module-level dependencies
+    depends_on_modules: set[str] = set()
+    depended_by_modules: set[str] = set()
+
+    def _comp_to_module(comp_id: str) -> str | None:
+        for name, info in module_tree.items():
+            if comp_id in info.get("components", []):
+                return name
+            children = info.get("children", {})
+            if isinstance(children, dict):
+                for cname, cinfo in children.items():
+                    if comp_id in cinfo.get("components", []):
+                        return cname
+        return None
+
+    for comp_id in module_components:
+        node = session.components.get(comp_id)
+        if node is None:
+            continue
+        deps = getattr(node, "depends_on", None) or set()
+        for dep_id in deps:
+            dep_mod = _comp_to_module(dep_id)
+            if dep_mod and dep_mod != mod_name:
+                depends_on_modules.add(dep_mod)
+
+    # Reverse: who depends on our components
+    for comp_id, node in session.components.items():
+        if comp_id in module_components:
+            continue
+        deps = getattr(node, "depends_on", None) or set()
+        if deps & set(module_components):
+            src_mod = _comp_to_module(comp_id)
+            if src_mod and src_mod != mod_name:
+                depended_by_modules.add(src_mod)
+
+    if not depends_on_modules and not depended_by_modules:
+        return None
+
+    # Build crosslinks section
+    lines = ["\n<!-- crosslinks (auto-generated) -->", "## Related Modules"]
+    if depends_on_modules:
+        links = ", ".join(
+            f"[{m}]({m.lower().replace(' ', '_')}.md)"
+            for m in sorted(depends_on_modules)
+        )
+        lines.append(f"- Depends on: {links}")
+    if depended_by_modules:
+        links = ", ".join(
+            f"[{m}]({m.lower().replace(' ', '_')}.md)"
+            for m in sorted(depended_by_modules)
+        )
+        lines.append(f"- Used by: {links}")
+
+    crosslink_text = "\n".join(lines) + "\n"
+
+    # Replace existing crosslinks block or append
+    content = doc_path.read_text(encoding="utf-8")
+    marker = "<!-- crosslinks (auto-generated) -->"
+    if marker in content:
+        # Replace from marker to end of file
+        idx = content.index(marker)
+        content = content[:idx] + crosslink_text
+    else:
+        content = content.rstrip() + "\n\n" + crosslink_text
+
+    doc_path.write_text(content, encoding="utf-8")
+
+    return {
+        "depends_on": sorted(depends_on_modules),
+        "depended_by": sorted(depended_by_modules),
+        "injected": True,
+    }
+
+
 async def handle_write_doc_file(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -98,6 +220,9 @@ async def handle_write_doc_file(
     # Mermaid validation
     mermaid_result = await _validate_mermaid(str(doc_path), filename)
 
+    # LLM Wiki: crosslink injection (opt-in via schema.yaml auto_crosslink)
+    crosslink_info = _inject_crosslinks(session, filename, doc_path)
+
     result = {
         "status": "created",
         "path": str(doc_path),
@@ -105,6 +230,24 @@ async def handle_write_doc_file(
         "lines": content.count("\n") + 1,
         "mermaid_validation": mermaid_result,
     }
+    if crosslink_info:
+        result["crosslinks"] = crosslink_info
+
+    # LLM Wiki: update index.md and log.md
+    try:
+        from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
+        append_log(session.output_dir, "write_doc_file", f"创建 {filename}")
+        rebuild_index(session.output_dir)
+    except Exception as e:
+        logger.warning("Index/log update failed (non-fatal): %s", e)
+
+    # Update BM25 search index
+    try:
+        from codewiki.mcp.tools.wiki_search import update_file
+        update_file(session.output_dir, doc_path)
+    except Exception as e:
+        logger.warning("Search index update failed (non-fatal): %s", e)
+
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
@@ -140,6 +283,21 @@ async def handle_edit_doc_file(
 
         # Validate Mermaid after undo
         mermaid_result = await _validate_mermaid(str(doc_path), filename)
+
+        # LLM Wiki: update log.md (undo changes file content)
+        try:
+            from codewiki.mcp.tools.wiki_index import append_log
+            append_log(session.output_dir, "edit_doc_file", f"撤销 {filename}")
+        except Exception:
+            pass
+
+        # Update BM25 search index after undo
+        try:
+            from codewiki.mcp.tools.wiki_search import update_file
+            update_file(session.output_dir, doc_path)
+        except Exception:
+            pass
+
         return json.dumps({
             "status": "undone",
             "filename": filename,
@@ -173,7 +331,7 @@ async def handle_edit_doc_file(
         lines = new_content.split("\n")
         start = max(0, replacement_line - 4)
         end = min(len(lines), start + new_str.count("\n") + 9)
-        snippet = "\n".join(f"{i + start + 1:6}\t{lines[i]}" for i in range(start, end))
+        snippet = "\n".join(f"{i + 1:6}\t{lines[i]}" for i in range(start, end))
 
     elif command == "insert":
         insert_line = arguments.get("insert_line", 0)
@@ -190,7 +348,7 @@ async def handle_edit_doc_file(
 
         start = max(0, insert_line - 4)
         end = min(len(lines), start + len(new_str_lines) + 8)
-        snippet = "\n".join(f"{i + start + 1:6}\t{lines[i]}" for i in range(start, end))
+        snippet = "\n".join(f"{i + 1:6}\t{lines[i]}" for i in range(start, end))
 
     else:
         return json.dumps({"error": f"Unknown command: {command}. Use str_replace, insert, or undo."})
@@ -205,4 +363,21 @@ async def handle_edit_doc_file(
         "snippet": snippet,
         "mermaid_validation": mermaid_result,
     }
+
+    # LLM Wiki: update index.md and log.md
+    try:
+        from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
+        append_log(session.output_dir, "edit_doc_file",
+                   f"更新 {filename} ({command})")
+        rebuild_index(session.output_dir)
+    except Exception as e:
+        logger.warning("Index/log update failed (non-fatal): %s", e)
+
+    # Update BM25 search index
+    try:
+        from codewiki.mcp.tools.wiki_search import update_file
+        update_file(session.output_dir, doc_path)
+    except Exception as e:
+        logger.warning("Search index update failed (non-fatal): %s", e)
+
     return json.dumps(result, indent=2, ensure_ascii=False)

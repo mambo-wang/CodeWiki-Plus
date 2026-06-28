@@ -127,6 +127,8 @@ cd CodeWiki-CN && pip install -e .
 
 **变更检测策略**：优先使用 `git diff`（对比 commit SHA + 检查工作区未提交变更），非 git 仓库回退到对比文件修改时间。
 
+> **注意**：`metadata.json` 仅在 `close_session` 时写入。未调用 `close_session` 就结束的会话不会生成基线，下次 `analyze_repo` 将回退为全量分析。务必在流程末尾调用 `close_session`。
+
 **增量更新流程**：
 
 1. 调用 `analyze_repo`，检查返回的 `changes` 字段或读取 `changes.json` 文件

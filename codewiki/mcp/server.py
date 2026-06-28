@@ -13,6 +13,12 @@ Provides two sets of tools:
   - ``get_prompt``        — Retrieve CodeWiki's prompt templates
   - ``close_session``     — Clean up a session and workspace files
 
+**LLM Wiki tools (knowledge management, zero LLM config):**
+  - ``list_dependencies`` — Expose component dependency data for crosslinking
+  - ``lint_wiki``         — Documentation-code consistency checker
+  - ``ingest_note``       — File structured notes into the knowledge base
+  - ``query_wiki``        — Search across docs and notes for development context
+
 Large analysis results (component index, source code, processing order) are
 written to workspace files on disk.  The IDE agent reads these files directly
 instead of receiving large payloads through the MCP stdio channel.
@@ -257,6 +263,9 @@ def _fine_grained_tools() -> list[Tool]:
                             "user",
                             "overview_module",
                             "overview_repo",
+                            "wiki_query",
+                            "wiki_ingest",
+                            "wiki_lint_report",
                         ],
                         "description": "Which prompt template to retrieve",
                     },
@@ -280,6 +289,177 @@ def _fine_grained_tools() -> list[Tool]:
                     },
                 },
                 "required": ["session_id"],
+            },
+        ),
+        # --- LLM Wiki tools ---
+        Tool(
+            name="list_dependencies",
+            description=(
+                "List dependency relationships between components or modules. "
+                "Exposes the depends_on / depended_by data from the dependency graph. "
+                "Supports component-level and module-level aggregation for crosslinking."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session ID from analyze_repo",
+                    },
+                    "component_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional: filter to specific component IDs",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["depends_on", "depended_by", "both"],
+                        "description": "Dependency direction (default: both)",
+                    },
+                    "module_level": {
+                        "type": "boolean",
+                        "description": "Aggregate to module-level dependency graph (default: false)",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Pagination offset (default: 0)",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Page size, max 200 (default: 100)",
+                    },
+                },
+                "required": ["session_id"],
+            },
+        ),
+        Tool(
+            name="lint_wiki",
+            description=(
+                "Check documentation-code consistency. Detects stale references, "
+                "broken links, undocumented high-impact components, circular dependencies, "
+                "and coverage gaps. Works with or without an active session."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session ID (optional; can use output_dir instead)",
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": "Output directory (alternative to session_id)",
+                    },
+                    "checks": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["all", "stale_refs", "undocumented", "broken_links", "cycles", "coverage"],
+                        },
+                        "description": "Which checks to run (default: [\"all\"])",
+                    },
+                    "severity_filter": {
+                        "type": "string",
+                        "enum": ["error", "warning", "info"],
+                        "description": "Minimum severity to report (default: info)",
+                    },
+                },
+            },
+        ),
+        Tool(
+            name="ingest_note",
+            description=(
+                "File a structured note (decision, lesson learned, architecture rationale) "
+                "into the knowledge base. Notes are stored in repowiki/notes/ with "
+                "YAML frontmatter and indexed in decisions_index.json."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session ID (optional; can use output_dir instead)",
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": "Output directory (alternative to session_id)",
+                    },
+                    "note_type": {
+                        "type": "string",
+                        "enum": ["decision", "lesson", "architecture", "bug_fix", "general"],
+                        "description": "Type of note (default: general)",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Note title",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Note body (markdown)",
+                    },
+                    "related_modules": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Related module names (auto-detected if omitted)",
+                    },
+                    "related_components": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Related component IDs",
+                    },
+                },
+                "required": ["title", "content"],
+            },
+        ),
+        Tool(
+            name="query_wiki",
+            description=(
+                "Search across generated documentation and ingested notes. "
+                "Returns ranked results with snippets and a context_package summary "
+                "for IDE agents to use as development context."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session ID (optional; can use output_dir instead)",
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": "Output directory (alternative to session_id)",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Search query in natural language",
+                    },
+                    "scope": {
+                        "type": "string",
+                        "description": "Limit search to a specific module",
+                    },
+                    "include_notes": {
+                        "type": "boolean",
+                        "description": "Include ingested notes in search (default: true)",
+                    },
+                    "include_code_refs": {
+                        "type": "boolean",
+                        "description": "Return related component IDs (default: true)",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum results to return (default: 10, max: 20)",
+                    },
+                    "expand_terms": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional synonym/expansion terms to broaden the search. "
+                            "E.g., ['鉴权', '授权'] when searching for '认证'. "
+                            "The IDE agent can use this for semantic query expansion."
+                        ),
+                    },
+                },
+                "required": ["query"],
             },
         ),
     ]
@@ -401,6 +581,20 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             session = _store.get(sid)
             if session:
                 _write_generation_metadata(session)
+                # LLM Wiki: update index.md, log.md, and search index before cleanup
+                try:
+                    from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
+                    append_log(session.output_dir, "close_session",
+                               f"会话 {sid} 关闭")
+                    rebuild_index(session.output_dir)
+                except Exception:
+                    pass
+                # Build final BM25 search index
+                try:
+                    from codewiki.mcp.tools.wiki_search import build_full_index
+                    build_full_index(session.output_dir)
+                except Exception:
+                    pass
                 # Clean up workspace files on disk
                 if session.workspace is not None:
                     session.workspace.cleanup()
@@ -409,6 +603,23 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 "status": "closed" if removed else "not_found",
                 "session_id": sid,
             }))]
+
+        # --- LLM Wiki tools (zero LLM config, IDE-driven) ---
+        elif name == "list_dependencies":
+            from codewiki.mcp.tools.crosslink import handle_list_dependencies
+            return [_text(await asyncio.to_thread(handle_list_dependencies, arguments, _store))]
+
+        elif name == "lint_wiki":
+            from codewiki.mcp.tools.wiki_lint import handle_lint_wiki
+            return [_text(await asyncio.to_thread(handle_lint_wiki, arguments, _store))]
+
+        elif name == "ingest_note":
+            from codewiki.mcp.tools.knowledge_loop import handle_ingest_note
+            return [_text(await asyncio.to_thread(handle_ingest_note, arguments, _store))]
+
+        elif name == "query_wiki":
+            from codewiki.mcp.tools.knowledge_loop import handle_query_wiki
+            return [_text(await asyncio.to_thread(handle_query_wiki, arguments, _store))]
 
         # --- Legacy tools (require CodeWiki LLM config) ---
         elif name == "generate_docs":
@@ -570,7 +781,8 @@ def _write_generation_metadata(session: SessionState) -> None:
             },
         }
         (output_dir / "metadata.json").write_text(
-            json.dumps(metadata, indent=2, ensure_ascii=False)
+            json.dumps(metadata, indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )
     except Exception as e:
         logger.warning("Failed to write metadata.json: %s", e)
