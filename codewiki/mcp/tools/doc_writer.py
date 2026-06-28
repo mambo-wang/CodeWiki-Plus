@@ -223,6 +223,16 @@ async def handle_write_doc_file(
     # LLM Wiki: crosslink injection (opt-in via schema.yaml auto_crosslink)
     crosslink_info = _inject_crosslinks(session, filename, doc_path)
 
+    # LLM Wiki: inject source-file links for CamelCase symbols
+    try:
+        from codewiki.mcp.tools.knowledge_loop import _inject_symbol_links
+        raw = doc_path.read_text(encoding="utf-8")
+        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=1)
+        if linked != raw:
+            doc_path.write_text(linked, encoding="utf-8")
+    except Exception:
+        pass
+
     result = {
         "status": "created",
         "path": str(doc_path),
@@ -355,6 +365,16 @@ async def handle_edit_doc_file(
 
     # Mermaid validation
     mermaid_result = await _validate_mermaid(str(doc_path), filename)
+
+    # LLM Wiki: inject source-file links for CamelCase symbols
+    try:
+        from codewiki.mcp.tools.knowledge_loop import _inject_symbol_links
+        raw = doc_path.read_text(encoding="utf-8")
+        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=1)
+        if linked != raw:
+            doc_path.write_text(linked, encoding="utf-8")
+    except Exception:
+        pass
 
     result = {
         "status": "edited",

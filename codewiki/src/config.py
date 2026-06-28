@@ -20,6 +20,7 @@ DECISIONS_INDEX_FILENAME = 'decisions_index.json'
 INDEX_FILENAME = 'index.md'
 LOG_FILENAME = 'log.md'
 SEARCH_INDEX_FILENAME = 'search_index.json'
+SYMBOL_MAP_FILENAME = 'symbol_map.json'
 MAX_DEPTH = 2
 # Default max token settings
 DEFAULT_MAX_TOKENS = 32_768

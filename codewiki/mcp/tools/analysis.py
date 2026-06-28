@@ -231,6 +231,38 @@ def _find_affected_modules(
     return affected, cascade
 
 
+def _build_symbol_map(
+    components: Dict[str, Any],
+) -> Dict[str, list[str]]:
+    """Build a mapping from symbol name to source file path(s).
+
+    Only includes class-like component types (class, interface, struct, enum,
+    record, annotation).  Returns ``{name: [relative_path, ...]}``.  Names that
+    appear in multiple files are stored as a list so the caller can disambiguate.
+    """
+    _LINKABLE_TYPES = {"class", "interface", "struct", "enum", "record", "annotation"}
+
+    symbol_map: Dict[str, list[str]] = {}
+    for comp_id, node in components.items():
+        ctype = getattr(node, "component_type", "")
+        if ctype not in _LINKABLE_TYPES:
+            continue
+        name = getattr(node, "name", "")
+        rel_path = getattr(node, "relative_path", "")
+        if not name or not rel_path:
+            continue
+        if name not in symbol_map:
+            symbol_map[name] = []
+        if rel_path not in symbol_map[name]:
+            symbol_map[name].append(rel_path)
+
+    # Sort file lists for deterministic output
+    for paths in symbol_map.values():
+        paths.sort()
+
+    return symbol_map
+
+
 def handle_analyze_repo(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -358,6 +390,18 @@ def handle_analyze_repo(
         rebuild_index(str(output_dir))
     except Exception as e:
         logger.warning("Index/log update failed (non-fatal): %s", e)
+
+    # LLM Wiki: build and persist symbol_map.json (class name → source file)
+    try:
+        symbol_map = _build_symbol_map(components)
+        symbol_map_path = output_dir / "symbol_map.json"
+        symbol_map_path.write_text(
+            json.dumps(symbol_map, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        logger.info("Symbol map written: %d symbols", len(symbol_map))
+    except Exception as e:
+        logger.warning("Symbol map generation failed (non-fatal): %s", e)
 
     # -- Return compact MCP response --
     result = {

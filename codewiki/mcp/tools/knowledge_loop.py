@@ -109,6 +109,92 @@ def _extract_tags(title: str, content: str, note_type: str) -> List[str]:
     return sorted(tags)[:15]
 
 
+# ---------------------------------------------------------------------------
+#  Symbol linking: auto-link CamelCase names to source files
+# ---------------------------------------------------------------------------
+
+# Matches PascalCase identifiers: starts with uppercase, has at least one
+# lowercase letter, and contains at least one uppercase→lowercase transition.
+_CAMEL_RE = re.compile(r"\b([A-Z][a-z]+(?:[A-Z][a-z]*)*)\b")
+
+
+def _load_symbol_map(output_dir: Path) -> Dict[str, List[str]]:
+    """Load symbol_map.json from output_dir.  Returns {} on failure."""
+    from codewiki.src.config import SYMBOL_MAP_FILENAME
+
+    sm_path = output_dir / SYMBOL_MAP_FILENAME
+    if not sm_path.exists():
+        return {}
+    try:
+        data = json.loads(sm_path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _inject_symbol_links(content: str, output_dir: Path, depth: int = 2) -> str:
+    """Replace CamelCase identifiers with source-file links.
+
+    Args:
+        content: Markdown content to process.
+        output_dir: The repowiki root directory (contains symbol_map.json).
+        depth: Directory depth from the file to repo root.
+               2 for notes/ (../../), 1 for root-level docs (../).
+
+    Skips identifiers inside:
+      - YAML frontmatter (between opening and closing ``---``)
+      - fenced code blocks (``` ... ```)
+      - inline code (`` ` ... ` ``)
+      - existing markdown links (`` [text](url) ``)
+      - HTML comments
+    """
+    symbol_map = _load_symbol_map(output_dir)
+    if not symbol_map:
+        return content
+
+    # --- protect regions that should not be modified ---
+    protected: List[str] = []
+    _PLACEHOLDER = "\x00PROT{:04d}\x00"
+
+    def _protect(match: re.Match) -> str:
+        idx = len(protected)
+        protected.append(match.group(0))
+        return _PLACEHOLDER.format(idx)
+
+    text = content
+
+    # 1. YAML frontmatter
+    text = re.sub(r"^---\n.*?\n---\n", _protect, text, count=1, flags=re.DOTALL)
+    # 2. Fenced code blocks
+    text = re.sub(r"```.*?```", _protect, text, flags=re.DOTALL)
+    # 3. Inline code
+    text = re.sub(r"`[^`]+`", _protect, text)
+    # 4. Existing markdown links  [text](url)
+    text = re.sub(r"\[([^\]]*)\]\([^)]+\)", _protect, text)
+    # 5. HTML comments
+    text = re.sub(r"<!--.*?-->", _protect, text, flags=re.DOTALL)
+
+    # --- compute relative path prefix based on depth ---
+    prefix = "../" * depth
+
+    # --- replace CamelCase identifiers with links ---
+    def _replace_symbol(match: re.Match) -> str:
+        name = match.group(1)
+        paths = symbol_map.get(name)
+        if not paths:
+            return name  # not in symbol map, leave as-is
+        target = paths[0]  # pick first file for now
+        return f"[{name}]({prefix}{target})"
+
+    text = _CAMEL_RE.sub(_replace_symbol, text)
+
+    # --- restore protected regions ---
+    for i, original in enumerate(protected):
+        text = text.replace(_PLACEHOLDER.format(i), original)
+
+    return text
+
+
 def handle_ingest_note(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -173,6 +259,15 @@ def handle_ingest_note(
         "---",
     ]
     note_content = "\n".join(frontmatter_lines) + "\n\n" + content + "\n"
+
+    # Inject source-file links for CamelCase symbols found in symbol_map.json
+    try:
+        linked_content = _inject_symbol_links(note_content, output_dir)
+        if linked_content != note_content:
+            note_content = linked_content
+    except Exception as e:
+        logger.debug("Symbol linking skipped: %s", e)
+
     note_path.write_text(note_content, encoding="utf-8")
 
     # Update decisions_index.json
