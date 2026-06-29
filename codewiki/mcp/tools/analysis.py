@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -92,10 +91,11 @@ def _detect_via_git(
     repo_path: Path,
     metadata: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
-    """Detect changes via git. Returns None if not in a git repo.
+    """Detect changes via git. Returns None if not in a git repo or if no
+    previous commit is recorded (so the caller can fall through to mtime).
 
-    Checks both committed changes (diff against stored commit_id) and
-    uncommitted changes (``git status``).
+    Checks committed changes (diff against stored commit_id), staged changes
+    (``index.diff('HEAD')``), and unstaged/untracked changes.
     """
     try:
         import git
@@ -104,37 +104,67 @@ def _detect_via_git(
         return None
 
     prev_commit = metadata.get("generation_info", {}).get("commit_id")
+    if not prev_commit:
+        return None  # No baseline to compare; let mtime fallback handle it
+
     try:
         current_commit = repo.head.commit.hexsha
     except Exception:
         return None
 
+    # Compute subpath prefix for monorepo support.
+    # Git diff returns paths relative to the git root, but component IDs
+    # use paths relative to repo_path.  Strip the prefix so they align.
+    git_root = Path(repo.working_dir).resolve()
+    repo_root = repo_path.resolve()
+    try:
+        subpath = repo_root.relative_to(git_root).as_posix()
+    except ValueError:
+        subpath = ""
+    if subpath == ".":
+        subpath = ""
+
     changed: list[str] = []
     method = "git"
 
     # 1) Committed changes since last generation
-    if prev_commit and prev_commit != current_commit:
+    if prev_commit != current_commit:
         try:
             diff_index = repo.commit(prev_commit).diff(current_commit)
             seen: set[str] = set()
             for diff in diff_index:
-                if diff.a_path and diff.a_path not in seen:
-                    changed.append(diff.a_path)
-                    seen.add(diff.a_path)
-                if diff.b_path and diff.b_path not in seen:
-                    changed.append(diff.b_path)
-                    seen.add(diff.b_path)
+                for p in (diff.a_path, diff.b_path):
+                    if p and p not in seen:
+                        if subpath:
+                            if p.startswith(subpath + "/"):
+                                p = p[len(subpath) + 1:]
+                            else:
+                                continue  # outside target subdirectory
+                        changed.append(p)
+                        seen.add(p)
         except Exception:
             pass
 
-    # 2) Uncommitted changes (user may have edited but not committed)
+    # 2) Uncommitted changes: staged (index vs HEAD) + unstaged (working tree vs index) + untracked
     try:
+        for d in list(repo.index.diff("HEAD")) + list(repo.index.diff(None)):
+            p = d.a_path
+            if p and p not in changed:
+                if subpath:
+                    if p.startswith(subpath + "/"):
+                        p = p[len(subpath) + 1:]
+                    else:
+                        continue
+                changed.append(p)
         for item in repo.untracked_files:
-            if item not in changed:
-                changed.append(item)
-        for file_path in [d.a_path for d in repo.index.diff("HEAD")]:
-            if file_path and file_path not in changed:
-                changed.append(file_path)
+            p = item
+            if subpath:
+                if p.startswith(subpath + "/"):
+                    p = p[len(subpath) + 1:]
+                else:
+                    continue
+            if p not in changed:
+                changed.append(p)
     except Exception:
         pass
 

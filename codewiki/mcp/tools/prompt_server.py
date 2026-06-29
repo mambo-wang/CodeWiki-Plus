@@ -9,15 +9,10 @@ methodology without needing its own copy of the prompts.
 from __future__ import annotations
 
 import json
-import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from codewiki.mcp.session import SessionStore
 from codewiki.src.be.prompt_template import (
-    CLUSTER_REPO_PROMPT,
-    CLUSTER_MODULE_PROMPT,
-    SYSTEM_PROMPT,
-    LEAF_SYSTEM_PROMPT,
     USER_PROMPT,
     REPO_OVERVIEW_PROMPT,
     MODULE_OVERVIEW_PROMPT,
@@ -26,8 +21,6 @@ from codewiki.src.be.prompt_template import (
     format_cluster_prompt,
     format_user_prompt,
 )
-
-logger = logging.getLogger(__name__)
 
 
 # Prompt catalog: maps prompt_type to (raw_template, usage_hint, variables_doc)
@@ -158,17 +151,8 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
         return format_leaf_system_prompt(module_name, custom_instructions)
 
     elif prompt_type == "user":
-        # If full variables are provided, use the full formatter
-        session_id = variables.get("session_id")
         module_name = variables.get("module_name", "MODULE_NAME")
-        core_component_ids = variables.get("core_component_ids", [])
         module_tree = variables.get("module_tree", {})
-
-        if session_id and core_component_ids:
-            # Try to resolve from session
-            from codewiki.mcp.session import SessionStore
-            # We can't easily access the store here, so fall back to template
-            pass
 
         # Return the template with placeholders filled as possible
         return USER_PROMPT.format(
