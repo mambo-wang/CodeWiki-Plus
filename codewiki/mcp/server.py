@@ -580,7 +580,16 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             sid = arguments["session_id"]
             session = _store.get(sid)
             if session:
-                _write_generation_metadata(session)
+                # Only stamp the incremental-update baseline when this
+                # session actually produced docs — otherwise an aborted
+                # session would make the next analyze_repo report
+                # "Documentation is up to date" over missing/stale docs.
+                if session.docs_written > 0:
+                    _write_generation_metadata(session)
+                else:
+                    logger.info(
+                        "Session %s wrote no docs; skipping metadata.json baseline update", sid
+                    )
                 # LLM Wiki: update index.md, log.md, and search index before cleanup
                 try:
                     from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
@@ -693,8 +702,9 @@ async def _legacy_generate_docs(arguments: dict[str, Any]) -> list[TextContent]:
         agent_instructions=agent_instructions or None,
     )
 
+    from codewiki.cli.utils.repo_validator import get_git_commit_hash
     from codewiki.src.be.documentation_generator import DocumentationGenerator
-    doc_gen = DocumentationGenerator(backend_config)
+    doc_gen = DocumentationGenerator(backend_config, commit_id=get_git_commit_hash(repo_path) or None)
     await doc_gen.run()
 
     generated_files = []
@@ -765,13 +775,13 @@ def _write_generation_metadata(session: SessionState) -> None:
         output_dir = Path(session.output_dir)
         repo_path = Path(session.repo_path)
 
-        commit_id: str | None = None
-        try:
-            import git
-            repo = git.Repo(repo_path, search_parent_directories=True)
-            commit_id = repo.head.commit.hexsha
-        except Exception:
-            pass
+        # Baseline on the commit analyze_repo saw, NOT the current HEAD:
+        # commits made mid-session were never analyzed, and recording HEAD
+        # here would silently exclude them from the next incremental run.
+        commit_id: str | None = session.analyzed_commit
+        if not commit_id:
+            from codewiki.cli.utils.repo_validator import get_git_commit_hash
+            commit_id = get_git_commit_hash(repo_path) or None
 
         from datetime import datetime
         metadata = {

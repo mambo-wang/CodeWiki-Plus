@@ -124,51 +124,68 @@ def _detect_via_git(
     if subpath == ".":
         subpath = ""
 
+    # Output-dir prefix (relative to repo_path) so generated docs, metadata
+    # and session workspace files never count as source changes.
+    output_dir_rel = ""
+    if output_dir is not None:
+        try:
+            output_dir_rel = Path(output_dir).resolve().relative_to(repo_root).as_posix()
+            if output_dir_rel == ".":
+                output_dir_rel = ""
+        except (ValueError, TypeError):
+            pass
+
+    def _normalize(p: str) -> Optional[str]:
+        """Strip the monorepo subpath and drop generated/non-source paths."""
+        if subpath:
+            if not p.startswith(subpath + "/"):
+                return None  # outside target subdirectory
+            p = p[len(subpath) + 1:]
+        if p.startswith(".codewiki/"):
+            return None
+        if output_dir_rel and (p == output_dir_rel or p.startswith(output_dir_rel + "/")):
+            return None
+        return p
+
     changed: list[str] = []
-    method = "git"
+    seen: set[str] = set()
+
+    def _add(raw: Optional[str]) -> None:
+        if raw:
+            p = _normalize(raw)
+            if p and p not in seen:
+                changed.append(p)
+                seen.add(p)
 
     # 1) Committed changes since last generation
     if prev_commit != current_commit:
         try:
             diff_index = repo.commit(prev_commit).diff(current_commit)
-            seen: set[str] = set()
-            for diff in diff_index:
-                for p in (diff.a_path, diff.b_path):
-                    if p and p not in seen:
-                        if subpath:
-                            if p.startswith(subpath + "/"):
-                                p = p[len(subpath) + 1:]
-                            else:
-                                continue  # outside target subdirectory
-                        changed.append(p)
-                        seen.add(p)
         except Exception:
-            pass
+            # Baseline commit unreachable (shallow clone, rebase, gc).
+            # Committed changes can't be enumerated, and returning an empty
+            # list here would falsely report "up to date" on a clean tree —
+            # fall back to mtime detection instead.
+            logger.warning(
+                "Stored commit %s is unreachable in %s; falling back to mtime detection",
+                prev_commit, repo_path,
+            )
+            return None
+        for diff in diff_index:
+            for p in (diff.a_path, diff.b_path):
+                _add(p)
 
     # 2) Uncommitted changes: staged (index vs HEAD) + unstaged (working tree vs index) + untracked
     try:
         for d in list(repo.index.diff("HEAD")) + list(repo.index.diff(None)):
-            p = d.a_path
-            if p and p not in changed:
-                if subpath:
-                    if p.startswith(subpath + "/"):
-                        p = p[len(subpath) + 1:]
-                    else:
-                        continue
-                changed.append(p)
+            _add(d.a_path)
+            _add(d.b_path)
         for item in repo.untracked_files:
-            p = item
-            if subpath:
-                if p.startswith(subpath + "/"):
-                    p = p[len(subpath) + 1:]
-                else:
-                    continue
-            if p not in changed:
-                changed.append(p)
+            _add(item)
     except Exception:
         pass
 
-    return {"changed_files": changed, "method": method}
+    return {"changed_files": changed, "method": "git"}
 
 
 def _detect_via_mtime(
@@ -342,6 +359,11 @@ def handle_analyze_repo(
         components=components,
         leaf_nodes=leaf_nodes,
     )
+
+    # Record the analyzed commit now — close_session uses it as the
+    # incremental-update baseline in metadata.json.
+    from codewiki.cli.utils.repo_validator import get_git_commit_hash
+    session.analyzed_commit = get_git_commit_hash(repo_path) or None
 
     # Create the workspace with the real session_id
     workspace = SessionWorkspace(repo_path, session.session_id)

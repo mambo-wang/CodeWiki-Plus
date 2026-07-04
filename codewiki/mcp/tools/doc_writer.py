@@ -216,6 +216,7 @@ async def handle_write_doc_file(
         })
 
     doc_path.write_text(content, encoding="utf-8")
+    session.docs_written += 1
 
     # Mermaid validation
     mermaid_result = await _validate_mermaid(str(doc_path), filename)
@@ -317,9 +318,7 @@ async def handle_edit_doc_file(
     if not doc_path.exists():
         return json.dumps({"error": f"File not found: {filename}. Use write_doc_file to create it."})
 
-    # Save current content to history before editing
     current_content = doc_path.read_text(encoding="utf-8")
-    _save_history(session, doc_path, current_content)
 
     if command == "str_replace":
         old_str = arguments.get("old_str")
@@ -334,6 +333,9 @@ async def handle_edit_doc_file(
             return json.dumps({"error": f"old_str appears {occurrences} times in {filename}. Make it unique."})
 
         new_content = current_content.replace(old_str, new_str, 1)
+        # Save history only for edits that actually happen, so undo never
+        # pops a no-op entry left behind by a failed/rejected command.
+        _save_history(session, doc_path, current_content)
         doc_path.write_text(new_content, encoding="utf-8")
 
         # Snippet around the edit
@@ -354,6 +356,7 @@ async def handle_edit_doc_file(
         new_str_lines = new_str.split("\n")
         lines = lines[:insert_line] + new_str_lines + lines[insert_line:]
         new_content = "\n".join(lines)
+        _save_history(session, doc_path, current_content)
         doc_path.write_text(new_content, encoding="utf-8")
 
         start = max(0, insert_line - 4)
@@ -362,6 +365,8 @@ async def handle_edit_doc_file(
 
     else:
         return json.dumps({"error": f"Unknown command: {command}. Use str_replace, insert, or undo."})
+
+    session.docs_written += 1
 
     # Mermaid validation
     mermaid_result = await _validate_mermaid(str(doc_path), filename)

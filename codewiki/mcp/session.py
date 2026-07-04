@@ -39,6 +39,13 @@ class SessionState:
     module_tree: Dict[str, Any] = field(default_factory=dict)
     registry: Dict[str, Any] = field(default_factory=dict)
     workspace: Optional[SessionWorkspace] = field(default=None)
+    # HEAD commit at analyze_repo time — the incremental-update baseline.
+    # close_session must record this commit (not the HEAD at close time),
+    # otherwise commits made mid-session are baselined away undocumented.
+    analyzed_commit: Optional[str] = None
+    # Number of successful write_doc_file/edit_doc_file operations; used to
+    # skip the metadata.json baseline update when a session wrote no docs.
+    docs_written: int = 0
     created_at: float = field(default_factory=time.time)
     last_accessed: float = field(default_factory=time.time)
 

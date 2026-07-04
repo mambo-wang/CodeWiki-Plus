@@ -47,7 +47,7 @@ def handle_read_code_components(
             not_found.append(cid)
             continue
         lang = getattr(node, "language", "")
-        source = getattr(node, "source_code", "").strip()
+        source = (getattr(node, "source_code", None) or "").strip()
         file_path = workspace.write_component_source(cid, source, lang)
         written_files[file_path.name] = cid
 

@@ -237,17 +237,27 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
     Returns:
         Error message if invalid, empty string if valid
     """
+    global _MERMAID_PY_BROKEN
     core_error = await _try_pythonmonkey_parse(diagram_content)
     if core_error is None:
         if _MERMAID_PY_BROKEN:
-            return f"  Diagram {diagram_num}: validation skipped (mermaid-py unavailable; set MERMAID_VALIDATE=0 to suppress)"
+            # Validation disabled/unavailable is not a syntax error — a
+            # non-empty return here would make callers report valid diagrams
+            # as broken and send agents into fix loops.
+            logger.debug("Diagram %d: validation skipped (mermaid-py disabled or unavailable)", diagram_num)
+            return ""
         try:
             core_error = await asyncio.wait_for(
                 asyncio.to_thread(_parse_via_mermaid_py, diagram_content),
                 timeout=15.0,
             )
         except asyncio.TimeoutError:
-            return f"  Diagram {diagram_num}: validation timed out (15s) — diagram may be invalid"
+            # Inconclusive, not a parse failure. Latch so the remaining
+            # diagrams (and later calls) don't each block 15s on the same
+            # broken Node.js setup.
+            _MERMAID_PY_BROKEN = True
+            logger.warning("Diagram %d: mermaid validation timed out (15s); skipping further validation", diagram_num)
+            return ""
         except Exception as e:
             return f"  Diagram {diagram_num}: Exception during validation - {str(e)}"
 

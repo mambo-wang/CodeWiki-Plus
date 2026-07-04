@@ -42,8 +42,13 @@ def _safe_filename(component_id: str) -> str:
     A short hash suffix is appended to prevent collisions when different
     component IDs sanitize to the same string (e.g. ``src/a-b.py`` vs
     ``src/a_b.py``).
+
+    The sanitized part is truncated so the filename stays under the
+    common 255-byte NAME_MAX (separator chars expand to two chars each,
+    so deep paths overflow it easily); the hash suffix keeps truncated
+    names unique.
     """
-    sanitized = re.sub(r"[^\w\-.]", "__", component_id)
+    sanitized = re.sub(r"[^\w\-.]", "__", component_id)[:180]
     hash_suffix = hashlib.sha1(component_id.encode()).hexdigest()[:8]
     return f"{sanitized}_{hash_suffix}.src"
 
