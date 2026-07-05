@@ -226,8 +226,13 @@ class _IndexData:
         self.doc_freq = df
 
     def upsert(self, file_key: str, title: str, source: str,
-               content: str) -> None:
-        """Add or update a single document in the index."""
+               content: str, *, batch: bool = False) -> None:
+        """Add or update a single document in the index.
+
+        When *batch* is True, defer _recompute_stats() so callers can
+        insert many documents and call finalize() once at the end,
+        reducing O(D²·T) full-index rebuilds to O(D·T).
+        """
         tokens = _tokenize(content)
         if not tokens:
             return
@@ -243,6 +248,11 @@ class _IndexData:
             "doc_len": len(tokens),
             "term_freq": tf,
         }
+        if not batch:
+            self._recompute_stats()
+
+    def finalize(self) -> None:
+        """Recompute BM25 stats after a batch of upsert() calls."""
         self._recompute_stats()
 
     def remove(self, file_key: str) -> bool:
@@ -325,7 +335,7 @@ def build_full_index(output_dir: str | Path) -> Dict[str, Any]:
             if not content.strip():
                 continue
             title = _extract_title(content) or md_file.stem.replace("_", " ").title()
-            index.upsert(md_file.name, title, "doc", content)
+            index.upsert(md_file.name, title, "doc", content, batch=True)
             docs_count += 1
 
         # --- Notes ---
@@ -339,9 +349,11 @@ def build_full_index(output_dir: str | Path) -> Dict[str, Any]:
                     continue
                 title = _extract_frontmatter_value(content, "title") or note_file.stem
                 file_key = f"{_NOTES_DIR}/{note_file.name}"
-                index.upsert(file_key, title, "note", content)
+                index.upsert(file_key, title, "note", content, batch=True)
                 notes_count += 1
 
+        # Recompute BM25 stats once after all documents are inserted
+        index.finalize()
         _save_index(output_dir, index)
 
     stats = {

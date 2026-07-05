@@ -381,6 +381,11 @@ def handle_analyze_repo(
         })
     workspace.write_json("component_index.json", component_index)
 
+    # Release source code from memory to prevent OOM on large repos (50K+ components).
+    # read_code_components will re-read from disk using file_path + line range.
+    for node in components.values():
+        node.source_code = None
+
     # 2. Full leaf nodes list
     workspace.write_json("leaf_nodes.json", leaf_nodes)
 

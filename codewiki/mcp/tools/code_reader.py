@@ -18,6 +18,27 @@ from codewiki.mcp.session import SessionStore
 logger = logging.getLogger(__name__)
 
 
+def _read_source_from_disk(node) -> str:
+    """Re-read component source from the original file using line range."""
+    file_path = getattr(node, "file_path", "")
+    start_line = getattr(node, "start_line", 0)
+    end_line = getattr(node, "end_line", 0)
+    if not file_path:
+        return ""
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        if start_line > 0 and end_line > 0:
+            # Lines are 1-indexed in the Node model
+            selected = lines[max(0, start_line - 1):end_line]
+            return "".join(selected)
+        # Fallback: return full file if line range is missing
+        return "".join(lines)
+    except Exception as e:
+        logger.warning("Failed to read source for %s: %s", file_path, e)
+        return ""
+
+
 def handle_read_code_components(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -47,7 +68,11 @@ def handle_read_code_components(
             not_found.append(cid)
             continue
         lang = getattr(node, "language", "")
-        source = (getattr(node, "source_code", None) or "").strip()
+        source = getattr(node, "source_code", None)
+        if not source:
+            # Source code was released from memory; re-read from disk
+            source = _read_source_from_disk(node)
+        source = source.strip()
         file_path = workspace.write_component_source(cid, source, lang)
         written_files[file_path.name] = cid
 

@@ -108,6 +108,12 @@ class DependencyParser:
                     self.modules.add(module_path)
         
         processed_relationships = 0
+        # Build name→id index for O(1) fallback lookup instead of O(C) linear scan
+        name_to_id: Dict[str, str] = {}
+        for comp_id, comp_node in self.components.items():
+            if comp_node.name and comp_node.name not in name_to_id:
+                name_to_id[comp_node.name] = comp_id
+
         for rel_dict in relationships:
             caller_id = rel_dict.get("caller", "")
             callee_id = rel_dict.get("callee", "")
@@ -117,10 +123,7 @@ class DependencyParser:
             
             callee_component_id = component_id_mapping.get(callee_id)
             if not callee_component_id:
-                for comp_id, comp_node in self.components.items():
-                    if comp_node.name == callee_id:
-                        callee_component_id = comp_id
-                        break
+                callee_component_id = name_to_id.get(callee_id)
             
             if caller_component_id and caller_component_id in self.components:
                 if callee_component_id:

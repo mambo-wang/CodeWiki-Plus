@@ -135,11 +135,15 @@ def topological_sort(graph: Dict[str, Set[str]]) -> List[str]:
     # Initialize in-degree counter for all nodes
     in_degree = {node: 0 for node in acyclic_graph}
     
-    # Count in-degrees
+    # Build reverse adjacency list for O(V+E) Kahn's algorithm:
+    # reverse_adj[node] = node's dependencies, so processing node only
+    # touches its direct deps instead of scanning all V nodes (O(V×E) → O(V+E)).
+    reverse_adj: Dict[str, list] = {node: [] for node in acyclic_graph}
     for node, dependencies in acyclic_graph.items():
         for dep in dependencies:
             if dep in in_degree:
                 in_degree[dep] += 1
+                reverse_adj[node].append(dep)
     
     # Queue of nodes with no dependencies (in-degree of 0)
     queue = deque([node for node, degree in in_degree.items() if degree == 0])
@@ -152,12 +156,11 @@ def topological_sort(graph: Dict[str, Set[str]]) -> List[str]:
         node = queue.popleft()
         result.append(node)
         
-        # Reduce in-degree for each node that depends on the current node
-        for dependent, deps in acyclic_graph.items():
-            if node in deps:
-                in_degree[dependent] -= 1
-                if in_degree[dependent] == 0:
-                    queue.append(dependent)
+        # Reduce in-degree only for nodes that actually depend on current node
+        for dependent in reverse_adj.get(node, []):
+            in_degree[dependent] -= 1
+            if in_degree[dependent] == 0:
+                queue.append(dependent)
     
     # Check if the sort was successful (all nodes included)
     if len(result) != len(acyclic_graph):
@@ -334,14 +337,23 @@ def get_leaf_nodes(graph: Dict[str, Set[str]], components: Dict[str, Node]) -> L
         return keep_leaf_nodes
 
     concise_leaf_nodes = concise_node(leaf_nodes)
-    if len(concise_leaf_nodes) >= 400:
-        logger.debug(f"Leaf nodes are too many ({len(concise_leaf_nodes)}), removing dependencies of other nodes")
+    # Dynamic threshold: 5% of total components, minimum 400.
+    # Prevents aggressive pruning on large repos (e.g. 50K components → threshold 2500).
+    leaf_threshold = max(400, int(len(components) * 0.05))
+    if len(concise_leaf_nodes) >= leaf_threshold:
+        logger.warning(
+            "Leaf nodes (%d) exceed threshold (%d, %.0f%% of %d components); "
+            "pruning nodes that are dependencies of other nodes",
+            len(concise_leaf_nodes), leaf_threshold,
+            leaf_threshold / max(len(components), 1) * 100, len(components),
+        )
         # Remove nodes that are dependencies of other nodes
         for node, deps in acyclic_graph.items():
             for dep in deps:
                 leaf_nodes.discard(dep)
         
         concise_leaf_nodes = concise_node(leaf_nodes)
+        logger.info("After pruning: %d leaf nodes remain", len(concise_leaf_nodes))
     
     if not leaf_nodes:
         logger.warning("No leaf nodes found in the graph")
