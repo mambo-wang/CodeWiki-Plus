@@ -462,6 +462,37 @@ def _fine_grained_tools() -> list[Tool]:
                 "required": ["query"],
             },
         ),
+        Tool(
+            name="analyze_workspace",
+            description=(
+                "Scan a parent directory for git repositories and analyze each one "
+                "independently. Each sub-repo gets its own repowiki at <repo>/repowiki/. "
+                "A lightweight overview.md is generated at the workspace level with "
+                "service descriptions, cross-service relationships, and links to each "
+                "sub-repo's wiki. Design principle: one .git = one repowiki. "
+                "Use this for multi-repo workspaces where multiple projects are cloned "
+                "into a single folder. A lightweight workspace session is created for "
+                "cross-service ingest_note / query_wiki at the parent level."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "workspace_path": {
+                        "type": "string",
+                        "description": "Absolute path to the parent directory containing git repos",
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": "Output directory for workspace overview (default: <workspace>/workspace-wiki)",
+                    },
+                    "exclude_dirs": {
+                        "type": "string",
+                        "description": "Comma-separated directory names to skip (default: node_modules,.venv,__pycache__)",
+                    },
+                },
+                "required": ["workspace_path"],
+            },
+        ),
     ]
 
 
@@ -549,6 +580,11 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             # must run on the main thread (blocking the event loop is
             # acceptable for this one-time heavy operation).
             return [_text(handle_analyze_repo(arguments, _store))]
+
+        elif name == "analyze_workspace":
+            from codewiki.mcp.tools.workspace_analyzer import handle_analyze_workspace
+            # Runs on main thread because it calls analyze_repo internally
+            return [_text(handle_analyze_workspace(arguments, _store))]
 
         elif name == "read_code_components":
             from codewiki.mcp.tools.code_reader import handle_read_code_components
