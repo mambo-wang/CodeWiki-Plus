@@ -12,6 +12,7 @@ import json
 from typing import Any, Dict
 
 from codewiki.mcp.session import SessionStore
+from codewiki.mcp.tools.workspace_result import write_result, _FILE_THRESHOLD
 from codewiki.src.be.prompt_template import (
     USER_PROMPT,
     REPO_OVERVIEW_PROMPT,
@@ -102,9 +103,16 @@ def handle_get_prompt(
     arguments: Dict[str, Any],
     store: SessionStore,
 ) -> str:
-    """Return a prompt template, optionally with variables filled in."""
+    """Return a prompt template, optionally with variables filled in.
+
+    When variables are provided and the filled content exceeds 4KB, the
+    prompt is written to a workspace file and only the file path is
+    returned through MCP stdio.
+    """
     prompt_type = arguments["prompt_type"]
     variables = arguments.get("variables", {})
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
 
     if prompt_type not in _PROMPT_CATALOG:
         available = list(_PROMPT_CATALOG.keys())
@@ -124,6 +132,22 @@ def handle_get_prompt(
         "usage_hint": catalog_entry["usage_hint"],
         "content": content,
     }
+
+    # Write to file when content is large and session is available
+    if (session and getattr(session, "workspace", None)
+            and len(content.encode("utf-8")) > _FILE_THRESHOLD):
+        file_path = session.workspace.write_text(
+            f"prompt_{prompt_type}.txt", content
+        )
+        return json.dumps({
+            "prompt_type": prompt_type,
+            "description": catalog_entry["description"],
+            "usage_hint": catalog_entry["usage_hint"],
+            "file": str(file_path),
+            "content_length": len(content),
+            "hint": "Read the file for the full prompt content.",
+        }, indent=2, ensure_ascii=False)
+
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from codewiki.mcp.session import SessionState, SessionStore
+from codewiki.mcp.tools.workspace_result import write_result
 
 logger = logging.getLogger(__name__)
 
@@ -398,10 +399,27 @@ def handle_lint_wiki(
         except Exception:
             pass
 
-    return json.dumps({
+    result = {
         "total_issues": len(filtered),
         "by_severity": by_severity,
         "checks_run": checks,
         "issues": filtered,
         "summary": summary,
-    }, indent=2, ensure_ascii=False)
+    }
+
+    # Write to workspace file when session is available
+    if session and getattr(session, "workspace", None):
+        response = write_result(
+            session,
+            "lint_report.json",
+            result,
+            summary={
+                "total_issues": len(filtered),
+                "by_severity": by_severity,
+                "summary": summary,
+            },
+        )
+        return json.dumps(response, indent=2, ensure_ascii=False)
+
+    # Fallback: return inline (no session / standalone mode)
+    return json.dumps(result, indent=2, ensure_ascii=False)

@@ -1,7 +1,7 @@
 ---
 name: codewiki-wiki-generator
 description: "使用 CodeWiki-CN MCP 工具为代码仓库生成 Wiki 文档和 LLM Wiki 知识管理。当用户要求生成 Wiki、代码文档、仓库文档、分析代码库结构、查询项目历史决策、检查文档一致性或沉淀开发知识时使用此技能。需要已配置 CodeWiki-CN MCP 服务器。"
-version: 2.2.0
+version: 2.3.0
 ---
 
 # CodeWiki 文档生成器
@@ -46,7 +46,7 @@ cd CodeWiki-CN && pip install -e .
 { "repo_path": "<仓库绝对路径>", "output_dir": "<仓库路径>/repowiki" }
 ```
 
-返回内容：`session_id`、`component_index`（分页组件列表，含 id/type/file）、`pagination`、`leaf_nodes`、`languages`。如果 `pagination.has_more` 为 true，可用 `list_components(session_id, offset, limit)` 查看更多。
+返回内容：`session_id`、组件索引（自动写入 workspace 文件 `component_index.json`，含 id/type/file）、`leaf_nodes`、`languages`。可通过 `list_components` 对组件列表做过滤筛选。
 
 **牢记 `session_id`**——后续每一步都需要它。
 
@@ -174,7 +174,7 @@ Step 4: ingest_note — 沉淀本次决策
 }
 ```
 
-返回 `module_dependency_graph`，例如：
+完整依赖图写入 workspace 文件 `dependencies.json`，MCP 返回文件路径和统计摘要。读取文件可获取 `module_dependency_graph`，例如：
 ```json
 {
   "Authentication": {
@@ -363,20 +363,49 @@ lint:
 
 | 工具 | 用途 |
 |------|------|
-| `analyze_repo` | 分析仓库，构建依赖图，返回组件索引（分页）+ 自动生成 schema.yaml |
-| `list_components` | 分页浏览组件索引（无需重新分析） |
+| `analyze_repo` | 分析仓库，构建依赖图，组件索引写入 workspace 文件 + 自动生成 schema.yaml |
+| `list_components` | 将完整组件列表写入 workspace 文件（支持按前缀/类型过滤） |
 | `read_code_components` | 根据组件 ID 读取源码（格式：`文件::名称`） |
 | `view_repo_file` | 只读浏览仓库文件/目录 |
 | `write_doc_file` | 创建 .md 文档（自动 Mermaid 校验 + 可选 crosslink 注入） |
 | `edit_doc_file` | 编辑文档：`str_replace` / `insert` / `undo` |
 | `save_module_tree` | 保存模块聚类结果 |
 | `get_processing_order` | 获取叶优先的处理顺序 |
-| `get_prompt` | 获取提示词模板（含 wiki_query、wiki_ingest、wiki_lint_report） |
+| `get_prompt` | 获取提示词模板（填充后 >4KB 时写 workspace 文件，需传 `session_id`） |
 | `close_session` | 关闭会话释放资源（2 小时自动过期） |
-| `list_dependencies` | 查询组件/模块间依赖关系（depends_on / depended_by） |
-| `lint_wiki` | 文档-代码一致性检查（断链、过期引用、覆盖率） |
+| `list_dependencies` | 将完整依赖图写入 workspace 文件（支持组件/模块级聚合） |
+| `lint_wiki` | 文档-代码一致性检查（有 session 时写 workspace 文件，无 session 时 inline 返回） |
 | `ingest_note` | 沉淀知识笔记（决策、经验教训、架构理由） |
 | `query_wiki` | 搜索文档 + 笔记，获取开发上下文 |
+
+## 大数据文件传递模式
+
+为避免 MCP stdio 通道拥塞，所有可能超过 4KB 的数据通过 workspace 文件传递。
+
+### 输入侧：`_file` 参数
+
+以下工具支持 `*_file` 参数，当数据量大时（如超过 200 行），可将内容写入临时文件后传文件路径：
+
+- `write_doc_file`：`content_file` 替代 `content`
+- `edit_doc_file`：`old_str_file` 替代 `old_str`，`new_str_file` 替代 `new_str`
+- `save_module_tree`：`module_tree_file` 替代 `module_tree`
+
+### 输出侧：workspace 文件结果
+
+返回数据超过 4KB 的工具自动写入 workspace 文件，MCP 只返回文件路径和摘要。IDE 代理用 `view_repo_file` 或原生文件读取能力获取完整数据。
+
+| 工具 | 写入文件 | 返回内容 |
+|------|----------|----------|
+| `analyze_repo` | `component_index.json`、`leaf_nodes.json`、`languages.json`、`summary.json` | `session_id` + 文件路径 + 紧凑摘要 |
+| `list_components` | `component_list.json` | `total` + 文件路径 |
+| `list_dependencies` | `dependencies.json` | `total_deps` + `total_modules` + 文件路径 |
+| `lint_wiki` | `lint_report.json`（有 session 时） | `total_issues` + `summary` + 文件路径 |
+| `get_prompt` | `prompt_{type}.txt`（填充后 >4KB 时） | `prompt_type` + 文件路径 |
+| `read_code_components` | `sources/*.src` | 文件路径列表 |
+| `save_module_tree` | `processing_order.json` | 文件路径 |
+| `get_processing_order` | `processing_order.json` | 文件路径 |
+
+**注意**：`lint_wiki` 无 session 时仍通过 stdio inline 返回（向后兼容）。`get_prompt` 需传 `session_id` 参数才能写入 workspace 文件。
 
 ## 文档质量标准
 

@@ -1,9 +1,9 @@
-"""MCP tool: list_components — paginated component index browser.
+"""MCP tool: list_components — write the full component index to a workspace file.
 
-After ``analyze_repo`` writes the full component index to disk,
-this tool lets the IDE agent browse it via MCP without reading files
-directly.  Supports optional filtering by file prefix and component
-type, with the same pagination pattern as ``list_dependencies``.
+After ``analyze_repo`` writes the component index to disk, this tool lets
+the IDE agent retrieve a (optionally filtered) component list in a single
+call.  The full result is written to a workspace file and only the file
+path plus a compact summary are returned through the MCP stdio channel.
 """
 
 from __future__ import annotations
@@ -12,32 +12,28 @@ import json
 from typing import Any, Dict
 
 from codewiki.mcp.session import SessionStore
+from codewiki.mcp.tools.workspace_result import write_result
 
 
 def handle_list_components(
     arguments: Dict[str, Any],
     store: SessionStore,
 ) -> str:
-    """Return a paginated slice of the session's component index.
+    """Write the session's component index to a workspace file.
 
     Arguments
     ---------
     session_id : str (required)
         Session ID from ``analyze_repo``.
-    offset : int (default 0)
-        Zero-based offset into the sorted component list.
-    limit : int (default 100, clamped to [1, 200])
-        Maximum number of components to return.
     file_prefix : str (optional)
         Only include components whose ``file`` starts with this prefix.
-        Useful for efficiently browsing a single package or directory.
     component_type : str (optional)
         Only include components of this type (e.g. ``class``,
         ``function``, ``interface``).
 
     Returns
     -------
-    JSON string with ``components`` list and ``pagination`` info.
+    JSON string with ``file`` (workspace path), ``total`` count, and ``hint``.
     """
     session_id = arguments.get("session_id", "")
     session = store.get(session_id)
@@ -47,18 +43,15 @@ def handle_list_components(
             ensure_ascii=False,
         )
 
-    offset = max(0, arguments.get("offset", 0))
-    limit = min(200, max(1, arguments.get("limit", 100)))
     file_prefix = arguments.get("file_prefix", "")
     component_type = arguments.get("component_type", "")
 
-    # Build the component list from the in-memory session (no disk read).
+    # Build the component list from the in-memory session.
     components: list = []
     for comp_id, node in session.components.items():
         comp_type = getattr(node, "component_type", "unknown")
         comp_file = getattr(node, "relative_path", "")
 
-        # Apply optional filters
         if file_prefix and not comp_file.startswith(file_prefix):
             continue
         if component_type and comp_type != component_type:
@@ -72,18 +65,16 @@ def handle_list_components(
     components.sort(key=lambda c: (c["file"], c["id"]))
 
     total = len(components)
-    page = components[offset: offset + limit]
 
-    return json.dumps(
-        {
-            "components": page,
-            "pagination": {
-                "total": total,
-                "offset": offset,
-                "limit": limit,
-                "has_more": offset + limit < total,
-            },
+    # Write the full list to a workspace file
+    response = write_result(
+        session,
+        "component_list.json",
+        {"components": components},
+        summary={
+            "total": total,
+            "hint": "Read the file for the full component list. Use read_code_components to fetch source code.",
         },
-        indent=2,
-        ensure_ascii=False,
     )
+
+    return json.dumps(response, indent=2, ensure_ascii=False)

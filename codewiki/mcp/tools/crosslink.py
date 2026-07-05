@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from codewiki.mcp.session import SessionState, SessionStore
+from codewiki.mcp.tools.workspace_result import write_result
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,12 @@ def handle_list_dependencies(
     arguments: Dict[str, Any],
     store: SessionStore,
 ) -> str:
-    """Return dependency relationships for components or modules."""
+    """Return dependency relationships, written to a workspace file.
+
+    The full dependency data (entries, module graph, high-impact components)
+    is written to ``dependencies.json`` in the session workspace.  Only a
+    compact summary with the file path is returned through MCP stdio.
+    """
     session_id = arguments["session_id"]
     session = store.get(session_id)
     if session is None:
@@ -112,8 +118,6 @@ def handle_list_dependencies(
 
     direction = arguments.get("direction", "both")  # depends_on | depended_by | both
     module_level = arguments.get("module_level", False)
-    offset = max(0, arguments.get("offset", 0))
-    limit = min(200, max(1, arguments.get("limit", 100)))
 
     # Build reverse index
     reverse_index = _build_reverse_index(components)
@@ -175,22 +179,6 @@ def handle_list_dependencies(
     if module_level and module_tree:
         module_graph = _build_module_dependency_graph(components, module_tree)
 
-    # Pagination
-    total = len(entries)
-    page = entries[offset: offset + limit]
-
-    result: Dict[str, Any] = {
-        "dependencies": page,
-        "pagination": {
-            "total": total,
-            "offset": offset,
-            "limit": limit,
-            "has_more": (offset + limit) < total,
-        },
-    }
-    if module_graph is not None:
-        result["module_dependency_graph"] = module_graph
-
     # High-impact components (depended_by >= threshold from schema.yaml)
     threshold = _read_high_impact_threshold(session.output_dir)
     high_impact = [
@@ -202,7 +190,26 @@ def handle_list_dependencies(
         )
         if len(deps) >= threshold
     ][:20]
-    if high_impact:
-        result["high_impact_components"] = high_impact
 
-    return json.dumps(result, indent=2, ensure_ascii=False)
+    # Assemble full result
+    full_result: Dict[str, Any] = {"dependencies": entries}
+    if module_graph is not None:
+        full_result["module_dependency_graph"] = module_graph
+    if high_impact:
+        full_result["high_impact_components"] = high_impact
+
+    # Write to workspace file
+    total_modules = len(module_graph) if module_graph else 0
+    response = write_result(
+        session,
+        "dependencies.json",
+        full_result,
+        summary={
+            "total_deps": len(entries),
+            "total_modules": total_modules,
+            "high_impact_count": len(high_impact),
+            "hint": "Read the file for the full dependency data.",
+        },
+    )
+
+    return json.dumps(response, indent=2, ensure_ascii=False)

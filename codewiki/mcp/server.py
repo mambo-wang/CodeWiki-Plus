@@ -265,7 +265,9 @@ def _fine_grained_tools() -> list[Tool]:
                 "Retrieve CodeWiki's prompt templates for each pipeline stage. "
                 "Available types: cluster, system_complex, system_leaf, user, "
                 "overview_module, overview_repo. Optionally pass variables to "
-                "fill in template placeholders."
+                "fill in template placeholders. When variables produce content "
+                ">4KB and a session_id is provided, the prompt is written to "
+                "a workspace file."
             ),
             inputSchema={
                 "type": "object",
@@ -289,6 +291,10 @@ def _fine_grained_tools() -> list[Tool]:
                         "type": "object",
                         "description": "Optional template variables to fill in",
                     },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Optional session ID for writing large prompts to workspace files",
+                    },
                 },
                 "required": ["prompt_type"],
             },
@@ -311,9 +317,11 @@ def _fine_grained_tools() -> list[Tool]:
         Tool(
             name="list_dependencies",
             description=(
-                "List dependency relationships between components or modules. "
-                "Exposes the depends_on / depended_by data from the dependency graph. "
-                "Supports component-level and module-level aggregation for crosslinking."
+                "Write the full dependency graph to a workspace file. "
+                "Returns a compact summary with the file path, total counts, "
+                "and high-impact components. "
+                "Exposes depends_on / depended_by data from the dependency graph. "
+                "Supports component-level and module-level aggregation."
             ),
             inputSchema={
                 "type": "object",
@@ -334,15 +342,7 @@ def _fine_grained_tools() -> list[Tool]:
                     },
                     "module_level": {
                         "type": "boolean",
-                        "description": "Aggregate to module-level dependency graph (default: false)",
-                    },
-                    "offset": {
-                        "type": "integer",
-                        "description": "Pagination offset (default: 0)",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Page size, max 200 (default: 100)",
+                        "description": "Include module-level dependency graph (default: false)",
                     },
                 },
                 "required": ["session_id"],
@@ -512,10 +512,11 @@ def _fine_grained_tools() -> list[Tool]:
         Tool(
             name="list_components",
             description=(
-                "Browse the component index for a session with pagination. "
-                "Returns component IDs, types, and file paths. Use this after "
-                "analyze_repo to discover components for clustering or source "
-                "reading. Supports filtering by file_prefix and component_type."
+                "Write the full component index to a workspace file. "
+                "Returns a compact summary with the file path. "
+                "Use this after analyze_repo to discover components for "
+                "clustering or source reading. Supports filtering by "
+                "file_prefix and component_type."
             ),
             inputSchema={
                 "type": "object",
@@ -523,16 +524,6 @@ def _fine_grained_tools() -> list[Tool]:
                     "session_id": {
                         "type": "string",
                         "description": "Session ID from analyze_repo",
-                    },
-                    "offset": {
-                        "type": "integer",
-                        "description": "Zero-based offset (default 0)",
-                        "default": 0,
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max components to return (default 100, max 200)",
-                        "default": 100,
                     },
                     "file_prefix": {
                         "type": "string",
