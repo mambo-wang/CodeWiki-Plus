@@ -157,8 +157,12 @@ def _fine_grained_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Markdown content to write",
                     },
+                    "content_file": {
+                        "type": "string",
+                        "description": "Alternative to content: absolute path to a text file. Use for large docs (>200 lines).",
+                    },
                 },
-                "required": ["session_id", "filename", "content"],
+                "required": ["session_id", "filename"],
             },
         ),
         Tool(
@@ -192,6 +196,14 @@ def _fine_grained_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Replacement string (for str_replace/insert)",
                     },
+                    "old_str_file": {
+                        "type": "string",
+                        "description": "Alternative to old_str: absolute path to a text file.",
+                    },
+                    "new_str_file": {
+                        "type": "string",
+                        "description": "Alternative to new_str: absolute path to a text file.",
+                    },
                     "insert_line": {
                         "type": "integer",
                         "description": "Line number for insert (0-indexed)",
@@ -222,8 +234,12 @@ def _fine_grained_tools() -> list[Tool]:
                             "{'components': [component_ids], 'children': {nested modules}}"
                         ),
                     },
+                    "module_tree_file": {
+                        "type": "string",
+                        "description": "Alternative to module_tree: absolute path to a JSON file. Use for large trees (>50 components).",
+                    },
                 },
-                "required": ["session_id", "module_tree"],
+                "required": ["session_id"],
             },
         ),
         Tool(
@@ -493,6 +509,68 @@ def _fine_grained_tools() -> list[Tool]:
                 "required": ["workspace_path"],
             },
         ),
+        Tool(
+            name="list_components",
+            description=(
+                "Browse the component index for a session with pagination. "
+                "Returns component IDs, types, and file paths. Use this after "
+                "analyze_repo to discover components for clustering or source "
+                "reading. Supports filtering by file_prefix and component_type."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session ID from analyze_repo",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Zero-based offset (default 0)",
+                        "default": 0,
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max components to return (default 100, max 200)",
+                        "default": 100,
+                    },
+                    "file_prefix": {
+                        "type": "string",
+                        "description": "Only return components whose file starts with this prefix",
+                    },
+                    "component_type": {
+                        "type": "string",
+                        "description": "Filter by type: class, function, interface, etc.",
+                    },
+                },
+                "required": ["session_id"],
+            },
+        ),
+        Tool(
+            name="view_repo_file",
+            description=(
+                "Read a file or list a directory within the analyzed repository. "
+                "Use this to read already-generated .md docs (for parent module "
+                "synthesis) or browse source files for extra context. "
+                "All paths are relative to repo_path with traversal protection. "
+                "Directories return a listing; files return content. "
+                "Large files (>50KB) are written to the session workspace."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session ID from analyze_repo",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path from repo root (e.g. 'repowiki/overview.md' or 'backend/src/...')",
+                    },
+                },
+                "required": ["session_id", "path"],
+            },
+        ),
     ]
 
 
@@ -665,6 +743,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         elif name == "query_wiki":
             from codewiki.mcp.tools.knowledge_loop import handle_query_wiki
             return [_text(await asyncio.to_thread(handle_query_wiki, arguments, _store))]
+
+        elif name == "list_components":
+            from codewiki.mcp.tools.component_list import handle_list_components
+            return [_text(await asyncio.to_thread(handle_list_components, arguments, _store))]
+
+        elif name == "view_repo_file":
+            from codewiki.mcp.tools.file_viewer import handle_view_repo_file
+            return [_text(await asyncio.to_thread(handle_view_repo_file, arguments, _store))]
 
         # --- Legacy tools (require CodeWiki LLM config) ---
         elif name == "generate_docs":

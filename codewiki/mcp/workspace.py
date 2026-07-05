@@ -82,6 +82,13 @@ class SessionWorkspace:
         p.write_text(header + source, encoding="utf-8")
         return p
 
+
+    def write_text(self, name: str, data: str) -> Path:
+        """Write arbitrary text to a workspace file and return the path."""
+        p = self.root / name
+        p.write_text(data, encoding="utf-8")
+        return p
+
     # -- readers ----------------------------------------------------------
 
     def read_json(self, name: str) -> Any:

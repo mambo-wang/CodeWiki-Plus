@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Dict
 
 from codewiki.mcp.session import SessionState, SessionStore
+from codewiki.mcp.tools.file_param import read_param
+from codewiki.mcp.tools.file_param import read_param
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +208,9 @@ async def handle_write_doc_file(
     if doc_path is None:
         return json.dumps({"error": "Filename escapes output directory."})
 
-    content = arguments["content"]
+    content = read_param(arguments, "content")
+    if content is None:
+        return json.dumps({"error": "content or content_file is required."}, ensure_ascii=False)
 
     _ensure_parent_dirs(doc_path)
 
@@ -321,8 +325,8 @@ async def handle_edit_doc_file(
     current_content = doc_path.read_text(encoding="utf-8")
 
     if command == "str_replace":
-        old_str = arguments.get("old_str")
-        new_str = arguments.get("new_str", "")
+        old_str = read_param(arguments, "old_str")
+        new_str = read_param(arguments, "new_str") or ""
         if old_str is None:
             return json.dumps({"error": "old_str is required for str_replace."})
 
@@ -347,7 +351,7 @@ async def handle_edit_doc_file(
 
     elif command == "insert":
         insert_line = arguments.get("insert_line", 0)
-        new_str = arguments.get("new_str", "")
+        new_str = read_param(arguments, "new_str") or ""
         if not new_str:
             return json.dumps({"error": "new_str is required for insert."})
 

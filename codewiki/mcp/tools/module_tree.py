@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from codewiki.mcp.session import SessionState, SessionStore
+from codewiki.mcp.tools.file_param import read_json_param
 from codewiki.src.config import FIRST_MODULE_TREE_FILENAME, MODULE_TREE_FILENAME
 
 logger = logging.getLogger(__name__)
@@ -54,17 +55,14 @@ def _get_processing_order(module_tree: Dict[str, Any], parent_path: List[str] = 
     return order
 
 
-def handle_save_module_tree(
-    arguments: Dict[str, Any],
-    store: SessionStore,
+def _save_and_compute_order(
+    session: SessionState,
+    module_tree: Dict[str, Any],
 ) -> str:
-    """Persist the IDE agent's clustering result as the module tree."""
-    session_id = arguments["session_id"]
-    session = store.get(session_id)
-    if session is None:
-        return json.dumps({"error": f"Session {session_id} not found or expired."})
+    """Persist a module tree and compute the leaf-first processing order.
 
-    module_tree = arguments["module_tree"]
+    Shared by ``handle_save_module_tree``.
+    """
     output_dir = session.output_dir
 
     # Save both immutable snapshot and mutable working copy
@@ -88,9 +86,19 @@ def handle_save_module_tree(
         order_path = session.workspace.write_json("processing_order.json", order)
         order_file = str(order_path)
 
+    # Count total components assigned
+    total_assigned = 0
+    def _count(tree):
+        nonlocal total_assigned
+        for m in tree.values():
+            total_assigned += len(m.get("components", []))
+            _count(m.get("children", {}))
+    _count(module_tree)
+
     result = {
         "status": "saved",
         "module_count": len(module_tree),
+        "total_components_assigned": total_assigned,
         "tree_path": working_path,
         "first_tree_path": first_path,
         "processing_order_file": order_file,
@@ -102,6 +110,22 @@ def handle_save_module_tree(
         ),
     }
     return json.dumps(result, indent=2, ensure_ascii=False)
+
+
+def handle_save_module_tree(
+    arguments: Dict[str, Any],
+    store: SessionStore,
+) -> str:
+    """Persist the IDE agent's clustering result as the module tree."""
+    session_id = arguments["session_id"]
+    session = store.get(session_id)
+    if session is None:
+        return json.dumps({"error": f"Session {session_id} not found or expired."})
+
+    module_tree = read_json_param(arguments, "module_tree")
+    if module_tree is None:
+        return json.dumps({"error": "module_tree or module_tree_file is required."}, ensure_ascii=False)
+    return _save_and_compute_order(session, module_tree)
 
 
 def handle_get_processing_order(
