@@ -252,7 +252,7 @@ def _invalidate_affected_modules(
 @click.option(
     "--doc-type",
     "-t",
-    type=click.Choice(['api', 'architecture', 'user-guide', 'developer', 'business'], case_sensitive=False),
+    type=click.Choice(['api', 'architecture', 'user-guide', 'developer', 'business', 'design'], case_sensitive=False),
     default=None,
     help="Type of documentation to generate",
 )

@@ -58,7 +58,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     )
 
     include = arguments.get("include_patterns"); exclude = arguments.get("exclude_patterns")
-    doc_type = arguments.get("doc_type", "business")
+    doc_type = arguments.get("doc_type", "design")
     custom_instructions = arguments.get("custom_instructions")
     ai: Dict[str, Any] = {"doc_type": doc_type}
     if include: ai["include_patterns"] = [p.strip() for p in include.split(",")]

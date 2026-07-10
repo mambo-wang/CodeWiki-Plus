@@ -702,7 +702,7 @@ def config_validate(quick: bool, verbose: bool):
 @click.option(
     "--doc-type",
     "-t",
-    type=click.Choice(['api', 'architecture', 'user-guide', 'developer', 'business'], case_sensitive=False),
+    type=click.Choice(['api', 'architecture', 'user-guide', 'developer', 'business', 'design'], case_sensitive=False),
     default=None,
     help="Default type of documentation to generate",
 )
@@ -747,7 +747,7 @@ def config_agent(
     
     \b
     # Set default doc type
-    $ codewiki config agent --doc-type business
+    $ codewiki config agent --doc-type design
     
     \b
     # Add custom instructions

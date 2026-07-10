@@ -38,7 +38,7 @@ class AgentInstructions:
     include_patterns: Optional[List[str]] = None  # e.g., ["*.cs"] for C# projects
     exclude_patterns: Optional[List[str]] = None  # e.g., ["*Tests*", "*Specs*"]
     focus_modules: Optional[List[str]] = None  # e.g., ["src/core", "src/api"]
-    doc_type: Optional[str] = "business"  # e.g., "api", "architecture", "user-guide", "business"
+    doc_type: Optional[str] = "design"  # e.g., "api", "architecture", "user-guide", "business", "design"
     custom_instructions: Optional[str] = None  # Free-form instructions
     
     def to_dict(self) -> dict:
@@ -88,6 +88,7 @@ class AgentInstructions:
                 'user-guide': "Focus on user guide documentation: how to use features, step-by-step tutorials.",
                 'developer': "Focus on developer documentation: code structure, contribution guidelines, and implementation details.",
                 'business': "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details.",
+                'design': "Generate technical design documentation optimized for AI comprehension. For each module, describe: (1) module responsibilities and boundaries, (2) external interface contracts — inputs, outputs, and side effects, (3) key design decisions and the rationale behind them, (4) internal component collaboration patterns and data flow, (5) constraints, assumptions, and edge cases. Use precise technical language, include Mermaid diagrams for complex interactions, and prioritize clarity over prose.",
             }
             if self.doc_type.lower() in doc_type_instructions:
                 additions.append(doc_type_instructions[self.doc_type.lower()])
