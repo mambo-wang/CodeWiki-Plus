@@ -102,7 +102,7 @@ Provide `{repo_name}` repo structure and its core modules documentation:
 <REPO_STRUCTURE>
 {repo_structure}
 </REPO_STRUCTURE>
-
+{custom_instructions}
 Please generate the overview of the `{repo_name}` repository in markdown format with the following structure:
 <OVERVIEW>
 overview_content
@@ -121,7 +121,7 @@ Provide repo structure and core components documentation of the `{module_name}` 
 <REPO_STRUCTURE>
 {repo_structure}
 </REPO_STRUCTURE>
-
+{custom_instructions}
 Please generate the overview of the `{module_name}` module in markdown format with the following structure:
 <OVERVIEW>
 overview_content

@@ -268,12 +268,20 @@ class DocumentationGenerator:
         # Create repo structure with 1-depth children docs and target indicator
         repo_structure = self.build_overview_structure(module_tree, module_path, working_dir)
 
+        custom_section = ""
+        if self.config and self.config.agent_instructions:
+            addition = self.config.get_prompt_addition()
+            if addition:
+                custom_section = f"\n<CUSTOM_INSTRUCTIONS>\n{addition}\n</CUSTOM_INSTRUCTIONS>"
+
         prompt = MODULE_OVERVIEW_PROMPT.format(
             module_name=module_name,
-            repo_structure=json.dumps(repo_structure, indent=4)
+            repo_structure=json.dumps(repo_structure, indent=4),
+            custom_instructions=custom_section,
         ) if len(module_path) >= 1 else REPO_OVERVIEW_PROMPT.format(
             repo_name=module_name,
-            repo_structure=json.dumps(repo_structure, indent=4)
+            repo_structure=json.dumps(repo_structure, indent=4),
+            custom_instructions=custom_section,
         )
         
         try:

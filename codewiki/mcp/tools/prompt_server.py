@@ -175,7 +175,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
                 'user-guide': "Focus on user guide documentation: how to use features, step-by-step tutorials.",
                 'developer': "Focus on developer documentation: code structure, contribution guidelines, and implementation details.",
                 'business': "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details.",
-                'design': "Generate technical design documentation optimized for AI comprehension. For each module, describe: (1) module responsibilities and boundaries, (2) external interface contracts — inputs, outputs, and side effects, (3) key design decisions and the rationale behind them, (4) internal component collaboration patterns and data flow, (5) constraints, assumptions, and edge cases. Use precise technical language, include Mermaid diagrams for complex interactions, and prioritize clarity over prose.",
+                'design': "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity.",
             }
             custom_instructions = _doc_type_hints.get(doc_type.lower(), f"Focus on generating {doc_type} documentation.")
         return format_system_prompt(module_name, custom_instructions)
@@ -191,7 +191,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
                 'user-guide': "Focus on user guide documentation: how to use features, step-by-step tutorials.",
                 'developer': "Focus on developer documentation: code structure, contribution guidelines, and implementation details.",
                 'business': "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details.",
-                'design': "Generate technical design documentation optimized for AI comprehension. For each module, describe: (1) module responsibilities and boundaries, (2) external interface contracts — inputs, outputs, and side effects, (3) key design decisions and the rationale behind them, (4) internal component collaboration patterns and data flow, (5) constraints, assumptions, and edge cases. Use precise technical language, include Mermaid diagrams for complex interactions, and prioritize clarity over prose.",
+                'design': "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity.",
             }
             custom_instructions = _doc_type_hints.get(doc_type.lower(), f"Focus on generating {doc_type} documentation.")
         return format_leaf_system_prompt(module_name, custom_instructions)
@@ -213,17 +213,41 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
     elif prompt_type == "overview_module":
         module_name = variables.get("module_name", "MODULE_NAME")
         repo_structure = variables.get("repo_structure", "<REPO_STRUCTURE placeholder>")
+        custom_instructions = variables.get("custom_instructions", None)
+        doc_type = variables.get("doc_type", "design")
+        if not custom_instructions and doc_type:
+            _overview_hints = {
+                'architecture': "Focus on system-level architecture: show how modules relate, data flows between components, and the overall layered design. Include a high-level Mermaid architecture diagram.",
+                'design': "Focus on system-level architecture: show how modules relate to each other, data flows between components, overall layered design, and key architectural decisions. Provide a high-level view that helps readers understand the system's structural blueprint. Include Mermaid diagrams for the architecture overview.",
+            }
+            custom_instructions = _overview_hints.get(doc_type.lower())
+        custom_section = ""
+        if custom_instructions:
+            custom_section = f"\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
         return MODULE_OVERVIEW_PROMPT.format(
             module_name=module_name,
             repo_structure=repo_structure if isinstance(repo_structure, str) else json.dumps(repo_structure, indent=4),
+            custom_instructions=custom_section,
         )
 
     elif prompt_type == "overview_repo":
         repo_name = variables.get("repo_name", "REPO_NAME")
         repo_structure = variables.get("repo_structure", "<REPO_STRUCTURE placeholder>")
+        custom_instructions = variables.get("custom_instructions", None)
+        doc_type = variables.get("doc_type", "design")
+        if not custom_instructions and doc_type:
+            _overview_hints = {
+                'architecture': "Focus on system-level architecture: show how modules relate, data flows between components, and the overall layered design. Include a high-level Mermaid architecture diagram.",
+                'design': "Focus on system-level architecture: show how modules relate to each other, data flows between components, overall layered design, and key architectural decisions. Provide a high-level view that helps readers understand the system's structural blueprint. Include Mermaid diagrams for the architecture overview.",
+            }
+            custom_instructions = _overview_hints.get(doc_type.lower())
+        custom_section = ""
+        if custom_instructions:
+            custom_section = f"\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
         return REPO_OVERVIEW_PROMPT.format(
             repo_name=repo_name,
             repo_structure=repo_structure if isinstance(repo_structure, str) else json.dumps(repo_structure, indent=4),
+            custom_instructions=custom_section,
         )
 
     # --- LLM Wiki static prompts ---
