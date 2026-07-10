@@ -1,7 +1,7 @@
 ---
 name: codewiki-wiki-generator
 description: "使用 CodeWiki-CN MCP 工具为代码仓库生成 Wiki 文档和 LLM Wiki 知识管理。当用户要求生成 Wiki、代码文档、仓库文档、分析代码库结构、查询项目历史决策、检查文档一致性或沉淀开发知识时使用此技能。需要已配置 CodeWiki-CN MCP 服务器。"
-version: 2.3.0
+version: 2.4.0
 ---
 
 # CodeWiki 文档生成器
@@ -46,7 +46,7 @@ cd CodeWiki-CN && pip install -e .
 { "repo_path": "<仓库绝对路径>", "output_dir": "<仓库路径>/repowiki" }
 ```
 
-返回内容：`session_id`、组件索引（自动写入 workspace 文件 `component_index.json`，含 id/type/file）、`leaf_nodes`、`languages`。可通过 `list_components` 对组件列表做过滤筛选。
+返回内容：`session_id`、`summary.json`（含统计信息 + 叶节点预览）、`schema.json`。使用 `list_components` 获取组件列表（支持按前缀/类型过滤筛选）。
 
 **牢记 `session_id`**——后续每一步都需要它。
 
@@ -345,7 +345,7 @@ lint:
 }
 ```
 
-**变更检测策略**：优先使用 `git diff`（对比 commit SHA + 检查工作区未提交变更），非 git 仓库回退到对比文件修改时间。
+**变更检测策略**：三层 Git 检测（commit diff → 暂存区变更 → 未暂存/未跟踪文件），非 git 仓库回退到文件指纹（mtime + size + content hash）。检测结果缓存在 SQLite 中（`.codewiki/analysis_cache.db`），跨 session 复用。
 
 **增量更新流程**：
 
@@ -359,24 +359,26 @@ lint:
 
 增量更新的粒度是**模块级**——一个模块内任一组件变更，该模块文档需要更新。相比全量生成，增量更新通常只需处理 1-3 个模块。
 
+**SQLite 缓存**：`analyze_repo` 在 `.codewiki/analysis_cache.db` 中持久化分析结果，支持超大仓库（10 万+ 文件）。无变更时增量检测达毫秒级；有变更时仅需重新解析变更文件。
+
 ## 工具速查表
 
 | 工具 | 用途 |
 |------|------|
-| `analyze_repo` | 分析仓库，构建依赖图，组件索引写入 workspace 文件 + 自动生成 schema.yaml |
+| `analyze_repo` | 分析仓库，构建依赖图，SQLite 缓存 + 写入 summary/schema/changes 到 workspace + 自动生成 schema.yaml |
 | `list_components` | 将完整组件列表写入 workspace 文件（支持按前缀/类型过滤） |
 | `read_code_components` | 根据组件 ID 读取源码（格式：`文件::名称`） |
 | `view_repo_file` | 只读浏览仓库文件/目录 |
-| `write_doc_file` | 创建 .md 文档（自动 Mermaid 校验 + 可选 crosslink 注入） |
-| `edit_doc_file` | 编辑文档：`str_replace` / `insert` / `undo` |
+| `write_doc_file` | 创建 .md 文档（自动 Mermaid 校验 + 可选 crosslink 注入 + 搜索索引更新） |
+| `edit_doc_file` | 编辑文档：`str_replace` / `insert` / `undo`（自动更新搜索索引） |
 | `save_module_tree` | 保存模块聚类结果 |
 | `get_processing_order` | 获取叶优先的处理顺序 |
 | `get_prompt` | 获取提示词模板（填充后 >4KB 时写 workspace 文件，需传 `session_id`） |
-| `close_session` | 关闭会话释放资源（2 小时自动过期） |
+| `close_session` | 关闭会话释放内存，构建 BM25 搜索索引（SQLite 优先） |
 | `list_dependencies` | 将完整依赖图写入 workspace 文件（支持组件/模块级聚合） |
 | `lint_wiki` | 文档-代码一致性检查（有 session 时写 workspace 文件，无 session 时 inline 返回） |
-| `ingest_note` | 沉淀知识笔记（决策、经验教训、架构理由） |
-| `query_wiki` | 搜索文档 + 笔记，获取开发上下文 |
+| `ingest_note` | 沉淀知识笔记（决策、经验教训、架构理由，自动更新搜索索引） |
+| `query_wiki` | 搜索文档 + 笔记，获取开发上下文（BM25 + SQLite token 索引） |
 
 ## 大数据文件传递模式
 
@@ -396,7 +398,7 @@ lint:
 
 | 工具 | 写入文件 | 返回内容 |
 |------|----------|----------|
-| `analyze_repo` | `component_index.json`、`leaf_nodes.json`、`languages.json`、`summary.json` | `session_id` + 文件路径 + 紧凑摘要 |
+| `analyze_repo` | `summary.json`、`schema.json`、`changes.json` | `session_id` + 文件路径 + 紧凑摘要 |
 | `list_components` | `component_list.json` | `total` + 文件路径 |
 | `list_dependencies` | `dependencies.json` | `total_deps` + `total_modules` + 文件路径 |
 | `lint_wiki` | `lint_report.json`（有 session 时） | `total_issues` + `summary` + 文件路径 |
@@ -432,5 +434,5 @@ graph TD
 
 - **Mermaid 校验失败**：工具会返回校验错误信息，修正语法后用 `edit_doc_file` + `str_replace` 重试
 - **会话过期**（2 小时超时）：重新调用 `analyze_repo` 创建新会话
-- **大型仓库（>10 万行）**：`analyze_repo` 可能需要约 30 秒，可通过 `include_patterns`/`exclude_patterns` 缩小分析范围
-- **组件 ID 格式**：始终使用 `component_index` 中的原始 ID（如 `src/main.py::MyClass`），保留 `::` 分隔符
+- **大型仓库（>10 万文件）**：首次 `analyze_repo` 可能需要 30-60 秒，后续增量运行仅需数秒（SQLite 缓存 + 增量检测）。可通过 `include_patterns`/`exclude_patterns` 缩小分析范围。
+- **组件 ID 格式**：始终使用 `list_components` 返回的原始 ID（如 `src/main.py::MyClass`），保留 `::` 分隔符

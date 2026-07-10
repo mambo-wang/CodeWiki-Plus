@@ -703,10 +703,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                     rebuild_index(session.output_dir)
                 except Exception:
                     pass
-                # Build final BM25 search index
+                # Build final BM25 search index (SQLite-backed when session available)
                 try:
                     from codewiki.mcp.tools.wiki_search import build_full_index
-                    build_full_index(session.output_dir)
+                    build_full_index(session.output_dir, session=session)
                 except Exception:
                     pass
                 # Clean up workspace files on disk

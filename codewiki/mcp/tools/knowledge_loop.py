@@ -315,10 +315,10 @@ def handle_ingest_note(
     except Exception as e:
         logger.warning("Index/log update failed (non-fatal): %s", e)
 
-    # Update BM25 search index for the new note
+    # Update BM25 search index for the new note (SQLite-backed when session available)
     try:
         from codewiki.mcp.tools.wiki_search import update_file
-        update_file(output_dir, note_path)
+        update_file(output_dir, note_path, session=session)
     except Exception as e:
         logger.warning("Search index update failed (non-fatal): %s", e)
 
@@ -456,11 +456,10 @@ def handle_query_wiki(
         )
         from codewiki.src.config import SEARCH_INDEX_FILENAME
 
-        # Auto-build index if it doesn't exist yet
+        # Auto-build index if it doesn't exist yet (SQLite-backed when session available)
         idx_path = output_dir / SEARCH_INDEX_FILENAME
-        if not idx_path.exists():
-            logger.info("Search index not found, building: %s", idx_path)
-            build_full_index(output_dir)
+        if not idx_path.exists() or session is not None:
+            build_full_index(output_dir, session=session)
 
         raw_results = bm25_search(
             output_dir,
@@ -469,6 +468,7 @@ def handle_query_wiki(
             include_notes=include_notes,
             max_results=max_results,
             expand_terms=expand_terms,
+            session=session,
         )
 
         for r in raw_results:

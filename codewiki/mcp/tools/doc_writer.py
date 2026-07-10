@@ -256,10 +256,10 @@ async def handle_write_doc_file(
     except Exception as e:
         logger.warning("Index/log update failed (non-fatal): %s", e)
 
-    # Update BM25 search index
+    # Update BM25 search index (SQLite-backed when session available)
     try:
         from codewiki.mcp.tools.wiki_search import update_file
-        update_file(session.output_dir, doc_path)
+        update_file(session.output_dir, doc_path, session=session)
     except Exception as e:
         logger.warning("Search index update failed (non-fatal): %s", e)
 
@@ -306,10 +306,10 @@ async def handle_edit_doc_file(
         except Exception:
             pass
 
-        # Update BM25 search index after undo
+        # Update BM25 search index after undo (SQLite-backed when session available)
         try:
             from codewiki.mcp.tools.wiki_search import update_file
-            update_file(session.output_dir, doc_path)
+            update_file(session.output_dir, doc_path, session=session)
         except Exception:
             pass
 
@@ -402,10 +402,10 @@ async def handle_edit_doc_file(
     except Exception as e:
         logger.warning("Index/log update failed (non-fatal): %s", e)
 
-    # Update BM25 search index
+    # Update BM25 search index (SQLite-backed when session available)
     try:
         from codewiki.mcp.tools.wiki_search import update_file
-        update_file(session.output_dir, doc_path)
+        update_file(session.output_dir, doc_path, session=session)
     except Exception as e:
         logger.warning("Search index update failed (non-fatal): %s", e)
 

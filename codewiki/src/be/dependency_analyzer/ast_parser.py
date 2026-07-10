@@ -9,6 +9,7 @@ import re
 
 from codewiki.src.be.dependency_analyzer.analysis.analysis_service import AnalysisService
 from codewiki.src.be.dependency_analyzer.models.core import Node
+from codewiki.src.be.dependency_analyzer.utils.patterns import CODE_EXTENSIONS
 
 
 logger = logging.getLogger(__name__)
@@ -87,7 +88,9 @@ class DependencyParser:
                 base_classes=func_dict.get("base_classes"),
                 class_name=func_dict.get("class_name"),
                 display_name=func_dict.get("display_name", ""),
-                component_id=component_id
+                component_id=component_id,
+                language=func_dict.get("language")
+                    or CODE_EXTENSIONS.get(Path(func_dict.get("file_path", "")).suffix.lower()),
             )
             
             self.components[component_id] = node
