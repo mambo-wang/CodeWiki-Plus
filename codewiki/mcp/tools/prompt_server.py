@@ -167,11 +167,31 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
     elif prompt_type == "system_complex":
         module_name = variables.get("module_name", "MODULE_NAME")
         custom_instructions = variables.get("custom_instructions", None)
+        doc_type = variables.get("doc_type", "business")
+        if not custom_instructions and doc_type:
+            _doc_type_hints = {
+                'api': "Focus on API documentation: endpoints, parameters, return types, and usage examples.",
+                'architecture': "Focus on architecture documentation: system design, component relationships, and data flow.",
+                'user-guide': "Focus on user guide documentation: how to use features, step-by-step tutorials.",
+                'developer': "Focus on developer documentation: code structure, contribution guidelines, and implementation details.",
+                'business': "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details.",
+            }
+            custom_instructions = _doc_type_hints.get(doc_type.lower(), f"Focus on generating {doc_type} documentation.")
         return format_system_prompt(module_name, custom_instructions)
 
     elif prompt_type == "system_leaf":
         module_name = variables.get("module_name", "MODULE_NAME")
         custom_instructions = variables.get("custom_instructions", None)
+        doc_type = variables.get("doc_type", "business")
+        if not custom_instructions and doc_type:
+            _doc_type_hints = {
+                'api': "Focus on API documentation: endpoints, parameters, return types, and usage examples.",
+                'architecture': "Focus on architecture documentation: system design, component relationships, and data flow.",
+                'user-guide': "Focus on user guide documentation: how to use features, step-by-step tutorials.",
+                'developer': "Focus on developer documentation: code structure, contribution guidelines, and implementation details.",
+                'business': "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details.",
+            }
+            custom_instructions = _doc_type_hints.get(doc_type.lower(), f"Focus on generating {doc_type} documentation.")
         return format_leaf_system_prompt(module_name, custom_instructions)
 
     elif prompt_type == "user":

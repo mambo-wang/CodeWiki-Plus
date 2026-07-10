@@ -45,7 +45,7 @@ def meta_resolve(base_dir, filename):
     return new_path  # default to new location
 
 
-MAX_DEPTH = 2
+MAX_DEPTH = 3
 # Default max token settings
 DEFAULT_MAX_TOKENS = 32_768
 DEFAULT_MAX_TOKEN_PER_MODULE = 36_369
@@ -149,6 +149,7 @@ class Config:
                 'architecture': "Focus on architecture documentation: system design, component relationships, and data flow.",
                 'user-guide': "Focus on user guide documentation: how to use features, step-by-step tutorials.",
                 'developer': "Focus on developer documentation: code structure, contribution guidelines, and implementation details.",
+                'business': "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details.",
             }
             if self.doc_type.lower() in doc_type_instructions:
                 additions.append(doc_type_instructions[self.doc_type.lower()])

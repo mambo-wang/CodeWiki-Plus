@@ -145,7 +145,7 @@ class CLIDocumentationGenerator:
                 max_tokens=self.config.get('max_tokens', 32768),
                 max_token_per_module=self.config.get('max_token_per_module', 36369),
                 max_token_per_leaf_module=self.config.get('max_token_per_leaf_module', 16000),
-                max_depth=self.config.get('max_depth', 2),
+                max_depth=self.config.get('max_depth', 3),
                 agent_instructions=self.config.get('agent_instructions')
             )
             

@@ -589,7 +589,7 @@ def _legacy_tools() -> list[Tool]:
                     },
                     "doc_type": {
                         "type": "string",
-                        "enum": ["api", "architecture", "user-guide", "developer"],
+                        "enum": ["api", "architecture", "user-guide", "developer", "business"],
                         "description": "Type of documentation to generate",
                     },
                     "include_patterns": {

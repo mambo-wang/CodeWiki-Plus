@@ -46,23 +46,25 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     import tempfile
-    from codewiki.src.config import Config
+    from codewiki.src.config import Config, MAX_DEPTH
     # Use a temp dir for the legacy JSON output — we write to SQLite instead
     _tmp = Path(tempfile.mkdtemp(prefix="codewiki_"))
     config = Config(
         repo_path=str(repo_path), output_dir=str(_tmp),
         dependency_graph_dir=str(_tmp / "dependency_graphs"),
-        docs_dir=str(output_dir), max_depth=2,
+        docs_dir=str(output_dir), max_depth=MAX_DEPTH,
         llm_base_url="not-needed", llm_api_key="not-needed",
         main_model="unused", cluster_model="unused",
     )
 
     include = arguments.get("include_patterns"); exclude = arguments.get("exclude_patterns")
-    if include or exclude:
-        ai: Dict[str, Any] = {}
-        if include: ai["include_patterns"] = [p.strip() for p in include.split(",")]
-        if exclude: ai["exclude_patterns"] = [p.strip() for p in exclude.split(",")]
-        config.agent_instructions = ai
+    doc_type = arguments.get("doc_type", "business")
+    custom_instructions = arguments.get("custom_instructions")
+    ai: Dict[str, Any] = {"doc_type": doc_type}
+    if include: ai["include_patterns"] = [p.strip() for p in include.split(",")]
+    if exclude: ai["exclude_patterns"] = [p.strip() for p in exclude.split(",")]
+    if custom_instructions: ai["custom_instructions"] = custom_instructions
+    config.agent_instructions = ai
 
     # Get or create shared cache for this repo
     cache = store.get_cache(str(repo_path))
