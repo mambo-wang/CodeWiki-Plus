@@ -28,6 +28,8 @@ _DEFAULT_CONVENTIONS = {
     "min_leaf_doc_lines": 200,
     "max_overview_doc_lines": 300,
     "auto_crosslink": True,
+    "okf_frontmatter": True,
+    "okf_tags": [],
 }
 
 _DEFAULT_REQUIRED_SECTIONS = [
