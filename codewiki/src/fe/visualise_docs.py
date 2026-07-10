@@ -53,9 +53,10 @@ md = MarkdownIt()
 
 def load_module_tree(docs_folder: Path) -> Optional[Dict]:
     """Load the module tree structure from module_tree.json."""
-    tree_file = docs_folder / "module_tree.json"
+    from codewiki.src.config import meta_resolve
+    tree_file = Path(meta_resolve(docs_folder, "module_tree.json"))
     if not tree_file.exists():
-        print(f"Warning: module_tree.json not found in {docs_folder}")
+        print(f"Warning: module_tree.json not found in {docs_folder}/.meta/")
         return None
     
     try:

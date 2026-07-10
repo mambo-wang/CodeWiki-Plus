@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Tuple
 
 from codewiki.mcp.session import SessionState, SessionStore
 from codewiki.mcp.tools.file_param import read_json_param
-from codewiki.src.config import FIRST_MODULE_TREE_FILENAME, MODULE_TREE_FILENAME
+from codewiki.src.config import FIRST_MODULE_TREE_FILENAME, MODULE_TREE_FILENAME, meta_join, meta_resolve
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +66,10 @@ def _save_and_compute_order(
     output_dir = session.output_dir
 
     # Save both immutable snapshot and mutable working copy
-    first_path = os.path.join(output_dir, FIRST_MODULE_TREE_FILENAME)
-    working_path = os.path.join(output_dir, MODULE_TREE_FILENAME)
+    first_path = meta_join(output_dir, FIRST_MODULE_TREE_FILENAME)
+    working_path = meta_join(output_dir, MODULE_TREE_FILENAME)
 
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(first_path), exist_ok=True)
 
     with open(first_path, "w", encoding="utf-8") as f:
         json.dump(module_tree, f, indent=2, ensure_ascii=False)
@@ -141,7 +141,7 @@ def handle_get_processing_order(
     # Try session cache first, then disk
     module_tree = session.module_tree
     if not module_tree:
-        tree_path = os.path.join(session.output_dir, MODULE_TREE_FILENAME)
+        tree_path = meta_resolve(session.output_dir, MODULE_TREE_FILENAME)
         if os.path.exists(tree_path):
             with open(tree_path, encoding="utf-8") as f:
                 module_tree = json.load(f)

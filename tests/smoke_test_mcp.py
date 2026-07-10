@@ -22,6 +22,7 @@ from codewiki.mcp.tools.doc_writer import handle_write_doc_file, handle_edit_doc
 from codewiki.mcp.tools.crosslink import handle_list_dependencies
 from codewiki.mcp.tools.wiki_lint import handle_lint_wiki
 from codewiki.mcp.tools.knowledge_loop import handle_ingest_note, handle_query_wiki
+from codewiki.mcp.tools.component_list import handle_list_components
 
 # Use the repo itself as a test target
 REPO_PATH = str(Path(__file__).resolve().parent.parent)
@@ -70,17 +71,32 @@ def main():
           workspace_dir and Path(workspace_dir).is_dir(),
           str(workspace_dir))
 
-    # -- 2. Workspace files verification --
-    print("\n[2] Workspace files verification")
+    # -- 2. Workspace files + list_components --
+    print("\n[2] Workspace files + list_components")
     ws = Path(workspace_dir)
-    check("component_index.json exists", (ws / "component_index.json").exists(), "")
-    check("leaf_nodes.json exists", (ws / "leaf_nodes.json").exists(), "")
-    check("languages.json exists", (ws / "languages.json").exists(), "")
     check("summary.json exists", (ws / "summary.json").exists(), "")
     check("sources/ directory exists", (ws / "sources").is_dir(), "")
 
-    # Read component_index.json and verify structure
-    comp_index = json.loads((ws / "component_index.json").read_text(encoding="utf-8"))
+    # Read summary.json for stats
+    summary = json.loads((ws / "summary.json").read_text(encoding="utf-8"))
+    check("summary has total_components", "total_components" in summary, str(summary.keys()))
+    check("summary has total_leaf_nodes", "total_leaf_nodes" in summary, str(summary.keys()))
+    check("summary has languages", "languages" in summary, str(summary.keys()))
+    total_leaf = summary["total_leaf_nodes"]
+
+    # Use list_components tool to get component index
+    lc_result = json.loads(handle_list_components({
+        "session_id": session_id,
+    }, store))
+    check("list_components returns file", "file" in lc_result, str(lc_result.keys())[:200])
+    check("list_components returns total", "total" in lc_result, str(lc_result.keys())[:200])
+    check("list_components total > 0", lc_result.get("total", 0) > 0, f"total={lc_result.get('total')}")
+
+    # Read the workspace file with full component list
+    comp_list_file = Path(lc_result["file"])
+    check("component_list.json exists", comp_list_file.exists(), str(comp_list_file))
+    comp_list_data = json.loads(comp_list_file.read_text(encoding="utf-8"))
+    comp_index = comp_list_data.get("components", [])
     check("component_index is a list", isinstance(comp_index, list), type(comp_index).__name__)
     check("component_index non-empty", len(comp_index) > 0, f"len={len(comp_index)}")
     if comp_index:
@@ -88,14 +104,6 @@ def main():
         check("component has id/type/file",
               all(k in first for k in ("id", "type", "file")),
               str(first.keys()))
-
-    # Read leaf_nodes.json
-    leaf_nodes = json.loads((ws / "leaf_nodes.json").read_text(encoding="utf-8"))
-    check("leaf_nodes is a list", isinstance(leaf_nodes, list), type(leaf_nodes).__name__)
-    total_leaf = result["stats"]["total_leaf_nodes"]
-    check("leaf_nodes matches stats count",
-          len(leaf_nodes) == total_leaf,
-          f"file={len(leaf_nodes)} vs stats={total_leaf}")
 
     # -- 3. read_code_components (writes to workspace files) --
     print("\n[3] read_code_components")
@@ -199,11 +207,22 @@ def main():
         "direction": "both",
         "limit": 10,
     }, store))
-    check("returns dependencies", "dependencies" in deps_result, str(deps_result.keys())[:200])
-    check("returns pagination", "pagination" in deps_result, str(deps_result.keys())[:200])
-    if deps_result.get("dependencies"):
-        first_dep = deps_result["dependencies"][0]
-        check("dep has source/target", "source" in first_dep and "target" in first_dep, str(first_dep.keys()))
+    check("returns file or deps", "file" in deps_result or "dependencies" in deps_result, str(deps_result.keys())[:200])
+    # Data may be in workspace file (file-side-channel)
+    if "file" in deps_result:
+        deps_file = Path(deps_result["file"])
+        deps_data = json.loads(deps_file.read_text(encoding="utf-8"))
+        check("deps file has dependencies", "dependencies" in deps_data, str(deps_data.keys())[:200])
+        check("returns total_deps", "total_deps" in deps_result, str(deps_result.keys())[:200])
+        if deps_data.get("dependencies"):
+            first_dep = deps_data["dependencies"][0]
+            check("dep has source/target", "source" in first_dep and "target" in first_dep, str(first_dep.keys()))
+    else:
+        check("returns dependencies", "dependencies" in deps_result, str(deps_result.keys())[:200])
+        check("returns total_deps", "total_deps" in deps_result, str(deps_result.keys())[:200])
+        if deps_result.get("dependencies"):
+            first_dep = deps_result["dependencies"][0]
+            check("dep has source/target", "source" in first_dep and "target" in first_dep, str(first_dep.keys()))
 
     # Module-level dependencies
     deps_module = json.loads(handle_list_dependencies({
@@ -212,7 +231,7 @@ def main():
         "limit": 5,
     }, store))
     check("module_level works",
-          "pagination" in deps_module,
+          "file" in deps_module or "pagination" in deps_module,
           str(deps_module.keys())[:200])
 
     # -- 11. lint_wiki --
@@ -223,11 +242,20 @@ def main():
     }, store))
     check("returns total_issues", "total_issues" in lint_result, str(lint_result.keys())[:200])
     check("returns by_severity", "by_severity" in lint_result, str(lint_result.keys())[:200])
-    check("returns issues list", "issues" in lint_result, str(lint_result.keys())[:200])
     check("returns summary", "summary" in lint_result, str(lint_result.keys())[:200])
-    check("checks_run includes all",
-          len(lint_result.get("checks_run", [])) > 0,
-          str(lint_result.get("checks_run")))
+    # issues list may be in workspace file (file-side-channel)
+    if "file" in lint_result:
+        lint_file = Path(lint_result["file"])
+        lint_data = json.loads(lint_file.read_text(encoding="utf-8"))
+        check("returns issues list", "issues" in lint_data, str(lint_data.keys())[:200])
+        check("checks_run includes all",
+              len(lint_data.get("checks_run", [])) > 0,
+              str(lint_data.get("checks_run")))
+    else:
+        check("returns issues list", "issues" in lint_result, str(lint_result.keys())[:200])
+        check("checks_run includes all",
+              len(lint_result.get("checks_run", [])) > 0,
+              str(lint_result.get("checks_run")))
 
     # Lint without session (output_dir mode)
     lint_nosess = json.loads(handle_lint_wiki({

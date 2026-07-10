@@ -56,8 +56,9 @@ def _detect_changed_files(
     unable to determine (e.g., no metadata, not a git repo).
     """
     import json
+    from codewiki.src.config import meta_resolve
 
-    metadata_path = output_dir / "metadata.json"
+    metadata_path = Path(meta_resolve(output_dir, "metadata.json"))
     if not metadata_path.exists():
         if verbose:
             logger.debug("No metadata.json found — cannot detect changes, running full generation.")
@@ -154,7 +155,8 @@ def _invalidate_affected_modules(
     """
     import json
 
-    module_tree_path = output_dir / "module_tree.json"
+    from codewiki.src.config import meta_resolve
+    module_tree_path = Path(meta_resolve(output_dir, "module_tree.json"))
     if not module_tree_path.exists():
         return
 

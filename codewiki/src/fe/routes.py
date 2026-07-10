@@ -221,7 +221,8 @@ class WebRoutes:
         
         # Load module tree
         module_tree = None
-        module_tree_file = docs_path / "module_tree.json"
+        from codewiki.src.config import meta_resolve
+        module_tree_file = Path(meta_resolve(docs_path, "module_tree.json"))
         if module_tree_file.exists():
             try:
                 module_tree = file_manager.load_json(module_tree_file)
@@ -230,7 +231,7 @@ class WebRoutes:
         
         # Load metadata
         metadata = None
-        metadata_file = docs_path / "metadata.json"
+        metadata_file = Path(meta_resolve(docs_path, "metadata.json"))
         if metadata_file.exists():
             try:
                 metadata = file_manager.load_json(metadata_file)

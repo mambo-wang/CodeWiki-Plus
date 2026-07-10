@@ -120,9 +120,9 @@ _CAMEL_RE = re.compile(r"\b([A-Z][a-z]+(?:[A-Z][a-z]*)*)\b")
 
 def _load_symbol_map(output_dir: Path) -> Dict[str, List[str]]:
     """Load symbol_map.json from output_dir.  Returns {} on failure."""
-    from codewiki.src.config import SYMBOL_MAP_FILENAME
+    from codewiki.src.config import SYMBOL_MAP_FILENAME, meta_resolve
 
-    sm_path = output_dir / SYMBOL_MAP_FILENAME
+    sm_path = Path(meta_resolve(output_dir, SYMBOL_MAP_FILENAME))
     if not sm_path.exists():
         return {}
     try:
@@ -439,7 +439,8 @@ def handle_query_wiki(
     if session and session.module_tree:
         module_tree = session.module_tree
     else:
-        mt_path = output_dir / "module_tree.json"
+        from codewiki.src.config import meta_resolve
+        mt_path = Path(meta_resolve(output_dir, "module_tree.json"))
         if mt_path.exists():
             try:
                 module_tree = json.loads(mt_path.read_text(encoding="utf-8"))

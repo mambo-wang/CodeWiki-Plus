@@ -85,8 +85,8 @@ def _fine_grained_tools() -> list[Tool]:
                 "This is the entry point for the wiki generation pipeline. "
                 "After calling this, use get_prompt('cluster') to learn clustering rules, "
                 "then save_module_tree to persist your grouping. "
-                "INCREMENTAL UPDATE: If docs already exist in output_dir (metadata.json + "
-                "module_tree.json), the response includes a 'changes' field showing which "
+                "INCREMENTAL UPDATE: If docs already exist in output_dir (.meta/metadata.json + "
+                ".meta/module_tree.json), the response includes a 'changes' field showing which "
                 "files changed and which modules need updating."
             ),
             inputSchema={
@@ -839,7 +839,8 @@ async def _legacy_get_module_tree(arguments: dict[str, Any]) -> list[TextContent
     repo_path = Path(arguments["repo_path"]).expanduser().resolve()
     output_dir = Path(arguments.get("output_dir", "docs")).expanduser().resolve()
 
-    module_tree_path = output_dir / "module_tree.json"
+    from codewiki.src.config import meta_resolve
+    module_tree_path = Path(meta_resolve(output_dir, "module_tree.json"))
     if not module_tree_path.exists():
         return [_text(json.dumps({
             "error": f"Module tree not found at {module_tree_path}. Run 'codewiki generate' first."
@@ -903,7 +904,10 @@ def _write_generation_metadata(session: SessionState) -> None:
                 "timestamp": datetime.now().isoformat(),
             },
         }
-        (output_dir / "metadata.json").write_text(
+        from codewiki.src.config import meta_join
+        meta_dir = Path(meta_join(output_dir, ""))
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        Path(meta_join(output_dir, "metadata.json")).write_text(
             json.dumps(metadata, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )

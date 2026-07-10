@@ -44,7 +44,8 @@ def _get_output_dir(session: Optional[SessionState], arguments: Dict) -> Optiona
 
 def _load_module_tree(output_dir: Path) -> Optional[dict]:
     """Load module_tree.json from output directory."""
-    mt_path = output_dir / "module_tree.json"
+    from codewiki.src.config import meta_resolve
+    mt_path = Path(meta_resolve(output_dir, "module_tree.json"))
     if not mt_path.exists():
         return None
     try:

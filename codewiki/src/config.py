@@ -10,6 +10,7 @@ load_dotenv()
 OUTPUT_BASE_DIR = 'output'
 DEPENDENCY_GRAPHS_DIR = 'dependency_graphs'
 DOCS_DIR = 'docs'
+META_DIR = '.meta'
 FIRST_MODULE_TREE_FILENAME = 'first_module_tree.json'
 MODULE_TREE_FILENAME = 'module_tree.json'
 OVERVIEW_FILENAME = 'overview.md'
@@ -21,6 +22,29 @@ INDEX_FILENAME = 'index.md'
 LOG_FILENAME = 'log.md'
 SEARCH_INDEX_FILENAME = 'search_index.json'
 SYMBOL_MAP_FILENAME = 'symbol_map.json'
+
+
+def meta_join(base_dir, filename):
+    """Return ``base_dir/.meta/filename`` (for writing metadata files)."""
+    return os.path.join(str(base_dir), META_DIR, filename)
+
+
+def meta_resolve(base_dir, filename):
+    """Return the path to a metadata file, checking ``.meta/`` first.
+
+    Falls back to the legacy ``base_dir/filename`` location for
+    backward compatibility with docs generated before the ``.meta/``
+    directory was introduced.
+    """
+    new_path = os.path.join(str(base_dir), META_DIR, filename)
+    if os.path.exists(new_path):
+        return new_path
+    old_path = os.path.join(str(base_dir), filename)
+    if os.path.exists(old_path):
+        return old_path
+    return new_path  # default to new location
+
+
 MAX_DEPTH = 2
 # Default max token settings
 DEFAULT_MAX_TOKENS = 32_768

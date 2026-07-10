@@ -42,7 +42,8 @@ class HTMLGenerator:
         Returns:
             Module tree structure
         """
-        module_tree_path = docs_dir / "module_tree.json"
+        from codewiki.src.config import meta_resolve
+        module_tree_path = Path(meta_resolve(docs_dir, "module_tree.json"))
         if not module_tree_path.exists():
             # Fallback to a simple structure
             return {
@@ -69,7 +70,8 @@ class HTMLGenerator:
         Returns:
             Metadata dictionary or None if not found
         """
-        metadata_path = docs_dir / "metadata.json"
+        from codewiki.src.config import meta_resolve
+        metadata_path = Path(meta_resolve(docs_dir, "metadata.json"))
         if not metadata_path.exists():
             return None
         

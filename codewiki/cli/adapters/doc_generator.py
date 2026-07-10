@@ -215,12 +215,12 @@ class CLIDocumentationGenerator:
             get_clustering_input_token_count,
         )
         from codewiki.src.utils import file_manager
-        from codewiki.src.config import FIRST_MODULE_TREE_FILENAME, MODULE_TREE_FILENAME
+        from codewiki.src.config import FIRST_MODULE_TREE_FILENAME, MODULE_TREE_FILENAME, meta_resolve
 
         working_dir = str(self.output_dir.absolute())
         file_manager.ensure_directory(working_dir)
-        first_module_tree_path = os.path.join(working_dir, FIRST_MODULE_TREE_FILENAME)
-        module_tree_path = os.path.join(working_dir, MODULE_TREE_FILENAME)
+        first_module_tree_path = meta_resolve(working_dir, FIRST_MODULE_TREE_FILENAME)
+        module_tree_path = meta_resolve(working_dir, MODULE_TREE_FILENAME)
 
         try:
             if os.path.exists(first_module_tree_path):
@@ -343,7 +343,8 @@ class CLIDocumentationGenerator:
     def _finalize_job(self):
         """Finalize the job (metadata already created by backend)."""
         # Just verify metadata exists
-        metadata_path = self.output_dir / "metadata.json"
+        from codewiki.src.config import meta_join
+        metadata_path = Path(meta_join(self.output_dir, "metadata.json"))
         if not metadata_path.exists():
             # Create our own if backend didn't
             with open(metadata_path, 'w') as f:

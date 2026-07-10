@@ -23,7 +23,9 @@ from codewiki.src.config import (
     Config,
     FIRST_MODULE_TREE_FILENAME,
     MODULE_TREE_FILENAME,
-    OVERVIEW_FILENAME
+    OVERVIEW_FILENAME,
+    meta_join,
+    meta_resolve
 )
 from codewiki.src.utils import file_manager
 
@@ -56,8 +58,8 @@ class DocumentationGenerator:
             },
             "files_generated": [
                 "overview.md",
-                "module_tree.json",
-                "first_module_tree.json"
+                ".meta/module_tree.json",
+                ".meta/first_module_tree.json"
             ]
         }
         
@@ -69,7 +71,7 @@ class DocumentationGenerator:
         except Exception as e:
             logger.warning(f"Could not list generated files: {e}")
         
-        metadata_path = os.path.join(working_dir, "metadata.json")
+        metadata_path = meta_join(working_dir, "metadata.json")
         file_manager.save_json(metadata, metadata_path)
 
     
@@ -160,8 +162,8 @@ class DocumentationGenerator:
         working_dir = os.path.abspath(self.config.docs_dir)
         file_manager.ensure_directory(working_dir)
 
-        module_tree_path = os.path.join(working_dir, MODULE_TREE_FILENAME)
-        first_module_tree_path = os.path.join(working_dir, FIRST_MODULE_TREE_FILENAME)
+        module_tree_path = meta_resolve(working_dir, MODULE_TREE_FILENAME)
+        first_module_tree_path = meta_resolve(working_dir, FIRST_MODULE_TREE_FILENAME)
         module_tree = file_manager.load_json(module_tree_path)
         first_module_tree = file_manager.load_json(first_module_tree_path)
         
@@ -231,7 +233,7 @@ class DocumentationGenerator:
             )
 
             # save final_module_tree to module_tree.json
-            file_manager.save_json(final_module_tree, os.path.join(working_dir, MODULE_TREE_FILENAME))
+            file_manager.save_json(final_module_tree, meta_join(working_dir, MODULE_TREE_FILENAME))
 
             # rename repo_name.md to overview.md
             repo_overview_path = os.path.join(working_dir, f"{repo_name}.md")
@@ -248,7 +250,7 @@ class DocumentationGenerator:
         logger.info(f"Generating parent documentation for: {module_name}")
         
         # Load module tree
-        module_tree_path = os.path.join(working_dir, MODULE_TREE_FILENAME)
+        module_tree_path = meta_resolve(working_dir, MODULE_TREE_FILENAME)
         module_tree = file_manager.load_json(module_tree_path)
 
         # check if overview docs already exists
@@ -312,8 +314,8 @@ class DocumentationGenerator:
             # Cluster modules
             working_dir = os.path.abspath(self.config.docs_dir)
             file_manager.ensure_directory(working_dir)
-            first_module_tree_path = os.path.join(working_dir, FIRST_MODULE_TREE_FILENAME)
-            module_tree_path = os.path.join(working_dir, MODULE_TREE_FILENAME)
+            first_module_tree_path = meta_resolve(working_dir, FIRST_MODULE_TREE_FILENAME)
+            module_tree_path = meta_resolve(working_dir, MODULE_TREE_FILENAME)
             
             # Check if module tree exists
             if os.path.exists(first_module_tree_path):

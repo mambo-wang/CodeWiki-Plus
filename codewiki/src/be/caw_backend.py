@@ -223,7 +223,8 @@ class CawBackend(LLMBackend):
         from codewiki.src.be.caw_toolkit import CawToolKit  # local import to avoid cycles
 
         config = self._config
-        module_tree_path = os.path.join(working_dir, MODULE_TREE_FILENAME)
+        from codewiki.src.config import MODULE_TREE_FILENAME, meta_resolve
+        module_tree_path = meta_resolve(working_dir, MODULE_TREE_FILENAME)
         if module_tree is None:
             module_tree = file_manager.load_json(module_tree_path)
 

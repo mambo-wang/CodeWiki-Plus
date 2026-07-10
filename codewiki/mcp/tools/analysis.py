@@ -164,7 +164,8 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     try:
         from codewiki.mcp.tools.schema_generator import generate_schema
         module_names = []
-        mtp = output_dir / "module_tree.json"
+        from codewiki.src.config import meta_resolve
+        mtp = Path(meta_resolve(output_dir, "module_tree.json"))
         if mtp.exists():
             try:
                 mt = json.loads(mtp.read_text(encoding="utf-8"))
@@ -187,7 +188,10 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     # 8. Symbol map (class name → source file, used by ingest_note for crosslinking)
     try:
         symbol_map = _build_symbol_map(metas)
-        symbol_map_path = output_dir / "symbol_map.json"
+        from codewiki.src.config import meta_join
+        meta_dir = Path(meta_join(output_dir, ""))
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        symbol_map_path = Path(meta_join(output_dir, "symbol_map.json"))
         symbol_map_path.write_text(
             json.dumps(symbol_map, indent=2, ensure_ascii=False),
             encoding="utf-8",
@@ -307,8 +311,9 @@ def _build_symbol_map(metas: Dict[str, ComponentMeta]) -> Dict[str, List[str]]:
 
 def _detect_doc_changes(repo_path: Path, output_dir: Path) -> Optional[Dict[str, Any]]:
     """Detect documentation-level changes since last generation (legacy JSON fallback)."""
-    mp = output_dir / "metadata.json"
-    mtp = output_dir / "module_tree.json"
+    from codewiki.src.config import meta_resolve
+    mp = Path(meta_resolve(output_dir, "metadata.json"))
+    mtp = Path(meta_resolve(output_dir, "module_tree.json"))
     if not mp.exists() or not mtp.exists(): return None
     try:
         md = json.loads(mp.read_text(encoding="utf-8"))

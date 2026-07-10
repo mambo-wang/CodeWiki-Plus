@@ -18,6 +18,7 @@ class FileManager:
     @staticmethod
     def save_json(data: Any, filepath: str) -> None:
         """Save data as JSON to file."""
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
 
