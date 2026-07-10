@@ -105,6 +105,35 @@ def main():
               all(k in first for k in ("id", "type", "file")),
               str(first.keys()))
 
+    # Test summary mode
+    print("\n[2b] list_components summary mode")
+    summ_result = json.loads(handle_list_components({
+        "session_id": session_id,
+        "summary": True,
+    }, store))
+    check("summary returns file", "file" in summ_result, str(summ_result.keys())[:200])
+    check("summary returns total_files", "total_files" in summ_result, str(summ_result.keys())[:200])
+    check("summary returns mode", summ_result.get("mode") == "summary", f"mode={summ_result.get('mode')}")
+    check("summary total_files > 0", summ_result.get("total_files", 0) > 0, f"total_files={summ_result.get('total_files')}")
+
+    # Read the summary file and validate structure
+    summ_file = Path(summ_result["file"])
+    check("component_summary.json exists", summ_file.exists(), str(summ_file))
+    summ_data = json.loads(summ_file.read_text(encoding="utf-8"))
+    files_dict = summ_data.get("files", {})
+    check("summary has files dict", isinstance(files_dict, dict), type(files_dict).__name__)
+    check("summary files non-empty", len(files_dict) > 0, f"len={len(files_dict)}")
+    if files_dict:
+        sample_file = next(iter(files_dict))
+        sample_info = files_dict[sample_file]
+        check("file entry has count", "count" in sample_info, str(sample_info.keys()))
+        check("file entry has types", "types" in sample_info, str(sample_info.keys()))
+        check("file entry has classes", "classes" in sample_info, str(sample_info.keys()))
+    # Summary should be smaller than full list
+    summ_size = summ_file.stat().st_size
+    full_size = comp_list_file.stat().st_size
+    check("summary smaller than full", summ_size < full_size, f"summary={summ_size}, full={full_size}")
+
     # -- 3. read_code_components (writes to workspace files) --
     print("\n[3] read_code_components")
     if comp_index:

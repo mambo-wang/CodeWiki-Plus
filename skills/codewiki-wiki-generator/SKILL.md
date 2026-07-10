@@ -1,7 +1,7 @@
 ---
 name: codewiki-wiki-generator
 description: "使用 CodeWiki-CN MCP 工具为代码仓库生成 Wiki 文档。当用户要求生成 Wiki、代码文档、仓库文档或分析代码库结构时使用此技能。需要已配置 CodeWiki-CN MCP 服务器。可选搭配 CodeGraph MCP 服务器获得调用图和影响范围分析增强。"
-version: 3.0.1
+version: 3.1.0
 install_method: upload
 ---
 
@@ -69,11 +69,12 @@ Workspace 目录位于 `{repo_path}/.codewiki/sessions/{session_id}/`。
 **按需生成的文件（通过对应工具触发）：**
 
 - `component_list.json` — 完整组件列表，调用 `list_components` 后生成。每项含 `{"id", "type", "file"}`
+- `component_summary.json` — 按文件分组的组件摘要，调用 `list_components(summary: true)` 后生成。每文件含 `{"count", "types", "classes"}`
 - `dependencies.json` — 完整依赖图，调用 `list_dependencies` 后生成
 - `processing_order.json` — 文档生成顺序，调用 `save_module_tree` 或 `get_processing_order` 后生成
 - `sources/` — 组件源码文件（每个组件一个 `.src` 文件），调用 `read_code_components` 后生成
 
-**重要**：SQLite 缓存模式下，组件数据存储在内存 SQLite 中，**不会**自动生成 `component_index.json` 或 `leaf_nodes.json`。必须调用 `list_components` 获取组件清单，读取返回的 `component_list.json` 文件。
+**重要**：SQLite 缓存模式下，组件数据存储在内存 SQLite 中，**不会**自动生成 `component_index.json` 或 `leaf_nodes.json`。必须调用 `list_components` 获取组件清单。聚类阶段优先使用 `summary: true` 模式获取轻量摘要；生成文档时使用 `file_prefix` 按目录获取精确组件 ID。
 
 ## 五阶段工作流程
 
@@ -91,9 +92,10 @@ Workspace 目录位于 `{repo_path}/.codewiki/sessions/{session_id}/`。
 
 **接下来必须获取组件清单和摘要数据：**
 
-1. 调用 `list_components` → `{"session_id": "..."}` — 返回 `{"file": "<path>/component_list.json", "total": N}`，然后读取该文件获取完整组件列表（每项含 id/type/file）
+1. 调用 `list_components` → `{"session_id": "...", "summary": true}` — 返回 `{"file": "<path>/component_summary.json", "total_files": N, "total_components": M}`，读取该文件获取按文件分组的组件概览（每文件的组件数、类型分布、类名列表）。摘要模式体积约为完整列表的 1/8，适合聚类阶段快速了解项目结构
 2. 读取 `{workspace_dir}/summary.json` — 分析摘要（含语言统计、叶子节点预览）
 3. 根据 `stats` 了解仓库规模，规划聚类策略
+4. **在阶段 3 生成具体模块文档时**，再调用 `list_components` → `{"session_id": "...", "file_prefix": "模块目录/"}` 获取该目录下组件的完整 ID 列表，用于传给 `read_code_components`
 
 **🔗 CodeGraph 增强（可选）：**
 
@@ -271,7 +273,7 @@ Workspace 目录位于 `{repo_path}/.codewiki/sessions/{session_id}/`。
 | 工具 | 用途 | 数据流 |
 |------|------|--------|
 | `analyze_repo` | 分析仓库，构建依赖图 | 写 summary.json/changes.json 到 workspace，返回路径 + 统计 |
-| `list_components` | 获取完整组件列表 | 写 `component_list.json`，返回 `{file, total}` |
+| `list_components` | 获取组件列表（支持 `summary` 摘要模式和 `file_prefix` 过滤） | 写 `component_list.json` 或 `component_summary.json`，返回 `{file, total}` |
 | `read_code_components` | 获取组件源码 | 每个组件写入 `sources/*.src`，返回路径 |
 | `write_doc_file` | 创建 .md 文档（自动 Mermaid 校验） | 直接写文件 |
 | `edit_doc_file` | 编辑文档：`str_replace` / `insert` / `undo` | 直接改文件 |
