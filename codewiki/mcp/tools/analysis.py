@@ -221,12 +221,15 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         "stats": {"total_components": len(metas), "total_leaf_nodes": len(leaf_nodes), "languages": langs},
         "files": {
             "summary": str(workspace.root / "summary.json"),
-            "schema": str(workspace.root / "schema.json") if schema_info else None,
+            "schema": str(output_dir / "schema.yaml"),
         },
         "changes": changes_info,
         "cache_mode": "sqlite",
         "hint": (
             "Read the files above for full data. "
+            "The schema.yaml at output_dir defines documentation conventions (required sections, "
+            "documentation dimensions, line limits). Share it with the user — they can edit it "
+            "before generating docs to customize output style and structure. "
             "Use read_code_components(session_id, component_ids) to read source code. "
             "Use save_module_tree(session_id, module_tree) after clustering. "
             "Call get_prompt('cluster') for clustering rules."

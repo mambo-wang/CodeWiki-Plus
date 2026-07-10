@@ -8,11 +8,14 @@ methodology without needing its own copy of the prompts.
 
 from __future__ import annotations
 
-import json
-from typing import Any, Dict
+import json, logging
+from pathlib import Path
+from typing import Any, Dict, Optional
 
-from codewiki.mcp.session import SessionStore
+from codewiki.mcp.session import SessionStore, SessionState
 from codewiki.mcp.tools.workspace_result import write_result, _FILE_THRESHOLD
+
+logger = logging.getLogger(__name__)
 from codewiki.src.be.prompt_template import (
     USER_PROMPT,
     REPO_OVERVIEW_PROMPT,
@@ -22,6 +25,65 @@ from codewiki.src.be.prompt_template import (
     format_cluster_prompt,
     format_user_prompt,
 )
+
+
+def _build_schema_constraints(session: Optional[SessionState]) -> str:
+    """Read schema.yaml from session output_dir and build constraint text for prompts.
+
+    Extracts required_sections, documentation_dimensions, and line limits
+    from schema.yaml to inject into documentation generation prompts.
+    Returns empty string if schema is unavailable or unreadable.
+    """
+    if not session or not session.output_dir:
+        return ""
+    schema_path = Path(session.output_dir) / "schema.yaml"
+    if not schema_path.exists():
+        return ""
+    try:
+        import yaml
+        schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(schema, dict):
+        return ""
+
+    parts = []
+
+    # Required sections
+    required = schema.get("required_sections", [])
+    if required:
+        lines = []
+        for section in required:
+            if isinstance(section, dict):
+                title = section.get("title", "")
+                mermaid = section.get("mermaid_diagram", False)
+                lines.append(f"  - {title}" + (" (must include Mermaid diagram)" if mermaid else ""))
+            elif isinstance(section, str):
+                lines.append(f"  - {section}")
+        if lines:
+            parts.append("Required sections in every module doc:\n" + "\n".join(lines))
+
+    # Documentation dimensions
+    dims = schema.get("documentation_dimensions", [])
+    if dims:
+        dim_str = ", ".join(str(d).replace("_", " ") for d in dims)
+        parts.append(f"Cover these documentation dimensions: {dim_str}")
+
+    # Line constraints
+    conventions = schema.get("conventions", {})
+    min_lines = conventions.get("min_leaf_doc_lines")
+    max_lines = conventions.get("max_overview_doc_lines")
+    if min_lines or max_lines:
+        c = []
+        if min_lines:
+            c.append(f"min {min_lines} lines for leaf module docs")
+        if max_lines:
+            c.append(f"max {max_lines} lines for overview docs")
+        parts.append(f"Documentation length guidance: {', '.join(c)}")
+
+    if not parts:
+        return ""
+    return "\n\n".join(parts)
 
 
 # Prompt catalog: maps prompt_type to (raw_template, usage_hint, variables_doc)
@@ -123,6 +185,16 @@ def handle_get_prompt(
 
     catalog_entry = _PROMPT_CATALOG[prompt_type]
 
+    # Inject schema constraints from schema.yaml into variables for _resolve_prompt
+    schema_constraints = _build_schema_constraints(session)
+    variables['_has_caller_ci'] = "custom_instructions" in variables and variables["custom_instructions"]
+    if schema_constraints:
+        caller_ci = variables.get("custom_instructions")
+        if caller_ci:
+            variables["custom_instructions"] = caller_ci + "\n\n" + schema_constraints
+        else:
+            variables["custom_instructions"] = schema_constraints
+
     # Resolve the prompt content
     content = _resolve_prompt(prompt_type, variables)
 
@@ -168,7 +240,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
         module_name = variables.get("module_name", "MODULE_NAME")
         custom_instructions = variables.get("custom_instructions", None)
         doc_type = variables.get("doc_type", "design")
-        if not custom_instructions and doc_type:
+        if not variables.get("_has_caller_ci") and doc_type:
             _doc_type_hints = {
                 'api': "Focus on API documentation: endpoints, parameters, return types, and usage examples.",
                 'architecture': "Focus on architecture documentation: system design, component relationships, and data flow.",
@@ -177,14 +249,18 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
                 'business': "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details.",
                 'design': "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity.",
             }
-            custom_instructions = _doc_type_hints.get(doc_type.lower(), f"Focus on generating {doc_type} documentation.")
+            doc_type_hint = _doc_type_hints.get(doc_type.lower(), f"Focus on generating {doc_type} documentation.")
+            if custom_instructions:
+                custom_instructions = doc_type_hint + "\n\n" + custom_instructions
+            else:
+                custom_instructions = doc_type_hint
         return format_system_prompt(module_name, custom_instructions)
 
     elif prompt_type == "system_leaf":
         module_name = variables.get("module_name", "MODULE_NAME")
         custom_instructions = variables.get("custom_instructions", None)
         doc_type = variables.get("doc_type", "design")
-        if not custom_instructions and doc_type:
+        if not variables.get("_has_caller_ci") and doc_type:
             _doc_type_hints = {
                 'api': "Focus on API documentation: endpoints, parameters, return types, and usage examples.",
                 'architecture': "Focus on architecture documentation: system design, component relationships, and data flow.",
@@ -193,7 +269,11 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
                 'business': "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details.",
                 'design': "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity.",
             }
-            custom_instructions = _doc_type_hints.get(doc_type.lower(), f"Focus on generating {doc_type} documentation.")
+            doc_type_hint = _doc_type_hints.get(doc_type.lower(), f"Focus on generating {doc_type} documentation.")
+            if custom_instructions:
+                custom_instructions = doc_type_hint + "\n\n" + custom_instructions
+            else:
+                custom_instructions = doc_type_hint
         return format_leaf_system_prompt(module_name, custom_instructions)
 
     elif prompt_type == "user":
@@ -215,12 +295,17 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
         repo_structure = variables.get("repo_structure", "<REPO_STRUCTURE placeholder>")
         custom_instructions = variables.get("custom_instructions", None)
         doc_type = variables.get("doc_type", "design")
-        if not custom_instructions and doc_type:
+        if not variables.get("_has_caller_ci") and doc_type:
             _overview_hints = {
                 'architecture': "Focus on system-level architecture: show how modules relate, data flows between components, and the overall layered design. Include a high-level Mermaid architecture diagram.",
                 'design': "Focus on system-level architecture: show how modules relate to each other, data flows between components, overall layered design, and key architectural decisions. Provide a high-level view that helps readers understand the system's structural blueprint. Include Mermaid diagrams for the architecture overview.",
             }
-            custom_instructions = _overview_hints.get(doc_type.lower())
+            doc_type_hint = _overview_hints.get(doc_type.lower())
+            if doc_type_hint:
+                if custom_instructions:
+                    custom_instructions = doc_type_hint + "\n\n" + custom_instructions
+                else:
+                    custom_instructions = doc_type_hint
         custom_section = ""
         if custom_instructions:
             custom_section = f"\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
@@ -235,12 +320,17 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
         repo_structure = variables.get("repo_structure", "<REPO_STRUCTURE placeholder>")
         custom_instructions = variables.get("custom_instructions", None)
         doc_type = variables.get("doc_type", "design")
-        if not custom_instructions and doc_type:
+        if not variables.get("_has_caller_ci") and doc_type:
             _overview_hints = {
                 'architecture': "Focus on system-level architecture: show how modules relate, data flows between components, and the overall layered design. Include a high-level Mermaid architecture diagram.",
                 'design': "Focus on system-level architecture: show how modules relate to each other, data flows between components, overall layered design, and key architectural decisions. Provide a high-level view that helps readers understand the system's structural blueprint. Include Mermaid diagrams for the architecture overview.",
             }
-            custom_instructions = _overview_hints.get(doc_type.lower())
+            doc_type_hint = _overview_hints.get(doc_type.lower())
+            if doc_type_hint:
+                if custom_instructions:
+                    custom_instructions = doc_type_hint + "\n\n" + custom_instructions
+                else:
+                    custom_instructions = doc_type_hint
         custom_section = ""
         if custom_instructions:
             custom_section = f"\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
