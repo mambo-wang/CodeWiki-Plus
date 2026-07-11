@@ -153,6 +153,27 @@ Workspace 目录位于 `{repo_path}/.codewiki/sessions/{session_id}/`。
 
 读取 `processing_order.json` 获取处理顺序，**先处理叶模块**，再处理父模块。
 
+**⚠️ 并发约束（共享 session_id）：**
+
+整个阶段 3 共用阶段 1 返回的**同一个 `session_id`**，不要为每个模块单独调用 `analyze_repo` 创建新 session。在此基础上允许有限并发：
+
+**可以并发的操作（线程安全）：**
+- `write_doc_file` / `edit_doc_file`：不同模块写不同的 `.md` 文件，内部有锁保护 index 更新
+- `read_code_components`：不同模块读不同的组件源码，写入不同的 `.src` 文件
+
+**必须串行的操作（有文件冲突）：**
+- `list_components`：无论传什么参数都写同一个 `component_list.json`，并发调用会互相覆盖
+
+**推荐的并发模式（2-3 个子代理）：**
+
+1. **主代理**按 `processing_order.json` 的顺序，**串行**为每个叶模块调用 `list_components(file_prefix: "...")` 获取组件 ID 列表
+2. 攒够 2-3 个模块的组件列表后，启动 2-3 个子代理**并发**执行：读取源码 → 撰写文档 → `write_doc_file`
+3. 等当前批次全部完成后，回到步骤 1 取下一批模块
+
+每个子代理必须使用主代理传入的 `session_id` 和预获取的组件 ID 列表，**不得**自行调用 `analyze_repo` 或 `list_components`。
+
+CodeWiki MCP 服务端最多同时维护 10 个 session，超出后会静默驱逐最久未访问的 session。只要所有子代理共享同一个 session，就不会触发驱逐。
+
 **每个叶模块**（is_leaf=true）：
 
 1. 获取系统提示词：`get_prompt` → `{"prompt_type": "system_leaf", "variables": {"module_name": "<模块名>"}}`
@@ -414,6 +435,7 @@ graph TD
 
 - **Mermaid 校验失败**：工具会返回校验错误信息，修正语法后用 `edit_doc_file` + `str_replace` 重试
 - **会话过期**（2 小时超时）：重新调用 `analyze_repo` 创建新会话
+- **session not found**：通常是 session 被服务端驱逐（最多 10 个并发 session，超出后驱逐最久未访问的）。常见原因：子代理自行调了 `analyze_repo` 创建了新 session。解决方案：所有子代理必须共享主代理的 `session_id`，不得自行创建新 session。如果已被驱逐，重新调用 `analyze_repo` 获取新 session_id 后继续
 - **大型仓库**：`analyze_repo` 可能需要约 30 秒，可通过 `include_patterns`/`exclude_patterns` 缩小分析范围。不再有组件数量或源码长度的截断限制
 - **组件 ID 格式**：始终使用 `component_list.json` 中的原始 ID（如 `src/main.py::MyClass`），保留 `::` 分隔符
 - **CodeGraph 索引缺失**：如果 `codegraph_status` 报错，在项目目录执行 `codegraph init`（Windows 路径用正斜杠如 `D:/repos/project`），然后重试
