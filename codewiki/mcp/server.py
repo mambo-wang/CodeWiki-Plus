@@ -387,7 +387,7 @@ def _fine_grained_tools() -> list[Tool]:
             description=(
                 "File a structured note (decision, lesson learned, architecture rationale) "
                 "into the knowledge base. Notes are stored in repowiki/notes/ with "
-                "YAML frontmatter and indexed in decisions_index.json."
+                "YAML frontmatter and indexed in .meta/decisions_index.json."
             ),
             inputSchema={
                 "type": "object",

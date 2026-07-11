@@ -81,6 +81,30 @@ def _build_schema_constraints(session: Optional[SessionState]) -> str:
             c.append(f"max {max_lines} lines for overview docs")
         parts.append(f"Documentation length guidance: {', '.join(c)}")
 
+    # OKF frontmatter
+    if conventions.get("okf_frontmatter", False):
+        parts.append(
+            "OKF (Open Knowledge Format) compliance:\n"
+            "Every markdown file MUST start with YAML frontmatter between `---` delimiters.\n"
+            "Required field:\n"
+            "  - type: one of [Module, Architecture, Index, Log] (required)\n"
+            "Recommended fields:\n"
+            "  - title: concise document title\n"
+            "  - description: 1-2 sentence semantic summary of the module's purpose and responsibilities\n"
+            "  - resource: primary source file path or directory (e.g., src/auth/)\n"
+            "  - tags: list of meaningful semantic tags based on functionality (e.g., [authentication, jwt, session-management])\n"
+            "Example:\n"
+            "```yaml\n"
+            "---\n"
+            "type: Module\n"
+            "title: Authentication Service\n"
+            "description: Handles user authentication, JWT token generation, and session management\n"
+            "resource: src/auth/\n"
+            "tags: [authentication, jwt, session, security]\n"
+            "---\n"
+            "```"
+        )
+
     if not parts:
         return ""
     return "\n\n".join(parts)
@@ -366,7 +390,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "   - **Impact**: Which modules/components are affected?\n"
             "3. Call `ingest_note` with `note_type: 'decision'` (or 'lesson', 'architecture', 'bug_fix').\n"
             "4. If `related_modules` is omitted, the system auto-matches from content.\n"
-            "5. Notes are stored in `repowiki/notes/` and indexed in `decisions_index.json`.\n\n"
+            "5. Notes are stored in `repowiki/notes/` and indexed in `.meta/decisions_index.json`.\n\n"
             "**Tip**: Keep notes concise (200-500 words). Focus on the 'why', not the 'what'."
         )
 

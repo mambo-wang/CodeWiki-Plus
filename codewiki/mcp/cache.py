@@ -70,6 +70,84 @@ def _extract_snippet(content: str, query_tokens: List[str]) -> str:
     return "\n".join(lines[start:end]).strip()
 
 
+def _parse_frontmatter_dict(text: str) -> Dict[str, Any]:
+    """Parse YAML frontmatter into a dict. Returns {} if no frontmatter or parse fails."""
+    if not text.startswith("---"):
+        return {}
+    try:
+        end = text.index("---", 3)
+        fm_text = text[3:end]
+    except ValueError:
+        return {}
+    try:
+        import yaml
+        result = yaml.safe_load(fm_text)
+        return result if isinstance(result, dict) else {}
+    except Exception:
+        # Fallback: simple key: value parsing
+        result = {}
+        for line in fm_text.splitlines():
+            line = line.strip()
+            if ":" in line:
+                key, _, val = line.partition(":")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if val.startswith("[") and val.endswith("]"):
+                    val = [v.strip().strip('"').strip("'") for v in val[1:-1].split(",") if v.strip()]
+                if key:
+                    result[key] = val
+        return result
+
+
+def _build_indexable_text(content: str) -> str:
+    """Build indexable text from content with frontmatter field boosting.
+
+    Extracts tags (3x boost), description (2x), and title (2x) from YAML
+    frontmatter, then prepends them to the body text (without frontmatter
+    delimiters). This ensures these semantic fields participate in BM25
+    search with higher weight.
+
+    Returns the combined text string ready for _tokenize().
+    """
+    fm = _parse_frontmatter_dict(content)
+    if not fm:
+        return content
+
+    parts = []
+
+    # Tags: repeat 3x for strong boost
+    tags = fm.get("tags", [])
+    if isinstance(tags, list):
+        tags_text = " ".join(str(t) for t in tags)
+    elif isinstance(tags, str):
+        tags_text = tags
+    else:
+        tags_text = ""
+    if tags_text:
+        parts.append(tags_text)
+        parts.append(tags_text)
+        parts.append(tags_text)
+
+    # Description: repeat 2x for moderate boost
+    desc = fm.get("description", "")
+    if isinstance(desc, str) and desc:
+        parts.append(desc)
+        parts.append(desc)
+
+    # Title: repeat 2x for moderate boost
+    title = fm.get("title", "")
+    if isinstance(title, str) and title:
+        parts.append(title)
+        parts.append(title)
+
+    # Body text (frontmatter stripped by _tokenize regex, but we need it here
+    # without the delimiters so it doesn't get stripped)
+    body = _FRONTMATTER_RE.sub("", content)
+    parts.append(body)
+
+    return "\n".join(parts)
+
+
 # ------------------------------------------------------------------ ComponentMeta / LazyStore
 
 @dataclass
@@ -431,7 +509,7 @@ class AnalysisCache:
             if "<!-- crosslinks" in ct: ct = ct.split("<!-- crosslinks")[0]
             if not ct.strip(): continue
             title = _extract_title(ct) or md.stem.replace("_"," ").title()
-            tokens = _tokenize(ct)
+            tokens = _tokenize(_build_indexable_text(ct))
             if not tokens: continue
             tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
             c.execute("INSERT OR REPLACE INTO search_index VALUES(?,?,?,?,?)",
@@ -446,7 +524,7 @@ class AnalysisCache:
                 except OSError: continue
                 if not ct.strip(): continue
                 title = _extract_frontmatter(ct, "title") or nf.stem
-                tokens = _tokenize(ct)
+                tokens = _tokenize(_build_indexable_text(ct))
                 if not tokens: continue
                 tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
                 fk = f"notes/{nf.name}"
@@ -574,7 +652,7 @@ class AnalysisCache:
         except OSError: return
         if "<!-- crosslinks" in ct: ct = ct.split("<!-- crosslinks")[0]
         src = "note" if fk.startswith("notes/") else "doc"
-        tokens = _tokenize(ct)
+        tokens = _tokenize(_build_indexable_text(ct))
         self.conn.execute("DELETE FROM search_index WHERE doc_key=?",(fk,))
         self.conn.execute("DELETE FROM search_token_index WHERE doc_key=?",(fk,))
         if tokens:

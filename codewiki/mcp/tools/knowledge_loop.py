@@ -270,8 +270,11 @@ def handle_ingest_note(
 
     note_path.write_text(note_content, encoding="utf-8")
 
-    # Update decisions_index.json
-    index_path = output_dir / DECISIONS_INDEX_FILENAME
+    # Update decisions_index.json (stored in .meta/ subdirectory)
+    from codewiki.src.config import META_DIR
+    meta_dir = output_dir / META_DIR
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    index_path = meta_dir / DECISIONS_INDEX_FILENAME
     index_data: Dict[str, Any] = {"entries": []}
     if index_path.exists():
         try:

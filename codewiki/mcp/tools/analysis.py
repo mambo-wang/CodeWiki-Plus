@@ -392,7 +392,7 @@ def _detect_mtime_from_meta(repo_path: Path, metadata: Dict) -> Optional[Dict]:
         from datetime import datetime
         prev = datetime.fromisoformat(ts).timestamp()
     except Exception: return None
-    exts = {".py",".java",".js",".jsx",".ts",".tsx",".c",".h",".cpp",".hpp",".cc",".hh",".cs",".kt",".kts"}
+    exts = {".py",".java",".js",".jsx",".ts",".tsx",".c",".h",".cpp",".hpp",".cc",".hh",".cs",".kt",".kts",".go",".php",".rs"}
     ch = []
     for dp, dns, fns in os.walk(repo_path):
         dns[:] = [d for d in dns if not d.startswith(".") and d not in ("node_modules","__pycache__","venv",".venv")]

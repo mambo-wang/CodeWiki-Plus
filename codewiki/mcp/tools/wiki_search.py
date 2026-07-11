@@ -11,7 +11,7 @@ import json, logging, math, os, re, threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from codewiki.mcp.cache import _STOPWORDS, _K1, _B
+from codewiki.mcp.cache import _STOPWORDS, _K1, _B, _build_indexable_text
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class _IndexData:
             for t in di.get("term_freq",{}): df[t] = df.get(t,0) + 1
         self.doc_freq = df
     def upsert(self, fk, title, source, content, *, batch=False):
-        tokens = _tokenize(content)
+        tokens = _tokenize(_build_indexable_text(content))
         if not tokens: return
         tf = {}
         for t in tokens: tf[t] = tf.get(t,0) + 1
