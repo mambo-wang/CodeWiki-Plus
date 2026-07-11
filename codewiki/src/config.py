@@ -17,7 +17,6 @@ OVERVIEW_FILENAME = 'overview.md'
 # LLM Wiki constants
 SCHEMA_FILENAME = 'schema.yaml'
 NOTES_DIR = 'notes'
-DECISIONS_INDEX_FILENAME = 'decisions_index.json'
 INDEX_FILENAME = 'index.md'
 LOG_FILENAME = 'log.md'
 SEARCH_INDEX_FILENAME = 'search_index.json'

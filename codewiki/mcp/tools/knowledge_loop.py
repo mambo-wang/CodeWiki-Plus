@@ -214,7 +214,7 @@ def handle_ingest_note(
             return json.dumps({"error": "session_id or output_dir is required."})
         output_dir = Path(od).expanduser().resolve()
 
-    from codewiki.src.config import NOTES_DIR, DECISIONS_INDEX_FILENAME
+    from codewiki.src.config import NOTES_DIR
 
     notes_dir = output_dir / NOTES_DIR
     notes_dir.mkdir(parents=True, exist_ok=True)
@@ -270,45 +270,6 @@ def handle_ingest_note(
 
     note_path.write_text(note_content, encoding="utf-8")
 
-    # Update decisions_index.json (stored in .meta/ subdirectory)
-    from codewiki.src.config import META_DIR
-    meta_dir = output_dir / META_DIR
-    meta_dir.mkdir(parents=True, exist_ok=True)
-    index_path = meta_dir / DECISIONS_INDEX_FILENAME
-    index_data: Dict[str, Any] = {"entries": []}
-    if index_path.exists():
-        try:
-            index_data = json.loads(index_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    # Check for duplicates in index
-    existing_titles = {
-        (e.get("date"), e.get("title"))
-        for e in index_data.get("entries", [])
-    }
-    entry = {
-        "date": today,
-        "type": note_type,
-        "title": title,
-        "file": f"{NOTES_DIR}/{filename}",
-        "modules": related_modules,
-        "tags": tags,
-    }
-    if (today, title) in existing_titles:
-        # Update existing entry rather than duplicate
-        for i, e in enumerate(index_data["entries"]):
-            if e.get("date") == today and e.get("title") == title:
-                index_data["entries"][i] = entry
-                break
-    else:
-        index_data["entries"].append(entry)
-
-    index_path.write_text(
-        json.dumps(index_data, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-
     # LLM Wiki: update index.md and log.md
     try:
         from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
@@ -332,7 +293,6 @@ def handle_ingest_note(
         "auto_matched_modules": auto_matched,
         "related_modules": related_modules,
         "tags": tags,
-        "decisions_index_updated": True,
     }, indent=2, ensure_ascii=False)
 
 

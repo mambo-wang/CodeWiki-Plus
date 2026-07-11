@@ -387,7 +387,7 @@ def _fine_grained_tools() -> list[Tool]:
             description=(
                 "File a structured note (decision, lesson learned, architecture rationale) "
                 "into the knowledge base. Notes are stored in repowiki/notes/ with "
-                "YAML frontmatter and indexed in .meta/decisions_index.json."
+                "YAML frontmatter and searchable via query_wiki."
             ),
             inputSchema={
                 "type": "object",
@@ -709,6 +709,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                     build_full_index(session.output_dir, session=session)
                 except Exception:
                     pass
+                # Inject wiki usage instructions into target project's AGENTS.md
+                if session.docs_written > 0:
+                    try:
+                        from codewiki.mcp.tools.agents_md import write_agents_md
+                        write_agents_md(session)
+                    except Exception:
+                        logger.debug("Failed to update AGENTS.md", exc_info=True)
                 # Clean up workspace files on disk
                 if session.workspace is not None:
                     session.workspace.cleanup()

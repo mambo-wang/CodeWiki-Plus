@@ -15,7 +15,7 @@ conventions:
   cross_reference_format: '[[{module_name}]]({{module_name}}.md)'
   mermaid_required: true
   min_leaf_doc_lines: 200
-  max_overview_doc_lines: 300
+  max_overview_doc_lines: 1000
   auto_crosslink: true
 required_sections:
 - title: Architecture Overview

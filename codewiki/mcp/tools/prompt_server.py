@@ -390,7 +390,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "   - **Impact**: Which modules/components are affected?\n"
             "3. Call `ingest_note` with `note_type: 'decision'` (or 'lesson', 'architecture', 'bug_fix').\n"
             "4. If `related_modules` is omitted, the system auto-matches from content.\n"
-            "5. Notes are stored in `repowiki/notes/` and indexed in `.meta/decisions_index.json`.\n\n"
+            "5. Notes are stored in `repowiki/notes/` and searchable via `query_wiki`.\n\n"
             "**Tip**: Keep notes concise (200-500 words). Focus on the 'why', not the 'what'."
         )
 

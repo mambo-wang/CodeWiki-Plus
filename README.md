@@ -148,7 +148,6 @@ repowiki/
 │   ├── decision-xxx.md      #   架构决策记录
 │   ├── lesson-xxx.md        #   经验教训
 │   └── ...
-├── decisions_index.json     # 决策笔记索引
 ├── module_tree.json         # 模块层级结构
 ├── first_module_tree.json   # 初始聚类结果
 └── metadata.json            # 生成元数据
@@ -365,7 +364,6 @@ repowiki/
 │   ├── decision-xxx.md      #   Architecture decision records
 │   ├── lesson-xxx.md        #   Lessons learned
 │   └── ...
-├── decisions_index.json     # Decision notes index
 ├── module_tree.json         # Module hierarchy structure
 ├── first_module_tree.json   # Initial clustering result
 └── metadata.json            # Generation metadata
