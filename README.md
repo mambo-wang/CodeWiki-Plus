@@ -80,7 +80,8 @@ python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
     "codewiki": {
       "command": "python",
       "args": ["-m", "codewiki.mcp.server"],
-      "cwd": "/你的路径/CodeWiki-CN"
+      "cwd": "/你的路径/CodeWiki-CN",
+      "timeout": 36000000
     }
   }
 }
