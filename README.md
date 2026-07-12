@@ -141,7 +141,7 @@ repowiki/
 ├── overview.md              # 仓库总览（从这里开始阅读）
 ├── index.md                 # 自动生成的文档目录索引
 ├── log.md                   # 操作日志（记录每次写入/编辑）
-├── schema.yaml              # 项目文档规范（自动生成，可自定义）
+├── schema.yaml              # 项目文档规范（从 config.yaml 生成，可按项目自定义）
 ├── module1.md               # 各模块文档
 ├── module2.md               # ...
 ├── notes/                   # 开发知识笔记
@@ -194,7 +194,7 @@ repowiki/
 
 除了文档生成，CodeWiki-CN 还内置了 LLM Wiki 知识管理能力，让生成出的 Wiki 持续演进为项目的活知识库：
 
-- **schema.yaml**：每次 `analyze_repo` 自动生成项目文档"宪法"，包含命名规范、必需章节、文档维度、lint 设置等。支持用户自定义字段，增量更新时自动合并保留
+- **schema.yaml**：项目的文档"宪法"，包含命名规范、必需章节、文档维度、lint 设置等。CodeWiki-CN 安装目录下的 `config.yaml` 提供与语言无关的默认配置，首次 `analyze_repo` 时会读取它生成 `output_dir/schema.yaml`。**如需自定义**：修改 CodeWiki-CN 的 `config.yaml` 可改变全局默认值；修改某个项目 `output_dir` 下的 `schema.yaml` 则只影响该项目（增量更新时自动合并保留自定义字段，`project` 字段始终自动更新）
 - **交叉链接注入**：`write_doc_file` 根据组件级依赖关系自动在文档末尾注入"相关模块"章节（Depends on / Used by），通过 `schema.yaml` 中的 `auto_crosslink` 开关控制
 - **文档健康检查**：`lint_wiki` 执行 5 项检查（过期引用、断链、未覆盖高影响力组件、循环依赖、覆盖率），输出带严重级别的诊断报告
 - **知识笔记归档**：`ingest_note` 支持将开发过程中的架构决策、经验教训、Bug 修复等结构化笔记存入 `notes/` 目录，自动关联模块和提取标签
@@ -357,7 +357,7 @@ repowiki/
 ├── overview.md              # Repository overview (start reading here)
 ├── index.md                 # Auto-generated document index
 ├── log.md                   # Operation log (records every write/edit)
-├── schema.yaml              # Project documentation spec (auto-generated, customizable)
+├── schema.yaml              # Project documentation spec (from config.yaml, per-project customizable)
 ├── module1.md               # Module documentation files
 ├── module2.md               # ...
 ├── notes/                   # Development knowledge notes
@@ -410,7 +410,7 @@ Detected changes are mapped to affected modules (`affected_modules`) and parent 
 
 Beyond documentation generation, CodeWiki-CN includes an LLM Wiki knowledge management system that lets the generated Wiki evolve into a living knowledge base:
 
-- **schema.yaml**: Auto-generated on every `analyze_repo` call — the project's documentation "constitution" with naming conventions, required sections, documentation dimensions, and lint settings. User customizations are preserved during incremental updates via automatic merge
+- **schema.yaml**: The project's documentation "constitution" with naming conventions, required sections, documentation dimensions, and lint settings. The `config.yaml` in the CodeWiki-CN installation directory provides language-agnostic defaults; the first `analyze_repo` call reads it to generate `output_dir/schema.yaml`. **To customize**: edit CodeWiki-CN's `config.yaml` to change global defaults; edit a project's `output_dir/schema.yaml` to customize that project only (user customizations are auto-merged and preserved during incremental updates; `project` fields are always auto-updated)
 - **Crosslink Injection**: `write_doc_file` automatically appends a "Related Modules" section (Depends on / Used by) based on component-level dependencies, controlled by `auto_crosslink` in `schema.yaml`
 - **Documentation Health Checks**: `lint_wiki` runs 5 checks (stale refs, broken links, undocumented high-impact components, circular dependencies, coverage) and outputs a severity-tagged diagnostic report
 - **Knowledge Note Ingestion**: `ingest_note` files structured notes (architecture decisions, lessons learned, bug fixes) into the `notes/` directory with automatic module association and tag extraction

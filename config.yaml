@@ -1,0 +1,40 @@
+# CodeWiki-CN 默认配置
+# 此文件定义与目标仓库语言无关的文档生成默认值。
+# 首次 analyze_repo 时，这些配置会写入 output_dir/schema.yaml 作为初始值。
+# 如需针对某个项目自定义，直接修改该项目 output_dir 下的 schema.yaml 即可（增量更新时自动保留）。
+#
+# 自动推断的字段（不在本文件中）：
+#   project.name, project.languages, project.total_components — 每次从仓库分析结果填充
+#   conventions.module_naming — 从模块名自动检测（snake_case/camelCase/kebab-case/PascalCase）
+
+---
+
+conventions:
+  file_pattern: "*.md"
+  cross_reference_format: "[[{module_name}]]({{module_name}}.md)"
+  mermaid_required: true
+  min_leaf_doc_lines: 200
+  max_overview_doc_lines: 1000
+  auto_crosslink: true
+  okf_frontmatter: true
+  okf_tags: []
+
+required_sections:
+  - title: Architecture Overview
+    mermaid_diagram: true
+  - title: Component Responsibilities
+  - title: Cross-References
+
+documentation_dimensions:
+  - architecture_decisions
+  - api_contracts
+  - data_model_changes
+  - dependency_rationale
+
+update_policy:
+  on_code_change: update_affected
+  preserve_decisions: true
+  cascade_to_overview: true
+
+lint:
+  high_impact_threshold: 5

@@ -55,6 +55,46 @@ _DEFAULT_LINT = {
     "high_impact_threshold": 5,
 }
 
+# ── config.yaml loading ──────────────────────────────────────────────────
+
+_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config.yaml"
+_project_config_cache: Optional[dict] = None
+
+
+def _load_project_config() -> dict:
+    """Load config.yaml from CodeWiki-CN installation root.
+
+    Returns cached result on subsequent calls.  Returns empty dict on any
+    failure so callers can transparently fall back to hardcoded defaults.
+    """
+    global _project_config_cache
+    if _project_config_cache is not None:
+        return _project_config_cache
+    try:
+        import yaml
+        if _CONFIG_PATH.exists():
+            data = yaml.safe_load(_CONFIG_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                _project_config_cache = data
+                logger.info("Loaded project config from %s", _CONFIG_PATH)
+                return _project_config_cache
+    except Exception as e:
+        logger.warning("Failed to load config.yaml: %s", e)
+    _project_config_cache = {}
+    return _project_config_cache
+
+
+def _get_defaults() -> dict:
+    """Build merged defaults: hardcoded defaults overridden by config.yaml."""
+    cfg = _load_project_config()
+    return {
+        "conventions": {**_DEFAULT_CONVENTIONS, **cfg.get("conventions", {})},
+        "required_sections": cfg.get("required_sections", _DEFAULT_REQUIRED_SECTIONS),
+        "documentation_dimensions": cfg.get("documentation_dimensions", _DEFAULT_DIMENSIONS),
+        "update_policy": {**_DEFAULT_UPDATE_POLICY, **cfg.get("update_policy", {})},
+        "lint": {**_DEFAULT_LINT, **cfg.get("lint", {})},
+    }
+
 
 def _detect_naming_convention(names: List[str]) -> str:
     """Detect the dominant naming convention from a list of names."""
@@ -109,7 +149,8 @@ def generate_schema(
     # Detect naming convention from module names if available
     naming = _detect_naming_convention(module_names or [])
 
-    inferred_conventions = dict(_DEFAULT_CONVENTIONS)
+    defaults = _get_defaults()
+    inferred_conventions = dict(defaults["conventions"])
     if naming != "unknown":
         inferred_conventions["module_naming"] = naming
 
@@ -119,10 +160,10 @@ def generate_schema(
         "generated_at": datetime.now().isoformat(),
         "project": inferred_project,
         "conventions": inferred_conventions,
-        "required_sections": list(_DEFAULT_REQUIRED_SECTIONS),
-        "documentation_dimensions": list(_DEFAULT_DIMENSIONS),
-        "update_policy": dict(_DEFAULT_UPDATE_POLICY),
-        "lint": dict(_DEFAULT_LINT),
+        "required_sections": list(defaults["required_sections"]),
+        "documentation_dimensions": list(defaults["documentation_dimensions"]),
+        "update_policy": dict(defaults["update_policy"]),
+        "lint": dict(defaults["lint"]),
     }
 
     # Merge with existing schema if present
