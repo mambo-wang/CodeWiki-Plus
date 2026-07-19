@@ -38,3 +38,67 @@ update_policy:
 
 lint:
   high_impact_threshold: 5
+
+# ── LLM Wiki 知识层配置 ──────────────────────────────────────────────────
+# 以下配置控制 Wiki 结构化布局、页面类型路由和知识提取行为。
+# 修改后重新 analyze_repo 即可生效；已有项目的 schema.yaml 增量合并时保留用户自定义值。
+
+# 页面类型路由表：每种类型对应 wiki/ 下的一个子目录。
+# 可自定义 directory（输出目录）、description（描述，会注入到 LLM 提示词）、required_sections（必需章节）。
+# 新增类型时，在 schema.yaml 中添加即可，page_router.py 会自动识别。
+page_types:
+  module:
+    directory: wiki/modules
+    description: 代码模块文档，描述一个功能模块的架构、组件和依赖
+    required_sections:
+      - Architecture Overview
+      - Component Responsibilities
+      - Cross-References
+  entity:
+    directory: wiki/entities
+    description: 关键类、接口、数据模型、API 端点的独立文档
+    required_sections:
+      - 职责描述
+      - 公开 API
+      - 使用示例
+      - 依赖关系
+  concept:
+    directory: wiki/concepts
+    description: 设计模式、架构理念、领域概念的文档
+    required_sections:
+      - 概念定义
+      - 适用场景
+      - 在本项目中的应用
+  source:
+    directory: wiki/sources
+    description: 第三方文档（SDK/API/框架文档）的摘要
+    required_sections:
+      - 文档概述
+      - 关键 API/概念
+      - 与本项目相关的部分
+  comparison:
+    directory: wiki/comparisons
+    description: 方案对比、技术选型分析
+    required_sections:
+      - 背景与目标
+      - 候选方案
+      - 对比分析
+      - 结论与决策
+  query:
+    directory: wiki/queries
+    description: 方案设计决策记录，包含推理过程和权衡
+    required_sections:
+      - 问题描述
+      - 调研过程
+      - 方案权衡
+      - 决策结论
+
+# 提取粒度：控制 extraction_scan 提示词扫描源码时提取实体/概念的密度。
+#   focused    — 3-7 个关键项，适合小型项目或快速概览
+#   standard   — 适度提取，默认值
+#   exhaustive — 全面提取，适合大型项目的深度文档化
+extraction_granularity: standard
+
+# Wiki 链接语法：启用后，文档后处理会将标识符替换为 [[slug|display]] 格式。
+# 目前为预留字段，尚未在运行时消费。
+wiki_link_syntax: false

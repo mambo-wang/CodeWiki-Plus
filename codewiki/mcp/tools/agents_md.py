@@ -89,10 +89,10 @@ def _extract_modules(module_tree: dict) -> list[str]:
 def _build_section(rel_path: str, modules: list[str]) -> str:
     """Build the delimited Markdown section for AGENTS.md."""
 
-    # Module listing with links
+    # Module listing with links (structured wiki layout)
     if modules:
         module_lines = "\n".join(
-            f"- [{m}]({rel_path}/{m}.md)" for m in modules
+            f"- [{m}]({rel_path}/wiki/modules/{m}.md)" for m in modules
         )
         modules_block = f"\n**模块列表：**\n\n{module_lines}\n"
     else:
@@ -107,9 +107,9 @@ def _build_section(rel_path: str, modules: list[str]) -> str:
 
 **入口文件：**
 
-- [`{rel_path}/overview.md`]({rel_path}/overview.md) — 仓库级架构总览（含 Mermaid 架构图）
-- [`{rel_path}/index.md`]({rel_path}/index.md) — 文档目录与知识笔记索引
-- [`{rel_path}/schema.yaml`]({rel_path}/schema.yaml) — 项目文档约定（命名规范、必填章节等）
+- [`{rel_path}/wiki/overview.md`]({rel_path}/wiki/overview.md) — 仓库级架构总览（含 Mermaid 架构图）
+- [`{rel_path}/wiki/index.md`]({rel_path}/wiki/index.md) — 文档目录与知识笔记索引
+- [`{rel_path}/wiki/schema.yaml`]({rel_path}/wiki/schema.yaml) — 项目文档约定（命名规范、必填章节等）
 {modules_block}
 ### MCP 工具用法
 

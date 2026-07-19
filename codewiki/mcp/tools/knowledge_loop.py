@@ -225,6 +225,12 @@ def handle_ingest_note(
     related_modules = arguments.get("related_modules", [])
     related_components = arguments.get("related_components", [])
 
+    # LLM Wiki: new fields for pitfall/known_issue/workaround notes
+    severity = arguments.get("severity")
+    root_cause = arguments.get("root_cause")
+    source_ref = arguments.get("source_ref")
+    aliases = arguments.get("aliases", [])
+
     # Auto-match modules if not provided
     auto_matched: List[str] = []
     if not related_modules and session and session.module_tree:
@@ -256,13 +262,24 @@ def handle_ingest_note(
         f"related_modules: {json.dumps(related_modules, ensure_ascii=False)}",
         f"related_components: {json.dumps(related_components, ensure_ascii=False)}",
         f"tags: {json.dumps(tags, ensure_ascii=False)}",
-        "---",
     ]
+    # LLM Wiki: add optional fields
+    if aliases:
+        frontmatter_lines.append(f"aliases: {json.dumps(aliases, ensure_ascii=False)}")
+    if severity:
+        frontmatter_lines.append(f"severity: {severity}")
+    if root_cause:
+        frontmatter_lines.append(f"root_cause: \"{root_cause}\"")
+    if source_ref:
+        frontmatter_lines.append(f"source_ref: \"{source_ref}\"")
+    frontmatter_lines.append("---")
     note_content = "\n".join(frontmatter_lines) + "\n\n" + content + "\n"
 
     # Inject source-file links for CamelCase symbols found in symbol_map.json
     try:
-        linked_content = _inject_symbol_links(note_content, output_dir)
+        from codewiki.mcp.tools.page_router import compute_depth
+        depth = compute_depth(note_path, output_dir)
+        linked_content = _inject_symbol_links(note_content, output_dir, depth=depth)
         if linked_content != note_content:
             note_content = linked_content
     except Exception as e:
@@ -391,11 +408,13 @@ def handle_query_wiki(
     if not query:
         return json.dumps({"error": "query is required."})
 
-    scope = arguments.get("scope")  # optional module name filter
+    scope = arguments.get("scope")  # optional module name or directory prefix
     include_notes = arguments.get("include_notes", True)
+    include_sources = arguments.get("include_sources", True)
     include_code_refs = arguments.get("include_code_refs", True)
     max_results = min(20, max(1, arguments.get("max_results", 10)))
     expand_terms = arguments.get("expand_terms")  # optional synonym list
+    type_filter = arguments.get("type_filter")  # optional page type filter
 
     # Load module tree for component mapping
     module_tree = None
@@ -433,9 +452,14 @@ def handle_query_wiki(
             max_results=max_results,
             expand_terms=expand_terms,
             session=session,
+            type_filter=type_filter,
         )
 
         for r in raw_results:
+            # Filter by include_sources: skip raw/sources/ entries when disabled
+            if not include_sources and r["file"].startswith("raw/sources/"):
+                continue
+
             entry: Dict[str, Any] = {
                 "source": r["source"],
                 "file": r["file"],
@@ -468,19 +492,25 @@ def handle_query_wiki(
         results = _legacy_keyword_search(
             output_dir, query, scope, include_notes,
             include_code_refs, max_results, module_tree,
+            type_filter=type_filter, include_sources=include_sources,
         )
 
     # Build context_package summary
     doc_count = sum(1 for r in results if r["source"] == "doc")
     note_count = sum(1 for r in results if r["source"] == "note")
+    source_count = sum(1 for r in results if r["source"] == "source")
 
     parts = []
     if scope:
-        parts.append(f"Within module '{scope}':")
+        parts.append(f"Within scope '{scope}':")
+    if type_filter:
+        parts.append(f"Type: {type_filter}")
     if doc_count:
         parts.append(f"{doc_count} doc(s)")
     if note_count:
         parts.append(f"{note_count} note(s)")
+    if source_count:
+        parts.append(f"{source_count} source(s)")
     context_package = " ".join(parts) if parts else "No relevant results found."
 
     if results:
@@ -510,12 +540,14 @@ def _legacy_keyword_search(
     include_code_refs: bool,
     max_results: int,
     module_tree: Optional[dict],
+    type_filter: Optional[str] = None,
+    include_sources: bool = True,
 ) -> List[Dict[str, Any]]:
     """Fallback keyword-based search (original implementation).
 
     Used when BM25 index is unavailable.
     """
-    from codewiki.src.config import NOTES_DIR
+    from codewiki.src.config import NOTES_DIR, RAW_SOURCES_DIR
 
     keywords = _extract_keywords(query)
     if not keywords:
@@ -523,13 +555,51 @@ def _legacy_keyword_search(
 
     results: List[Dict[str, Any]] = []
 
-    # --- Search docs ---
-    for md_file in output_dir.glob("*.md"):
-        if md_file.name == "overview.md" and scope:
+    # Determine which source types to include
+    allowed_sources: set = set()
+    if type_filter:
+        if type_filter == "doc":
+            allowed_sources = {"doc"}
+        elif type_filter == "note":
+            allowed_sources = {"note"}
+        elif type_filter == "source":
+            allowed_sources = {"source"}
+        else:
+            # page_type filter: map to directory name for doc source matching
+            from codewiki.src.config import PAGE_TYPE_DIRS
+            dir_name = PAGE_TYPE_DIRS.get(type_filter, type_filter + "s")
+            allowed_sources = {"doc"}  # will filter by path prefix below
+    else:
+        allowed_sources = {"doc"}
+        if include_notes:
+            allowed_sources.add("note")
+        if include_sources:
+            allowed_sources.add("source")
+
+    # --- Search docs (recursive: wiki/ subdirs + root level) ---
+    from codewiki.src.config import WIKI_SYSTEM_FILES
+    for md_file in output_dir.rglob("*.md"):
+        if not md_file.is_file():
             continue
-        if scope:
-            if md_file.stem.lower() != scope.lower().replace(" ", "_"):
+        if md_file.name in WIKI_SYSTEM_FILES:
+            continue
+        # Skip notes/ and raw/ directories (handled separately)
+        rel_path = str(md_file.relative_to(output_dir))
+        if rel_path.startswith("notes/") or rel_path.startswith("raw/"):
+            continue
+        file_stem = md_file.stem
+        # Type filter: if type_filter is a page_type, filter by directory
+        if type_filter and type_filter not in ("doc", "note", "source"):
+            from codewiki.src.config import PAGE_TYPE_DIRS
+            dir_name = PAGE_TYPE_DIRS.get(type_filter, type_filter + "s")
+            if f"wiki/{dir_name}/" not in rel_path:
                 continue
+        if scope:
+            # Match by filename stem or by directory name (e.g. "modules", "entities")
+            if file_stem.lower() != scope.lower().replace(" ", "_"):
+                parent_name = md_file.parent.name.lower()
+                if parent_name != scope.lower().replace(" ", "_"):
+                    continue
         try:
             content = md_file.read_text(encoding="utf-8")
         except OSError:
@@ -539,21 +609,22 @@ def _legacy_keyword_search(
 
         score, snippet = _score_document(content, keywords)
         if score > 0.05:
+            title = _extract_frontmatter(content, "title") or file_stem.replace("_", " ").title()
             entry: Dict[str, Any] = {
                 "source": "doc",
-                "file": md_file.name,
-                "title": md_file.stem.replace("_", " ").title(),
+                "file": rel_path,
+                "title": title,
                 "snippet": snippet[:300],
                 "relevance_score": score,
             }
             if include_code_refs and module_tree:
-                mod_comps = _get_module_components(module_tree, md_file.stem)
+                mod_comps = _get_module_components(module_tree, file_stem)
                 if mod_comps:
                     entry["related_components"] = mod_comps[:10]
             results.append(entry)
 
     # --- Search notes ---
-    if include_notes:
+    if include_notes and (not type_filter or type_filter == "note"):
         notes_dir = output_dir / NOTES_DIR
         if notes_dir.is_dir():
             for note_file in notes_dir.glob("*.md"):
@@ -578,6 +649,30 @@ def _legacy_keyword_search(
                         "title": note_title,
                         "snippet": snippet[:300],
                         "date": note_date,
+                        "relevance_score": score,
+                    }
+                    results.append(entry)
+
+    # --- Search source documents (raw/sources/) ---
+    if include_sources and (not type_filter or type_filter == "source"):
+        raw_sources_dir = output_dir / RAW_SOURCES_DIR
+        if raw_sources_dir.is_dir():
+            for src_file in raw_sources_dir.iterdir():
+                if not src_file.is_file():
+                    continue
+                if src_file.suffix not in (".md", ".txt", ".html"):
+                    continue
+                try:
+                    src_content = src_file.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                score, snippet = _score_document(src_content, keywords)
+                if score > 0.05:
+                    entry = {
+                        "source": "source",
+                        "file": f"{RAW_SOURCES_DIR}/{src_file.name}",
+                        "title": src_file.stem.replace("_", " ").title(),
+                        "snippet": snippet[:300],
                         "relevance_score": score,
                     }
                     results.append(entry)

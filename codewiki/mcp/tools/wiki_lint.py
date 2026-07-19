@@ -22,7 +22,10 @@ logger = logging.getLogger(__name__)
 _SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 
 # All available check names
-_ALL_CHECKS = {"stale_refs", "undocumented", "broken_links", "cycles", "coverage"}
+_ALL_CHECKS = {
+    "stale_refs", "undocumented", "broken_links", "cycles", "coverage",
+    "orphan_pages", "no_outlinks", "missing_aliases", "stale_sources",
+}
 
 # Regex patterns for markdown links
 _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]\(([^\)]+\.md)\)")
@@ -98,10 +101,10 @@ def _check_stale_refs(
         return issues
 
     valid_modules = _get_all_module_names(module_tree)
-    # Also allow overview.md and notes/
-    valid_files = {f.name for f in output_dir.glob("*.md")}
+    # Recursively collect all .md files for valid_files set
+    valid_files = {f.name for f in output_dir.rglob("*.md")}
 
-    for md_file in output_dir.glob("*.md"):
+    for md_file in output_dir.rglob("*.md"):
         try:
             content = md_file.read_text(encoding="utf-8")
         except OSError:
@@ -112,12 +115,14 @@ def _check_stale_refs(
             for match in _WIKILINK_RE.finditer(line):
                 ref_name = match.group(1)
                 ref_file = match.group(2)
-                if not (output_dir / ref_file).exists():
+                # Resolve relative to source file's directory
+                resolved = (md_file.parent / ref_file).resolve()
+                if not resolved.exists():
                     issues.append({
                         "check": "stale_refs",
                         "severity": "error",
                         "message": f"Reference to non-existent file '{ref_file}' (module '{ref_name}')",
-                        "file": md_file.name,
+                        "file": str(md_file.relative_to(output_dir)),
                         "line": line_no,
                         "suggestion": f"Remove or update the reference to '{ref_name}'",
                     })
@@ -128,12 +133,14 @@ def _check_stale_refs(
                 ref_file = match.group(2)
                 if ref_file.startswith(("http://", "https://")):
                     continue
-                if not (output_dir / ref_file).exists():
+                # Resolve relative to source file's directory
+                resolved = (md_file.parent / ref_file).resolve()
+                if not resolved.exists():
                     issues.append({
                         "check": "stale_refs",
                         "severity": "error",
                         "message": f"Broken link to '{ref_file}'",
-                        "file": md_file.name,
+                        "file": str(md_file.relative_to(output_dir)),
                         "line": line_no,
                         "suggestion": f"Update the link target or remove the reference",
                     })
@@ -147,7 +154,7 @@ def _check_broken_links(
     """Find broken markdown links within the documentation directory."""
     issues: List[Dict[str, Any]] = []
 
-    for md_file in output_dir.glob("*.md"):
+    for md_file in output_dir.rglob("*.md"):
         try:
             content = md_file.read_text(encoding="utf-8")
         except OSError:
@@ -162,13 +169,14 @@ def _check_broken_links(
                 file_part = ref_file.split("#")[0]
                 if not file_part:
                     continue
-                target = (output_dir / file_part).resolve()
+                # Resolve relative to source file's directory
+                target = (md_file.parent / file_part).resolve()
                 if not target.exists():
                     issues.append({
                         "check": "broken_links",
                         "severity": "error",
                         "message": f"Link target '{ref_file}' does not exist",
-                        "file": md_file.name,
+                        "file": str(md_file.relative_to(output_dir)),
                         "line": line_no,
                         "suggestion": "Fix the link path or create the target file",
                     })
@@ -300,6 +308,193 @@ def _check_coverage(
 
 
 # ---------------------------------------------------------------------------
+#  LLM Wiki checks
+# ---------------------------------------------------------------------------
+
+def _check_orphan_pages(
+    output_dir: Path,
+) -> List[Dict[str, Any]]:
+    """Find wiki pages with no incoming links from other pages."""
+    issues: List[Dict[str, Any]] = []
+    from codewiki.src.config import WIKI_SYSTEM_FILES
+
+    # Collect all .md files and their relative paths
+    all_pages: Dict[str, Path] = {}
+    for md_file in output_dir.rglob("*.md"):
+        if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
+            continue
+        rel = str(md_file.relative_to(output_dir))
+        all_pages[rel] = md_file
+
+    if not all_pages:
+        return issues
+
+    # Build incoming link set
+    linked_targets: Set[str] = set()
+    for md_file in all_pages.values():
+        try:
+            content = md_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for match in _MD_LINK_RE.finditer(content):
+            ref_file = match.group(2).split("#")[0]
+            if ref_file.startswith(("http://", "https://", "mailto:")):
+                continue
+            # Resolve relative to the source file
+            resolved = (md_file.parent / ref_file).resolve()
+            try:
+                resolved_rel = str(resolved.relative_to(output_dir.resolve()))
+                linked_targets.add(resolved_rel)
+            except ValueError:
+                pass
+
+    # Find pages with no incoming links
+    for rel_path, md_file in all_pages.items():
+        if rel_path not in linked_targets:
+            issues.append({
+                "check": "orphan_pages",
+                "severity": "warning",
+                "message": f"Page has no incoming links",
+                "file": rel_path,
+                "suggestion": "Add cross-references from related pages",
+            })
+
+    return issues
+
+
+def _check_no_outlinks(
+    output_dir: Path,
+) -> List[Dict[str, Any]]:
+    """Find wiki pages with no outgoing links to other wiki pages."""
+    issues: List[Dict[str, Any]] = []
+    from codewiki.src.config import WIKI_SYSTEM_FILES
+
+    for md_file in output_dir.rglob("*.md"):
+        if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
+            continue
+        rel_path = str(md_file.relative_to(output_dir))
+        try:
+            content = md_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        has_outlink = False
+        for match in _MD_LINK_RE.finditer(content):
+            ref_file = match.group(2).split("#")[0]
+            if ref_file.startswith(("http://", "https://", "mailto:")):
+                continue
+            resolved = (md_file.parent / ref_file).resolve()
+            if resolved.exists():
+                has_outlink = True
+                break
+
+        if not has_outlink:
+            issues.append({
+                "check": "no_outlinks",
+                "severity": "info",
+                "message": "Page has no outgoing links to other wiki pages",
+                "file": rel_path,
+                "suggestion": "Add cross-references to related pages for better navigation",
+            })
+
+    return issues
+
+
+def _check_missing_aliases(
+    output_dir: Path,
+) -> List[Dict[str, Any]]:
+    """Find wiki pages in structured directories that lack aliases in frontmatter."""
+    issues: List[Dict[str, Any]] = []
+
+    wiki_dir = output_dir / "wiki"
+    if not wiki_dir.is_dir():
+        return issues
+
+    for md_file in wiki_dir.rglob("*.md"):
+        if not md_file.is_file():
+            continue
+        rel_path = str(md_file.relative_to(output_dir))
+        try:
+            content = md_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        # Check frontmatter for aliases
+        if content.startswith("---"):
+            try:
+                end = content.index("---", 3)
+                fm = content[3:end]
+                has_aliases = any(
+                    line.strip().startswith("aliases:")
+                    for line in fm.splitlines()
+                )
+                if not has_aliases:
+                    issues.append({
+                        "check": "missing_aliases",
+                        "severity": "info",
+                        "message": "Page lacks 'aliases' in frontmatter",
+                        "file": rel_path,
+                        "suggestion": "Add alternate names to improve search discoverability",
+                    })
+            except (ValueError, IndexError):
+                pass
+
+    return issues
+
+
+def _check_stale_sources(
+    output_dir: Path,
+) -> List[Dict[str, Any]]:
+    """Find pages referencing retracted source documents."""
+    issues: List[Dict[str, Any]] = []
+    import json as _json
+
+    from codewiki.src.config import SOURCE_REGISTRY_FILENAME
+
+    # Load source registry
+    reg_path = output_dir / SOURCE_REGISTRY_FILENAME
+    retracted_sources: Set[str] = set()
+    if reg_path.exists():
+        try:
+            registry = _json.loads(reg_path.read_text(encoding="utf-8"))
+            sources = registry.get("sources", {})
+            retracted_sources = {
+                name for name, info in sources.items()
+                if isinstance(info, dict) and info.get("status") == "retracted"
+            }
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    if not retracted_sources:
+        return issues
+
+    # Scan all wiki and notes pages for source_ref annotations
+    _SRC_REF_RE = re.compile(r"\[\^src:(\w+)(?::[^\]]*)?\]")
+    for search_dir in ("wiki", "notes"):
+        d = output_dir / search_dir
+        if not d.is_dir():
+            continue
+        for md_file in d.rglob("*.md"):
+            try:
+                content = md_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            rel_path = str(md_file.relative_to(output_dir))
+            for match in _SRC_REF_RE.finditer(content):
+                src_name = match.group(1)
+                if src_name in retracted_sources:
+                    issues.append({
+                        "check": "stale_sources",
+                        "severity": "warning",
+                        "message": f"References retracted source '{src_name}'",
+                        "file": rel_path,
+                        "suggestion": f"Update or remove the reference to '{src_name}'",
+                    })
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
 #  Main handler
 # ---------------------------------------------------------------------------
 
@@ -363,6 +558,19 @@ def handle_lint_wiki(
     if "coverage" in checks:
         all_issues.extend(_check_coverage(components, module_tree, output_dir))
 
+    # LLM Wiki checks
+    if "orphan_pages" in checks and output_dir:
+        all_issues.extend(_check_orphan_pages(output_dir))
+
+    if "no_outlinks" in checks and output_dir:
+        all_issues.extend(_check_no_outlinks(output_dir))
+
+    if "missing_aliases" in checks and output_dir:
+        all_issues.extend(_check_missing_aliases(output_dir))
+
+    if "stale_sources" in checks and output_dir:
+        all_issues.extend(_check_stale_sources(output_dir))
+
     # Filter by severity
     filtered = [
         issue for issue in all_issues
@@ -391,6 +599,17 @@ def handle_lint_wiki(
         else "All checks passed. Documentation is healthy."
     )
 
+    # Compute health score (0-100): start at 100, deduct per issue type
+    health_score = 100
+    for issue in filtered:
+        if issue["severity"] == "error":
+            health_score -= 10
+        elif issue["severity"] == "warning":
+            health_score -= 3
+        else:
+            health_score -= 1
+    health_score = max(0, health_score)
+
     # LLM Wiki: log lint operation (no index rebuild needed)
     if output_dir:
         try:
@@ -406,6 +625,7 @@ def handle_lint_wiki(
         "checks_run": checks,
         "issues": filtered,
         "summary": summary,
+        "health_score": health_score,
     }
 
     # Write to workspace file when session is available

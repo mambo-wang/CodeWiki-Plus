@@ -8,17 +8,81 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict
 
 from codewiki.mcp.session import SessionState, SessionStore
 from codewiki.mcp.tools.file_param import read_param
-from codewiki.mcp.tools.file_param import read_param
+from codewiki.mcp.tools.page_router import (
+    resolve_doc_path,
+    compute_link_path,
+    compute_depth,
+    load_schema,
+)
 
 logger = logging.getLogger(__name__)
 
 # Max edit history entries per file (prevent unbounded memory growth)
 _MAX_HISTORY_PER_FILE = 20
+
+# Pattern for inline source-reference annotations: [^src:<name>:<start>-<end>]
+_SOURCE_REF_PATTERN = re.compile(r"\[\^src:([^:\]]+):(\d+-\d+)\]")
+
+
+def _extract_source_refs(content: str) -> tuple[list[str], list[str]]:
+    """Extract source-file references from document body.
+
+    Scans for ``[^src:<name>:<start>-<end>]`` annotations and returns a
+    ``(source_refs, chunk_refs)`` tuple where *source_refs* is the sorted
+    unique set of source names and *chunk_refs* is the list of
+    ``<name>:<range>`` strings (in order of appearance).
+    """
+    source_refs: set[str] = set()
+    chunk_refs: list[str] = []
+    for match in _SOURCE_REF_PATTERN.finditer(content):
+        source_name, line_range = match.groups()
+        source_refs.add(source_name)
+        chunk_refs.append(f"{source_name}:{line_range}")
+    return sorted(source_refs), chunk_refs
+
+
+def _resync_source_refs(content: str) -> str:
+    """Re-parse ``[^src:...]`` refs from body and sync frontmatter fields.
+
+    Rewrites (or inserts) the ``source_refs`` and ``chunk_refs`` lines inside
+    an existing YAML frontmatter block so they always reflect the current
+    body.  Returns *content* unchanged when there is no frontmatter block.
+    """
+    if not content.startswith("---"):
+        return content
+    # Locate the closing delimiter of the frontmatter block
+    lines = content.split("\n")
+    close_idx = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            close_idx = i
+            break
+    if close_idx is None:
+        return content
+
+    body = "\n".join(lines[close_idx + 1:])
+    source_refs, chunk_refs = _extract_source_refs(body)
+
+    # Drop any existing source_refs/chunk_refs lines within the frontmatter
+    fm_lines = [
+        ln for ln in lines[1:close_idx]
+        if not ln.startswith("source_refs:") and not ln.startswith("chunk_refs:")
+    ]
+    if source_refs:
+        refs_str = ", ".join(f'"{r}"' for r in source_refs)
+        fm_lines.append(f"source_refs: [{refs_str}]")
+    if chunk_refs:
+        chunks_str = ", ".join(f'"{c}"' for c in chunk_refs)
+        fm_lines.append(f"chunk_refs: [{chunks_str}]")
+
+    rebuilt = ["---"] + fm_lines + ["---"] + lines[close_idx + 1:]
+    return "\n".join(rebuilt)
 
 
 def _is_within(path: Path, base: Path) -> bool:
@@ -30,26 +94,42 @@ def _is_within(path: Path, base: Path) -> bool:
         return False
 
 
-def _safe_doc_path(session: SessionState, filename: str) -> Path | None:
-    """Resolve *filename* within session.output_dir, guarding against traversal."""
-    if not filename.endswith(".md"):
-        filename += ".md"
-    output_base = Path(session.output_dir).resolve()
-    doc_path = (output_base / filename).resolve()
-    if not _is_within(doc_path, output_base):
+def _safe_doc_path(
+    session: SessionState,
+    filename: str,
+    page_type: str = "module",
+) -> Path | None:
+    """Resolve *filename* within session.output_dir using the page type routing table.
+
+    Routes the file to the correct wiki subdirectory based on *page_type*
+    (e.g. ``wiki/entities/`` for ``page_type="entity"``).  Guards against
+    directory traversal.  Returns ``None`` if the path escapes output_dir.
+    """
+    schema = load_schema(session.output_dir)
+    try:
+        return resolve_doc_path(filename, page_type, session.output_dir, schema)
+    except ValueError:
         return None
-    return doc_path
 
 
 def _build_okf_frontmatter(
     session: SessionState,
     filename: str,
     content: str,
+    page_type: str = "module",
+    frontmatter_extra: dict | None = None,
 ) -> str | None:
     """Build OKF-compliant YAML frontmatter from session metadata.
 
     Returns the frontmatter string (including --- delimiters) or None if
     the content already has frontmatter.
+
+    *page_type* controls the ``type`` field:
+      module → Module, entity → Entity, concept → Concept,
+      source → Source, comparison → Comparison, query → Query.
+
+    *frontmatter_extra* keys (aliases, category, origin, severity, etc.)
+    are merged into the frontmatter.
     """
     # Skip if content already has frontmatter
     if content.startswith("---"):
@@ -58,15 +138,16 @@ def _build_okf_frontmatter(
     mod_name = filename.replace(".md", "").replace("_", " ").title()
     repo_name = Path(session.repo_path).name if session.repo_path else "unknown"
 
-    # Determine type based on filename
-    if filename.lower() in ("overview.md", "overview"):
-        doc_type = "Architecture"
-    elif filename.lower() in ("index.md", "index"):
-        doc_type = "Index"
-    elif filename.lower() in ("log.md", "log"):
-        doc_type = "Log"
-    else:
-        doc_type = "Module"
+    # Determine type from page_type (capitalised)
+    _TYPE_MAP = {
+        "module": "Module",
+        "entity": "Entity",
+        "concept": "Concept",
+        "source": "Source",
+        "comparison": "Comparison",
+        "query": "Query",
+    }
+    doc_type = _TYPE_MAP.get(page_type, page_type.capitalize())
 
     # Extract description from first paragraph of content
     description = ""
@@ -84,28 +165,29 @@ def _build_okf_frontmatter(
         description = line[:200]
         break
 
-    # Get source files from module tree
+    # Get source files from module tree (only for module type)
     source_files: list[str] = []
-    module_tree = session.module_tree or {}
-    target_mod = filename.replace(".md", "").lower().replace(" ", "_")
+    if page_type == "module":
+        module_tree = session.module_tree or {}
+        target_mod = filename.replace(".md", "").lower().replace(" ", "_")
 
-    def _find_sources(tree: dict, target: str) -> list[str]:
-        for name, info in tree.items():
-            if name.lower().replace(" ", "_") == target:
-                components = info.get("components", [])
-                files = set()
-                for comp_id in components:
-                    if "::" in comp_id:
-                        files.add(comp_id.split("::")[0])
-                return sorted(files)[:5]  # Limit to 5 source files
-            children = info.get("children", {})
-            if isinstance(children, dict):
-                found = _find_sources(children, target)
-                if found:
-                    return found
-        return []
+        def _find_sources(tree: dict, target: str) -> list[str]:
+            for name, info in tree.items():
+                if name.lower().replace(" ", "_") == target:
+                    components = info.get("components", [])
+                    files = set()
+                    for comp_id in components:
+                        if "::" in comp_id:
+                            files.add(comp_id.split("::")[0])
+                    return sorted(files)[:5]
+                children = info.get("children", {})
+                if isinstance(children, dict):
+                    found = _find_sources(children, target)
+                    if found:
+                        return found
+            return []
 
-    source_files = _find_sources(module_tree, target_mod)
+        source_files = _find_sources(module_tree, target_mod)
 
     # Build resource URI
     if source_files:
@@ -118,53 +200,66 @@ def _build_okf_frontmatter(
     # Build tags from module name and schema
     tags = [repo_name]
     if doc_type == "Module":
-        tags.append(target_mod)
+        tags.append(filename.replace(".md", "").lower().replace(" ", "_"))
 
     # Try to read additional tags from schema.yaml
-    try:
-        from codewiki.src.config import SCHEMA_FILENAME
-        schema_path = Path(session.output_dir) / SCHEMA_FILENAME
-        if schema_path.exists():
-            import yaml
-            schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
-            if schema and schema.get("conventions", {}).get("okf_tags"):
-                tags.extend(schema["conventions"]["okf_tags"])
-    except Exception:
-        pass
+    schema = load_schema(session.output_dir)
+    if schema.get("conventions", {}).get("okf_tags"):
+        tags.extend(schema["conventions"]["okf_tags"])
 
-    # Build frontmatter
-    fm_lines = [
+    # Build frontmatter lines
+    fm_parts = [
         "---",
         f"type: {doc_type}",
         f"title: {mod_name}",
         f'description: "{description}"' if description else f"description: {mod_name}",
         f"resource: {resource}",
         f"tags: [{', '.join(tags)}]",
-        "---",
-        "",
     ]
-    return "\n".join(fm_lines)
+
+    # Merge frontmatter_extra
+    extra = frontmatter_extra or {}
+    if extra.get("aliases"):
+        aliases_str = ", ".join(f'"{a}"' for a in extra["aliases"])
+        fm_parts.append(f"aliases: [{aliases_str}]")
+    # Type-specific fields from extra
+    for key in ("category", "domain", "origin", "version", "format",
+                "decision", "status", "decided_at", "severity", "root_cause"):
+        if key in extra and extra[key]:
+            val = extra[key]
+            fm_parts.append(f'{key}: "{val}"' if isinstance(val, str) else f"{key}: {val}")
+
+    # Auto-extract source references from body ([^src:name:start-end])
+    source_refs, chunk_refs = _extract_source_refs(content)
+    if source_refs:
+        refs_str = ", ".join(f'"{r}"' for r in source_refs)
+        fm_parts.append(f"source_refs: [{refs_str}]")
+    if chunk_refs:
+        chunks_str = ", ".join(f'"{c}"' for c in chunk_refs)
+        fm_parts.append(f"chunk_refs: [{chunks_str}]")
+
+    fm_parts.append("---")
+    fm_parts.append("")
+    return "\n".join(fm_parts)
 
 
 def _inject_frontmatter(
     session: SessionState,
     filename: str,
     content: str,
+    page_type: str = "module",
+    frontmatter_extra: dict | None = None,
 ) -> str:
     """Prepend OKF frontmatter to content if not already present and enabled in schema."""
-    # Check schema.yaml for okf_frontmatter flag (default True)
-    try:
-        from codewiki.src.config import SCHEMA_FILENAME
-        schema_path = Path(session.output_dir) / SCHEMA_FILENAME
-        if schema_path.exists():
-            import yaml
-            schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
-            if schema and not schema.get("conventions", {}).get("okf_frontmatter", True):
-                return content
-    except Exception:
-        pass
+    schema = load_schema(session.output_dir)
+    if not schema.get("conventions", {}).get("okf_frontmatter", True):
+        return content
 
-    frontmatter = _build_okf_frontmatter(session, filename, content)
+    frontmatter = _build_okf_frontmatter(
+        session, filename, content,
+        page_type=page_type,
+        frontmatter_extra=frontmatter_extra,
+    )
     if frontmatter:
         return frontmatter + content
     return content
@@ -209,18 +304,8 @@ def _inject_crosslinks(
 
     Returns a summary dict if crosslinks were injected, None otherwise.
     """
-    from codewiki.src.config import SCHEMA_FILENAME
-
-    # Check schema.yaml for auto_crosslink flag
-    schema_path = Path(session.output_dir) / SCHEMA_FILENAME
-    if not schema_path.exists():
-        return None
-    try:
-        import yaml
-        schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
-        if not schema or not schema.get("conventions", {}).get("auto_crosslink", False):
-            return None
-    except Exception:
+    schema = load_schema(session.output_dir)
+    if not schema.get("conventions", {}).get("auto_crosslink", False):
         return None
 
     module_tree = session.module_tree
@@ -290,13 +375,13 @@ def _inject_crosslinks(
     lines = ["\n<!-- crosslinks (auto-generated) -->", "## Related Modules"]
     if depends_on_modules:
         links = ", ".join(
-            f"[{m}]({m.lower().replace(' ', '_')}.md)"
+            f"[{m}]({compute_link_path(doc_path, m, session.output_dir)})"
             for m in sorted(depends_on_modules)
         )
         lines.append(f"- Depends on: {links}")
     if depended_by_modules:
         links = ", ".join(
-            f"[{m}]({m.lower().replace(' ', '_')}.md)"
+            f"[{m}]({compute_link_path(doc_path, m, session.output_dir)})"
             for m in sorted(depended_by_modules)
         )
         lines.append(f"- Used by: {links}")
@@ -322,6 +407,94 @@ def _inject_crosslinks(
     }
 
 
+def _collect_wiki_terms(output_dir: Path, exclude: Path | None = None) -> dict[str, str]:
+    """Build a {term_lower: slug} map from existing wiki pages.
+
+    Scans ``wiki/**/*.md`` frontmatter for ``slug``/``title``/``aliases`` so
+    plain-text mentions can be turned into ``[[slug|display]]`` wiki-links.
+    """
+    terms: dict[str, str] = {}
+    wiki_dir = output_dir / "wiki"
+    if not wiki_dir.is_dir():
+        return terms
+    for md_file in wiki_dir.rglob("*.md"):
+        if exclude is not None and md_file == exclude:
+            continue
+        try:
+            text = md_file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if not text.startswith("---"):
+            continue
+        lines = text.split("\n")
+        slug = md_file.stem
+        title = None
+        aliases: list[str] = []
+        for ln in lines[1:]:
+            if ln.strip() == "---":
+                break
+            if ln.startswith("slug:"):
+                slug = ln.split(":", 1)[1].strip().strip('"')
+            elif ln.startswith("title:"):
+                title = ln.split(":", 1)[1].strip().strip('"')
+            elif ln.startswith("aliases:"):
+                raw = ln.split(":", 1)[1].strip().strip("[]")
+                aliases = [a.strip().strip('"') for a in raw.split(",") if a.strip()]
+        for term in filter(None, [title, *aliases]):
+            if len(term) >= 3:  # avoid noisy tiny terms
+                terms[term.lower()] = slug
+    return terms
+
+
+def _inject_wiki_links(content: str, terms: dict[str, str]) -> str:
+    """Convert first plain-text mention of each known term into ``[[slug|term]]``.
+
+    Skips fenced code blocks, existing links, and the frontmatter block.
+    """
+    if not terms:
+        return content
+
+    # Separate frontmatter so we never rewrite it
+    prefix = ""
+    body = content
+    if content.startswith("---"):
+        parts = content.split("\n")
+        for i in range(1, len(parts)):
+            if parts[i].strip() == "---":
+                prefix = "\n".join(parts[: i + 1]) + "\n"
+                body = "\n".join(parts[i + 1:])
+                break
+
+    # Sort longer terms first to prefer specific matches
+    sorted_terms = sorted(terms.items(), key=lambda kv: len(kv[0]), reverse=True)
+
+    lines = body.split("\n")
+    in_code = False
+    linked: set[str] = set()
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code or stripped.startswith("#"):
+            continue
+        for term_lower, slug in sorted_terms:
+            if term_lower in linked:
+                continue
+            # Word-boundary, case-insensitive, not already inside [[ ]] or [ ]( )
+            pattern = re.compile(
+                rf"(?<!\[)(?<!\w)({re.escape(term_lower)})(?!\w)(?!\]\()(?![^\[]*\]\])",
+                re.IGNORECASE,
+            )
+            m = pattern.search(line)
+            if m:
+                matched = m.group(1)
+                line = line[: m.start()] + f"[[{slug}|{matched}]]" + line[m.end():]
+                lines[idx] = line
+                linked.add(term_lower)
+    return prefix + "\n".join(lines)
+
+
 async def handle_write_doc_file(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -333,7 +506,10 @@ async def handle_write_doc_file(
         return json.dumps({"error": f"Session {session_id} not found or expired."})
 
     filename = arguments["filename"]
-    doc_path = _safe_doc_path(session, filename)
+    page_type = arguments.get("page_type", "module")
+    frontmatter_extra = arguments.get("frontmatter_extra") or None
+
+    doc_path = _safe_doc_path(session, filename, page_type=page_type)
     if doc_path is None:
         return json.dumps({"error": "Filename escapes output directory."})
 
@@ -349,13 +525,29 @@ async def handle_write_doc_file(
         })
 
     # OKF: inject YAML frontmatter from session metadata
-    content = _inject_frontmatter(session, filename, content)
+    content = _inject_frontmatter(
+        session, filename, content,
+        page_type=page_type,
+        frontmatter_extra=frontmatter_extra,
+    )
 
     doc_path.write_text(content, encoding="utf-8")
     session.docs_written += 1
 
     # Mermaid validation
     mermaid_result = await _validate_mermaid(str(doc_path), filename)
+
+    # LLM Wiki: wiki-link injection ([[slug|display]]) opt-in via schema.wiki_link_syntax
+    try:
+        schema = load_schema(session.output_dir)
+        if schema.get("wiki_link_syntax", False):
+            terms = _collect_wiki_terms(Path(session.output_dir), exclude=doc_path)
+            raw = doc_path.read_text(encoding="utf-8")
+            linked = _inject_wiki_links(raw, terms)
+            if linked != raw:
+                doc_path.write_text(linked, encoding="utf-8")
+    except Exception:
+        pass
 
     # LLM Wiki: crosslink injection (opt-in via schema.yaml auto_crosslink)
     crosslink_info = _inject_crosslinks(session, filename, doc_path)
@@ -364,7 +556,8 @@ async def handle_write_doc_file(
     try:
         from codewiki.mcp.tools.knowledge_loop import _inject_symbol_links
         raw = doc_path.read_text(encoding="utf-8")
-        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=1)
+        depth = compute_depth(doc_path, session.output_dir)
+        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=depth)
         if linked != raw:
             doc_path.write_text(linked, encoding="utf-8")
     except Exception:
@@ -374,6 +567,7 @@ async def handle_write_doc_file(
         "status": "created",
         "path": str(doc_path),
         "filename": filename,
+        "page_type": page_type,
         "lines": content.count("\n") + 1,
         "mermaid_validation": mermaid_result,
     }
@@ -409,7 +603,8 @@ async def handle_edit_doc_file(
         return json.dumps({"error": f"Session {session_id} not found or expired."})
 
     filename = arguments["filename"]
-    doc_path = _safe_doc_path(session, filename)
+    page_type = arguments.get("page_type", "module")
+    doc_path = _safe_doc_path(session, filename, page_type=page_type)
     if doc_path is None:
         return json.dumps({"error": "Filename escapes output directory."})
 
@@ -504,6 +699,15 @@ async def handle_edit_doc_file(
 
     session.docs_written += 1
 
+    # LLM Wiki: re-parse source_refs/chunk_refs from body after edit
+    try:
+        raw = doc_path.read_text(encoding="utf-8")
+        resynced = _resync_source_refs(raw)
+        if resynced != raw:
+            doc_path.write_text(resynced, encoding="utf-8")
+    except Exception:
+        pass
+
     # Mermaid validation
     mermaid_result = await _validate_mermaid(str(doc_path), filename)
 
@@ -511,7 +715,8 @@ async def handle_edit_doc_file(
     try:
         from codewiki.mcp.tools.knowledge_loop import _inject_symbol_links
         raw = doc_path.read_text(encoding="utf-8")
-        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=1)
+        depth = compute_depth(doc_path, session.output_dir)
+        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=depth)
         if linked != raw:
             doc_path.write_text(linked, encoding="utf-8")
     except Exception:

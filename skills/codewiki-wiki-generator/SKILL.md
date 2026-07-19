@@ -1,7 +1,7 @@
 ---
 name: codewiki-wiki-generator
-description: "使用 CodeWiki-CN MCP 工具为代码仓库生成 Wiki 文档并管理 LLM Wiki 知识库。当用户要求生成 Wiki、代码文档、仓库文档、分析代码库结构时使用；也适用于查询已有 Wiki（query_wiki）、归档设计决策和经验教训（ingest_note）、检查文档一致性（lint_wiki）。需要已配置 CodeWiki-CN MCP 服务器。可选搭配 CodeGraph MCP 获得调用图和影响范围分析增强。"
-version: 4.0.0
+description: "使用 CodeWiki-CN MCP 工具为代码仓库生成结构化 Wiki 文档并管理 LLM Wiki 知识库。当用户要求生成 Wiki、代码文档、仓库文档、分析代码库结构时使用；也适用于查询已有 Wiki（query_wiki）、归档设计决策和经验教训（ingest_note）、导入第三方文档（ingest_source）、批量导入（batch_ingest）、标记质量问题（flag_issue）、检查文档一致性（lint_wiki，含 health score）。支持 6 种页面类型（module/entity/concept/source/comparison/query）。需要已配置 CodeWiki-CN MCP 服务器。可选搭配 CodeGraph MCP 获得调用图和影响范围分析增强。"
+version: 5.0.0
 ---
 
 # CodeWiki 文档生成器
@@ -10,7 +10,7 @@ version: 4.0.0
 
 ## 使用边界
 
-**做什么：** 代码仓库文档生成、Wiki 知识库管理（查询/归档/一致性检查）。
+**做什么：** 代码仓库文档生成、Wiki 知识库管理（查询/归档/一致性检查/外部文档导入/批量操作/质量追踪）。支持 6 种页面类型：module、entity、concept、source、comparison、query。
 
 **不做什么：**
 - 不处理非代码类文档生成（报告、PPT、邮件等）
@@ -29,7 +29,7 @@ version: 4.0.0
 
 ## schema.yaml 配置
 
-`schema.yaml` 是项目的文档"宪法"，控制命名规范、必需章节、文档维度、Mermaid 要求、行数限制、交叉链接开关、lint 阈值等。
+`schema.yaml` 是项目的文档"宪法"，控制命名规范、必需章节、文档维度、Mermaid 要求、行数限制、交叉链接开关、lint 阈值，以及 **page_types 路由表**（定义每种页面类型的目录和 frontmatter 字段）和 **extraction_granularity**（提取粒度）。
 
 - **全局默认值**：CodeWiki-CN 安装目录下的 `config.yaml` 定义与语言无关的默认配置，首次 `analyze_repo` 时自动读取并生成 `output_dir/schema.yaml`
 - **自定义**：修改 `config.yaml` 改变全局默认值；修改 `output_dir/schema.yaml` 只影响该项目（增量更新时自动合并保留自定义字段，`project` 字段始终自动更新）
@@ -115,7 +115,9 @@ save_module_tree → {
 2. `read_code_components` → 读取源码
 3. 🔗 增强模式：收集调用关系数据（详见 [CodeGraph 增强](references/codegraph.md#阶段-3-调用关系)）
 4. 撰写文档：模块简介、架构图（≥1 个 Mermaid）、组件职责、交叉引用 `[模块名](模块名.md)`
-5. `write_doc_file` → `{"session_id": "...", "filename": "<模块名>.md", "content": "..."}`
+5. `write_doc_file` → `{"session_id": "...", "filename": "<模块名>.md", "content": "...", "page_type": "module"}`
+
+> `page_type` 参数控制文件路由：`module` → `wiki/modules/`，`entity` → `wiki/entities/`，`concept` → `wiki/concepts/` 等。默认为 `module`。生成实体/概念等页面时指定对应类型即可。
 
 **父模块**（is_leaf=false）：
 
@@ -155,7 +157,22 @@ close_session → {"session_id": "<session_id>"}
 
 ## LLM Wiki 知识库
 
-Wiki 生成后，三个知识管理工具**无需活跃 session**，通过 `output_dir` 定位 Wiki 即可使用。完整用法和示例见 [知识库详解](references/knowledge-base.md)。
+Wiki 生成后，8 个知识管理工具**无需活跃 session**，通过 `output_dir` 定位 Wiki 即可使用。完整用法和示例见 [知识库详解](references/knowledge-base.md)。
+
+### 结构化 Wiki 布局
+
+所有内容按页面类型组织在 `wiki/` 子目录下，由 `page_router.py` 统一路由：
+
+| 页面类型 | 目录 | 说明 |
+|----------|------|------|
+| `module` | `wiki/modules/` | 模块文档 |
+| `entity` | `wiki/entities/` | 实体：类、接口、数据库表 |
+| `concept` | `wiki/concepts/` | 概念：设计模式、业务概念 |
+| `source` | `wiki/sources/` | 外部文档摘要 |
+| `comparison` | `wiki/comparisons/` | 对比分析 |
+| `query` | `wiki/queries/` | 研究查询 |
+
+另有 `raw/sources/`（第三方文档原文件）、`.meta/issues.json`（质量问题）、`.meta/source_registry.json`（外部文档注册表）。
 
 ### 工具选择原则
 
@@ -168,19 +185,44 @@ Wiki 生成后，三个知识管理工具**无需活跃 session**，通过 `outp
 
 ### 快速参考
 
-**query_wiki** — 搜索文档和笔记：
+**query_wiki** — 搜索文档和笔记（支持类型过滤）：
 ```json
-{"query": "自然语言问题", "include_notes": true, "expand_terms": ["同义词1", "同义词2"]}
+{"query": "自然语言问题", "include_notes": true, "type_filter": "entity", "expand_terms": ["同义词1", "同义词2"]}
 ```
 
-**ingest_note** — 归档经验到知识库：
+**ingest_note** — 归档经验到知识库（新增 pitfall/known_issue/workaround 类型）：
 ```json
-{"note_type": "decision|lesson|architecture|bug_fix|general", "title": "标题", "content": "Markdown 内容", "related_modules": ["模块名"]}
+{"note_type": "decision|lesson|architecture|bug_fix|pitfall|known_issue|workaround|general", "title": "标题", "content": "Markdown 内容", "related_modules": ["模块名"], "severity": "high", "aliases": ["别名1"]}
 ```
 
-**lint_wiki** — 文档-代码一致性检查（5 项：过时引用、断链、未文档化组件、循环依赖、覆盖率）：
+**ingest_source** — 导入第三方文档到 `raw/sources/`：
 ```json
-{}
+{"name": "rfc-7519", "source_type": "rfc", "source_path": "/path/to/file", "description": "JWT 规范", "related_pages": ["auth-module"]}
+```
+
+**retract_source** — 撤回外部文档（`flag_stale` 标记过期 / `remove_refs` 删除并清理引用）：
+```json
+{"source_name": "rfc-7519", "mode": "flag_stale"}
+```
+
+**batch_ingest** — 批量导入多个笔记/文档（也支持 `items_file` 路径）：
+```json
+{"items": [{"item_type": "note", "note_type": "decision", "title": "...", "content": "..."}, {"item_type": "source", "source_type": "api_doc", "source_path": "...", "name": "..."}]}
+```
+
+**flag_issue** — 标记 Wiki 质量问题，写入 `issues.json`，驱动 health score：
+```json
+{"issue_type": "broken_link|missing_doc|inconsistent|outdated|orphan", "page_path": "wiki/modules/auth.md", "severity": "error|warning|info", "description": "链接指向不存在的页面"}
+```
+
+**lint_wiki** — 文档一致性检查（9 项：过时引用、断链、未文档化组件、循环依赖、覆盖率、孤立页面、无出链、缺少别名、过期外部源），返回 `health_score`（0-100）：
+```json
+{"checks": ["stale_refs", "broken_links", "orphan_pages", "missing_aliases", "stale_sources"]}
+```
+
+**get_prompt 新模板** — 7 个页面类型模板（entity_page/concept_page/source_summary/comparison_page/query_page/taxonomy_plan/extraction_scan），加上原有 3 个共 10 个 Wiki 模板：
+```json
+{"prompt_type": "entity_page", "variables": {"entity_name": "PaymentService"}}
 ```
 
 ## Mermaid 规范
@@ -195,7 +237,8 @@ Wiki 生成后，三个知识管理工具**无需活跃 session**，通过 `outp
 
 - **语言**：默认中文
 - **图表**：每个叶模块 ≥1 个 Mermaid 架构图，优先 `graph TD` 或 `graph LR`
-- **交叉引用**：`[模块名](模块名.md)`
+- **交叉引用**：`[模块名](modules/模块名.md)`（wiki/ 内部使用相对路径）
+- **别名**：文档 frontmatter 中声明 `aliases` 列表，搜索时获得 3× BM25 权重提升
 - **篇幅**：叶模块 200-500 行，父模块 100-300 行，仓库总览 80-200 行
 - **代码示例**：关键函数/类展示签名和简要用法
 

@@ -142,7 +142,23 @@ def build_full_index(output_dir, session=None):
 
     # Legacy JSON fallback
     with _build_lock:
-        idx = _IndexData(); dc = nc = 0
+        idx = _IndexData(); dc = nc = sc = 0
+
+        # Scan wiki/ subdirectories recursively
+        from codewiki.src.config import WIKI_DIR, WIKI_SYSTEM_FILES
+        wiki_dir = od / WIKI_DIR
+        if wiki_dir.is_dir():
+            for md in sorted(wiki_dir.rglob("*.md")):
+                if not md.is_file(): continue
+                if md.name in WIKI_SYSTEM_FILES: continue
+                ct = _read_doc(md)
+                if not ct.strip(): continue
+                title = _extract_title(ct) or md.stem.replace("_"," ").title()
+                try: fk = str(md.relative_to(od)).replace("\\", "/")
+                except ValueError: fk = md.name
+                idx.upsert(fk, title, "doc", ct, batch=True); dc += 1
+
+        # Also scan root-level .md files (for repos without wiki/ dir)
         for md in sorted(od.iterdir()):
             if not md.is_file() or md.suffix != ".md": continue
             if md.name in _SYSTEM_FILES: continue
@@ -150,6 +166,8 @@ def build_full_index(output_dir, session=None):
             if not ct.strip(): continue
             title = _extract_title(ct) or md.stem.replace("_"," ").title()
             idx.upsert(md.name, title, "doc", ct, batch=True); dc += 1
+
+        # Scan notes/
         nd = od / _NOTES_DIR
         if nd.is_dir():
             for nf in sorted(nd.iterdir()):
@@ -158,8 +176,22 @@ def build_full_index(output_dir, session=None):
                 if not ct.strip(): continue
                 title = _extract_fm(ct, "title") or nf.stem
                 idx.upsert(f"{_NOTES_DIR}/{nf.name}", title, "note", ct, batch=True); nc += 1
+
+        # Scan raw/sources/
+        raw_dir = od / "raw" / "sources"
+        if raw_dir.is_dir():
+            for sf in sorted(raw_dir.iterdir()):
+                if not sf.is_file(): continue
+                if sf.suffix not in (".md", ".txt", ".rst"): continue
+                try: ct = sf.read_text(encoding="utf-8", errors="replace")
+                except OSError: continue
+                if not ct.strip(): continue
+                title = sf.stem.replace("_", " ").replace("-", " ").title()
+                idx.upsert(f"raw/sources/{sf.name}", title, "source", ct, batch=True); sc += 1
+
         idx.finalize(); _save_index(od, idx)
-    return {"docs_indexed": dc, "notes_indexed": nc, "total_docs": idx.total_docs,
+    return {"docs_indexed": dc, "notes_indexed": nc, "sources_indexed": sc,
+            "total_docs": idx.total_docs,
             "avg_doc_len": round(idx.avg_doc_len,1), "vocabulary_size": len(idx.doc_freq)}
 
 def update_file(output_dir, filepath, session=None):
@@ -190,7 +222,7 @@ def remove_file(output_dir, filepath):
         if idx.remove(fk): _save_index(od, idx)
 
 def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
-           score_threshold=0.1, expand_terms=None, session=None):
+           score_threshold=0.1, expand_terms=None, session=None, type_filter=None):
     """BM25 search. Uses SQLite cache if session available."""
     od = Path(output_dir); max_results = min(20, max(1, max_results))
 
@@ -198,7 +230,7 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
     if session is not None and getattr(session, "cache", None) is not None:
         try: return session.cache.search(query, scope=scope or "", include_notes=include_notes,
                                           max_results=max_results, score_threshold=score_threshold,
-                                          output_dir=od)
+                                          output_dir=od, type_filter=type_filter)
         except Exception as e: logger.warning("SQLite search failed: %s", e)
 
     # Legacy JSON fallback

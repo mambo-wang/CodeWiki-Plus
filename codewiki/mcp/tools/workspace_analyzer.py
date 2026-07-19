@@ -70,7 +70,7 @@ def _generate_overview(
         languages = ", ".join(r.get("languages", {}).keys()) or "—"
         components = r.get("total_components", 0)
         leaf_nodes = r.get("total_leaf_nodes", 0)
-        wiki_link = f"[overview]({r['output_dir']}/overview.md)" if r.get("has_overview") else f"[wiki]({r['output_dir']}/)"
+        wiki_link = f"[wiki]({r['output_dir']}/wiki/)" if r.get("has_overview") else f"[wiki]({r['output_dir']}/)"
         lines.append(
             f"| {name} | `{rel_path}` | {languages} | {components} | {leaf_nodes} | {wiki_link} |"
         )
@@ -97,7 +97,7 @@ def _generate_overview(
         name = r["name"]
         rel_path = r["relative_path"]
         output_rel = r["output_dir"]
-        lines.append(f"- [{name}]({output_rel}/overview.md) — `{rel_path}`")
+        lines.append(f"- [{name}]({output_rel}/wiki/overview.md) — `{rel_path}`")
 
     lines.append("")
 
@@ -177,7 +177,7 @@ def handle_analyze_workspace(
                 "total_components": result.get("total_components", summary.get("total_components", 0)),
                 "total_leaf_nodes": result.get("total_leaf_nodes", summary.get("total_leaf_nodes", 0)),
                 "languages": summary.get("languages", result.get("languages", {})),
-                "has_overview": (repo_output_dir / "overview.md").exists(),
+                "has_overview": (repo_output_dir / "overview.md").exists() or (repo_output_dir / "wiki" / "overview.md").exists(),
             })
         except Exception as e:
             logger.error("Failed to analyze %s: %s", repo_path.name, e)
