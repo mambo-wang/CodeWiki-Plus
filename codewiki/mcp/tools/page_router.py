@@ -188,6 +188,11 @@ def resolve_doc_path(
     # Already has a directory prefix?
     if "/" in filename or "\\" in filename:
         candidate = (od / filename).resolve()
+    elif filename == OVERVIEW_FILENAME:
+        # Overview always lives at wiki/overview.md (not in a page_type subdir)
+        wiki_dir = od / WIKI_DIR
+        wiki_dir.mkdir(parents=True, exist_ok=True)
+        candidate = (wiki_dir / filename).resolve()
     else:
         target_dir = get_page_type_dir(page_type, od, schema)
         target_dir.mkdir(parents=True, exist_ok=True)

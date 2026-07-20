@@ -9,6 +9,7 @@ references (flag_stale or remove_refs mode).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -23,9 +24,12 @@ logger = logging.getLogger(__name__)
 
 
 def _load_registry(output_dir: Path) -> Dict[str, Any]:
-    """Load source_registry.json from output_dir. Returns empty registry on failure."""
-    from codewiki.src.config import SOURCE_REGISTRY_FILENAME
-    reg_path = output_dir / SOURCE_REGISTRY_FILENAME
+    """Load source_registry.json from output_dir/.meta/. Falls back to root for compat."""
+    from codewiki.src.config import SOURCE_REGISTRY_FILENAME, META_DIR
+    # Prefer .meta/ location, fallback to root (backward compat)
+    meta_path = output_dir / META_DIR / SOURCE_REGISTRY_FILENAME
+    root_path = output_dir / SOURCE_REGISTRY_FILENAME
+    reg_path = meta_path if meta_path.exists() else root_path
     if not reg_path.exists():
         return {"sources": {}, "version": 1}
     try:
@@ -36,10 +40,11 @@ def _load_registry(output_dir: Path) -> Dict[str, Any]:
 
 
 def _save_registry(output_dir: Path, registry: Dict[str, Any]) -> None:
-    """Persist source_registry.json to output_dir."""
-    from codewiki.src.config import SOURCE_REGISTRY_FILENAME
-    reg_path = output_dir / SOURCE_REGISTRY_FILENAME
-    reg_path.parent.mkdir(parents=True, exist_ok=True)
+    """Persist source_registry.json to output_dir/.meta/."""
+    from codewiki.src.config import SOURCE_REGISTRY_FILENAME, META_DIR
+    meta_dir = output_dir / META_DIR
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    reg_path = meta_dir / SOURCE_REGISTRY_FILENAME
     reg_path.write_text(json.dumps(registry, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -87,6 +92,27 @@ def handle_ingest_source(
     version = arguments.get("version", "")
     related_pages = arguments.get("related_pages", [])
 
+    # SHA-256 content fingerprint for deduplication
+    try:
+        content_hash = hashlib.sha256(src.read_bytes()).hexdigest()
+    except OSError:
+        content_hash = ""
+
+    if content_hash:
+        registry = _load_registry(output_dir)
+        hash_key = f"sha256:{content_hash}"
+        for existing_name, info in registry.get("sources", {}).items():
+            if isinstance(info, dict) and info.get("content_hash") == hash_key:
+                if info.get("status") != "retracted":
+                    return json.dumps({
+                        "status": "duplicate",
+                        "name": name,
+                        "existing_name": existing_name,
+                        "content_hash": f"sha256:{content_hash[:16]}...",
+                        "message": f"Content identical to existing source '{existing_name}'. "
+                                   f"Use a different file or retract the existing source first.",
+                    }, indent=2, ensure_ascii=False)
+
     # Ensure raw/sources/ directory exists
     from codewiki.src.config import RAW_SOURCES_DIR
     raw_sources = output_dir / RAW_SOURCES_DIR
@@ -119,6 +145,7 @@ def handle_ingest_source(
         "imported_at": now,
         "related_pages": related_pages,
         "status": "active",
+        "content_hash": f"sha256:{content_hash}" if content_hash else "",
     }
     _save_registry(output_dir, registry)
 

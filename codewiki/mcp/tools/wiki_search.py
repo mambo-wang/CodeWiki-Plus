@@ -75,7 +75,15 @@ class _IndexData:
         if fk in self.docs: del self.docs[fk]; self._recompute(); return True
         return False
 
-def _index_path(od): return Path(od) / _SEARCH_INDEX_FILENAME
+def _index_path(od):
+    """Search index lives in .meta/ to keep output_dir root clean."""
+    from codewiki.src.config import META_DIR
+    meta_path = Path(od) / META_DIR / _SEARCH_INDEX_FILENAME
+    root_path = Path(od) / _SEARCH_INDEX_FILENAME
+    # Prefer .meta/, fallback to root for backward compat (read-only)
+    if meta_path.exists() or not root_path.exists():
+        return meta_path
+    return root_path
 def _load_index(od):
     p = _index_path(od)
     if not p.exists(): return _IndexData()

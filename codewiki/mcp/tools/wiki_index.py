@@ -78,12 +78,10 @@ def rebuild_index(output_dir: str | Path) -> None:
             PAGE_TYPE_DIRS,
         )
 
-        # Determine index path: prefer wiki/index.md, fallback to output_dir/index.md
+        # Index always lives in wiki/index.md (create wiki/ if needed)
         wiki_dir = output_dir / WIKI_DIR
-        if wiki_dir.is_dir():
-            index_path = wiki_dir / INDEX_FILENAME
-        else:
-            index_path = output_dir / INDEX_FILENAME
+        wiki_dir.mkdir(parents=True, exist_ok=True)
+        index_path = wiki_dir / INDEX_FILENAME
 
         # --- Collect wiki pages by type ---
         type_entries: Dict[str, List[Dict[str, str]]] = {
@@ -103,7 +101,8 @@ def rebuild_index(output_dir: str | Path) -> None:
                     if md_file.name in _EXCLUDED_FROM_INDEX:
                         continue
                     title, summary = _extract_doc_title_and_summary(md_file)
-                    rel_path = str(md_file.relative_to(output_dir))
+                    # Paths relative to wiki/ (where index.md lives)
+                    rel_path = str(md_file.relative_to(wiki_dir)).replace("\\", "/")
                     type_entries[page_type].append(
                         {"title": title, "summary": summary, "relpath": rel_path}
                     )
@@ -120,7 +119,7 @@ def rebuild_index(output_dir: str | Path) -> None:
                         "title": fm.get("title", note_file.stem),
                         "type": fm.get("type", "note"),
                         "date": str(fm.get("date", "")),
-                        "relpath": f"{NOTES_DIR}/{note_file.name}",
+                        "relpath": f"../{NOTES_DIR}/{note_file.name}",
                     }
                 )
         # newest first
@@ -198,12 +197,10 @@ def append_log(
 
     from codewiki.src.config import LOG_FILENAME, WIKI_DIR
 
-    # Prefer wiki/log.md, fallback to output_dir/log.md
+    # Log always lives in wiki/log.md (create wiki/ if needed)
     wiki_dir = output_dir / WIKI_DIR
-    if wiki_dir.is_dir():
-        log_path = wiki_dir / LOG_FILENAME
-    else:
-        log_path = output_dir / LOG_FILENAME
+    wiki_dir.mkdir(parents=True, exist_ok=True)
+    log_path = wiki_dir / LOG_FILENAME
 
     # Escape pipe characters to prevent table corruption
     safe_op = operation.replace("|", "\\|")

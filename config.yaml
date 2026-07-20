@@ -9,34 +9,66 @@
 
 ---
 
+# ── 文档规范 ─────────────────────────────────────────────────────────────
 conventions:
+  # 文档文件匹配模式，lint 和索引扫描时只处理匹配此 glob 的文件
   file_pattern: "*.md"
+  # 模块间交叉引用的链接格式模板。
+  # {module_name} 会被替换为实际模块名，生成如 [引擎核心](引擎核心.md) 的相对链接
   cross_reference_format: "[[{module_name}]]({{module_name}}.md)"
+  # 是否要求每个叶模块文档至少包含一个 Mermaid 架构图。
+  # true 时 get_prompt 会在系统提示中强调此要求，lint 也会检查
   mermaid_required: true
+  # 叶模块文档的最小行数。低于此值时 lint 报 warning（内容可能过于简略）
   min_leaf_doc_lines: 200
+  # 父模块/总览文档的最大行数。超过此值时 lint 报 warning（建议拆分子模块）
   max_overview_doc_lines: 1000
+  # 是否在 write_doc_file 后自动注入「相关模块」交叉链接章节。
+  # 基于模块树的依赖关系计算 "Depends on" / "Used by" 链接
   auto_crosslink: true
+  # 是否强制 OKF（Open Knowledge Format）frontmatter。
+  # true 时每个 .md 文件必须以 YAML frontmatter 开头，包含 type/title/description/tags 字段
   okf_frontmatter: true
+  # 全局默认标签列表，会自动追加到每个文档的 frontmatter tags 中。
+  # 例如 [project-x, v2] 会让所有文档带上这些标签，便于跨项目检索
   okf_tags: []
 
+# ── 必需章节 ─────────────────────────────────────────────────────────────
+# 叶模块文档必须包含的章节列表。get_prompt 会将其注入系统提示，
+# lint 的 coverage 检查会验证这些章节是否存在。
 required_sections:
-  - title: Architecture Overview
-    mermaid_diagram: true
-  - title: Component Responsibilities
-  - title: Cross-References
+  - title: Architecture Overview    # 架构总览，描述模块整体设计
+    mermaid_diagram: true           # 此章节必须包含至少一个 Mermaid 图
+  - title: Component Responsibilities  # 组件职责，逐一说明各组件的功能
+  - title: Cross-References         # 交叉引用，列出与其他模块的依赖关系
 
+# ── 文档维度 ─────────────────────────────────────────────────────────────
+# 文档应覆盖的关注维度。get_prompt 会提示 LLM 从这些角度描述模块，
+# 确保文档不只是代码翻译，还包含设计决策和上下文。
 documentation_dimensions:
-  - architecture_decisions
-  - api_contracts
-  - data_model_changes
-  - dependency_rationale
+  - architecture_decisions    # 架构决策：为什么选择这种设计，有哪些权衡
+  - api_contracts             # API 契约：公开接口的输入输出、错误码、版本兼容
+  - data_model_changes        # 数据模型变更：核心数据结构的演进历史和迁移策略
+  - dependency_rationale      # 依赖理由：为什么引入某个外部依赖，替代方案是什么
 
+# ── 增量更新策略 ─────────────────────────────────────────────────────────
 update_policy:
+  # 代码变更时的更新策略：
+  #   update_affected — 只更新受影响的模块（默认，推荐）
+  #   full_regen      — 全量重新生成所有文档
+  #   skip            — 不自动更新，仅标记过时
   on_code_change: update_affected
+  # 增量更新时是否保留文档中已有的架构决策描述（不被新代码覆盖）。
+  # true 时 edit_doc_file 只更新变更部分，保留人工撰写的设计说明
   preserve_decisions: true
+  # 子模块更新后是否级联刷新父模块总览和 overview.md。
+  # true 确保总览文档始终反映最新子模块状态
   cascade_to_overview: true
 
+# ── Lint 检查配置 ────────────────────────────────────────────────────────
 lint:
+  # 「未文档化组件」检查的阈值：当一个模块中未文档化的组件数量超过此值时，
+  # lint 报 warning。设大一些可减少噪音，设小则更严格
   high_impact_threshold: 5
 
 # ── LLM Wiki 知识层配置 ──────────────────────────────────────────────────
@@ -97,8 +129,7 @@ page_types:
 #   focused    — 3-7 个关键项，适合小型项目或快速概览
 #   standard   — 适度提取，默认值
 #   exhaustive — 全面提取，适合大型项目的深度文档化
-extraction_granularity: standard
+extraction_granularity: exhaustive
 
 # Wiki 链接语法：启用后，文档后处理会将标识符替换为 [[slug|display]] 格式。
-# 目前为预留字段，尚未在运行时消费。
 wiki_link_syntax: false

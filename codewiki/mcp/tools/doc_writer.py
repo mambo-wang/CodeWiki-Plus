@@ -557,7 +557,14 @@ async def handle_write_doc_file(
         from codewiki.mcp.tools.knowledge_loop import _inject_symbol_links
         raw = doc_path.read_text(encoding="utf-8")
         depth = compute_depth(doc_path, session.output_dir)
-        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=depth)
+        # symbol_map paths are relative to repo root; add extra levels to
+        # escape output_dir (e.g. docs/) up to the repository root.
+        try:
+            extra = len(Path(session.output_dir).resolve().relative_to(
+                Path(session.repo_path).resolve()).parts)
+        except (ValueError, AttributeError):
+            extra = 0
+        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=depth + extra)
         if linked != raw:
             doc_path.write_text(linked, encoding="utf-8")
     except Exception:
@@ -716,7 +723,14 @@ async def handle_edit_doc_file(
         from codewiki.mcp.tools.knowledge_loop import _inject_symbol_links
         raw = doc_path.read_text(encoding="utf-8")
         depth = compute_depth(doc_path, session.output_dir)
-        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=depth)
+        # symbol_map paths are relative to repo root; add extra levels to
+        # escape output_dir (e.g. docs/) up to the repository root.
+        try:
+            extra = len(Path(session.output_dir).resolve().relative_to(
+                Path(session.repo_path).resolve()).parts)
+        except (ValueError, AttributeError):
+            extra = 0
+        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=depth + extra)
         if linked != raw:
             doc_path.write_text(linked, encoding="utf-8")
     except Exception:

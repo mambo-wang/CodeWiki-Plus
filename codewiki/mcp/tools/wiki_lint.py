@@ -25,6 +25,7 @@ _SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 _ALL_CHECKS = {
     "stale_refs", "undocumented", "broken_links", "cycles", "coverage",
     "orphan_pages", "no_outlinks", "missing_aliases", "stale_sources",
+    "superseded_pages",
 }
 
 # Regex patterns for markdown links
@@ -449,10 +450,12 @@ def _check_stale_sources(
     issues: List[Dict[str, Any]] = []
     import json as _json
 
-    from codewiki.src.config import SOURCE_REGISTRY_FILENAME
+    from codewiki.src.config import SOURCE_REGISTRY_FILENAME, META_DIR
 
-    # Load source registry
-    reg_path = output_dir / SOURCE_REGISTRY_FILENAME
+    # Load source registry (prefer .meta/, fallback to root for compat)
+    meta_path = output_dir / META_DIR / SOURCE_REGISTRY_FILENAME
+    root_path = output_dir / SOURCE_REGISTRY_FILENAME
+    reg_path = meta_path if meta_path.exists() else root_path
     retracted_sources: Set[str] = set()
     if reg_path.exists():
         try:
@@ -490,6 +493,52 @@ def _check_stale_sources(
                         "file": rel_path,
                         "suggestion": f"Update or remove the reference to '{src_name}'",
                     })
+
+    return issues
+
+
+def _check_superseded_pages(
+    output_dir: Path,
+) -> List[Dict[str, Any]]:
+    """Find pages marked as superseded (status: superseded in frontmatter)."""
+    issues: List[Dict[str, Any]] = []
+
+    for search_dir_name in ("wiki", "notes"):
+        d = output_dir / search_dir_name
+        if not d.is_dir():
+            continue
+        for md_file in d.rglob("*.md"):
+            try:
+                content = md_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            # Quick check: only parse frontmatter if 'superseded' appears
+            if "superseded" not in content:
+                continue
+            # Check frontmatter for status: superseded
+            if content.startswith("---"):
+                end = content.find("---", 3)
+                if end > 0:
+                    fm_text = content[3:end]
+                    if re.search(r"^status:\s*superseded", fm_text, re.MULTILINE):
+                        rel_path = str(md_file.relative_to(output_dir))
+                        # Try to extract superseded_by
+                        superseded_by = ""
+                        m = re.search(r"^superseded_by:\s*[\"']?(.+?)[\"']?\s*$",
+                                      fm_text, re.MULTILINE)
+                        if m:
+                            superseded_by = m.group(1)
+                        msg = "Page marked as superseded"
+                        if superseded_by:
+                            msg += f" (replaced by: {superseded_by})"
+                        issues.append({
+                            "check": "superseded_pages",
+                            "severity": "info",
+                            "message": msg,
+                            "file": rel_path,
+                            "suggestion": "Consider archiving or removing this page"
+                                          + (f"; see '{superseded_by}'" if superseded_by else ""),
+                        })
 
     return issues
 
@@ -570,6 +619,9 @@ def handle_lint_wiki(
 
     if "stale_sources" in checks and output_dir:
         all_issues.extend(_check_stale_sources(output_dir))
+
+    if "superseded_pages" in checks and output_dir:
+        all_issues.extend(_check_superseded_pages(output_dir))
 
     # Filter by severity
     filtered = [

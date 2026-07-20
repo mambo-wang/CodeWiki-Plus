@@ -183,7 +183,7 @@ def _inject_symbol_links(content: str, output_dir: Path, depth: int = 2) -> str:
         paths = symbol_map.get(name)
         if not paths:
             return name  # not in symbol map, leave as-is
-        target = paths[0]  # pick first file for now
+        target = paths[0].replace("\\", "/")  # normalise Windows paths
         return f"[{name}]({prefix}{target})"
 
     text = _CAMEL_RE.sub(_replace_symbol, text)
@@ -279,6 +279,15 @@ def handle_ingest_note(
     try:
         from codewiki.mcp.tools.page_router import compute_depth
         depth = compute_depth(note_path, output_dir)
+        # symbol_map paths are relative to repo root; add extra levels to
+        # escape output_dir up to the repository root.
+        if session and hasattr(session, "repo_path"):
+            try:
+                extra = len(output_dir.resolve().relative_to(
+                    Path(session.repo_path).resolve()).parts)
+                depth += extra
+            except ValueError:
+                pass
         linked_content = _inject_symbol_links(note_content, output_dir, depth=depth)
         if linked_content != note_content:
             note_content = linked_content
@@ -437,10 +446,12 @@ def handle_query_wiki(
             search as bm25_search,
             build_full_index,
         )
-        from codewiki.src.config import SEARCH_INDEX_FILENAME
+        from codewiki.src.config import SEARCH_INDEX_FILENAME, META_DIR
 
         # Auto-build index if it doesn't exist yet (SQLite-backed when session available)
-        idx_path = output_dir / SEARCH_INDEX_FILENAME
+        meta_idx = output_dir / META_DIR / SEARCH_INDEX_FILENAME
+        root_idx = output_dir / SEARCH_INDEX_FILENAME
+        idx_path = meta_idx if meta_idx.exists() else root_idx
         if not idx_path.exists() or session is not None:
             build_full_index(output_dir, session=session)
 
@@ -484,6 +495,30 @@ def handle_query_wiki(
                 )
                 if mod_comps:
                     entry["related_components"] = mod_comps[:10]
+
+            # Lifecycle: downweight superseded pages
+            file_path = output_dir / r["file"]
+            if file_path.exists():
+                try:
+                    fc = file_path.read_text(encoding="utf-8", errors="replace")
+                    if fc.startswith("---") and "superseded" in fc[:500]:
+                        fm_end = fc.find("---", 3)
+                        if fm_end > 0 and "status: superseded" in fc[3:fm_end]:
+                            entry["superseded"] = True
+                            entry["relevance_score"] = round(
+                                entry["relevance_score"] * 0.5, 4
+                            )
+                            # Extract superseded_by if present
+                            import re as _re
+                            m = _re.search(
+                                r"superseded_by:\s*[\"']?(.+?)[\"']?\s*$",
+                                fc[3:fm_end], _re.MULTILINE,
+                            )
+                            if m:
+                                entry["superseded_by"] = m.group(1)
+                except OSError:
+                    pass
+
             results.append(entry)
 
     except Exception as e:

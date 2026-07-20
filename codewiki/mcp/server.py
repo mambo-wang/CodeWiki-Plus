@@ -400,7 +400,7 @@ def _fine_grained_tools() -> list[Tool]:
                             "enum": [
                                 "all", "stale_refs", "undocumented", "broken_links",
                                 "cycles", "coverage", "orphan_pages", "no_outlinks",
-                                "missing_aliases", "stale_sources",
+                                "missing_aliases", "stale_sources", "superseded_pages",
                             ],
                         },
                         "description": "Which checks to run (default: [\"all\"])",
