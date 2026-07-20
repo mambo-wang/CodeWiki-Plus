@@ -1019,7 +1019,8 @@ def _load_config():
 async def _legacy_generate_docs(arguments: dict[str, Any]) -> list[TextContent]:
     """Legacy generate_docs — requires CodeWiki LLM configuration."""
     repo_path = Path(arguments["repo_path"]).expanduser().resolve()
-    output_dir = Path(arguments.get("output_dir", "docs")).expanduser().resolve()
+    raw_od = Path(arguments.get("output_dir", "docs")).expanduser()
+    output_dir = raw_od.resolve() if raw_od.is_absolute() else (repo_path / raw_od).resolve()
 
     if not repo_path.exists():
         return [_text(json.dumps({"error": f"Repository not found: {repo_path}"}))]
@@ -1080,7 +1081,8 @@ async def _legacy_generate_docs(arguments: dict[str, Any]) -> list[TextContent]:
 async def _legacy_get_module_tree(arguments: dict[str, Any]) -> list[TextContent]:
     """Legacy get_module_tree."""
     repo_path = Path(arguments["repo_path"]).expanduser().resolve()
-    output_dir = Path(arguments.get("output_dir", "docs")).expanduser().resolve()
+    raw_od = Path(arguments.get("output_dir", "docs")).expanduser()
+    output_dir = raw_od.resolve() if raw_od.is_absolute() else (repo_path / raw_od).resolve()
 
     from codewiki.src.config import meta_resolve
     module_tree_path = Path(meta_resolve(output_dir, "module_tree.json"))

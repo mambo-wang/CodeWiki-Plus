@@ -656,11 +656,13 @@ def _legacy_keyword_search(
             if f"wiki/{dir_name}/" not in rel_path:
                 continue
         if scope:
-            # Match by filename stem or by directory name (e.g. "modules", "entities")
-            if file_stem.lower() != scope.lower().replace(" ", "_"):
-                parent_name = md_file.parent.name.lower()
-                if parent_name != scope.lower().replace(" ", "_"):
-                    continue
+            # Match by: filename stem, path prefix, or path component (e.g. "modules", "notes")
+            scope_norm = scope.lower().replace(" ", "_").rstrip("/")
+            path_lower = rel_path.lower().replace("\\", "/")
+            if (file_stem.lower() != scope_norm
+                    and not path_lower.startswith(scope_norm + "/")
+                    and f"/{scope_norm}/" not in f"/{path_lower}"):
+                continue
         try:
             content = md_file.read_text(encoding="utf-8")
         except OSError:

@@ -694,8 +694,13 @@ class AnalysisCache:
         scored: List[Tuple[float, str]] = []
         for dk in cands:
             if scope:
+                scope_norm = scope.lower().replace(" ", "_").rstrip("/")
+                path_lower = dk.lower().replace("\\", "/")
                 stem = Path(dk).stem.lower().replace("_", " ")
-                if stem != scope.lower().replace("_", " "):
+                # Match by: stem equality, path prefix, or path component
+                if (stem != scope_norm.replace("_", " ")
+                        and not path_lower.startswith(scope_norm + "/")
+                        and f"/{scope_norm}/" not in f"/{path_lower}"):
                     continue
             # Single merged query: title, source, doc_len
             doc_row = c.execute(

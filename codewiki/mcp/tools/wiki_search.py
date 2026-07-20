@@ -340,8 +340,13 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
     scored = []; n = idx.total_docs; avg_dl = idx.avg_doc_len or 1.0
     for fk, di in idx.docs.items():
         if scope:
-            stem = Path(fk).stem.lower().replace("_"," ")
-            if stem != scope.lower().replace("_"," "): continue
+            scope_norm = scope.lower().replace(" ", "_").rstrip("/")
+            path_lower = fk.lower().replace("\\", "/")
+            stem = Path(fk).stem.lower().replace("_", " ")
+            if (stem != scope_norm.replace("_", " ")
+                    and not path_lower.startswith(scope_norm + "/")
+                    and f"/{scope_norm}/" not in f"/{path_lower}"):
+                continue
         if not include_notes and di.get("source") == "note": continue
         s = 0.0; tfm = di.get("term_freq",{}); dl = di.get("doc_len",1)
         for qt in qts:
