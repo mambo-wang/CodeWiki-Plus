@@ -269,6 +269,10 @@ class AnalysisCache:
                 token TEXT NOT NULL, doc_key TEXT NOT NULL, tf INTEGER DEFAULT 1,
                 PRIMARY KEY(token, doc_key));
             CREATE TABLE IF NOT EXISTS search_stats (key TEXT PRIMARY KEY, value TEXT);
+            CREATE TABLE IF NOT EXISTS symbols (
+                name TEXT NOT NULL, file_path TEXT NOT NULL,
+                PRIMARY KEY(name, file_path));
+            CREATE INDEX IF NOT EXISTS ix_symbols_name ON symbols(name);
         """)
 
     # -- meta --
@@ -285,6 +289,26 @@ class AnalysisCache:
     def get_component_count(self) -> int:
         r = self.conn.execute("SELECT COUNT(*) as c FROM components").fetchone(); return r["c"] if r else 0
     def is_fresh(self) -> bool: return self.get_component_count() > 0
+
+    # -- symbol map --
+
+    def save_symbol_map(self, symbol_map: Dict[str, List[str]]):
+        """Persist symbol_map (name → [file_paths]) to the symbols table."""
+        conn = self.conn
+        conn.execute("DELETE FROM symbols")
+        rows = [(name, fp) for name, paths in symbol_map.items() for fp in paths]
+        conn.executemany("INSERT OR IGNORE INTO symbols(name, file_path) VALUES(?,?)", rows)
+        conn.commit()
+
+    def load_symbol_map(self) -> Dict[str, List[str]]:
+        """Load symbol_map from SQLite. Returns {} if table is empty."""
+        rows = self.conn.execute("SELECT name, file_path FROM symbols").fetchall()
+        if not rows:
+            return {}
+        result: Dict[str, List[str]] = {}
+        for r in rows:
+            result.setdefault(r["name"], []).append(r["file_path"])
+        return result
 
     # -- components --
 

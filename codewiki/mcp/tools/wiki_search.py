@@ -26,6 +26,53 @@ _build_lock = threading.Lock()
 
 _JIEBA_AVAILABLE: Optional[bool] = None
 
+
+def _resolve_db_path(output_dir: Path) -> Optional[Path]:
+    """Resolve analysis_cache.db path from project.json or standard layout."""
+    from codewiki.mcp.cache import _CACHE_DIR, _DB_FILENAME
+    from codewiki.src.config import meta_resolve, PROJECT_FILENAME
+
+    od = Path(output_dir).resolve()
+    # 1. project.json (authoritative)
+    try:
+        pj = Path(meta_resolve(od, PROJECT_FILENAME))
+        if pj.exists():
+            info = json.loads(pj.read_text(encoding="utf-8"))
+            candidate = info.get("cache_db")
+            if candidate and Path(candidate).exists():
+                return Path(candidate)
+    except Exception:
+        pass
+    # 2. Standard layout fallback
+    candidate = od.parent / _CACHE_DIR / _DB_FILENAME
+    return candidate if candidate.exists() else None
+
+
+def _open_standalone_cache(output_dir: Path, *, readonly: bool = False):
+    """Try to open analysis_cache.db without an active session.
+
+    Uses _resolve_db_path to find the DB, verifies search tables have data.
+    Returns an AnalysisCache instance or None.
+    """
+    from codewiki.mcp.cache import AnalysisCache
+
+    db_path = _resolve_db_path(output_dir)
+    if db_path is None:
+        return None
+    try:
+        repo_path = db_path.parent.parent  # .codewiki/analysis_cache.db → repo root
+        cache = AnalysisCache(repo_path, db_path=db_path)
+        # Verify search tables have data
+        r = cache.conn.execute(
+            "SELECT value FROM search_stats WHERE key='total_docs'"
+        ).fetchone()
+        if not r or int(r["value"]) == 0:
+            cache.close()
+            return None
+        return cache
+    except Exception:
+        return None
+
 def _check_jieba() -> bool:
     global _JIEBA_AVAILABLE
     if _JIEBA_AVAILABLE is None:
@@ -143,10 +190,23 @@ def build_full_index(output_dir, session=None):
     od = Path(output_dir)
     if not od.is_dir(): return {"docs_indexed": 0, "notes_indexed": 0, "total_tokens": 0}
 
-    # Try SQLite cache first
+    # Try SQLite cache first (active session)
     if session is not None and getattr(session, "cache", None) is not None:
         try: return session.cache.build_search_index(od)
         except Exception as e: logger.warning("SQLite search index failed: %s", e)
+
+    # Try standalone SQLite (no active session, DB exists on disk)
+    if session is None:
+        db_path = _resolve_db_path(od)
+        if db_path is not None:
+            try:
+                from codewiki.mcp.cache import AnalysisCache
+                cache = AnalysisCache(db_path.parent.parent, db_path=db_path)
+                result = cache.build_search_index(od)
+                cache.close()
+                return result
+            except Exception as e:
+                logger.warning("Standalone SQLite index build failed: %s", e)
 
     # Legacy JSON fallback
     with _build_lock:
@@ -208,6 +268,18 @@ def update_file(output_dir, filepath, session=None):
     if session is not None and getattr(session, "cache", None) is not None:
         try: session.cache.update_search_doc(od, fp); return
         except Exception as e: logger.warning("SQLite search update failed: %s", e)
+    # Try standalone SQLite
+    if session is None:
+        db_path = _resolve_db_path(od)
+        if db_path is not None:
+            try:
+                from codewiki.mcp.cache import AnalysisCache
+                cache = AnalysisCache(db_path.parent.parent, db_path=db_path)
+                cache.update_search_doc(od, fp)
+                cache.close()
+                return
+            except Exception as e:
+                logger.warning("Standalone SQLite update failed: %s", e)
     # Legacy fallback
     try: fk = str(fp.resolve().relative_to(od.resolve()))
     except ValueError: fk = fp.name
@@ -234,12 +306,27 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
     """BM25 search. Uses SQLite cache if session available."""
     od = Path(output_dir); max_results = min(20, max(1, max_results))
 
-    # Try SQLite cache first
+    # Try SQLite cache first (active session)
     if session is not None and getattr(session, "cache", None) is not None:
         try: return session.cache.search(query, scope=scope or "", include_notes=include_notes,
                                           max_results=max_results, score_threshold=score_threshold,
                                           output_dir=od, type_filter=type_filter)
         except Exception as e: logger.warning("SQLite search failed: %s", e)
+
+    # Try standalone SQLite (no active session, DB persisted on disk)
+    _standalone = None
+    if session is None:
+        _standalone = _open_standalone_cache(od, readonly=True)
+        if _standalone is not None:
+            try:
+                results = _standalone.search(query, scope=scope or "", include_notes=include_notes,
+                                             max_results=max_results, score_threshold=score_threshold,
+                                             output_dir=od, type_filter=type_filter)
+                _standalone.close()
+                return results
+            except Exception as e:
+                logger.warning("Standalone SQLite search failed: %s", e)
+                _standalone.close()
 
     # Legacy JSON fallback
     qts = _tokenize(query)

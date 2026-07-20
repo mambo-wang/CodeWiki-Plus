@@ -132,6 +132,22 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     if session.analyzed_commit:
         cache.set_last_commit_id(session.analyzed_commit)
 
+    # Persist repo_path ↔ output_dir mapping (enables session-free SQLite access)
+    try:
+        from codewiki.src.config import meta_join, PROJECT_FILENAME
+        meta_dir = Path(meta_join(output_dir, ""))
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        project_info = {
+            "repo_path": str(repo_path),
+            "output_dir": str(output_dir),
+            "repo_name": repo_path.name,
+            "cache_db": str(cache.db_path),
+        }
+        Path(meta_join(output_dir, PROJECT_FILENAME)).write_text(
+            json.dumps(project_info, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.warning("Failed to write project.json: %s", e)
+
     # Create workspace
     workspace = SessionWorkspace(repo_path, session.session_id)
     session.workspace = workspace
@@ -190,15 +206,18 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     # 8. Symbol map (class name → source file, used by ingest_note for crosslinking)
     try:
         symbol_map = _build_symbol_map(metas)
+        # Primary: SQLite (fast lookup, no full-file parse)
+        cache.save_symbol_map(symbol_map)
+        # Compat: keep a compact JSON copy for tools that read it directly
         from codewiki.src.config import meta_join
         meta_dir = Path(meta_join(output_dir, ""))
         meta_dir.mkdir(parents=True, exist_ok=True)
         symbol_map_path = Path(meta_join(output_dir, "symbol_map.json"))
         symbol_map_path.write_text(
-            json.dumps(symbol_map, indent=2, ensure_ascii=False),
+            json.dumps(symbol_map, ensure_ascii=False, separators=(",", ":")),
             encoding="utf-8",
         )
-        logger.info("Symbol map written: %d symbols", len(symbol_map))
+        logger.info("Symbol map written: %d symbols (SQLite + JSON)", len(symbol_map))
     except Exception as e:
         logger.warning("Symbol map generation failed (non-fatal): %s", e)
 

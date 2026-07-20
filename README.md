@@ -160,6 +160,8 @@ repowiki/
 │   ├── workaround-xxx.md        #   临时方案
 │   └── ...
 ├── .meta/
+│   ├── project.json             #   项目映射（repo_path/output_dir/cache_db 路径）
+│   ├── symbol_map.json          #   符号→源文件映射（SQLite 主存储的 JSON 兼容副本）
 │   ├── issues.json              #   质量问题追踪（health score 依据）
 │   └── source_registry.json     #   外部文档注册表
 ├── module_tree.json             # 模块层级结构
@@ -207,6 +209,23 @@ repowiki/
 - **Mtime 策略（回退）**：非 Git 仓库通过文件修改时间检测变更
 
 检测到的变更会映射到受影响的模块（`affected_modules`）和需要级联刷新的父模块（`cascade_modules`），Agent 只需重新生成受影响的模块文档，而非全量重写。
+
+### 存储架构
+
+CodeWiki-CN 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
+
+**SQLite（`{repo}/.codewiki/analysis_cache.db`）**：组件索引、文件指纹、依赖关系、BM25 搜索索引（token 级倒排）、符号映射（symbol_map）均存储在 SQLite 中，支持高效查询和增量更新。
+
+**JSON 兼容副本（`output_dir/.meta/`）**：`symbol_map.json`、`module_tree.json` 等保留精简 JSON 副本，供外部工具直接读取。
+
+**持久化项目映射（`.meta/project.json`）**：`analyze_repo` 执行后自动写入 `repo_path`、`output_dir`、`cache_db` 的绝对路径映射。这使得 `query_wiki`、`ingest_note` 等知识管理工具在**无活跃 session** 时也能通过 `project.json` 定位 SQLite 数据库，走 BM25 索引搜索（而非全量 JSON 遍历），性能与有 session 时一致。
+
+```
+搜索路径优先级：
+  活跃 session.cache → .meta/project.json → cache_db → SQLite BM25
+                     ↘ 回退：output_dir.parent/.codewiki/analysis_cache.db
+                     ↘ 最终回退：.meta/search_index.json（全量遍历）
+```
 
 ### LLM Wiki 知识系统
 
@@ -553,6 +572,8 @@ repowiki/
 │   ├── workaround-xxx.md        #   Workarounds
 │   └── ...
 ├── .meta/
+│   ├── project.json             #   Project mapping (repo_path/output_dir/cache_db paths)
+│   ├── symbol_map.json          #   Symbol→source-file map (JSON compat copy of SQLite primary)
 │   ├── issues.json              #   Quality issue tracking (drives health score)
 │   └── source_registry.json     #   External document registry
 ├── module_tree.json             # Module hierarchy structure
@@ -600,6 +621,23 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP:
 - **Mtime strategy (fallback)**: For non-Git repos, detects changes by comparing file modification times
 
 Detected changes are mapped to affected modules (`affected_modules`) and parent modules requiring cascade refresh (`cascade_modules`). The Agent only regenerates impacted module docs instead of rewriting everything.
+
+### Storage Architecture
+
+CodeWiki-CN uses a **SQLite primary + JSON compat copy** dual-layer architecture:
+
+**SQLite (`{repo}/.codewiki/analysis_cache.db`)**: Component index, file fingerprints, dependencies, BM25 search index (token-level inverted index), and symbol map are all stored in SQLite for efficient querying and incremental updates.
+
+**JSON compat copies (`output_dir/.meta/`)**: Compact JSON copies of `symbol_map.json`, `module_tree.json`, etc. are kept for external tools that read them directly.
+
+**Persistent project mapping (`.meta/project.json`)**: After `analyze_repo` runs, it writes absolute path mappings for `repo_path`, `output_dir`, and `cache_db`. This allows knowledge management tools like `query_wiki` and `ingest_note` to locate the SQLite database **without an active session**, using BM25 indexed search (instead of full JSON traversal) with performance identical to having a session.
+
+```
+Search path priority:
+  Active session.cache → .meta/project.json → cache_db → SQLite BM25
+                       ↘ Fallback: output_dir.parent/.codewiki/analysis_cache.db
+                       ↘ Final fallback: .meta/search_index.json (full traversal)
+```
 
 ### LLM Wiki Knowledge System
 

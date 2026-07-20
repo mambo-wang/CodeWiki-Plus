@@ -1,7 +1,7 @@
 ---
 name: codewiki-wiki-generator
 description: "使用 CodeWiki-CN MCP 工具为代码仓库生成结构化 Wiki 文档并管理 LLM Wiki 知识库。当用户要求生成 Wiki、代码文档、仓库文档、分析代码库结构时使用；也适用于查询已有 Wiki（query_wiki）、归档设计决策和经验教训（ingest_note）、导入第三方文档（ingest_source）、批量导入（batch_ingest）、标记质量问题（flag_issue）、检查文档一致性（lint_wiki，含 health score）。支持 6 种页面类型（module/entity/concept/source/comparison/query）。需要已配置 CodeWiki-CN MCP 服务器。可选搭配 CodeGraph MCP 获得调用图和影响范围分析增强。"
-version: 5.0.0
+version: 5.1.0
 ---
 
 # CodeWiki 文档生成器
@@ -117,6 +117,8 @@ save_module_tree → {
 4. 撰写文档：模块简介、架构图（≥1 个 Mermaid）、组件职责、交叉引用 `[模块名](模块名.md)`
 5. `write_doc_file` → `{"session_id": "...", "filename": "<模块名>.md", "content": "...", "page_type": "module"}`
 
+> ⚠️ **crosslinks 注入**：`write_doc_file` 写入后，系统会自动向内容中注入源码交叉链接（将 CamelCase 标识符替换为 `[Symbol](../../path/to/file.go)` 形式）。如果随后需要用 `edit_doc_file(str_replace)` 修改该文件，`old_str` 必须匹配**注入后**的实际文本，而非你原始提交的内容。建议先 Read 文件确认当前内容再编辑。
+
 > `page_type` 参数控制文件路由：`module` → `wiki/modules/`，`entity` → `wiki/entities/`，`concept` → `wiki/concepts/` 等。默认为 `module`。生成实体/概念等页面时指定对应类型即可。
 
 **父模块**（is_leaf=false）：
@@ -131,6 +133,8 @@ save_module_tree → {
 2. 读取所有模块文档
 3. 撰写总览：项目简介 + 端到端架构图（Mermaid）+ 各模块引用链接
 4. `write_doc_file` → `filename: "overview.md"`
+
+> ⚠️ **链接路径**：overview.md 位于 `wiki/` 根目录，模块链接必须用 `modules/模块名.md`（而非 `wiki/modules/模块名.md`）。模块间互链同理：同在 `wiki/modules/` 下直接用 `模块名.md`。
 
 ### 阶段 5：清理
 
@@ -158,6 +162,8 @@ close_session → {"session_id": "<session_id>"}
 ## LLM Wiki 知识库
 
 Wiki 生成后，8 个知识管理工具**无需活跃 session**，通过 `output_dir` 定位 Wiki 即可使用。完整用法和示例见 [知识库详解](references/knowledge-base.md)。
+
+> **搜索性能**：`analyze_repo` 会在 `.meta/project.json` 中持久化 `cache_db` 路径。`query_wiki` 无 session 时自动通过该文件定位 `analysis_cache.db`，走 SQLite BM25 索引搜索（而非全量 JSON 遍历），性能与有 session 时一致。
 
 ### 结构化 Wiki 布局
 

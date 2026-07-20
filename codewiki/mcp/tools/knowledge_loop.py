@@ -118,8 +118,33 @@ def _extract_tags(title: str, content: str, note_type: str) -> List[str]:
 _CAMEL_RE = re.compile(r"\b([A-Z][a-z]+(?:[A-Z][a-z]*)*)\b")
 
 
-def _load_symbol_map(output_dir: Path) -> Dict[str, List[str]]:
-    """Load symbol_map.json from output_dir.  Returns {} on failure."""
+def _load_symbol_map(output_dir: Path, session=None) -> Dict[str, List[str]]:
+    """Load symbol map. Prefers SQLite (via session cache or standalone DB), falls back to JSON."""
+    # Fast path: SQLite symbols table (active session)
+    if session is not None and getattr(session, "cache", None) is not None:
+        try:
+            data = session.cache.load_symbol_map()
+            if data:
+                return data
+        except Exception:
+            pass
+
+    # Standalone SQLite (no active session)
+    if session is None:
+        try:
+            from codewiki.mcp.tools.wiki_search import _resolve_db_path
+            from codewiki.mcp.cache import AnalysisCache
+            db_path = _resolve_db_path(output_dir)
+            if db_path is not None:
+                cache = AnalysisCache(db_path.parent.parent, db_path=db_path)
+                data = cache.load_symbol_map()
+                cache.close()
+                if data:
+                    return data
+        except Exception:
+            pass
+
+    # Fallback: JSON file
     from codewiki.src.config import SYMBOL_MAP_FILENAME, meta_resolve
 
     sm_path = Path(meta_resolve(output_dir, SYMBOL_MAP_FILENAME))
@@ -132,14 +157,15 @@ def _load_symbol_map(output_dir: Path) -> Dict[str, List[str]]:
         return {}
 
 
-def _inject_symbol_links(content: str, output_dir: Path, depth: int = 2) -> str:
+def _inject_symbol_links(content: str, output_dir: Path, depth: int = 2, session=None) -> str:
     """Replace CamelCase identifiers with source-file links.
 
     Args:
         content: Markdown content to process.
-        output_dir: The repowiki root directory (contains symbol_map.json).
+        output_dir: The repowiki root directory (contains symbol_map).
         depth: Directory depth from the file to repo root.
                2 for notes/ (../../), 1 for root-level docs (../).
+        session: Optional session with SQLite cache for fast symbol lookup.
 
     Skips identifiers inside:
       - YAML frontmatter (between opening and closing ``---``)
@@ -148,7 +174,7 @@ def _inject_symbol_links(content: str, output_dir: Path, depth: int = 2) -> str:
       - existing markdown links (`` [text](url) ``)
       - HTML comments
     """
-    symbol_map = _load_symbol_map(output_dir)
+    symbol_map = _load_symbol_map(output_dir, session=session)
     if not symbol_map:
         return content
 
@@ -288,7 +314,7 @@ def handle_ingest_note(
                 depth += extra
             except ValueError:
                 pass
-        linked_content = _inject_symbol_links(note_content, output_dir, depth=depth)
+        linked_content = _inject_symbol_links(note_content, output_dir, depth=depth, session=session)
         if linked_content != note_content:
             note_content = linked_content
     except Exception as e:

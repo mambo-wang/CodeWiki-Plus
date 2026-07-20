@@ -564,7 +564,7 @@ async def handle_write_doc_file(
                 Path(session.repo_path).resolve()).parts)
         except (ValueError, AttributeError):
             extra = 0
-        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=depth + extra)
+        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=depth + extra, session=session)
         if linked != raw:
             doc_path.write_text(linked, encoding="utf-8")
     except Exception:
@@ -730,7 +730,7 @@ async def handle_edit_doc_file(
                 Path(session.repo_path).resolve()).parts)
         except (ValueError, AttributeError):
             extra = 0
-        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=depth + extra)
+        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=depth + extra, session=session)
         if linked != raw:
             doc_path.write_text(linked, encoding="utf-8")
     except Exception:
