@@ -1,6 +1,6 @@
 ---
 name: codewiki-wiki-generator
-description: "使用 CodeWiki-CN MCP 工具为代码仓库生成 Wiki 文档并管理 LLM Wiki 知识库。支持三层增强模式：codebase-memory-mcp（深度增强：Leiden 聚类、Cypher 查询、跨服务追踪、复杂度分析）、CodeGraph（调用图增强）、或纯 CodeWiki（标准模式）。自动检测可用 MCP 服务器并选择最优模式。当用户要求生成 Wiki、代码文档、仓库文档、分析代码库结构时使用。"
+description: "使用 CodeWiki-CN MCP 工具为代码仓库生成结构化 Wiki 文档并管理 LLM Wiki 知识库。当用户要求生成 Wiki、代码文档、仓库文档、分析代码库结构时使用；也适用于查询已有 Wiki（query_wiki）、归档设计决策和经验教训（ingest_note）、导入第三方文档（ingest_source）、批量导入（batch_ingest）、标记质量问题（flag_issue）、检查文档一致性（lint_wiki，含 health score）。支持 6 种页面类型（module/entity/concept/source/comparison/query）。需要已配置 CodeWiki-CN MCP 服务器。可选搭配 CodeGraph MCP 获得调用图和影响范围分析增强。"
 version: 5.0.0
 ---
 
@@ -10,7 +10,7 @@ version: 5.0.0
 
 ## 使用边界
 
-**做什么：** 代码仓库文档生成、Wiki 知识库管理（查询/归档/一致性检查）。
+**做什么：** 代码仓库文档生成、Wiki 知识库管理（查询/归档/一致性检查/外部文档导入/批量操作/质量追踪）。支持 6 种页面类型：module、entity、concept、source、comparison、query。
 
 **不做什么：**
 - 不处理非代码类文档生成（报告、PPT、邮件等）
@@ -18,36 +18,18 @@ version: 5.0.0
 - 子代理不得自行调用 `analyze_repo` 创建新 session，必须共享主代理的 session_id
 - Mermaid 节点 ID 禁止使用中文、空格、冒号
 
-## 阶段 0：环境检测与模式选择
+## 阶段 0：环境检测
 
-检测可用的 MCP 服务器，选择最优增强模式（优先级从高到低）：
+1. 检查 MCP 工具列表中是否存在 `analyze_repo`。不存在 → 提示用户安装（详见 [安装指南](references/installation.md)）
+2. 检查是否存在 `codegraph_status`：
+   - 存在 → **增强模式**（标注 `🔗 CodeGraph 增强` 的步骤）
+   - 不存在 → **标准模式**（跳过增强步骤）
 
-1. **检查 codebase-memory-mcp**：MCP 工具列表中是否存在 `index_repository`？
-   - 存在 → **🧠 深度增强模式**（标注 `🧠` 的步骤）
-2. **检查 CodeGraph**：MCP 工具列表中是否存在 `codegraph_status`？
-   - 存在 → **🔗 调用图增强模式**（标注 `🔗` 的步骤）
-3. **都不存在** → **标准模式**（仅使用 CodeWiki MCP）
-
-检查 CodeWiki MCP：MCP 工具列表中是否存在 `analyze_repo`？不存在 → 提示用户安装（详见 [安装指南](references/installation.md)）
-
-**三层模式能力对比**：
-
-| 能力 | 🧠 深度增强 | 🔗 调用图增强 | 标准模式 |
-|------|:-----------:|:-------------:|:--------:|
-| 模块划分 | Leiden 社区检测自动发现 | 手动 + 调用图验证 | 手动按目录 |
-| 依赖查询 | Cypher 多跳 + 跨服务追踪 | callers/callees/impact | 仅 import 分析 |
-| 复杂度分析 | 圈复杂度/嵌套循环/线性扫描 | 无 | 无 |
-| 语义搜索 | BM25 + 向量余弦 | 无 | 无 |
-| Monorepo 子服务关系 | cross_service 追踪 | 无 | 无 |
-| 增量更新 | SQLite 索引 + Cypher 影响分析 | JSON + impact 分析 | 路径匹配 |
-
-各增强模式的详细步骤见：
-- 🧠 深度增强 → [codebase-memory 增强](references/codebase-memory.md)
-- 🔗 调用图增强 → [CodeGraph 增强](references/codegraph.md)
+两种模式产出的文档结构和质量一致，增强模式在模块聚类精度和调用关系描述上更优。
 
 ## schema.yaml 配置
 
-`schema.yaml` 是项目的文档"宪法"，控制命名规范、必需章节、文档维度、Mermaid 要求、行数限制、交叉链接开关、lint 阈值等。
+`schema.yaml` 是项目的文档"宪法"，控制命名规范、必需章节、文档维度、Mermaid 要求、行数限制、交叉链接开关、lint 阈值，以及 **page_types 路由表**（定义每种页面类型的目录和 frontmatter 字段）和 **extraction_granularity**（提取粒度）。
 
 - **全局默认值**：CodeWiki-CN 安装目录下的 `config.yaml` 定义与语言无关的默认配置，首次 `analyze_repo` 时自动读取并生成 `output_dir/schema.yaml`
 - **自定义**：修改 `config.yaml` 改变全局默认值；修改 `output_dir/schema.yaml` 只影响该项目（增量更新时自动合并保留自定义字段，`project` 字段始终自动更新）
@@ -81,11 +63,6 @@ analyze_repo → {"repo_path": "<仓库绝对路径>", "output_dir": "<仓库路
 
 🔗 增强模式额外步骤见 [CodeGraph 增强](references/codegraph.md#阶段-1-增强)。
 
-🧠 **深度增强模式额外步骤**（详见 [codebase-memory 增强](references/codebase-memory.md#阶段-1-增强索引与架构发现)）：
-1. `index_repository` — 构建知识图谱（记录 project 名称、nodes、edges）
-2. `get_architecture(aspects: ["all"])` — 获取 Leiden 聚类、分层、热点、路由、边界
-3. **Monorepo 专项**：用 `search_graph` 识别子服务入口，用 `trace_path(mode: "cross_service")` 追踪跨服务调用链
-
 ### 阶段 2：模块聚类
 
 这是最需要理解力的阶段。
@@ -99,12 +76,7 @@ analyze_repo → {"repo_path": "<仓库绝对路径>", "output_dir": "<仓库路
    - **规模控制**：3-8 个顶层模块，每模块 5-30 个组件
    - **ID 保留**：组件 ID 原样保留（含 `::` 分隔符）
 
-🧠 **深度增强模式**：优先使用 Leiden 社区检测结果驱动模块划分（详见 [codebase-memory 增强](references/codebase-memory.md#阶段-2-模块划分与精炼)）：
-1. 从 `get_architecture` 返回的 `clusters` 提取初始模块计划
-2. 用 Cypher 查询验证模块边界（模块间依赖强度、架构违规、孤立文件）
-3. 将 CodeWiki 的组件 ID 映射到 codebase-memory 发现的模块
-
-🔗 调用图增强模式：用 `codegraph_callers`/`codegraph_callees` 验证聚类，详见 [CodeGraph 增强](references/codegraph.md#阶段-2-验证聚类)。
+🔗 增强模式：用 `codegraph_callers`/`codegraph_callees` 验证聚类，详见 [CodeGraph 增强](references/codegraph.md#阶段-2-验证聚类)。
 
 5. 保存模块树：
 
@@ -142,15 +114,10 @@ save_module_tree → {
 1. `get_prompt` → `{"prompt_type": "system_leaf", "variables": {"module_name": "<模块名>"}}`
 2. `read_code_components` → 读取源码
 3. 🔗 增强模式：收集调用关系数据（详见 [CodeGraph 增强](references/codegraph.md#阶段-3-调用关系)）
-3. 🧠 **深度增强模式**：收集深度分析数据（详见 [codebase-memory 增强](references/codebase-memory.md#阶段-3-深度增强文档)）：
-   - `trace_path(mode: "calls")` — 调用链追踪
-   - `trace_path(mode: "data_flow")` — 数据流分析（核心函数）
-   - `query_graph` Cypher 查询 — 复杂度热点（圈复杂度 ≥10 或嵌套循环 ≥3）
-   - `query_graph` Cypher 查询 — 死代码检测（无入度函数）
-   - `search_graph(semantic_query)` — 语义关联发现
-   - 文档增加：复杂度热点章节、死代码章节、语义关联章节
 4. 撰写文档：模块简介、架构图（≥1 个 Mermaid）、组件职责、交叉引用 `[模块名](模块名.md)`
-5. `write_doc_file` → `{"session_id": "...", "filename": "<模块名>.md", "content": "..."}`
+5. `write_doc_file` → `{"session_id": "...", "filename": "<模块名>.md", "content": "...", "page_type": "module"}`
+
+> `page_type` 参数控制文件路由：`module` → `wiki/modules/`，`entity` → `wiki/entities/`，`concept` → `wiki/concepts/` 等。默认为 `module`。生成实体/概念等页面时指定对应类型即可。
 
 **父模块**（is_leaf=false）：
 
@@ -165,12 +132,6 @@ save_module_tree → {
 3. 撰写总览：项目简介 + 端到端架构图（Mermaid）+ 各模块引用链接
 4. `write_doc_file` → `filename: "overview.md"`
 
-🧠 **深度增强模式 Monorepo 总览增强**（详见 [codebase-memory 增强](references/codebase-memory.md#阶段-4-仓库总览)）：
-- **子服务拓扑图**：从 `get_architecture` 的 `boundaries` + `clusters` 提取子服务间调用关系，生成 Mermaid 图展示子服务拓扑
-- **跨服务调用链**：从 `trace_path(mode: "cross_service")` 结果生成跨服务调用序列图
-- **分层标注**：用 `layers` 数据自动标注每个模块的架构层级（api/entry/core/internal/leaf）
-- **每个子服务列出**：入口点、路由清单、依赖服务、核心热点函数
-
 ### 阶段 5：清理
 
 ```
@@ -179,15 +140,9 @@ close_session → {"session_id": "<session_id>"}
 
 🔗 增强模式额外保存增量更新元数据，详见 [CodeGraph 增强](references/codegraph.md#增量元数据)。
 
-🧠 **深度增强模式**：使用 SQLite 数据库存储元数据（详见 [codebase-memory 增强](references/codebase-memory.md#增量元数据)）：
-- 路径：`{output_dir}/.meta/module_map.db`
-- 表结构：`modules`（模块主表）、`module_files`（文件→模块映射，带索引）、`module_symbols`（符号→模块映射）、`wiki_metadata`（KV 元数据）
-- 优势：`file_path` 索引加速增量更新时的文件→模块查询，无需全量解析 JSON
-- 写入方式：Python `sqlite3` 标准库（无额外依赖）
-
 ## 增量更新
 
-当元数据存在时，`analyze_repo` 返回 `changes` 字段（完整数据在 `changes.json`）。
+当 `output_dir/.meta/` 下存在元数据时，`analyze_repo` 返回 `changes` 字段（完整数据在 `changes.json`）。
 
 **标准模式**：
 
@@ -196,20 +151,28 @@ close_session → {"session_id": "<session_id>"}
 3. 用 `edit_doc_file(str_replace)` 局部修改，不整篇重写
 4. 级联刷新 `cascade_modules` 的父模块总览 → 更新 `overview.md`
 
-🔗 **调用图增强模式**：用 `codegraph_impact(depth: 2)` 实现符号级精度的变更追踪，详见 [CodeGraph 增量更新](references/codegraph.md#增量更新)。
-
-🧠 **深度增强模式**（详见 [codebase-memory 增量更新](references/codebase-memory.md#增量更新模式深度增强模式)）：
-1. 从 SQLite `wiki_metadata` 表读取 `commit_sha`
-2. `git diff` 检测变更文件
-3. SQLite 索引查询：`SELECT DISTINCT module_name FROM module_files WHERE file_path IN (...)` → 直接影响模块
-4. Cypher 查询扩展影响范围：`MATCH (changed)-[:CALLS*1..2]->(impacted) WHERE changed.qualified_name IN [...]`
-5. 重新生成受影响模块 → 更新 overview → 更新 SQLite 元数据
+**增强模式**：用 `codegraph_impact(depth: 2)` 实现符号级精度的变更追踪，详见 [CodeGraph 增量更新](references/codegraph.md#增量更新)。
 
 **回退全量重生成的条件**：元数据文件缺失、>50% 模块受影响、新增/删除了不属于任何现有模块的源文件、用户明确要求。
 
 ## LLM Wiki 知识库
 
-Wiki 生成后，三个知识管理工具**无需活跃 session**，通过 `output_dir` 定位 Wiki 即可使用。完整用法和示例见 [知识库详解](references/knowledge-base.md)。
+Wiki 生成后，8 个知识管理工具**无需活跃 session**，通过 `output_dir` 定位 Wiki 即可使用。完整用法和示例见 [知识库详解](references/knowledge-base.md)。
+
+### 结构化 Wiki 布局
+
+所有内容按页面类型组织在 `wiki/` 子目录下，由 `page_router.py` 统一路由：
+
+| 页面类型 | 目录 | 说明 |
+|----------|------|------|
+| `module` | `wiki/modules/` | 模块文档 |
+| `entity` | `wiki/entities/` | 实体：类、接口、数据库表 |
+| `concept` | `wiki/concepts/` | 概念：设计模式、业务概念 |
+| `source` | `wiki/sources/` | 外部文档摘要 |
+| `comparison` | `wiki/comparisons/` | 对比分析 |
+| `query` | `wiki/queries/` | 研究查询 |
+
+另有 `raw/sources/`（第三方文档原文件）、`.meta/issues.json`（质量问题）、`.meta/source_registry.json`（外部文档注册表）。
 
 ### 工具选择原则
 
@@ -222,19 +185,44 @@ Wiki 生成后，三个知识管理工具**无需活跃 session**，通过 `outp
 
 ### 快速参考
 
-**query_wiki** — 搜索文档和笔记：
+**query_wiki** — 搜索文档和笔记（支持类型过滤）：
 ```json
-{"query": "自然语言问题", "include_notes": true, "expand_terms": ["同义词1", "同义词2"]}
+{"query": "自然语言问题", "include_notes": true, "type_filter": "entity", "expand_terms": ["同义词1", "同义词2"]}
 ```
 
-**ingest_note** — 归档经验到知识库：
+**ingest_note** — 归档经验到知识库（新增 pitfall/known_issue/workaround 类型）：
 ```json
-{"note_type": "decision|lesson|architecture|bug_fix|general", "title": "标题", "content": "Markdown 内容", "related_modules": ["模块名"]}
+{"note_type": "decision|lesson|architecture|bug_fix|pitfall|known_issue|workaround|general", "title": "标题", "content": "Markdown 内容", "related_modules": ["模块名"], "severity": "high", "aliases": ["别名1"]}
 ```
 
-**lint_wiki** — 文档-代码一致性检查（5 项：过时引用、断链、未文档化组件、循环依赖、覆盖率）：
+**ingest_source** — 导入第三方文档到 `raw/sources/`：
 ```json
-{}
+{"name": "rfc-7519", "source_type": "rfc", "source_path": "/path/to/file", "description": "JWT 规范", "related_pages": ["auth-module"]}
+```
+
+**retract_source** — 撤回外部文档（`flag_stale` 标记过期 / `remove_refs` 删除并清理引用）：
+```json
+{"source_name": "rfc-7519", "mode": "flag_stale"}
+```
+
+**batch_ingest** — 批量导入多个笔记/文档（也支持 `items_file` 路径）：
+```json
+{"items": [{"item_type": "note", "note_type": "decision", "title": "...", "content": "..."}, {"item_type": "source", "source_type": "api_doc", "source_path": "...", "name": "..."}]}
+```
+
+**flag_issue** — 标记 Wiki 质量问题，写入 `issues.json`，驱动 health score：
+```json
+{"issue_type": "broken_link|missing_doc|inconsistent|outdated|orphan", "page_path": "wiki/modules/auth.md", "severity": "error|warning|info", "description": "链接指向不存在的页面"}
+```
+
+**lint_wiki** — 文档一致性检查（9 项：过时引用、断链、未文档化组件、循环依赖、覆盖率、孤立页面、无出链、缺少别名、过期外部源），返回 `health_score`（0-100）：
+```json
+{"checks": ["stale_refs", "broken_links", "orphan_pages", "missing_aliases", "stale_sources"]}
+```
+
+**get_prompt 新模板** — 7 个页面类型模板（entity_page/concept_page/source_summary/comparison_page/query_page/taxonomy_plan/extraction_scan），加上原有 3 个共 10 个 Wiki 模板：
+```json
+{"prompt_type": "entity_page", "variables": {"entity_name": "PaymentService"}}
 ```
 
 ## Mermaid 规范
@@ -249,7 +237,8 @@ Wiki 生成后，三个知识管理工具**无需活跃 session**，通过 `outp
 
 - **语言**：默认中文
 - **图表**：每个叶模块 ≥1 个 Mermaid 架构图，优先 `graph TD` 或 `graph LR`
-- **交叉引用**：`[模块名](模块名.md)`
+- **交叉引用**：`[模块名](modules/模块名.md)`（wiki/ 内部使用相对路径）
+- **别名**：文档 frontmatter 中声明 `aliases` 列表，搜索时获得 3× BM25 权重提升
 - **篇幅**：叶模块 200-500 行，父模块 100-300 行，仓库总览 80-200 行
 - **代码示例**：关键函数/类展示签名和简要用法
 
@@ -257,10 +246,9 @@ Wiki 生成后，三个知识管理工具**无需活跃 session**，通过 `outp
 
 按需加载以下参考文档，不要在开始时全部读取：
 
-- [安装指南](references/installation.md) — CodeWiki-CN、CodeGraph 和 codebase-memory-mcp 的安装与 MCP 配置
+- [安装指南](references/installation.md) — CodeWiki-CN 和 CodeGraph 的安装与 MCP 配置
 - [文件侧通道详解](references/sidechannel.md) — workspace 文件清单与读取时机
-- [codebase-memory 增强](references/codebase-memory.md) — 🧠 深度增强模式的详细步骤（Leiden 聚类、Cypher 查询、跨服务追踪、SQLite 元数据）
-- [CodeGraph 增强](references/codegraph.md) — 🔗 调用图增强模式的详细步骤
+- [CodeGraph 增强](references/codegraph.md) — 增强模式的安装、配置和详细步骤
 - [知识库详解](references/knowledge-base.md) — LLM Wiki 工具的完整参数和示例
 - [工具速查表](references/tools.md) — 全部 MCP 工具的参数速查
 - [错误处理](references/errors.md) — 常见错误场景与解决方案

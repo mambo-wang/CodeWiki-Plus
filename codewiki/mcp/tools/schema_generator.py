@@ -55,6 +55,54 @@ _DEFAULT_LINT = {
     "high_impact_threshold": 5,
 }
 
+# Default page type routing table (LLM Wiki knowledge layer)
+_DEFAULT_PAGE_TYPES = {
+    "module": {
+        "directory": "wiki/modules",
+        "description": "代码模块文档，描述一个功能模块的架构、组件和依赖",
+        "required_sections": [
+            "Architecture Overview",
+            "Component Responsibilities",
+            "Cross-References",
+        ],
+    },
+    "entity": {
+        "directory": "wiki/entities",
+        "description": "关键类、接口、数据模型、API 端点的独立文档",
+        "required_sections": [
+            "职责描述", "公开 API", "使用示例", "依赖关系",
+        ],
+    },
+    "concept": {
+        "directory": "wiki/concepts",
+        "description": "设计模式、架构理念、领域概念的文档",
+        "required_sections": [
+            "概念定义", "适用场景", "在本项目中的应用",
+        ],
+    },
+    "source": {
+        "directory": "wiki/sources",
+        "description": "第三方文档（SDK/API/框架文档）的摘要",
+        "required_sections": [
+            "文档概述", "关键 API/概念", "与本项目相关的部分",
+        ],
+    },
+    "comparison": {
+        "directory": "wiki/comparisons",
+        "description": "方案对比、技术选型分析",
+        "required_sections": [
+            "背景与目标", "候选方案", "对比分析", "结论与决策",
+        ],
+    },
+    "query": {
+        "directory": "wiki/queries",
+        "description": "方案设计决策记录，包含推理过程和权衡",
+        "required_sections": [
+            "问题描述", "调研过程", "方案权衡", "决策结论",
+        ],
+    },
+}
+
 # ── config.yaml loading ──────────────────────────────────────────────────
 
 _CONFIG_PATH = Path(__file__).resolve().parents[3] / "config.yaml"
@@ -93,6 +141,9 @@ def _get_defaults() -> dict:
         "documentation_dimensions": cfg.get("documentation_dimensions", _DEFAULT_DIMENSIONS),
         "update_policy": {**_DEFAULT_UPDATE_POLICY, **cfg.get("update_policy", {})},
         "lint": {**_DEFAULT_LINT, **cfg.get("lint", {})},
+        "page_types": cfg.get("page_types", _DEFAULT_PAGE_TYPES),
+        "extraction_granularity": cfg.get("extraction_granularity", "standard"),
+        "wiki_link_syntax": cfg.get("wiki_link_syntax", False),
     }
 
 
@@ -164,6 +215,9 @@ def generate_schema(
         "documentation_dimensions": list(defaults["documentation_dimensions"]),
         "update_policy": dict(defaults["update_policy"]),
         "lint": dict(defaults["lint"]),
+        "page_types": dict(defaults["page_types"]),
+        "extraction_granularity": defaults["extraction_granularity"],
+        "wiki_link_syntax": defaults["wiki_link_syntax"],
     }
 
     # Merge with existing schema if present
@@ -196,6 +250,8 @@ def _merge_schemas(existing: dict, new: dict) -> dict:
 
     Auto-managed fields (version, generated_at, project.name/languages/total_components)
     are always updated.  All other fields from the existing schema are preserved.
+
+    page_types uses shallow merge: user-customized types preserved, new defaults added.
     """
     merged = dict(new)  # start from new schema
 
@@ -203,7 +259,15 @@ def _merge_schemas(existing: dict, new: dict) -> dict:
     for key in existing:
         if key in _AUTO_FIELDS:
             continue  # always use new auto values
-        if key not in merged:
+        if key == "page_types":
+            # Shallow merge by page type name:
+            # - existing user types are preserved entirely
+            # - new default types are added if not present
+            merged_pt = dict(new.get("page_types", {}))
+            for pt_name, pt_config in existing.get("page_types", {}).items():
+                merged_pt[pt_name] = pt_config  # user customisation wins
+            merged["page_types"] = merged_pt
+        elif key not in merged:
             merged[key] = existing[key]
         elif isinstance(existing[key], dict) and isinstance(merged.get(key), dict):
             # Deep merge dicts: existing user values win for non-auto keys

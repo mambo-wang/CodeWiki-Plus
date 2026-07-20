@@ -30,8 +30,8 @@ from codewiki.src.be.prompt_template import (
 def _build_schema_constraints(session: Optional[SessionState]) -> str:
     """Read schema.yaml from session output_dir and build constraint text for prompts.
 
-    Extracts required_sections, documentation_dimensions, and line limits
-    from schema.yaml to inject into documentation generation prompts.
+    Extracts required_sections, documentation_dimensions, line limits,
+    page_types routing table, extraction_granularity, and purpose.md.
     Returns empty string if schema is unavailable or unreadable.
     """
     if not session or not session.output_dir:
@@ -80,6 +80,33 @@ def _build_schema_constraints(session: Optional[SessionState]) -> str:
         if max_lines:
             c.append(f"max {max_lines} lines for overview docs")
         parts.append(f"Documentation length guidance: {', '.join(c)}")
+
+    # LLM Wiki: page_types routing table
+    page_types = schema.get("page_types", {})
+    if page_types:
+        pt_lines = ["LLM Wiki page types and directory routing:"]
+        for pt_name, pt_info in page_types.items():
+            directory = pt_info.get("directory", pt_name + "s")
+            desc = pt_info.get("description", "")
+            pt_lines.append(f"  - {pt_name} → wiki/{directory}/ ({desc})")
+        parts.append("\n".join(pt_lines))
+
+    # LLM Wiki: extraction granularity
+    granularity = schema.get("extraction_granularity", "")
+    if granularity:
+        parts.append(f"Extraction granularity: {granularity} (focused=3-7 items, standard=moderate, exhaustive=comprehensive)")
+
+    # LLM Wiki: purpose.md
+    if session and session.output_dir:
+        from codewiki.src.config import PURPOSE_FILENAME
+        purpose_path = Path(session.output_dir) / PURPOSE_FILENAME
+        if purpose_path.exists():
+            try:
+                purpose_text = purpose_path.read_text(encoding="utf-8", errors="replace")
+                if purpose_text.strip():
+                    parts.append(f"Project purpose:\n{purpose_text.strip()[:500]}")
+            except OSError:
+                pass
 
     # OKF frontmatter
     if conventions.get("okf_frontmatter", False):
@@ -181,6 +208,35 @@ _PROMPT_CATALOG: Dict[str, Dict[str, str]] = {
             "Call this after running lint_wiki to understand the results "
             "and create a prioritized fix plan."
         ),
+    },
+    # --- LLM Wiki: page type prompts ---
+    "entity_page": {
+        "description": "Template for writing entity documentation (wiki/entities/).",
+        "usage_hint": "Use when writing docs for a specific entity (class, interface, data model).",
+    },
+    "concept_page": {
+        "description": "Template for writing concept documentation (wiki/concepts/).",
+        "usage_hint": "Use when documenting an abstract concept, pattern, or architectural decision.",
+    },
+    "source_summary": {
+        "description": "Template for summarizing an imported third-party source (wiki/sources/).",
+        "usage_hint": "Use after ingest_source to create a structured summary page for the source document.",
+    },
+    "comparison_page": {
+        "description": "Template for writing comparison/analysis pages (wiki/comparisons/).",
+        "usage_hint": "Use when comparing two or more approaches, libraries, or design options.",
+    },
+    "query_page": {
+        "description": "Template for writing query/analysis result pages (wiki/queries/).",
+        "usage_hint": "Use to persist the results of a research query or investigation.",
+    },
+    "taxonomy_plan": {
+        "description": "Template for batch taxonomy planning — classifying pages into the directory tree.",
+        "usage_hint": "Use to plan the wiki's taxonomy structure in one pass before creating pages.",
+    },
+    "extraction_scan": {
+        "description": "Template for extraction scanning at configurable granularity (focused/standard/exhaustive).",
+        "usage_hint": "Use to extract knowledge items from a source document at the desired granularity.",
     },
 }
 
@@ -403,10 +459,195 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "2. **Warnings**: Undocumented high-impact components.\n"
             "   - Consider adding these to an existing module or creating a new doc.\n"
             "3. **Info**: Circular dependencies, coverage statistics.\n"
-            "   - Cycles may be intentional; coverage below 50% indicates gaps.\n\n"
+            "   - Cycles may be intentional; coverage below 50% indicates gaps.\n"
+            "4. **LLM Wiki checks**: orphan_pages, no_outlinks, missing_aliases, stale_sources.\n"
+            "   - Orphan pages have no incoming links; add cross-references.\n"
+            "   - Missing aliases reduce search discoverability; add alternate names.\n"
+            "   - Stale sources reference retracted documents; update source_refs.\n\n"
             "**Workflow**: Run `lint_wiki` after each documentation update cycle. "
             "Fix errors before closing the session. Use `get_prompt('wiki_lint_report')` "
             "to share this guide with team members."
+        )
+
+    # --- LLM Wiki: page type prompts ---
+    elif prompt_type == "entity_page":
+        return (
+            "## Entity Page Template\n\n"
+            "Write to: `wiki/entities/<slug>.md`\n"
+            "Use `write_doc_file` with `page_type: 'entity'`.\n\n"
+            "### Required frontmatter:\n"
+            "```yaml\n"
+            "---\n"
+            "type: entity\n"
+            "title: \"<Entity Name>\"\n"
+            "aliases: [<alternate names for search boost>]\n"
+            "category: <class|interface|enum|data_model|service>\n"
+            "tags: [<semantic tags>]\n"
+            "---\n"
+            "```\n\n"
+            "### Required sections:\n"
+            "1. **Overview** — What this entity is and its primary responsibility\n"
+            "2. **Public API** — Key methods/properties with signatures\n"
+            "3. **Dependencies** — What it depends on (link to other entities)\n"
+            "4. **Usage Patterns** — Common ways to use this entity\n"
+            "5. **Cross-References** — Links to related modules and concepts\n\n"
+            "Include Mermaid class diagram if the entity has complex relationships."
+        )
+
+    elif prompt_type == "concept_page":
+        return (
+            "## Concept Page Template\n\n"
+            "Write to: `wiki/concepts/<slug>.md`\n"
+            "Use `write_doc_file` with `page_type: 'concept'`.\n\n"
+            "### Required frontmatter:\n"
+            "```yaml\n"
+            "---\n"
+            "type: concept\n"
+            "title: \"<Concept Name>\"\n"
+            "aliases: [<alternate names>]\n"
+            "domain: <architectural domain>\n"
+            "tags: [<semantic tags>]\n"
+            "---\n"
+            "```\n\n"
+            "### Required sections:\n"
+            "1. **Definition** — Clear definition of the concept\n"
+            "2. **Context** — Why this concept matters in this project\n"
+            "3. **Implementation** — How it's implemented (link to entities/modules)\n"
+            "4. **Trade-offs** — Design decisions and alternatives considered\n"
+            "5. **Cross-References** — Links to related concepts and entities\n\n"
+            "Concept pages bridge abstract ideas to concrete implementation."
+        )
+
+    elif prompt_type == "source_summary":
+        return (
+            "## Source Summary Template\n\n"
+            "Write to: `wiki/sources/<slug>.md`\n"
+            "Use `write_doc_file` with `page_type: 'source'`.\n"
+            "First use `ingest_source` to import the document, then create this summary.\n\n"
+            "### Required frontmatter:\n"
+            "```yaml\n"
+            "---\n"
+            "type: source\n"
+            "title: \"<Source Title>\"\n"
+            "origin: \"<original document identifier>\"\n"
+            "source_type: <pdf|md|docx|html>\n"
+            "version: \"<version or date>\"\n"
+            "tags: [<semantic tags>]\n"
+            "---\n"
+            "```\n\n"
+            "### Required sections:\n"
+            "1. **Summary** — 3-5 sentence overview of the source content\n"
+            "2. **Key Points** — Most important takeaways (bullet list)\n"
+            "3. **Relevance** — How this source relates to the project\n"
+            "4. **Referenced By** — Which wiki pages use information from this source\n\n"
+            "Use `[^src:<name>:<range>]` annotations when citing specific sections."
+        )
+
+    elif prompt_type == "comparison_page":
+        return (
+            "## Comparison Page Template\n\n"
+            "Write to: `wiki/comparisons/<slug>.md`\n"
+            "Use `write_doc_file` with `page_type: 'comparison'`.\n\n"
+            "### Required frontmatter:\n"
+            "```yaml\n"
+            "---\n"
+            "type: comparison\n"
+            "title: \"<A> vs <B>\"\n"
+            "subjects: [<list of compared items>]\n"
+            "tags: [<semantic tags>]\n"
+            "---\n"
+            "```\n\n"
+            "### Required sections:\n"
+            "1. **Overview** — What is being compared and why\n"
+            "2. **Comparison Table** — Feature-by-feature comparison (markdown table)\n"
+            "3. **Analysis** — Pros and cons of each option\n"
+            "4. **Recommendation** — Which option was chosen and why\n"
+            "5. **Cross-References** — Link to related decision notes and concept pages"
+        )
+
+    elif prompt_type == "query_page":
+        return (
+            "## Query Page Template\n\n"
+            "Write to: `wiki/queries/<slug>.md`\n"
+            "Use `write_doc_file` with `page_type: 'query'`.\n"
+            "Use this to persist research results or investigation findings.\n\n"
+            "### Required frontmatter:\n"
+            "```yaml\n"
+            "---\n"
+            "type: query\n"
+            "title: \"<Query Title>\"\n"
+            "query_date: <YYYY-MM-DD>\n"
+            "status: <open|resolved|archived>\n"
+            "tags: [<semantic tags>]\n"
+            "---\n"
+            "```\n\n"
+            "### Required sections:\n"
+            "1. **Question** — The research question or investigation goal\n"
+            "2. **Findings** — Key discoveries and data points\n"
+            "3. **Sources** — Which documents/pages were consulted\n"
+            "4. **Conclusion** — Summary answer or next steps\n"
+            "5. **Cross-References** — Links to related pages and notes"
+        )
+
+    elif prompt_type == "taxonomy_plan":
+        return (
+            "## Taxonomy Planning Template\n\n"
+            "Use this template to plan the wiki's taxonomy structure in one pass.\n"
+            "Review existing wiki pages and propose directory assignments.\n\n"
+            "### Input:\n"
+            "Provide a list of page titles/slugs to classify.\n\n"
+            "### Output format:\n"
+            "```json\n"
+            "{\n"
+            "  \"taxonomy_plan\": {\n"
+            "    \"wiki/modules/\": [<list of module page slugs>],\n"
+            "    \"wiki/entities/\": [<list of entity page slugs>],\n"
+            "    \"wiki/concepts/\": [<list of concept page slugs>],\n"
+            "    \"wiki/sources/\": [<list of source page slugs>],\n"
+            "    \"wiki/comparisons/\": [<list of comparison page slugs>],\n"
+            "    \"wiki/queries/\": [<list of query page slugs>]\n"
+            "  },\n"
+            "  \"suggested_aliases\": {\n"
+            "    \"<page_slug>\": [<alternate names>]\n"
+            "  }\n"
+            "}\n"
+            "```\n\n"
+            "### Rules:\n"
+            "- Each page belongs to exactly one directory\n"
+            "- Suggest aliases for pages with multiple common names\n"
+            "- Prefer existing directory names from schema.yaml page_types\n"
+            "- Flag pages that don't fit any existing category for review"
+        )
+
+    elif prompt_type == "extraction_scan":
+        granularity = variables.get("granularity", "standard")
+        return (
+            f"## Extraction Scan Template (granularity: {granularity})\n\n"
+            "Extract knowledge items from a source document.\n\n"
+            "### Granularity levels:\n"
+            "- **focused**: 3-7 key items — only the most critical knowledge\n"
+            "- **standard**: moderate coverage — all significant items\n"
+            "- **exhaustive**: comprehensive — every extractable item\n\n"
+            f"Current granularity: **{granularity}**\n\n"
+            "### Extraction format:\n"
+            "```json\n"
+            "{\n"
+            "  \"items\": [\n"
+            "    {\n"
+            "      \"title\": \"<item title>\",\n"
+            "      \"type\": \"<entity|concept|decision|pitfall>\",\n"
+            "      \"summary\": \"<1-2 sentence summary>\",\n"
+            "      \"source_ref\": \"[^src:<source_name>:<line_range>]\",\n"
+            "      \"target_page\": \"<wiki/<type_dir>/<slug>.md>\"\n"
+            "    }\n"
+            "  ]\n"
+            "}\n"
+            "```\n\n"
+            "### Rules:\n"
+            "- Each item must reference its source location\n"
+            "- Use existing page types from the schema routing table\n"
+            "- Suggest target_page paths using the wiki/ directory structure\n"
+            "- For pitfall items, include severity and root_cause fields"
         )
 
     return f"Unknown prompt type: {prompt_type}"

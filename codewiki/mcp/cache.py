@@ -99,13 +99,17 @@ def _parse_frontmatter_dict(text: str) -> Dict[str, Any]:
         return result
 
 
-def _build_indexable_text(content: str) -> str:
+def _build_indexable_text(content: str, page_type: Optional[str] = None) -> str:
     """Build indexable text from content with frontmatter field boosting.
 
-    Extracts tags (3x boost), description (2x), and title (2x) from YAML
-    frontmatter, then prepends them to the body text (without frontmatter
-    delimiters). This ensures these semantic fields participate in BM25
-    search with higher weight.
+    Extracts tags (3x boost), description (2x), title (2x), and aliases (3x)
+    from YAML frontmatter, then prepends them to the body text (without
+    frontmatter delimiters). This ensures these semantic fields participate
+    in BM25 search with higher weight.
+
+    Args:
+        content: Markdown content with optional YAML frontmatter.
+        page_type: Optional page type for type-aware boosting.
 
     Returns the combined text string ready for _tokenize().
     """
@@ -139,6 +143,25 @@ def _build_indexable_text(content: str) -> str:
     if isinstance(title, str) and title:
         parts.append(title)
         parts.append(title)
+
+    # LLM Wiki: aliases 3x boost (alternate names for search discoverability)
+    aliases = fm.get("aliases", [])
+    if isinstance(aliases, list):
+        aliases_text = " ".join(str(a) for a in aliases)
+    elif isinstance(aliases, str):
+        aliases_text = aliases
+    else:
+        aliases_text = ""
+    if aliases_text:
+        parts.append(aliases_text)
+        parts.append(aliases_text)
+        parts.append(aliases_text)
+
+    # LLM Wiki: severity boost (for pitfall/known_issue notes)
+    severity = fm.get("severity", "")
+    if isinstance(severity, str) and severity:
+        parts.append(severity)
+        parts.append(severity)
 
     # Body text (frontmatter stripped by _tokenize regex, but we need it here
     # without the delimiters so it doesn't get stripped)
@@ -500,10 +523,34 @@ class AnalysisCache:
         od = Path(output_dir); c = self.conn
         c.execute("DELETE FROM search_index"); c.execute("DELETE FROM search_token_index")
         c.execute("DELETE FROM search_stats")
-        dc = nc = 0
+        from codewiki.src.config import WIKI_SYSTEM_FILES, WIKI_DIR
+        dc = nc = sc = 0
+
+        # Scan wiki/ subdirectories recursively for doc pages
+        wiki_dir = od / WIKI_DIR
+        if wiki_dir.is_dir():
+            for md in sorted(wiki_dir.rglob("*.md")):
+                if not md.is_file(): continue
+                if md.name in WIKI_SYSTEM_FILES: continue
+                try: ct = md.read_text(encoding="utf-8", errors="replace")
+                except OSError: continue
+                if "<!-- crosslinks" in ct: ct = ct.split("<!-- crosslinks")[0]
+                if not ct.strip(): continue
+                title = _extract_title(ct) or md.stem.replace("_"," ").title()
+                tokens = _tokenize(_build_indexable_text(ct))
+                if not tokens: continue
+                tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
+                try: fk = str(md.relative_to(od)).replace("\\", "/")
+                except ValueError: fk = md.name
+                c.execute("INSERT OR REPLACE INTO search_index VALUES(?,?,?,?,?)",
+                          (fk, title, "doc", len(tokens), json.dumps(tf)))
+                for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
+                dc += 1
+
+        # Also scan root-level .md files (for repos without wiki/ dir)
         for md in sorted(od.iterdir()):
             if not md.is_file() or md.suffix != ".md": continue
-            if md.name in ("index.md","log.md","overview.md"): continue
+            if md.name in WIKI_SYSTEM_FILES: continue
             try: ct = md.read_text(encoding="utf-8", errors="replace")
             except OSError: continue
             if "<!-- crosslinks" in ct: ct = ct.split("<!-- crosslinks")[0]
@@ -516,6 +563,8 @@ class AnalysisCache:
                       (md.name, title, "doc", len(tokens), json.dumps(tf)))
             for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, md.name, f))
             dc += 1
+
+        # Scan notes/ directory
         nd = od / "notes"
         if nd.is_dir():
             for nf in sorted(nd.iterdir()):
@@ -532,17 +581,38 @@ class AnalysisCache:
                           (fk, title, "note", len(tokens), json.dumps(tf)))
                 for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
                 nc += 1
-        td = dc + nc
+
+        # Scan raw/sources/ for third-party document text
+        raw_dir = od / "raw" / "sources"
+        if raw_dir.is_dir():
+            for sf in sorted(raw_dir.iterdir()):
+                if not sf.is_file(): continue
+                if sf.suffix not in (".md", ".txt", ".rst"): continue
+                try: ct = sf.read_text(encoding="utf-8", errors="replace")
+                except OSError: continue
+                if not ct.strip(): continue
+                title = sf.stem.replace("_", " ").replace("-", " ").title()
+                tokens = _tokenize(_build_indexable_text(ct))
+                if not tokens: continue
+                tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
+                fk = f"raw/sources/{sf.name}"
+                c.execute("INSERT OR REPLACE INTO search_index VALUES(?,?,?,?,?)",
+                          (fk, title, "source", len(tokens), json.dumps(tf)))
+                for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
+                sc += 1
+
+        td = dc + nc + sc
         if td:
             avg = (c.execute("SELECT SUM(doc_len) FROM search_index").fetchone()[0] or 0) / td
             c.execute("INSERT INTO search_stats VALUES('total_docs',?)", (str(td),))
             c.execute("INSERT INTO search_stats VALUES('avg_doc_len',?)", (str(avg),))
         self.conn.commit()
-        return {"docs_indexed": dc, "notes_indexed": nc, "total_docs": td}
+        return {"docs_indexed": dc, "notes_indexed": nc, "sources_indexed": sc, "total_docs": td}
 
     def search(self, query: str, *, scope="", include_notes=True,
                max_results=10, score_threshold=0.1,
-               output_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+               output_dir: Optional[Path] = None,
+               type_filter: Optional[str] = None) -> List[Dict[str, Any]]:
         c = self.conn
         r = c.execute(
             "SELECT value FROM search_stats WHERE key='total_docs'"
@@ -559,6 +629,22 @@ class AnalysisCache:
         if not qts:
             return []
         max_results = min(20, max(1, max_results))
+
+        # Determine allowed source types from type_filter
+        allowed_source_types: Optional[Set[str]] = None
+        page_type_dir: Optional[str] = None
+        if type_filter:
+            if type_filter == "doc":
+                allowed_source_types = {"doc"}
+            elif type_filter == "note":
+                allowed_source_types = {"note"}
+            elif type_filter == "source":
+                allowed_source_types = {"source"}
+            else:
+                # page_type filter (module, entity, concept, etc.)
+                from codewiki.src.config import PAGE_TYPE_DIRS
+                page_type_dir = PAGE_TYPE_DIRS.get(type_filter, type_filter + "s")
+                allowed_source_types = {"doc"}
 
         # Candidate docs via token index
         ph = ",".join("?" * len(qts))
@@ -595,6 +681,11 @@ class AnalysisCache:
             if not doc_row:
                 continue
             if not include_notes and doc_row["source"] == "note":
+                continue
+            # LLM Wiki: type_filter enforcement
+            if allowed_source_types and doc_row["source"] not in allowed_source_types:
+                continue
+            if page_type_dir and f"wiki/{page_type_dir}/" not in dk:
                 continue
             dl = doc_row["doc_len"] or 1
 

@@ -21,6 +21,24 @@ INDEX_FILENAME = 'index.md'
 LOG_FILENAME = 'log.md'
 SEARCH_INDEX_FILENAME = 'search_index.db'
 SYMBOL_MAP_FILENAME = 'symbol_map.json'
+# LLM Wiki knowledge layer — structured layout constants
+WIKI_DIR = 'wiki'
+RAW_DIR = 'raw'
+RAW_SOURCES_DIR = 'raw/sources'
+SOURCE_REGISTRY_FILENAME = 'source_registry.json'
+ISSUES_FILENAME = 'issues.json'
+PURPOSE_FILENAME = 'purpose.md'
+# Mapping from page_type to subdirectory name under wiki/
+PAGE_TYPE_DIRS = {
+    'module': 'modules',
+    'entity': 'entities',
+    'concept': 'concepts',
+    'source': 'sources',
+    'comparison': 'comparisons',
+    'query': 'queries',
+}
+# Files excluded from wiki index and search (system files)
+WIKI_SYSTEM_FILES = {'index.md', 'log.md', 'overview.md', 'schema.yaml', 'purpose.md'}
 
 
 def meta_join(base_dir, filename):
