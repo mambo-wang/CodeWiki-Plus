@@ -244,6 +244,8 @@ def handle_ingest_note(
 
     notes_dir = output_dir / NOTES_DIR
     notes_dir.mkdir(parents=True, exist_ok=True)
+    # Ensure .meta/ exists for search index persistence
+    (output_dir / ".meta").mkdir(parents=True, exist_ok=True)
 
     note_type = arguments.get("note_type", "general")
     title = arguments.get("title", "Untitled")

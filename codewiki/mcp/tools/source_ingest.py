@@ -117,6 +117,8 @@ def handle_ingest_source(
     from codewiki.src.config import RAW_SOURCES_DIR
     raw_sources = output_dir / RAW_SOURCES_DIR
     raw_sources.mkdir(parents=True, exist_ok=True)
+    # Ensure .meta/ exists for registry and search index
+    (output_dir / ".meta").mkdir(parents=True, exist_ok=True)
 
     # Copy the source file
     dest_name = f"{name}{src.suffix}" if src.suffix else name

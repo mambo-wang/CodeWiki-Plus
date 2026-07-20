@@ -110,6 +110,7 @@ def handle_batch_ingest(
             output_dir = Path(od).expanduser().resolve()
 
     if output_dir:
+        output_dir.mkdir(parents=True, exist_ok=True)
         try:
             from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
             append_log(str(output_dir), "batch_ingest",

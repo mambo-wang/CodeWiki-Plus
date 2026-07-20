@@ -42,7 +42,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     if not repo_path.exists():
         return json.dumps({"error": f"Repository not found: {repo_path}"})
 
-    output_dir = Path(arguments.get("output_dir", str(repo_path / "docs"))).expanduser().resolve()
+    output_dir = Path(arguments.get("output_dir", str(repo_path / "repowiki"))).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     import tempfile

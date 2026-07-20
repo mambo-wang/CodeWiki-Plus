@@ -98,7 +98,7 @@ def _fine_grained_tools() -> list[Tool]:
                     },
                     "output_dir": {
                         "type": "string",
-                        "description": "Output directory for generated docs (default: <repo>/docs)",
+                        "description": "Output directory for generated docs (default: <repo>/repowiki)",
                     },
                     "include_patterns": {
                         "type": "string",
@@ -804,8 +804,8 @@ def _legacy_tools() -> list[Tool]:
                     },
                     "output_dir": {
                         "type": "string",
-                        "description": "Output directory for generated docs (default: ./docs)",
-                        "default": "docs",
+                        "description": "Output directory for generated docs (default: ./repowiki)",
+                        "default": "repowiki",
                     },
                     "doc_type": {
                         "type": "string",
@@ -836,8 +836,8 @@ def _legacy_tools() -> list[Tool]:
                     },
                     "output_dir": {
                         "type": "string",
-                        "description": "Directory containing generated docs (default: ./docs)",
-                        "default": "docs",
+                        "description": "Directory containing generated docs (default: ./repowiki)",
+                        "default": "repowiki",
                     },
                 },
                 "required": ["repo_path"],
@@ -1019,7 +1019,7 @@ def _load_config():
 async def _legacy_generate_docs(arguments: dict[str, Any]) -> list[TextContent]:
     """Legacy generate_docs — requires CodeWiki LLM configuration."""
     repo_path = Path(arguments["repo_path"]).expanduser().resolve()
-    raw_od = Path(arguments.get("output_dir", "docs")).expanduser()
+    raw_od = Path(arguments.get("output_dir", "repowiki")).expanduser()
     output_dir = raw_od.resolve() if raw_od.is_absolute() else (repo_path / raw_od).resolve()
 
     if not repo_path.exists():
@@ -1081,7 +1081,7 @@ async def _legacy_generate_docs(arguments: dict[str, Any]) -> list[TextContent]:
 async def _legacy_get_module_tree(arguments: dict[str, Any]) -> list[TextContent]:
     """Legacy get_module_tree."""
     repo_path = Path(arguments["repo_path"]).expanduser().resolve()
-    raw_od = Path(arguments.get("output_dir", "docs")).expanduser()
+    raw_od = Path(arguments.get("output_dir", "repowiki")).expanduser()
     output_dir = raw_od.resolve() if raw_od.is_absolute() else (repo_path / raw_od).resolve()
 
     from codewiki.src.config import meta_resolve

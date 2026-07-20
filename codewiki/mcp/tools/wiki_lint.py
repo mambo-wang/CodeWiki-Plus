@@ -41,8 +41,8 @@ def _get_output_dir(session: Optional[SessionState], arguments: Dict) -> Optiona
     output_dir = arguments.get("output_dir")
     if output_dir:
         p = Path(output_dir).expanduser().resolve()
-        if p.is_dir():
-            return p
+        p.mkdir(parents=True, exist_ok=True)
+        return p
     return None
 
 
