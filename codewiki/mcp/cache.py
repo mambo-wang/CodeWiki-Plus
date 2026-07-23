@@ -273,6 +273,11 @@ class AnalysisCache:
                 name TEXT NOT NULL, file_path TEXT NOT NULL,
                 PRIMARY KEY(name, file_path));
             CREATE INDEX IF NOT EXISTS ix_symbols_name ON symbols(name);
+            CREATE TABLE IF NOT EXISTS wiki_links (
+                source_doc TEXT NOT NULL, target_doc TEXT NOT NULL,
+                link_type TEXT DEFAULT 'wikilink',
+                PRIMARY KEY(source_doc, target_doc));
+            CREATE INDEX IF NOT EXISTS ix_wiki_links_target ON wiki_links(target_doc);
         """)
 
     # -- meta --
@@ -631,12 +636,22 @@ class AnalysisCache:
             c.execute("INSERT INTO search_stats VALUES('total_docs',?)", (str(td),))
             c.execute("INSERT INTO search_stats VALUES('avg_doc_len',?)", (str(avg),))
         self.conn.commit()
-        return {"docs_indexed": dc, "notes_indexed": nc, "sources_indexed": sc, "total_docs": td}
+
+        # Build inter-page link graph alongside the search index
+        try:
+            graph_info = self.build_link_graph(od)
+        except Exception as e:
+            logger.warning("Link graph build failed (non-fatal): %s", e)
+            graph_info = {"edges": 0, "docs_scanned": 0}
+
+        return {"docs_indexed": dc, "notes_indexed": nc, "sources_indexed": sc,
+                "total_docs": td, "graph_edges": graph_info.get("edges", 0)}
 
     def search(self, query: str, *, scope="", include_notes=True,
                max_results=10, score_threshold=0.1,
                output_dir: Optional[Path] = None,
-               type_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+               type_filter: Optional[str] = None,
+               hop: int = 0, decay: float = 0.5) -> List[Dict[str, Any]]:
         c = self.conn
         r = c.execute(
             "SELECT value FROM search_stats WHERE key='total_docs'"
@@ -750,15 +765,55 @@ class AnalysisCache:
                         snippet = _extract_snippet(raw, qts)[:300]
                     except OSError:
                         pass
-            results.append(
-                {
-                    "file": dk,
-                    "title": doc_row["title"] if doc_row else dk,
-                    "source": doc_row["source"] if doc_row else "doc",
+            entry: Dict[str, Any] = {
+                "file": dk,
+                "title": doc_row["title"] if doc_row else dk,
+                "source": doc_row["source"] if doc_row else "doc",
+                "snippet": snippet,
+                "relevance_score": round(s, 4),
+            }
+            # Attach related pages from link graph
+            related = self.get_related_pages(dk, limit=5)
+            if related:
+                entry["related"] = related
+            results.append(entry)
+
+        # Graph expansion: discover related docs beyond BM25 hits
+        if hop > 0 and scored:
+            seed_docs = [(dk, s) for s, dk in scored[:max_results]]
+            expanded = self.graph_expand(seed_docs, hop=hop, decay=decay)
+            existing_keys = {r["file"] for r in results}
+            for ex in expanded:
+                if ex["file"] in existing_keys:
+                    continue
+                doc_row = c.execute(
+                    "SELECT title, source FROM search_index WHERE doc_key=?",
+                    (ex["file"],),
+                ).fetchone()
+                if not doc_row:
+                    continue
+                if not include_notes and doc_row["source"] == "note":
+                    continue
+                snippet = ""
+                if output_dir is not None:
+                    fpath = Path(output_dir) / ex["file"]
+                    if fpath.exists():
+                        try:
+                            raw = fpath.read_text(encoding="utf-8", errors="replace")
+                            snippet = _extract_snippet(raw, qts)[:300]
+                        except OSError:
+                            pass
+                results.append({
+                    "file": ex["file"],
+                    "title": doc_row["title"],
+                    "source": doc_row["source"],
                     "snippet": snippet,
-                    "relevance_score": round(s, 4),
-                }
-            )
+                    "relevance_score": ex["score"],
+                    "hop": ex["hop"],
+                    "via": ex["via"],
+                })
+                existing_keys.add(ex["file"])
+
         return results
 
     def update_search_doc(self, output_dir: Path, filepath: Path):
@@ -781,6 +836,240 @@ class AnalysisCache:
                               (fk, filepath.stem, src, len(tokens), json.dumps(tf)))
             for t, f in tf.items(): self.conn.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
         self.conn.commit()
+
+    # -- wiki link graph --
+
+    _WIKILINK_RE = re.compile(r"\[\[([^\]|]+?)(?:\|[^\]]+?)?\]\]")
+    _MDLINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+\.md)\)")
+
+    def build_link_graph(self, output_dir: Path) -> Dict[str, Any]:
+        """Scan wiki pages for inter-page links and rebuild wiki_links table.
+
+        Extracts [[wikilink]] and [text](path.md) patterns, resolves targets
+        to doc_keys in the search_index, and stores directed edges.
+        """
+        od = Path(output_dir)
+        c = self.conn
+        c.execute("DELETE FROM wiki_links")
+
+        # Build a lookup: stem/slug → doc_key for resolution
+        all_docs = {
+            row["doc_key"]: row["title"]
+            for row in c.execute("SELECT doc_key, title FROM search_index").fetchall()
+        }
+        # Map various forms to doc_key for target resolution
+        stem_to_key: Dict[str, str] = {}
+        title_to_key: Dict[str, str] = {}
+        for dk, title in all_docs.items():
+            stem = Path(dk).stem.lower().replace("_", "-")
+            stem_to_key[stem] = dk
+            stem_to_key[Path(dk).stem.lower()] = dk
+            if title:
+                title_to_key[title.lower()] = dk
+                title_to_key[title.lower().replace(" ", "-")] = dk
+
+        edges: Set[Tuple[str, str, str]] = set()
+
+        from codewiki.src.config import WIKI_SYSTEM_FILES, WIKI_DIR
+        wiki_dir = od / WIKI_DIR
+        scan_dirs = [wiki_dir] if wiki_dir.is_dir() else [od]
+        # Also scan root-level .md files
+        if wiki_dir.is_dir():
+            scan_dirs.append(od)
+
+        seen_files: Set[Path] = set()
+        for scan_dir in scan_dirs:
+            if not scan_dir.is_dir():
+                continue
+            for md in scan_dir.rglob("*.md") if scan_dir == wiki_dir else scan_dir.iterdir():
+                if not md.is_file() or md.suffix != ".md":
+                    continue
+                if md.name in WIKI_SYSTEM_FILES:
+                    continue
+                if md in seen_files:
+                    continue
+                seen_files.add(md)
+                try:
+                    ct = md.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                try:
+                    source_key = str(md.relative_to(od)).replace("\\", "/")
+                except ValueError:
+                    source_key = md.name
+                if source_key not in all_docs:
+                    continue
+
+                # Strip crosslinks section for cleaner parsing (it has its own links)
+                body = ct.split("<!-- crosslinks")[0] if "<!-- crosslinks" in ct else ct
+
+                # Extract [[wikilink]] targets
+                for m in self._WIKILINK_RE.finditer(body):
+                    target_raw = m.group(1).strip()
+                    resolved = self._resolve_link_target(
+                        target_raw, stem_to_key, title_to_key, all_docs)
+                    if resolved and resolved != source_key:
+                        edges.add((source_key, resolved, "wikilink"))
+
+                # Extract [text](path.md) targets
+                for m in self._MDLINK_RE.finditer(body):
+                    href = m.group(2).strip()
+                    if href.startswith("http"):
+                        continue
+                    # Resolve relative path to doc_key
+                    resolved = self._resolve_md_href(href, source_key, all_docs)
+                    if resolved and resolved != source_key:
+                        edges.add((source_key, resolved, "mdlink"))
+
+        if edges:
+            c.executemany(
+                "INSERT OR IGNORE INTO wiki_links(source_doc, target_doc, link_type) VALUES(?,?,?)",
+                list(edges),
+            )
+        c.commit()
+        logger.info("Link graph built: %d edges from %d docs", len(edges), len(all_docs))
+        return {"edges": len(edges), "docs_scanned": len(all_docs)}
+
+    def _resolve_link_target(
+        self, target: str, stem_to_key: Dict[str, str],
+        title_to_key: Dict[str, str], all_docs: Dict[str, str],
+    ) -> Optional[str]:
+        """Resolve a [[wikilink]] target to a doc_key."""
+        t = target.strip().lower().replace(".md", "")
+        # Direct stem match
+        if t in stem_to_key:
+            return stem_to_key[t]
+        # Title match
+        if t in title_to_key:
+            return title_to_key[t]
+        # Slugified match
+        slug = re.sub(r"[\s_]+", "-", t).strip("-")
+        if slug in stem_to_key:
+            return stem_to_key[slug]
+        return None
+
+    def _resolve_md_href(
+        self, href: str, source_key: str, all_docs: Dict[str, str],
+    ) -> Optional[str]:
+        """Resolve a markdown [text](path.md) href to a doc_key."""
+        # Join href relative to source's directory, then normalize ../ segments
+        source_dir = str(Path(source_key).parent).replace("\\", "/")
+        href = href.replace("\\", "/")
+        if source_dir == ".":
+            candidate = href
+        else:
+            candidate = f"{source_dir}/{href}"
+        # Normalize ../ and ./ segments
+        parts = candidate.split("/")
+        resolved_parts: List[str] = []
+        for p in parts:
+            if p == "..":
+                if resolved_parts:
+                    resolved_parts.pop()
+            elif p not in (".", ""):
+                resolved_parts.append(p)
+        candidate = "/".join(resolved_parts)
+        if candidate in all_docs:
+            return candidate
+        # Try without wiki/ prefix variations
+        if candidate.startswith("wiki/") and candidate[5:] in all_docs:
+            return candidate[5:]
+        return None
+
+    def graph_expand(
+        self, seed_docs: List[Tuple[str, float]], *,
+        hop: int = 1, decay: float = 0.5, min_score: float = 0.05,
+        max_expand: int = 30,
+    ) -> List[Dict[str, Any]]:
+        """BFS expansion from seed docs along wiki_links edges.
+
+        Args:
+            seed_docs: List of (doc_key, bm25_score) from initial search.
+            hop: Number of hops to expand (0 = no expansion).
+            decay: Score multiplier per hop.
+            min_score: Minimum score threshold for expanded nodes.
+            max_expand: Maximum number of expanded nodes to return.
+
+        Returns:
+            List of {file, score, hop, via} for expanded docs (excludes seeds).
+        """
+        if hop <= 0:
+            return []
+
+        seed_keys = {dk for dk, _ in seed_docs}
+        # score_map tracks best score for each discovered node
+        discovered: Dict[str, Dict[str, Any]] = {}
+        # BFS frontier: (doc_key, current_score, current_hop, via_doc)
+        frontier: List[Tuple[str, float, int, str]] = [
+            (dk, score, 0, "") for dk, score in seed_docs
+        ]
+
+        c = self.conn
+        for _ in range(hop):
+            next_frontier: List[Tuple[str, float, int, str]] = []
+            for doc_key, score, cur_hop, via in frontier:
+                if cur_hop >= hop:
+                    continue
+                next_score = score * decay
+                if next_score < min_score:
+                    continue
+                # Get neighbors (both directions for undirected traversal)
+                neighbors = set()
+                for row in c.execute(
+                    "SELECT target_doc FROM wiki_links WHERE source_doc=?", (doc_key,)
+                ):
+                    neighbors.add(row["target_doc"])
+                for row in c.execute(
+                    "SELECT source_doc FROM wiki_links WHERE target_doc=?", (doc_key,)
+                ):
+                    neighbors.add(row["source_doc"])
+
+                for nb in neighbors:
+                    if nb in seed_keys:
+                        continue
+                    if nb in discovered and discovered[nb]["score"] >= next_score:
+                        continue
+                    discovered[nb] = {
+                        "file": nb, "score": round(next_score, 4),
+                        "hop": cur_hop + 1, "via": doc_key,
+                    }
+                    next_frontier.append((nb, next_score, cur_hop + 1, doc_key))
+            frontier = next_frontier
+            if not frontier:
+                break
+
+        # Sort by score descending, cap at max_expand
+        result = sorted(discovered.values(), key=lambda x: x["score"], reverse=True)
+        return result[:max_expand]
+
+    def get_related_pages(self, doc_key: str, limit: int = 8) -> List[Dict[str, str]]:
+        """Get pages linked to/from a given doc (for 'related' field in results)."""
+        c = self.conn
+        related: Dict[str, str] = {}  # doc_key → direction
+        for row in c.execute(
+            "SELECT target_doc FROM wiki_links WHERE source_doc=?", (doc_key,)
+        ):
+            related[row["target_doc"]] = "out"
+        for row in c.execute(
+            "SELECT source_doc FROM wiki_links WHERE target_doc=?", (doc_key,)
+        ):
+            if row["source_doc"] in related:
+                related[row["source_doc"]] = "both"
+            else:
+                related[row["source_doc"]] = "in"
+
+        # Get titles for related pages
+        result = []
+        for dk, direction in list(related.items())[:limit]:
+            row = c.execute(
+                "SELECT title FROM search_index WHERE doc_key=?", (dk,)
+            ).fetchone()
+            result.append({
+                "file": dk,
+                "title": row["title"] if row else Path(dk).stem,
+                "direction": direction,
+            })
+        return result
 
 # ------------------------------------------------------------------ helpers
 

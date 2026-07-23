@@ -452,6 +452,8 @@ def handle_query_wiki(
     max_results = min(20, max(1, arguments.get("max_results", 10)))
     expand_terms = arguments.get("expand_terms")  # optional synonym list
     type_filter = arguments.get("type_filter")  # optional page type filter
+    hop = min(3, max(0, arguments.get("hop", 0)))  # graph expansion hops (0-3)
+    expand = arguments.get("expand", False)  # return full content instead of snippet
 
     # Load module tree for component mapping
     module_tree = None
@@ -492,6 +494,7 @@ def handle_query_wiki(
             expand_terms=expand_terms,
             session=session,
             type_filter=type_filter,
+            hop=hop,
         )
 
         for r in raw_results:
@@ -506,6 +509,26 @@ def handle_query_wiki(
                 "snippet": r["snippet"],
                 "relevance_score": r["relevance_score"],
             }
+            # Pass through graph expansion metadata
+            if "hop" in r:
+                entry["hop"] = r["hop"]
+                entry["via"] = r.get("via", "")
+            # Pass through related pages from link graph
+            if "related" in r:
+                entry["related"] = r["related"]
+            # Expand mode: return full page content for deeper reading
+            if expand:
+                file_path = output_dir / r["file"]
+                if file_path.exists():
+                    try:
+                        full_text = file_path.read_text(encoding="utf-8", errors="replace")
+                        if "<!-- crosslinks" in full_text:
+                            full_text = full_text.split("<!-- crosslinks")[0]
+                        entry["content"] = full_text[:3000].strip()
+                        if len(full_text) > 3000:
+                            entry["content_truncated"] = True
+                    except OSError:
+                        pass
             if r["source"] == "note":
                 # Extract date from note frontmatter for notes
                 note_path = output_dir / r["file"]

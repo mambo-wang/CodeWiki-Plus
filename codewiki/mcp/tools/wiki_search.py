@@ -302,7 +302,8 @@ def remove_file(output_dir, filepath):
         if idx.remove(fk): _save_index(od, idx)
 
 def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
-           score_threshold=0.1, expand_terms=None, session=None, type_filter=None):
+           score_threshold=0.1, expand_terms=None, session=None, type_filter=None,
+           hop=0, decay=0.5):
     """BM25 search. Uses SQLite cache if session available."""
     od = Path(output_dir); max_results = min(20, max(1, max_results))
 
@@ -310,7 +311,8 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
     if session is not None and getattr(session, "cache", None) is not None:
         try: return session.cache.search(query, scope=scope or "", include_notes=include_notes,
                                           max_results=max_results, score_threshold=score_threshold,
-                                          output_dir=od, type_filter=type_filter)
+                                          output_dir=od, type_filter=type_filter,
+                                          hop=hop, decay=decay)
         except Exception as e: logger.warning("SQLite search failed: %s", e)
 
     # Try standalone SQLite (no active session, DB persisted on disk)
@@ -321,7 +323,8 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
             try:
                 results = _standalone.search(query, scope=scope or "", include_notes=include_notes,
                                              max_results=max_results, score_threshold=score_threshold,
-                                             output_dir=od, type_filter=type_filter)
+                                             output_dir=od, type_filter=type_filter,
+                                             hop=hop, decay=decay)
                 _standalone.close()
                 return results
             except Exception as e:
