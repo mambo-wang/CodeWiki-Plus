@@ -187,7 +187,17 @@ def resolve_doc_path(
 
     # Already has a directory prefix?
     if "/" in filename or "\\" in filename:
-        candidate = (od / filename).resolve()
+        # Normalize separators for prefix checks
+        normalized = filename.replace("\\", "/")
+        wiki_prefix = WIKI_DIR.rstrip("/") + "/"
+
+        if normalized.startswith(wiki_prefix):
+            # Already under wiki/ — use as-is
+            candidate = (od / filename).resolve()
+        else:
+            # Agent passed a bare relative path like "entities/Foo.md"
+            # or "modules/auth.md" — force it under wiki/
+            candidate = (od / WIKI_DIR / normalized).resolve()
     elif filename == OVERVIEW_FILENAME:
         # Overview always lives at wiki/overview.md (not in a page_type subdir)
         wiki_dir = od / WIKI_DIR

@@ -97,6 +97,7 @@ ingest_note(note_type, title, content) → 自动索引 → query_wiki 可检索
 - **增量更新**: 若 output_dir 已有 .meta/metadata.json，analyze_repo 返回 changes 字段标识变更
 - **Mermaid 校验**: write_doc_file / edit_doc_file 自动校验 Mermaid 图表语法
 - **page_type 路由**: module→wiki/modules/, entity→wiki/entities/, concept→wiki/concepts/, source→wiki/sources/
+- **filename 规则**: write_doc_file 的 filename 参数只传纯文件名（如 "UserService.md"），禁止包含目录路径。目录由 page_type 自动路由，传 "entities/X.md" 会导致路径错误
 
 ## 推荐使用流程
 1. 生成 Wiki: 调用 Prompt "generate-wiki" 获取完整步骤
@@ -211,7 +212,7 @@ def _fine_grained_tools() -> list[Tool]:
                     },
                     "filename": {
                         "type": "string",
-                        "description": "Filename for the doc (e.g., 'auth_module.md')",
+                        "description": "Plain filename only (e.g., 'auth_module.md' or 'UserService.md'). Do NOT include directory paths — the page_type parameter handles routing automatically (entity → wiki/entities/, module → wiki/modules/, etc.).",
                     },
                     "content": {
                         "type": "string",
@@ -259,7 +260,7 @@ def _fine_grained_tools() -> list[Tool]:
                     },
                     "filename": {
                         "type": "string",
-                        "description": "Filename of the doc to edit",
+                        "description": "Plain filename of the doc to edit (e.g., 'auth_module.md'). Do NOT include directory paths — page_type handles routing.",
                     },
                     "command": {
                         "type": "string",
@@ -1327,7 +1328,7 @@ def _prompt_generate_wiki(args: dict[str, str]) -> str:
 2. 调用 read_code_components(session_id, component_ids) 读取源码
 3. 调用 list_dependencies(session_id, component_ids) 获取依赖关系
 4. 撰写 Markdown 文档（200-500 行叶模块，含 Mermaid 架构图）
-5. 调用 write_doc_file(session_id, filename="modules/<模块名>.md", content=...) 写入
+5. 调用 write_doc_file(session_id, filename="<模块名>.md", page_type="module", content=...) 写入
 
 ## 步骤 5: 仓库总览
 调用 get_prompt(prompt_type="overview_repo", session_id) 获取总览模板
@@ -1379,11 +1380,11 @@ def _prompt_extract_knowledge(args: dict[str, str]) -> str:
 
 ## 步骤 5: 生成知识页面
 为每个知识单元创建页面（使用 output_dir="{output_dir}"）：
-1. 源文档摘要: write_doc_file(output_dir="{output_dir}", filename="sources/{source_name}.md", page_type="source", content=...)
+1. 源文档摘要: write_doc_file(output_dir="{output_dir}", filename="{source_name}.md", page_type="source", content=...)
    - 调用 get_prompt(prompt_type="source_summary") 获取模板
-2. 实体页面: write_doc_file(output_dir="{output_dir}", filename="entities/<实体名>.md", page_type="entity", content=...)
+2. 实体页面: write_doc_file(output_dir="{output_dir}", filename="<实体名>.md", page_type="entity", content=...)
    - 调用 get_prompt(prompt_type="entity_page") 获取模板
-3. 概念页面: write_doc_file(output_dir="{output_dir}", filename="concepts/<概念名>.md", page_type="concept", content=...)
+3. 概念页面: write_doc_file(output_dir="{output_dir}", filename="<概念名>.md", page_type="concept", content=...)
    - 调用 get_prompt(prompt_type="concept_page") 获取模板
 
 ## 步骤 6: 构建知识图谱
