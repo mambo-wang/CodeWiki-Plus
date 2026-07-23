@@ -35,7 +35,7 @@ CodeWiki-CN 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWi
 
 实际上，CodeWiki 的核心工具链——AST 解析、依赖图、Mermaid 校验——完全不需要 LLM。真正需要 LLM 智能的 4 个环节（模块聚类、文档撰写、子模块递归、总览合成），恰好是 AI IDE 的 Agent 最擅长做的事情。
 
-因此，我们将 CodeWiki 的 MCP Server 从"黑盒式一键生成"拆分为**16 个细粒度工具**，让它退化为纯工具链服务器。AI IDE 的 Agent 通过 MCP 协议调用这些工具，用自己的推理能力完成全部文档生成工作：
+因此，我们将 CodeWiki 的 MCP Server 从"黑盒式一键生成"拆分为**21 个细粒度工具**，让它退化为纯工具链服务器。AI IDE 的 Agent 通过 MCP 协议调用这些工具，用自己的推理能力完成全部文档生成工作：
 
 ```
 改造前：
@@ -54,7 +54,7 @@ CodeWiki-CN 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWi
 
 ### 快速开始（以 CodeBuddy 为例）
 
-整个过程只需 4 步，不需要任何 API Key。
+整个过程只需 3 步，不需要任何 API Key。
 
 **第 1 步：安装 CodeWiki-CN**
 
@@ -89,25 +89,9 @@ python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
 
 > 将 `/你的路径/CodeWiki-CN` 替换为你实际克隆 CodeWiki-CN 的绝对路径。
 
-配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 18 个工具（16 个细粒度 + 2 个遗留）。
+配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 21 个工具。
 
-**第 3 步：配置技能（Skill）**
-
-本项目已预置 CodeBuddy 技能文件：
-
-```
-skills/codewiki-wiki-generator/SKILL.md
-```
-
-使用前需将该技能文件夹拷贝到 CodeBuddy 的技能目录下：
-
-```bash
-cp -r skills/codewiki-wiki-generator .codebuddy/skills/
-```
-
-该技能定义了 Wiki 生成的 5 阶段工作流（分析 → 聚类 → 逐模块文档 → 总览 → 清理），当你在 Agent 对话中提及"生成文档"或"Wiki"时，CodeBuddy 会自动加载这些指令。
-
-**第 4 步：在 Agent 模式中输入提示词**
+**第 3 步：在 Agent 模式中输入提示词**
 
 打开 CodeBuddy 的 Agent 模式，用 CodeBuddy 打开你要生成文档的目标项目，然后输入：
 
@@ -171,42 +155,56 @@ repowiki/
 
 ### MCP 工具速查
 
-所有工具均不需要 LLM 配置，由 IDE Agent 通过 MCP 协议调用：
+所有工具均不需要 LLM 配置，由 IDE Agent 通过 MCP 协议调用。MCP Server 内置 **instructions**（能力概览与工作流指南）、**6 个 Prompt 模板**（generate-wiki / extract-knowledge / search-wiki / quality-check / incremental-update / workspace-analysis）和 **6 个 Resource**（wiki-catalog / module-tree / index-status 等）。
 
 **文档生成管线（8 个）：**
 
 | 工具 | 用途 |
 |------|------|
-| `analyze_repo` | 分析仓库，构建依赖图，返回组件索引；支持增量更新检测 |
+| `analyze_repo` | 分析仓库，构建依赖图，返回组件索引；支持 SHA256 增量选择性重解析 |
 | `read_code_components` | 根据组件 ID 读取源码 |
-| `write_doc_file` | 创建 .md 文档（自动 Mermaid 校验 + 自动交叉链接注入） |
+| `write_doc_file` | 创建 .md 文档（自动 Mermaid 校验 + 自动交叉链接注入）；支持无 session 模式 |
 | `edit_doc_file` | 编辑文档（替换/插入/撤销） |
 | `save_module_tree` | 保存模块聚类结果 |
 | `get_processing_order` | 获取叶优先的文档生成顺序 |
-| `get_prompt` | 获取各阶段的提示词模板（含 10 个 Wiki 知识管理模板） |
+| `get_prompt` | 获取各阶段的提示词模板（含 10+ 个 Wiki 知识管理模板） |
 | `close_session` | 关闭会话释放资源，写入生成元数据 |
 
-**LLM Wiki 知识管理（8 个）：**
+**LLM Wiki 知识管理（10 个）：**
 
 | 工具 | 用途 |
 |------|------|
 | `list_dependencies` | 查询组件/模块依赖关系，支持分页、方向过滤、高影响力组件排名 |
-| `lint_wiki` | 文档-代码一致性检查：9 项检查（过期引用、断链、未覆盖组件、循环依赖、覆盖率、孤立页面、无出链、缺少别名、过期外部源） |
-| `ingest_note` | 将开发笔记（决策/经验/架构/修复/踩坑/临时方案）归档到 notes/ 目录，支持严重级别、根因分析、来源引用、别名 |
-| `query_wiki` | 全文搜索已生成文档和归档笔记，支持类型过滤（`type_filter`）、作用域前缀、上下文摘要 |
-| `ingest_source` | 导入第三方文档（API 文档、设计规范等）到 `raw/sources/`，注册到 `source_registry.json` |
-| `retract_source` | 撤回已导入的外部文档：`flag_stale` 标记过期或 `remove_refs` 删除并清理引用 |
-| `batch_ingest` | 批量导入：一次调用处理多个笔记/文档，支持 `items` 列表和 `items_file` 文件路径 |
-| `flag_issue` | 标记 Wiki 质量问题（broken_link/missing_doc/inconsistent 等），写入 `issues.json`，驱动 health score 计算 |
+| `lint_wiki` | 文档-代码一致性检查：**10 项检查**（过期引用、断链、未覆盖组件、循环依赖、覆盖率、孤立页面、无出链、缺少别名、过期外部源、overview 过时标记） |
+| `ingest_note` | 将开发笔记（决策/经验/架构/修复/踩坑/临时方案）归档到 notes/ 目录 |
+| `query_wiki` | 全文搜索 + **wikilink 图谱多跳扩展**（hop/decay），支持类型过滤、作用域前缀 |
+| `ingest_source` | 导入第三方文档到 `raw/sources/`，注册到 `source_registry.json` |
+| `retract_source` | 撤回已导入的外部文档 |
+| `batch_ingest` | 批量导入：一次调用处理多个笔记/文档 |
+| `flag_issue` | 标记 Wiki 质量问题，驱动 health score 计算 |
+| `list_components` | 组件索引查询，支持摘要模式和前缀过滤 |
+| `view_repo_file` | 查看仓库原始源文件内容，支持行范围截取 |
+
+**工作区分析（1 个）：**
+
+| 工具 | 用途 |
+|------|------|
+| `analyze_workspace` | 扫描多仓库工作区，为每个子仓库独立生成 Wiki，顶层生成跨服务总览 |
 
 > 另有 2 个遗留工具（`generate_docs`、`get_module_tree`）保留向后兼容，需先通过 `codewiki config set` 配置 LLM API。
 
 ### 增量更新
 
-`analyze_repo` 内置增量检测，首次生成后再次调用时，会自动比对上次生成状态：
+`analyze_repo` 内置两层增量优化：
+
+**变更检测**：首次生成后再次调用时，自动比对上次生成状态：
 
 - **Git 策略（优先）**：通过 `git diff` 比对当前 HEAD 与上次生成时的 commit，识别变更文件
-- **Mtime 策略（回退）**：非 Git 仓库通过文件修改时间检测变更
+- **SHA256 指纹策略（回退）**：通过文件内容哈希（前 64KB）+ mtime 双重检测变更
+
+**选择性重解析**：检测到变更后，仅重新解析变更文件，未变更文件的组件直接从 SQLite 缓存加载合并。`skip_file_paths` 参数贯穿全链路（DependencyGraphBuilder → DependencyParser → AnalysisService → CallGraphAnalyzer），大幅减少增量更新时间。
+
+**Overview stale 精确判定**：通过解析 overview.md 中的链接提取引用模块列表（持久化到 `.meta/overview_refs.json`），精确判定 overview 是否需要更新，替代无条件级联刷新。只有当 overview 实际引用了受影响模块时才标记为 stale。
 
 检测到的变更会映射到受影响的模块（`affected_modules`）和需要级联刷新的父模块（`cascade_modules`），Agent 只需重新生成受影响的模块文档，而非全量重写。
 
@@ -303,7 +301,7 @@ CodeWiki-CN 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 
 #### 文档健康检查
 
-`lint_wiki` 从 5 项扩展为 **9 项检查**，新增的 4 项 LLM Wiki 检查：
+`lint_wiki` 从 5 项扩展为 **10 项检查**，新增的 5 项 LLM Wiki 检查：
 
 | 检查项 | 说明 |
 |--------|------|
@@ -311,6 +309,7 @@ CodeWiki-CN 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 | `no_outlinks` | 没有链接到任何其他页面的死端页面 |
 | `missing_aliases` | 实体页面缺少 aliases 声明 |
 | `stale_sources` | 引用了已撤回（retracted）外部文档的页面 |
+| `overview_stale` | overview.md 引用了已变更的模块，需要更新 |
 
 `lint_wiki` 返回结果包含 **health_score**（0-100），计算方式为 `100 - Σ(error×10 + warning×3 + info×1)`。`index.md` 顶部也会展示当前健康分数。
 
@@ -325,6 +324,8 @@ CodeWiki-CN 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 - **类型过滤**：`type_filter` 参数限定搜索范围（module/entity/concept/source/comparison/query）
 - **作用域前缀**：`scope` 参数支持目录前缀（如 `wiki/entities`、`notes`）
 - **BM25 权重增强**：aliases 3× boost、severity 2× boost
+- **Wikilink 图谱多跳扩展**：`hop` 参数（0-3）启用 BFS 图扩展，沿 wikilink 有向边发现关联页面，`decay` 参数控制分数衰减（默认 0.5×/跳）
+- **关联页面推荐**：搜索结果自动附带 `related` 字段，展示与当前结果关联的其他页面
 - **外部文档搜索**：`include_sources` 参数控制是否包含已导入的第三方文档
 
 #### 提示词模板
@@ -430,7 +431,14 @@ Python、Java、JavaScript、TypeScript、C、C++、C#、Kotlin、Go、PHP
 
 ### 致谢
 
-本项目的核心工具链（Tree-sitter AST 解析、依赖图构建、拓扑排序、Mermaid 校验）全部来自 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) 上游项目。LLM Wiki 知识层设计参考了 [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki) 和 [Tencent/WeKnora](https://github.com/Tencent/WeKnora)。我们在上游基础上将 MCP Server 从黑盒模式拆分为 16 个细粒度工具，并新增结构化 Wiki、外部文档管理、批量导入、问题追踪等知识层能力。
+本项目的核心工具链（Tree-sitter AST 解析、依赖图构建、拓扑排序、Mermaid 校验）全部来自 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) 上游项目。以下开源项目的设计思路对我们产生了重要影响：
+
+- [codebase-memory-mcp](https://github.com/nicobailon/codebase-memory-mcp) — SQLite 持久化缓存架构、跨会话复用、三层降级模式
+- [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki) — 结构化知识层设计、页面类型路由、交叉链接
+- [Tencent/WeKnora](https://github.com/Tencent/WeKnora) — 外部文档管理、文档健康检查、自适应分块思路
+- [CodingHub](https://github.com/mambo-wang/CodingHub) — MCP Server 最佳实践（instructions / prompts / resources）
+
+我们在上游基础上将 MCP Server 从黑盒模式拆分为 **21 个细粒度工具**，并新增结构化 Wiki、外部文档管理、批量导入、问题追踪、wikilink 图谱搜索、SHA256 增量解析等能力。
 
 上游论文：[CodeWiki: Evaluating AI's Ability to Generate Holistic Documentation for Large-Scale Codebases](https://arxiv.org/abs/2510.24428)
 
@@ -462,7 +470,7 @@ The original CodeWiki is an excellent repository-level documentation framework. 
 
 In practice, CodeWiki's core toolchain—Tree-sitter AST parsing, dependency graph construction, topological sorting, and Mermaid validation—does not need an LLM at all. The 4 stages that do require LLM intelligence (module clustering, document writing, sub-module recursion, and overview synthesis) are exactly what AI IDE Agents excel at.
 
-We refactored CodeWiki's MCP Server from a "one-click black box" into **16 fine-grained tools**, turning it into a pure toolchain server. The AI IDE's Agent calls these tools via MCP and uses its own reasoning to complete all documentation work:
+We refactored CodeWiki's MCP Server from a "one-click black box" into **21 fine-grained tools**, turning it into a pure toolchain server. The AI IDE's Agent calls these tools via MCP and uses its own reasoning to complete all documentation work:
 
 ```
 Before:
@@ -481,7 +489,7 @@ After:
 
 ### Quick Start (CodeBuddy Example)
 
-4 steps, no API key needed.
+3 steps, no API key needed.
 
 **Step 1: Install CodeWiki-CN**
 
@@ -509,23 +517,7 @@ Add the following to your CodeBuddy MCP settings:
 
 > Replace `/your/path/to/CodeWiki-CN` with the actual absolute path where you cloned CodeWiki-CN.
 
-**Step 3: Configure Skill**
-
-A CodeBuddy skill file is pre-configured at:
-
-```
-skills/codewiki-wiki-generator/SKILL.md
-```
-
-Copy it to CodeBuddy's skill directory before use:
-
-```bash
-cp -r skills/codewiki-wiki-generator .codebuddy/skills/
-```
-
-It defines the 5-stage Wiki generation workflow (analyze → cluster → document modules → synthesize overviews → cleanup). CodeBuddy auto-loads it when you mention "generate docs" or "Wiki" in Agent mode.
-
-**Step 4: Prompt your AI Agent**
+**Step 3: Prompt your AI Agent**
 
 Open the target project in CodeBuddy, switch to Agent mode, and enter:
 
@@ -583,42 +575,56 @@ repowiki/
 
 ### MCP Tools
 
-All tools require zero LLM config. The IDE Agent invokes them via MCP:
+All tools require zero LLM config. The IDE Agent invokes them via MCP. The server includes built-in **instructions**, **6 Prompt templates**, and **6 Resources**.
 
 **Documentation Pipeline (8):**
 
 | Tool | Purpose |
 |------|---------|
-| `analyze_repo` | Parse repo, build dependency graph, return component index; includes incremental change detection |
+| `analyze_repo` | Parse repo, build dependency graph; supports SHA256 incremental selective re-parse |
 | `read_code_components` | Read source code by component ID |
-| `write_doc_file` | Create .md docs with automatic Mermaid validation + crosslink injection |
+| `write_doc_file` | Create .md docs with Mermaid validation + crosslink injection; supports sessionless mode |
 | `edit_doc_file` | Edit docs (str_replace / insert / undo) |
 | `save_module_tree` | Persist module clustering results |
 | `get_processing_order` | Get leaf-first documentation order |
-| `get_prompt` | Retrieve prompt templates for each stage (includes 10 Wiki knowledge management templates) |
+| `get_prompt` | Retrieve prompt templates (includes 10+ Wiki knowledge management templates) |
 | `close_session` | Close session, write generation metadata |
 
-**LLM Wiki Knowledge Management (8):**
+**LLM Wiki Knowledge Management (10):**
 
 | Tool | Purpose |
 |------|---------|
 | `list_dependencies` | Query component/module dependencies with pagination, direction filtering, and high-impact ranking |
-| `lint_wiki` | Doc-code consistency checks: 9 checks (stale refs, broken links, undocumented components, circular deps, coverage, orphan pages, no outlinks, missing aliases, stale sources) |
-| `ingest_note` | File structured notes (decisions/lessons/architecture/fixes/pitfalls/workarounds) into notes/ with severity, root cause, source refs, and aliases |
-| `query_wiki` | Full-text search across generated docs and ingested notes with type filtering (`type_filter`), scope prefix, and context snippets |
-| `ingest_source` | Import third-party docs (API docs, specs, RFCs, etc.) into `raw/sources/`, registered in `source_registry.json` |
-| `retract_source` | Retract imported docs: `flag_stale` to mark outdated or `remove_refs` to delete and clean all references |
-| `batch_ingest` | Batch import: process multiple notes/sources in one call, supports `items` list and `items_file` path |
-| `flag_issue` | Flag Wiki quality issues (broken_link/missing_doc/inconsistent, etc.), written to `issues.json`, drives health score |
+| `lint_wiki` | Doc-code consistency checks: **10 checks** (stale refs, broken links, undocumented components, circular deps, coverage, orphan pages, no outlinks, missing aliases, stale sources, overview stale) |
+| `ingest_note` | File structured notes into notes/ with severity, root cause, source refs, and aliases |
+| `query_wiki` | Full-text search + **wikilink graph multi-hop expansion** (hop/decay) with type filtering and scope prefix |
+| `ingest_source` | Import third-party docs into `raw/sources/`, registered in `source_registry.json` |
+| `retract_source` | Retract imported docs |
+| `batch_ingest` | Batch import: process multiple notes/sources in one call |
+| `flag_issue` | Flag Wiki quality issues, drives health score |
+| `list_components` | Component index query with summary mode and prefix filtering |
+| `view_repo_file` | View raw source file content with optional line range |
+
+**Workspace Analysis (1):**
+
+| Tool | Purpose |
+|------|---------|
+| `analyze_workspace` | Scan multi-repo workspace, generate per-repo Wikis with cross-service overview |
 
 > 2 legacy tools (`generate_docs`, `get_module_tree`) are retained for backward compatibility and require `codewiki config set` first.
 
 ### Incremental Updates
 
-`analyze_repo` includes built-in change detection. On subsequent calls after the first generation, it automatically compares the current state against the previous run:
+`analyze_repo` includes two layers of incremental optimization:
+
+**Change Detection**: On subsequent calls after the first generation, it automatically compares the current state against the previous run:
 
 - **Git strategy (preferred)**: Compares current HEAD with the stored commit via `git diff` to identify changed files
-- **Mtime strategy (fallback)**: For non-Git repos, detects changes by comparing file modification times
+- **SHA256 fingerprint strategy (fallback)**: Detects changes via content hash (first 64KB) + mtime dual detection
+
+**Selective Re-parse**: After detecting changes, only changed files are re-parsed. Components from unchanged files are loaded directly from the SQLite cache and merged. The `skip_file_paths` parameter propagates through the full pipeline (DependencyGraphBuilder → DependencyParser → AnalysisService → CallGraphAnalyzer), significantly reducing incremental update time.
+
+**Overview Stale Precise Detection**: By parsing links in overview.md to extract referenced module lists (persisted to `.meta/overview_refs.json`), the system precisely determines whether overview needs updating instead of unconditionally cascading. Overview is only marked stale when it actually references affected modules.
 
 Detected changes are mapped to affected modules (`affected_modules`) and parent modules requiring cascade refresh (`cascade_modules`). The Agent only regenerates impacted module docs instead of rewriting everything.
 
@@ -715,7 +721,7 @@ Also supports an `items_file` parameter for a JSON file path, ideal for bulk imp
 
 #### Documentation Health Checks
 
-`lint_wiki` expands from 5 to **9 checks**, with 4 new LLM Wiki checks:
+`lint_wiki` expands from 5 to **10 checks**, with 5 new LLM Wiki checks:
 
 | Check | Description |
 |-------|-------------|
@@ -723,6 +729,7 @@ Also supports an `items_file` parameter for a JSON file path, ideal for bulk imp
 | `no_outlinks` | Dead-end pages that don't link to any other page |
 | `missing_aliases` | Entity pages without aliases declarations |
 | `stale_sources` | Pages referencing retracted external documents |
+| `overview_stale` | overview.md references modules that have changed and need updating |
 
 `lint_wiki` returns a **health_score** (0-100), calculated as `100 - Σ(error×10 + warning×3 + info×1)`. The score is also displayed at the top of `index.md`.
 
@@ -737,6 +744,8 @@ The `flag_issue` tool marks quality issues in the Wiki, writing to `.meta/issues
 - **Type filtering**: `type_filter` parameter narrows search scope (module/entity/concept/source/comparison/query)
 - **Scope prefix**: `scope` parameter supports directory prefixes (e.g., `wiki/entities`, `notes`)
 - **BM25 weight boost**: aliases 3× boost, severity 2× boost
+- **Wikilink graph multi-hop expansion**: `hop` parameter (0-3) enables BFS graph expansion along wikilink directed edges, with `decay` controlling score decay per hop (default 0.5×)
+- **Related page recommendations**: Search results automatically include a `related` field showing pages linked to/from current results
 - **External doc search**: `include_sources` parameter controls whether imported third-party docs are included
 
 #### Prompt Templates
@@ -842,7 +851,14 @@ Python, Java, JavaScript, TypeScript, C, C++, C#, Kotlin, Go, PHP
 
 ### Acknowledgements
 
-The core toolchain (Tree-sitter AST parsing, dependency graph, topological sort, Mermaid validation) comes from the [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) upstream project. The LLM Wiki knowledge layer design references [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki) and [Tencent/WeKnora](https://github.com/Tencent/WeKnora). We refactored the MCP Server into 16 fine-grained tools and added structured Wiki, external document management, batch ingest, and issue tracking capabilities on top of the upstream foundation.
+The core toolchain (Tree-sitter AST parsing, dependency graph, topological sort, Mermaid validation) comes from the [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) upstream project. The following open-source projects influenced our design:
+
+- [codebase-memory-mcp](https://github.com/nicobailon/codebase-memory-mcp) — SQLite persistent cache architecture, cross-session reuse, three-tier fallback
+- [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki) — Structured knowledge layer design, page type routing, crosslinks
+- [Tencent/WeKnora](https://github.com/Tencent/WeKnora) — External document management, documentation health checks, adaptive chunking
+- [CodingHub](https://github.com/mambo-wang/CodingHub) — MCP Server best practices (instructions / prompts / resources)
+
+We refactored the MCP Server into **21 fine-grained tools** and added structured Wiki, external document management, batch ingest, issue tracking, wikilink graph search, SHA256 incremental parsing, and more on top of the upstream foundation.
 
 Paper: [CodeWiki: Evaluating AI's Ability to Generate Holistic Documentation for Large-Scale Codebases](https://arxiv.org/abs/2510.24428)
 
