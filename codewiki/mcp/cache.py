@@ -331,7 +331,8 @@ class AnalysisCache:
                     parameters=extra[2], source_code="")
 
     def batch_insert_components(self, components: Dict[str, Node],
-                                leaf_nodes: Optional[List[str]] = None):
+                                leaf_nodes: Optional[List[str]] = None,
+                                incremental: bool = False):
         if not components:
             return
         c = self.conn
@@ -350,21 +351,36 @@ class AnalysisCache:
             )
             for n in components.values()
         ]
-        c.execute("DELETE FROM components")
-        c.executemany(
-            "INSERT INTO components VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            rows,
-        )
-        c.execute("DELETE FROM dependencies")
-        deps = [(n.id, d) for n in components.values() for d in n.depends_on]
-        if deps:
-            c.executemany("INSERT OR IGNORE INTO dependencies VALUES(?,?)", deps)
+        if incremental:
+            # Incremental mode: upsert only the provided components
+            c.executemany(
+                "INSERT OR REPLACE INTO components VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                rows,
+            )
+            # Upsert dependencies for these components only
+            comp_ids = set(components.keys())
+            # Remove old deps for these components
+            ph = ",".join("?" * len(comp_ids))
+            c.execute(f"DELETE FROM dependencies WHERE source_id IN ({ph})", list(comp_ids))
+            deps = [(n.id, d) for n in components.values() for d in n.depends_on]
+            if deps:
+                c.executemany("INSERT OR IGNORE INTO dependencies VALUES(?,?)", deps)
+        else:
+            c.execute("DELETE FROM components")
+            c.executemany(
+                "INSERT INTO components VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                rows,
+            )
+            c.execute("DELETE FROM dependencies")
+            deps = [(n.id, d) for n in components.values() for d in n.depends_on]
+            if deps:
+                c.executemany("INSERT OR IGNORE INTO dependencies VALUES(?,?)", deps)
         c.execute(
             "DELETE FROM repo_meta WHERE key IN('component_count','analyzed_at','leaf_nodes')"
         )
         c.execute(
             "INSERT INTO repo_meta VALUES('component_count',?)",
-            (str(len(components)),),
+            (str(self.get_component_count()),),
         )
         c.execute(
             "INSERT INTO repo_meta VALUES('analyzed_at',?)",
@@ -376,7 +392,8 @@ class AnalysisCache:
                 (json.dumps(leaf_nodes),),
             )
         self.conn.commit()
-        logger.info("Cached %d components, %d edges", len(components), len(deps))
+        logger.info("Cached %d components (%s), %d dep edges",
+                     len(components), "incremental" if incremental else "full", len(deps))
 
     def get_leaf_nodes(self) -> List[str]:
         raw = self._mget("leaf_nodes")
@@ -481,6 +498,37 @@ class AnalysisCache:
         return {r["file_path"]: dict(mtime=r["mtime"], size=r["size"],
                 content_hash=r["content_hash"], commit_id=r["commit_id"])
                 for r in self.conn.execute("SELECT * FROM file_fingerprints").fetchall()}
+
+    def get_cached_file_paths(self) -> Set[str]:
+        """Return set of all file paths that have cached components."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT relative_path FROM components"
+        ).fetchall()
+        return {r["relative_path"] for r in rows}
+
+    def get_components_by_files(self, file_paths: Set[str]) -> Dict[str, Node]:
+        """Load cached components for the given relative file paths."""
+        if not file_paths:
+            return {}
+        ph = ",".join("?" * len(file_paths))
+        rows = self.conn.execute(
+            f"SELECT * FROM components WHERE replace(relative_path, '\\', '/') IN ({ph})",
+            [fp.replace("\\", "/") for fp in file_paths],
+        ).fetchall()
+        result: Dict[str, Node] = {}
+        for r in rows:
+            extra = _parse_row(r)
+            result[r["id"]] = Node(
+                id=r["id"], name=r["name"], component_type=r["component_type"],
+                file_path=r["file_path"], relative_path=r["relative_path"],
+                start_line=r["start_line"], end_line=r["end_line"],
+                language=r["language"], depends_on=extra[0], node_type=r["node_type"],
+                base_classes=extra[1], class_name=r["class_name"],
+                display_name=r["display_name"], qualified_name=r["qualified_name"],
+                has_docstring=bool(r["has_docstring"]), docstring=r["docstring"] or "",
+                parameters=extra[2], source_code="",
+            )
+        return result
 
     # -- git change detection --
 

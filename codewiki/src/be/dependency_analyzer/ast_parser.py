@@ -36,24 +36,26 @@ class DependencyParser:
         
         self.analysis_service = AnalysisService()
 
-    def parse_repository(self, filtered_folders: List[str] = None) -> Dict[str, Node]:
+    def parse_repository(self, filtered_folders: List[str] = None,
+                         skip_file_paths: Optional[set] = None) -> Dict[str, Node]:
         logger.debug(f"Parsing repository at {self.repo_path}")
-        
+
         # Log custom patterns if set
         if self.include_patterns:
             logger.info(f"Using custom include patterns: {self.include_patterns}")
         if self.exclude_patterns:
             logger.info(f"Using custom exclude patterns: {self.exclude_patterns}")
-        
+
         structure_result = self.analysis_service._analyze_structure(
-            self.repo_path, 
+            self.repo_path,
             include_patterns=self.include_patterns,
             exclude_patterns=self.exclude_patterns
         )
-        
+
         call_graph_result = self.analysis_service._analyze_call_graph(
-            structure_result["file_tree"], 
-            self.repo_path
+            structure_result["file_tree"],
+            self.repo_path,
+            skip_file_paths=skip_file_paths,
         )
         
         self._build_components_from_analysis(call_graph_result)

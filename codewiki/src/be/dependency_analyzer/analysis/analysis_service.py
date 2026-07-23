@@ -270,7 +270,8 @@ class AnalysisService:
         logger.debug("No README file found in repository root.")
         return None
 
-    def _analyze_call_graph(self, file_tree: Dict[str, Any], repo_dir: str) -> Dict[str, Any]:
+    def _analyze_call_graph(self, file_tree: Dict[str, Any], repo_dir: str,
+                            skip_file_paths: Optional[set] = None) -> Dict[str, Any]:
         """
         Perform multi-language call graph analysis.
 
@@ -286,7 +287,7 @@ class AnalysisService:
         supported_files = self._filter_supported_languages(code_files)
         logger.debug(f"Analyzing {len(supported_files)} supported files.")
 
-        result = self.call_graph_analyzer.analyze_code_files(supported_files, repo_dir)
+        result = self.call_graph_analyzer.analyze_code_files(supported_files, repo_dir, skip_file_paths)
 
         result["call_graph"]["supported_languages"] = self._get_supported_languages()
         result["call_graph"]["unsupported_files"] = len(code_files) - len(supported_files)

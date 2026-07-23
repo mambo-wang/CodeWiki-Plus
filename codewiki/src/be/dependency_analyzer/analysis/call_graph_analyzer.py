@@ -6,7 +6,7 @@ Coordinates language-specific analyzers to build comprehensive call graphs
 across different programming languages in a repository.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 import logging
 import traceback
 import time
@@ -61,16 +61,28 @@ class CallGraphAnalyzer:
         self.call_relationships: List[CallRelationship] = []
         logger.debug("CallGraphAnalyzer initialized.")
 
-    def analyze_code_files(self, code_files: List[Dict], base_dir: str) -> Dict:
+    def analyze_code_files(self, code_files: List[Dict], base_dir: str,
+                           skip_file_paths: Optional[Set[str]] = None) -> Dict:
         """
         Complete analysis: Analyze all files to build complete call graph with all nodes.
 
         This approach:
-        1. Analyzes all code files 
+        1. Analyzes all code files
         2. Extracts all functions and relationships
         3. Builds complete call graph
-        4. Returns all nodes and relationships 
+        4. Returns all nodes and relationships
+
+        Args:
+            code_files: List of code file info dicts
+            base_dir: Base directory of the repository
+            skip_file_paths: Optional set of absolute file paths to skip (for incremental mode)
         """
+        if skip_file_paths:
+            original_count = len(code_files)
+            code_files = [f for f in code_files if f.get('path') not in skip_file_paths]
+            logger.info(f"Incremental mode: skipping {original_count - len(code_files)} unchanged files, "
+                        f"parsing {len(code_files)} changed files")
+
         logger.debug(f"Starting analysis of {len(code_files)} files")
         logger.info(f"📊 Parsing {len(code_files)} source files (this may take a few minutes)...")
 

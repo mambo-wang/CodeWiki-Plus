@@ -15,10 +15,13 @@ class DependencyGraphBuilder:
     def __init__(self, config: Config):
         self.config = config
     
-    def build_dependency_graph(self) -> tuple[Dict[str, Any], List[str]]:
+    def build_dependency_graph(self, skip_file_paths: set = None) -> tuple[Dict[str, Any], List[str]]:
         """
         Build and save dependency graph, returning components and leaf nodes.
-        
+
+        Args:
+            skip_file_paths: Optional set of absolute file paths to skip (for incremental mode)
+
         Returns:
             Tuple of (components, leaf_nodes)
         """
@@ -58,7 +61,7 @@ class DependencyGraphBuilder:
         #     file_manager.save_json(filtered_folders, filtered_folders_path)
 
         # Parse repository
-        components = parser.parse_repository(filtered_folders)
+        components = parser.parse_repository(filtered_folders, skip_file_paths=skip_file_paths)
         
         # Save dependency graph
         parser.save_dependency_graph(dependency_graph_path)

@@ -25,7 +25,7 @@ _SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 _ALL_CHECKS = {
     "stale_refs", "undocumented", "broken_links", "cycles", "coverage",
     "orphan_pages", "no_outlinks", "missing_aliases", "stale_sources",
-    "superseded_pages",
+    "superseded_pages", "overview_stale",
 }
 
 # Regex patterns for markdown links
@@ -543,6 +543,40 @@ def _check_superseded_pages(
     return issues
 
 
+def _check_overview_stale_lint(
+    output_dir: Path,
+) -> List[Dict[str, Any]]:
+    """Check if overview.md is stale (references modules that have changed).
+
+    Reads the overview_stale flag from metadata.json and/or checks
+    .meta/overview_refs.json against current module state.
+    """
+    issues: List[Dict[str, Any]] = []
+    import json as _json
+    from codewiki.src.config import meta_resolve
+
+    # Check metadata.json for overview_stale flag
+    meta_path = Path(meta_resolve(output_dir, "metadata.json"))
+    overview_stale = False
+    if meta_path.exists():
+        try:
+            metadata = _json.loads(meta_path.read_text(encoding="utf-8"))
+            overview_stale = metadata.get("overview_stale", False)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    if overview_stale:
+        issues.append({
+            "check": "overview_stale",
+            "severity": "warning",
+            "message": "overview.md references modules that have changed and may need updating",
+            "file": "overview.md",
+            "suggestion": "Review and update overview.md to reflect changes in referenced modules",
+        })
+
+    return issues
+
+
 # ---------------------------------------------------------------------------
 #  Main handler
 # ---------------------------------------------------------------------------
@@ -622,6 +656,9 @@ def handle_lint_wiki(
 
     if "superseded_pages" in checks and output_dir:
         all_issues.extend(_check_superseded_pages(output_dir))
+
+    if "overview_stale" in checks and output_dir:
+        all_issues.extend(_check_overview_stale_lint(output_dir))
 
     # Filter by severity
     filtered = [

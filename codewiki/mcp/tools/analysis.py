@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json, logging, os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from codewiki.mcp.cache import AnalysisCache, ComponentMeta, LazyComponentStore
 from codewiki.mcp.session import SessionState, SessionStore
@@ -72,6 +72,8 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     # Incremental check
     incremental = arguments.get("incremental", True)
     changes_info = None
+    cached_unchanged_components: Dict[str, Any] = {}
+    skip_file_paths: Optional[set] = None
 
     if incremental and cache.is_fresh():
         changes_info = cache.detect_changes()
@@ -81,27 +83,59 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         if changes_info and changes_info.get("changed_files"):
             changed = changes_info["changed_files"]
             logger.info("Incremental mode: %d files changed", len(changed))
-            # Remove stale components
+            # Remove stale components for changed files
             for cf in changed:
                 cache.remove_by_file(cf)
-            # We'll do a full re-parse on the remaining + changed files.
-            # For simplicity: do full re-parse (Tree-sitter is fast per-file
-            # but incremental file-level parsing requires filtering the parser input).
-            # TODO: pass changed_files to DependencyParser for selective re-parse.
+
+            # Compute set of unchanged files to skip during parsing
+            changed_set = set(changed)
+            all_cached_paths = cache.get_cached_file_paths()
+            # These are the relative paths of files that are still cached and unchanged
+            unchanged_rel_paths = all_cached_paths  # After remove_by_file, only unchanged remain
+
+            # Load cached components for unchanged files
+            cached_unchanged_components = cache.get_components_by_files(unchanged_rel_paths)
+
+            # Build set of absolute paths to skip during parsing
+            skip_file_paths = set()
+            for comp in cached_unchanged_components.values():
+                if comp.file_path:
+                    skip_file_paths.add(comp.file_path)
+
+            logger.info(
+                "Incremental: %d cached components from %d unchanged files, "
+                "will skip %d files during parsing",
+                len(cached_unchanged_components),
+                len(unchanged_rel_paths),
+                len(skip_file_paths),
+            )
 
     # Full parse (writes legacy JSONs to _tmp — clean up afterwards)
     from codewiki.src.be.dependency_analyzer import DependencyGraphBuilder
     import shutil
     builder = DependencyGraphBuilder(config)
     try:
-        components, leaf_nodes = builder.build_dependency_graph()
+        components, leaf_nodes = builder.build_dependency_graph(skip_file_paths=skip_file_paths)
     finally:
         shutil.rmtree(str(_tmp), ignore_errors=True)
 
-    # Write to SQLite cache
+    # Merge cached unchanged components with newly parsed ones
+    if cached_unchanged_components:
+        for comp_id, node in cached_unchanged_components.items():
+            if comp_id not in components:
+                components[comp_id] = node
+        logger.info(
+            "Merged %d cached components with %d newly parsed = %d total",
+            len(cached_unchanged_components),
+            len(components) - len(cached_unchanged_components),
+            len(components),
+        )
+
+    # Write to SQLite cache (incremental mode if we had cached components)
+    is_incremental = bool(cached_unchanged_components)
     try:
-        cache.batch_insert_components(components, leaf_nodes)
-        logger.info("Components cached to SQLite")
+        cache.batch_insert_components(components, leaf_nodes, incremental=is_incremental)
+        logger.info("Components cached to SQLite (%s mode)", "incremental" if is_incremental else "full")
     except Exception as e:
         logger.warning("SQLite cache write failed (continuing in memory): %s", e)
 
@@ -202,6 +236,30 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         rebuild_index(str(output_dir))
     except Exception as e:
         logger.warning("Index/log update failed: %s", e)
+
+    # 7b. Extract and save overview refs for stale detection
+    try:
+        overview_refs = _extract_overview_refs(output_dir)
+        if overview_refs:
+            _save_overview_refs(output_dir, overview_refs)
+            logger.info("Saved %d overview refs for stale detection", len(overview_refs))
+    except Exception as e:
+        logger.warning("Overview refs extraction failed: %s", e)
+
+    # 7c. Update overview_stale in metadata.json
+    try:
+        from codewiki.src.config import meta_resolve, PROJECT_FILENAME
+        meta_path = Path(meta_resolve(output_dir, "metadata.json"))
+        if meta_path.exists():
+            metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+            overview_stale = changes_info.get("overview_stale", False) if changes_info else False
+            metadata["overview_stale"] = overview_stale
+            meta_path.write_text(
+                json.dumps(metadata, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+    except Exception as e:
+        logger.warning("Failed to update overview_stale in metadata: %s", e)
 
     # 8. Symbol map (class name → source file, used by ingest_note for crosslinking)
     try:
@@ -355,11 +413,22 @@ def _detect_doc_changes(repo_path: Path, output_dir: Path) -> Optional[Dict[str,
         return {"has_previous": True, "no_changes": True,
                 "method": changes.get("method","unknown")}
     affected, cascade = _find_affected_modules(mt, cf)
+
+    # Precise overview stale check: only mark overview stale if it actually
+    # references affected modules (instead of always cascading)
+    overview_stale = _check_overview_stale(output_dir, mt, affected)
+    # Remove "overview" from cascade (added unconditionally by _find_affected_modules)
+    cascade.discard("overview")
+    if overview_stale:
+        cascade.add("overview")
+
     return {"has_previous": True, "no_changes": False,
             "method": changes.get("method","unknown"),
             "changed_files": cf, "affected_modules": sorted(affected),
             "cascade_modules": sorted(cascade),
-            "hint": f"Only {len(affected)} module(s) need updating."}
+            "overview_stale": overview_stale,
+            "hint": f"Only {len(affected)} module(s) need updating."
+                    + (" Overview.md is stale." if overview_stale else "")}
 
 
 def _detect_git_from_meta(repo_path: Path, metadata: Dict, output_dir: Path) -> Optional[Dict]:
@@ -447,3 +516,103 @@ def _find_affected_modules(module_tree: Dict, changed_files: List[str]):
     _walk(module_tree)
     if affected: cascade.add("overview")
     return affected, cascade
+
+
+def _extract_overview_refs(output_dir: Path) -> Set[str]:
+    """Extract module names referenced in overview.md by parsing wiki-links and markdown links.
+
+    Returns a set of module names (slugs) that overview.md links to.
+    """
+    import re
+    overview_path = output_dir / "overview.md"
+    if not overview_path.exists():
+        return set()
+
+    try:
+        content = overview_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+
+    refs: Set[str] = set()
+
+    # Match [[Name]](file.md) wiki-links
+    wikilink_re = re.compile(r"\[\[([^\]]+)\]\]\(([^\)]+\.md)\)")
+    for m in wikilink_re.finditer(content):
+        ref_name = m.group(1).strip()
+        # Use the slug (lowercase, hyphenated) as the module identifier
+        slug = ref_name.lower().replace(" ", "-").replace("_", "-")
+        refs.add(slug)
+        # Also add the raw name for matching
+        refs.add(ref_name.lower().replace(" ", "_"))
+
+    # Match [text](path.md) markdown links
+    mdlink_re = re.compile(r"\[([^\]]*)\]\(([^)]+\.md)\)")
+    for m in mdlink_re.finditer(content):
+        ref_file = m.group(2)
+        if ref_file.startswith(("http://", "https://")):
+            continue
+        # Extract the module name from the file path (stem)
+        stem = Path(ref_file).stem.lower().replace("-", "_")
+        refs.add(stem)
+        # Also add hyphenated form
+        refs.add(stem.replace("_", "-"))
+
+    return refs
+
+
+def _save_overview_refs(output_dir: Path, refs: Set[str]):
+    """Save overview refs to .meta/overview_refs.json."""
+    from codewiki.src.config import meta_join, META_DIR
+    meta_dir = Path(meta_join(output_dir, ""))
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    refs_path = meta_dir / "overview_refs.json"
+    refs_path.write_text(
+        json.dumps(sorted(refs), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _load_overview_refs(output_dir: Path) -> Set[str]:
+    """Load overview refs from .meta/overview_refs.json."""
+    from codewiki.src.config import meta_join
+    meta_dir = Path(meta_join(output_dir, ""))
+    refs_path = meta_dir / "overview_refs.json"
+    if not refs_path.exists():
+        return set()
+    try:
+        data = json.loads(refs_path.read_text(encoding="utf-8"))
+        return set(data) if isinstance(data, list) else set()
+    except (json.JSONDecodeError, OSError):
+        return set()
+
+
+def _check_overview_stale(
+    output_dir: Path,
+    module_tree: Optional[Dict],
+    affected_modules: Set[str],
+) -> bool:
+    """Check if overview.md references any modules that have changed.
+
+    Returns True if overview.md is stale (references affected modules).
+    """
+    if not affected_modules:
+        return False
+
+    overview_refs = _load_overview_refs(output_dir)
+    if not overview_refs:
+        # If no refs tracked yet, extract them now
+        overview_refs = _extract_overview_refs(output_dir)
+        _save_overview_refs(output_dir, overview_refs)
+
+    if not overview_refs:
+        return False
+
+    # Check if any affected module is referenced in overview
+    for mod in affected_modules:
+        mod_lower = mod.lower()
+        mod_slug = mod_lower.replace("_", "-")
+        mod_under = mod_lower.replace("-", "_")
+        if mod_lower in overview_refs or mod_slug in overview_refs or mod_under in overview_refs:
+            return True
+
+    return False
