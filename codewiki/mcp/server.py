@@ -194,14 +194,20 @@ def _fine_grained_tools() -> list[Tool]:
                 "source → wiki/sources/, comparison → wiki/comparisons/, query → wiki/queries/. "
                 "Use [[wikilinks]] in content to reference other pages — these are automatically "
                 "parsed into a graph for multi-hop search (query_wiki with hop parameter). "
-                "For large docs (>200 lines), use content_file instead of inline content."
+                "For large docs (>200 lines), use content_file instead of inline content. "
+                "Supports sessionless mode: provide output_dir instead of session_id for "
+                "knowledge extraction workflows (no analyze_repo needed)."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "session_id": {
                         "type": "string",
-                        "description": "Session ID from analyze_repo",
+                        "description": "Session ID from analyze_repo (optional if output_dir is provided)",
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": "Output directory for wiki pages (alternative to session_id, for sessionless mode like knowledge extraction)",
                     },
                     "filename": {
                         "type": "string",
@@ -229,7 +235,7 @@ def _fine_grained_tools() -> list[Tool]:
                         ),
                     },
                 },
-                "required": ["session_id", "filename"],
+                "required": ["filename"],
             },
         ),
         Tool(
@@ -1175,8 +1181,8 @@ async def list_prompts() -> list:
             arguments=[
                 PromptArgument(
                     name="repo_path",
-                    description="要分析的代码仓库绝对路径",
-                    required=True,
+                    description="要分析的代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
+                    required=False,
                 ),
                 PromptArgument(
                     name="output_dir",
@@ -1188,17 +1194,12 @@ async def list_prompts() -> list:
         Prompt(
             name="extract-knowledge",
             title="外部文档知识抽取",
-            description="从导入的外部文档中抽取实体和概念，生成结构化知识页面并构建 wikilink 图谱",
+            description="导入外部文档并从中抽取实体和概念，生成结构化知识页面并构建 wikilink 图谱。一步完成导入+提取。",
             arguments=[
                 PromptArgument(
-                    name="source_name",
-                    description="已通过 ingest_source 导入的文档标识名",
+                    name="source_path",
+                    description="要导入并提取知识的外部文档的绝对路径（支持 PDF/MD/DOCX/HTML）",
                     required=True,
-                ),
-                PromptArgument(
-                    name="output_dir",
-                    description="Wiki 输出目录（用于定位已导入的源文档）",
-                    required=False,
                 ),
             ],
         ),
@@ -1233,8 +1234,8 @@ async def list_prompts() -> list:
             arguments=[
                 PromptArgument(
                     name="repo_path",
-                    description="代码仓库绝对路径",
-                    required=True,
+                    description="代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
+                    required=False,
                 ),
             ],
         ),
@@ -1245,8 +1246,8 @@ async def list_prompts() -> list:
             arguments=[
                 PromptArgument(
                     name="workspace_path",
-                    description="包含多个 git 仓库的父目录绝对路径",
-                    required=True,
+                    description="包含多个 git 仓库的父目录路径（相对路径基于当前工作目录，默认当前目录）",
+                    required=False,
                 ),
             ],
         ),
@@ -1288,8 +1289,19 @@ async def get_prompt(name: str, arguments: dict[str, str] | None) -> Any:
     )
 
 
+def _resolve_path(raw: str) -> str:
+    """Resolve a path: if relative, join with cwd; always return absolute."""
+    import os
+    p = raw.strip()
+    if not p or p in (".", "./"):
+        return os.getcwd()
+    if os.path.isabs(p):
+        return os.path.normpath(p)
+    return os.path.normpath(os.path.join(os.getcwd(), p))
+
+
 def _prompt_generate_wiki(args: dict[str, str]) -> str:
-    repo_path = args.get("repo_path", "<repo_path>")
+    repo_path = _resolve_path(args.get("repo_path", ""))
     output_dir = args.get("output_dir", "")
     od_note = f'，output_dir="{output_dir}"' if output_dir else ""
     return f"""请为代码仓库生成完整的 Wiki 文档。按以下步骤执行：
@@ -1334,40 +1346,54 @@ def _prompt_generate_wiki(args: dict[str, str]) -> str:
 
 
 def _prompt_extract_knowledge(args: dict[str, str]) -> str:
-    source_name = args.get("source_name", "<source_name>")
-    output_dir = args.get("output_dir", "")
-    od_param = f'output_dir="{output_dir}"' if output_dir else 'session_id=<session_id>'
-    return f"""请从已导入的外部文档 "{source_name}" 中抽取结构化知识。按以下步骤执行：
+    source_path = args.get("source_path", "")
+    if not source_path:
+        source_path = "<source_path>"
+    else:
+        source_path = _resolve_path(source_path)
+    # Derive a name from the file stem
+    from pathlib import Path as _Path
+    source_name = _Path(source_path).stem
+    # output_dir defaults to cwd/repowiki (not next to the source file)
+    output_dir = args.get("output_dir", "") or str(_Path(_resolve_path("")) / "repowiki")
+    return f"""请导入外部文档并从中抽取结构化知识。按以下步骤执行：
 
-## 步骤 1: 获取抽取方法论
+## 步骤 1: 导入文档
+调用 ingest_source(output_dir="{output_dir}", source_path="{source_path}")
+- 文档会被复制到 {output_dir}/raw/sources/ 并注册到 source_registry.json
+- 此步骤不需要 session_id，不需要 analyze_repo
+
+## 步骤 2: 获取抽取方法论
 调用 get_prompt(prompt_type="extraction_scan")
 - 返回实体/概念识别规则和粒度指引
 
-## 步骤 2: 阅读源文档
-调用 view_repo_file({od_param}, path="raw/sources/{source_name}.<ext>")
-- 或直接读取文件系统中的源文件
+## 步骤 3: 阅读源文档
+直接读取文件 "{source_path}"（使用 Read 工具或文件系统读取）
 - 通读全文，标记关键实体和抽象概念
+- 注意：不需要调用 view_repo_file，直接读取原始文件即可
 
-## 步骤 3: 识别知识单元
+## 步骤 4: 识别知识单元
 从文档中提取：
 - **实体**（entity）：具体的人物、系统、服务、组件、API、数据库
 - **概念**（concept）：抽象的模式、算法、协议、架构决策、设计原则
 
-## 步骤 4: 生成知识页面
-为每个知识单元创建页面：
-1. 源文档摘要: write_doc_file(filename="sources/{source_name}.md", page_type="source", content=...)
+## 步骤 5: 生成知识页面
+为每个知识单元创建页面（使用 output_dir="{output_dir}"）：
+1. 源文档摘要: write_doc_file(output_dir="{output_dir}", filename="sources/{source_name}.md", page_type="source", content=...)
    - 调用 get_prompt(prompt_type="source_summary") 获取模板
-2. 实体页面: write_doc_file(filename="entities/<实体名>.md", page_type="entity", content=...)
+2. 实体页面: write_doc_file(output_dir="{output_dir}", filename="entities/<实体名>.md", page_type="entity", content=...)
    - 调用 get_prompt(prompt_type="entity_page") 获取模板
-3. 概念页面: write_doc_file(filename="concepts/<概念名>.md", page_type="concept", content=...)
+3. 概念页面: write_doc_file(output_dir="{output_dir}", filename="concepts/<概念名>.md", page_type="concept", content=...)
    - 调用 get_prompt(prompt_type="concept_page") 获取模板
 
-## 步骤 5: 构建知识图谱
+## 步骤 6: 构建知识图谱
 - 页面间使用 [[wikilink]] 互相引用（如 [[认证服务]]、[[OAuth2]]）
 - build_search_index 会自动解析 wikilink 为图谱边
-- 之后可通过 query_wiki(query, hop=1) 进行多跳关联搜索
+- 之后可通过 query_wiki(output_dir="{output_dir}", query, hop=1) 进行多跳关联搜索
 
 ## 注意事项
+- 整个流程不需要 analyze_repo，不需要 session_id
+- write_doc_file 支持直接传 output_dir 参数（无需 session_id）
 - ingest_source 只负责存储，不会自动生成 entity/concept 页面
 - 每个页面应包含：定义、关键属性、与其他实体的关系、来源引用
 - 使用 frontmatter_extra 添加 aliases（搜索加权 3x）和 source_refs"""
@@ -1441,7 +1467,7 @@ def _prompt_quality_check(args: dict[str, str]) -> str:
 
 
 def _prompt_incremental_update(args: dict[str, str]) -> str:
-    repo_path = args.get("repo_path", "<repo_path>")
+    repo_path = _resolve_path(args.get("repo_path", ""))
     return f"""请增量更新代码仓库的 Wiki 文档。按以下步骤执行：
 
 ## 步骤 1: 检测变更
@@ -1474,7 +1500,7 @@ def _prompt_incremental_update(args: dict[str, str]) -> str:
 
 
 def _prompt_workspace_analysis(args: dict[str, str]) -> str:
-    workspace_path = args.get("workspace_path", "<workspace_path>")
+    workspace_path = _resolve_path(args.get("workspace_path", ""))
     return f"""请分析多仓库工作区并生成跨服务文档。按以下步骤执行：
 
 ## 步骤 1: 扫描工作区
@@ -1573,12 +1599,12 @@ async def read_resource(uri: Any) -> str:
     if uri_str == "codewiki://prompts/catalog":
         return json.dumps({
             "prompts": [
-                {"name": "generate-wiki", "title": "生成代码 Wiki", "description": "完整的代码仓库 Wiki 生成流水线", "arguments": ["repo_path (required)", "output_dir (optional)"]},
-                {"name": "extract-knowledge", "title": "外部文档知识抽取", "description": "从导入文档中抽取实体/概念，生成知识页面", "arguments": ["source_name (required)", "output_dir (optional)"]},
+                {"name": "generate-wiki", "title": "生成代码 Wiki", "description": "完整的代码仓库 Wiki 生成流水线", "arguments": ["repo_path (optional, 默认当前目录)", "output_dir (optional)"]},
+                {"name": "extract-knowledge", "title": "外部文档知识抽取", "description": "导入外部文档并从中抽取实体/概念，一步完成导入+提取", "arguments": ["source_path (required, 文档绝对路径)"]},
                 {"name": "search-wiki", "title": "知识库搜索策略", "description": "BM25 + 图谱扩展 + 深度阅读的分层搜索策略", "arguments": ["query (required)"]},
                 {"name": "quality-check", "title": "文档质量审计", "description": "全面质量检查：过时引用、断链、覆盖率、循环依赖", "arguments": ["output_dir (optional)"]},
-                {"name": "incremental-update", "title": "增量更新 Wiki", "description": "检测代码变更并增量更新受影响的模块文档", "arguments": ["repo_path (required)"]},
-                {"name": "workspace-analysis", "title": "多仓库工作区分析", "description": "扫描多 git 仓库，生成独立 Wiki 和跨服务总览", "arguments": ["workspace_path (required)"]},
+                {"name": "incremental-update", "title": "增量更新 Wiki", "description": "检测代码变更并增量更新受影响的模块文档", "arguments": ["repo_path (optional, 默认当前目录)"]},
+                {"name": "workspace-analysis", "title": "多仓库工作区分析", "description": "扫描多 git 仓库，生成独立 Wiki 和跨服务总览", "arguments": ["workspace_path (optional, 默认当前目录)"]},
             ],
             "usage": "通过 MCP prompts/get 协议获取完整工作流指引，或调用 get_prompt 工具获取代码生成阶段的 prompt 模板",
         }, ensure_ascii=False, indent=2)

@@ -495,21 +495,91 @@ def _inject_wiki_links(content: str, terms: dict[str, str]) -> str:
     return prefix + "\n".join(lines)
 
 
+def _resolve_doc_path_safe(output_dir: Path, filename: str, page_type: str = "module") -> Path | None:
+    """Resolve filename within output_dir using page type routing (sessionless version)."""
+    try:
+        return resolve_doc_path(filename, page_type, str(output_dir), load_schema(str(output_dir)))
+    except ValueError:
+        return None
+
+
+def _inject_lightweight_frontmatter(
+    filename: str,
+    content: str,
+    page_type: str = "module",
+    frontmatter_extra: dict | None = None,
+) -> str:
+    """Inject minimal YAML frontmatter when no session is available."""
+    if content.startswith("---"):
+        return content  # Already has frontmatter
+
+    mod_name = filename.replace(".md", "").replace("_", " ").title()
+    _TYPE_MAP = {
+        "module": "Module", "entity": "Entity", "concept": "Concept",
+        "source": "Source", "comparison": "Comparison", "query": "Query",
+    }
+    doc_type = _TYPE_MAP.get(page_type, page_type.capitalize())
+
+    # Extract description from first paragraph
+    description = ""
+    for line in content.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("#") or line.startswith("```") or line.startswith("---"):
+            continue
+        description = line[:200]
+        break
+
+    fm_lines = [
+        "---",
+        f"title: \"{mod_name}\"",
+        f"type: {doc_type}",
+        f"description: \"{description}\"" if description else f"description: {mod_name}",
+    ]
+
+    # Merge frontmatter_extra
+    if frontmatter_extra:
+        for key, value in frontmatter_extra.items():
+            if isinstance(value, list):
+                fm_lines.append(f"{key}: [{', '.join(str(v) for v in value)}]")
+            elif isinstance(value, str):
+                fm_lines.append(f"{key}: \"{value}\"")
+            else:
+                fm_lines.append(f"{key}: {value}")
+
+    fm_lines.append("---")
+    fm_lines.append("")
+    return "\n".join(fm_lines) + content
+
+
 async def handle_write_doc_file(
     arguments: Dict[str, Any],
     store: SessionStore,
 ) -> str:
     """Create a new documentation file in the output directory."""
-    session_id = arguments["session_id"]
-    session = store.get(session_id)
-    if session is None:
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    if session is None and session_id:
         return json.dumps({"error": f"Session {session_id} not found or expired."})
+
+    # Resolve output directory (from session or direct parameter)
+    if session:
+        output_dir = Path(session.output_dir)
+        repo_path = session.repo_path
+    else:
+        od = arguments.get("output_dir")
+        if not od:
+            return json.dumps({"error": "session_id or output_dir is required."})
+        output_dir = Path(od).expanduser().resolve()
+        repo_path = None
 
     filename = arguments["filename"]
     page_type = arguments.get("page_type", "module")
     frontmatter_extra = arguments.get("frontmatter_extra") or None
 
-    doc_path = _safe_doc_path(session, filename, page_type=page_type)
+    # Resolve document path using page type routing
+    doc_path = _resolve_doc_path_safe(output_dir, filename, page_type=page_type)
     if doc_path is None:
         return json.dumps({"error": "Filename escapes output directory."})
 
@@ -524,24 +594,32 @@ async def handle_write_doc_file(
             "error": f"File already exists: {filename}. Use edit_doc_file to modify it."
         })
 
-    # OKF: inject YAML frontmatter from session metadata
-    content = _inject_frontmatter(
-        session, filename, content,
-        page_type=page_type,
-        frontmatter_extra=frontmatter_extra,
-    )
+    # OKF: inject YAML frontmatter (only when session is available)
+    if session:
+        content = _inject_frontmatter(
+            session, filename, content,
+            page_type=page_type,
+            frontmatter_extra=frontmatter_extra,
+        )
+    else:
+        # Lightweight frontmatter for sessionless mode
+        content = _inject_lightweight_frontmatter(
+            filename, content, page_type=page_type,
+            frontmatter_extra=frontmatter_extra,
+        )
 
     doc_path.write_text(content, encoding="utf-8")
-    session.docs_written += 1
+    if session:
+        session.docs_written += 1
 
     # Mermaid validation
     mermaid_result = await _validate_mermaid(str(doc_path), filename)
 
     # LLM Wiki: wiki-link injection ([[slug|display]]) opt-in via schema.wiki_link_syntax
     try:
-        schema = load_schema(session.output_dir)
+        schema = load_schema(str(output_dir))
         if schema.get("wiki_link_syntax", False):
-            terms = _collect_wiki_terms(Path(session.output_dir), exclude=doc_path)
+            terms = _collect_wiki_terms(output_dir, exclude=doc_path)
             raw = doc_path.read_text(encoding="utf-8")
             linked = _inject_wiki_links(raw, terms)
             if linked != raw:
@@ -550,25 +628,26 @@ async def handle_write_doc_file(
         pass
 
     # LLM Wiki: crosslink injection (opt-in via schema.yaml auto_crosslink)
-    crosslink_info = _inject_crosslinks(session, filename, doc_path)
+    crosslink_info = None
+    if session:
+        crosslink_info = _inject_crosslinks(session, filename, doc_path)
 
-    # LLM Wiki: inject source-file links for CamelCase symbols
-    try:
-        from codewiki.mcp.tools.knowledge_loop import _inject_symbol_links
-        raw = doc_path.read_text(encoding="utf-8")
-        depth = compute_depth(doc_path, session.output_dir)
-        # symbol_map paths are relative to repo root; add extra levels to
-        # escape output_dir (e.g. docs/) up to the repository root.
+    # LLM Wiki: inject source-file links for CamelCase symbols (only with session)
+    if session and repo_path:
         try:
-            extra = len(Path(session.output_dir).resolve().relative_to(
-                Path(session.repo_path).resolve()).parts)
-        except (ValueError, AttributeError):
-            extra = 0
-        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=depth + extra, session=session)
-        if linked != raw:
-            doc_path.write_text(linked, encoding="utf-8")
-    except Exception:
-        pass
+            from codewiki.mcp.tools.knowledge_loop import _inject_symbol_links
+            raw = doc_path.read_text(encoding="utf-8")
+            depth = compute_depth(doc_path, str(output_dir))
+            try:
+                extra = len(Path(output_dir).resolve().relative_to(
+                    Path(repo_path).resolve()).parts)
+            except (ValueError, AttributeError):
+                extra = 0
+            linked = _inject_symbol_links(raw, output_dir, depth=depth + extra, session=session)
+            if linked != raw:
+                doc_path.write_text(linked, encoding="utf-8")
+        except Exception:
+            pass
 
     result = {
         "status": "created",
@@ -584,15 +663,15 @@ async def handle_write_doc_file(
     # LLM Wiki: update index.md and log.md
     try:
         from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
-        append_log(session.output_dir, "write_doc_file", f"创建 {filename}")
-        rebuild_index(session.output_dir)
+        append_log(str(output_dir), "write_doc_file", f"创建 {filename}")
+        rebuild_index(str(output_dir))
     except Exception as e:
         logger.warning("Index/log update failed (non-fatal): %s", e)
 
     # Update BM25 search index (SQLite-backed when session available)
     try:
         from codewiki.mcp.tools.wiki_search import update_file
-        update_file(session.output_dir, doc_path, session=session)
+        update_file(str(output_dir), doc_path, session=session)
     except Exception as e:
         logger.warning("Search index update failed (non-fatal): %s", e)
 
