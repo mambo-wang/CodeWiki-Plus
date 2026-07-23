@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict
@@ -28,6 +29,67 @@ _MAX_HISTORY_PER_FILE = 20
 
 # Pattern for inline source-reference annotations: [^src:<name>:<start>-<end>]
 _SOURCE_REF_PATTERN = re.compile(r"\[\^src:([^:\]]+):(\d+-\d+)\]")
+
+# Pattern for simple wikilinks: [[target]] or [[target|display]]
+_WIKILINK_RE = re.compile(r"\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]")
+
+
+def _convert_wikilinks_to_md(content: str, output_dir: Path, current_file: Path) -> str:
+    """Convert [[wikilink]] and [[wikilink|display]] to standard markdown links.
+
+    Scans the wiki directory for all .md pages, builds a title→path map,
+    then replaces each [[target]] with [target](relative-path.md).
+    Unresolved wikilinks are left unchanged so the agent can fix them.
+    """
+    from codewiki.src.config import WIKI_DIR, WIKI_SYSTEM_FILES
+
+    od = output_dir.resolve()
+    wiki_dir = od / WIKI_DIR
+    current_resolved = current_file.resolve()
+
+    # Build title → relative-path mapping from existing wiki pages
+    title_to_rel: Dict[str, str] = {}
+    if wiki_dir.is_dir():
+        for md in wiki_dir.rglob("*.md"):
+            if not md.is_file() or md.name in WIKI_SYSTEM_FILES:
+                continue
+            rel = md.relative_to(od).as_posix()
+            # Index by filename stem
+            title_to_rel[md.stem.lower()] = rel
+            # Also index by title from frontmatter if available
+            try:
+                text = md.read_text(encoding="utf-8", errors="replace")
+                for line in text.splitlines():
+                    line = line.strip()
+                    if line.startswith("title:"):
+                        title = line.split(":", 1)[1].strip().strip("\"'")
+                        if title:
+                            title_to_rel[title.lower()] = rel
+                            title_to_rel[title.lower().replace(" ", "-")] = rel
+                        break
+            except OSError:
+                pass
+
+    def _replace_wikilink(m: re.Match) -> str:
+        target = m.group(1).strip()
+        display = m.group(2) if m.group(2) else target
+        key = target.lower().replace(".md", "")
+        rel_path = title_to_rel.get(key)
+        if rel_path is None:
+            # Try slugified match
+            slug = re.sub(r"[\s_]+", "-", key).strip("-")
+            rel_path = title_to_rel.get(slug)
+        if rel_path is None:
+            return m.group(0)  # Leave unresolved wikilinks as-is
+        # Compute relative path from current file's directory to target
+        target_abs = od / rel_path
+        try:
+            from_current = os.path.relpath(str(target_abs), str(current_resolved.parent)).replace("\\", "/")
+        except ValueError:
+            from_current = rel_path
+        return f"[{display}]({from_current})"
+
+    return _WIKILINK_RE.sub(_replace_wikilink, content)
 
 
 def _extract_source_refs(content: str) -> tuple[list[str], list[str]]:
@@ -612,6 +674,15 @@ async def handle_write_doc_file(
     if session:
         session.docs_written += 1
 
+    # LLM Wiki: convert [[wikilink]] to standard markdown links [text](path)
+    try:
+        raw = doc_path.read_text(encoding="utf-8")
+        linked = _convert_wikilinks_to_md(raw, output_dir, doc_path)
+        if linked != raw:
+            doc_path.write_text(linked, encoding="utf-8")
+    except Exception:
+        pass
+
     # Mermaid validation
     mermaid_result = await _validate_mermaid(str(doc_path), filename)
 
@@ -755,6 +826,15 @@ async def handle_edit_doc_file(
         _save_history(session, doc_path, current_content)
         doc_path.write_text(new_content, encoding="utf-8")
 
+        # Convert [[wikilink]] to markdown links
+        try:
+            raw = doc_path.read_text(encoding="utf-8")
+            linked = _convert_wikilinks_to_md(raw, Path(session.output_dir), doc_path)
+            if linked != raw:
+                doc_path.write_text(linked, encoding="utf-8")
+        except Exception:
+            pass
+
         # Snippet around the edit
         replacement_line = current_content.split(old_str)[0].count("\n")
         lines = new_content.split("\n")
@@ -775,6 +855,15 @@ async def handle_edit_doc_file(
         new_content = "\n".join(lines)
         _save_history(session, doc_path, current_content)
         doc_path.write_text(new_content, encoding="utf-8")
+
+        # Convert [[wikilink]] to markdown links
+        try:
+            raw = doc_path.read_text(encoding="utf-8")
+            linked = _convert_wikilinks_to_md(raw, Path(session.output_dir), doc_path)
+            if linked != raw:
+                doc_path.write_text(linked, encoding="utf-8")
+        except Exception:
+            pass
 
         start = max(0, insert_line - 4)
         end = min(len(lines), start + len(new_str_lines) + 8)
