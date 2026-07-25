@@ -941,6 +941,37 @@ def _fine_grained_tools() -> list[Tool]:
                 "required": ["session_id", "path"],
             },
         ),
+        Tool(
+            name="query_cross_service",
+            description=(
+                "Query cross-service call relationships discovered during analyze_workspace. "
+                "Matches HTTP routes (server declarations vs client calls), MQ producer/consumer, "
+                "and other protocols across repos in a multi-repo workspace. "
+                "Supports filter_type: 'all' (default), 'by_service' (one repo's links), "
+                "'by_method' (GET/POST/...), 'by_path' (URL substring), 'trace' (chain from a root service). "
+                "Reads results persisted by analyze_workspace under workspace-wiki/.meta/."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "workspace_path": {
+                        "type": "string",
+                        "description": "Absolute path to the workspace root (same path passed to analyze_workspace).",
+                    },
+                    "filter_type": {
+                        "type": "string",
+                        "enum": ["all", "by_service", "by_method", "by_path", "trace"],
+                        "description": "Kind of query to run. Default 'all'.",
+                        "default": "all",
+                    },
+                    "filter_value": {
+                        "type": "string",
+                        "description": "Value for the filter: service name, HTTP method, path substring, or root service for trace.",
+                    },
+                },
+                "required": ["workspace_path"],
+            },
+        ),
     ]
 
 
@@ -1150,6 +1181,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         elif name == "view_repo_file":
             from codewiki.mcp.tools.file_viewer import handle_view_repo_file
             return [_text(await asyncio.to_thread(handle_view_repo_file, arguments, _store))]
+
+        elif name == "query_cross_service":
+            from codewiki.mcp.tools.cross_service import handle_query_cross_service
+            return [_text(await asyncio.to_thread(handle_query_cross_service, arguments))]
 
         # --- Legacy tools (require CodeWiki LLM config) ---
         elif name == "generate_docs":
