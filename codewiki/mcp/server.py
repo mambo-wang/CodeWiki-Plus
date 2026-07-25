@@ -860,7 +860,18 @@ def _fine_grained_tools() -> list[Tool]:
                 "sub-repo's wiki. Design principle: one .git = one repowiki. "
                 "Use this for multi-repo workspaces where multiple projects are cloned "
                 "into a single folder. A lightweight workspace session is created for "
-                "cross-service ingest_note / query_wiki at the parent level."
+                "cross-service ingest_note / query_wiki at the parent level. "
+                "🌐 CROSS-SERVICE AUTO-ANALYSIS: after each repo is analyzed, runs "
+                "RouteNode-based cross-service matching across Python/Java/JS/TS/Go + MQ "
+                "(Kafka/RabbitMQ/RocketMQ/Celery), generates a Mermaid service topology "
+                "flowchart + matched/unmatched route tables in overview.md, and scans "
+                "docker-compose.yml/.env/application.yml to discover service names and ports. "
+                "Persisted artifacts under <output_dir>/.meta/: cross_service_links.json, "
+                "workspace_routes.json, infra_services.json. Follow up with query_cross_service "
+                "for filtered views (by service/method/path/trace). "
+                "🧠 CBM ENHANCEMENT (if codebase-memory-mcp is available): use trace_path "
+                "(mode='cross_service') on top of the local matches to get multi-hop semantic "
+                "call chains across services."
             ),
             inputSchema={
                 "type": "object",
@@ -945,11 +956,21 @@ def _fine_grained_tools() -> list[Tool]:
             name="query_cross_service",
             description=(
                 "Query cross-service call relationships discovered during analyze_workspace. "
-                "Matches HTTP routes (server declarations vs client calls), MQ producer/consumer, "
-                "and other protocols across repos in a multi-repo workspace. "
-                "Supports filter_type: 'all' (default), 'by_service' (one repo's links), "
-                "'by_method' (GET/POST/...), 'by_path' (URL substring), 'trace' (chain from a root service). "
-                "Reads results persisted by analyze_workspace under workspace-wiki/.meta/."
+                "Matches HTTP routes (server declarations vs client calls) and MQ "
+                "producer/consumer (Kafka/RabbitMQ/RocketMQ/Celery) across repos in a "
+                "multi-repo workspace. Languages covered: Python (FastAPI/Flask/Django + "
+                "requests/httpx/aiohttp), Java (Spring MVC/JAX-RS + Feign/RestTemplate/"
+                "WebClient), JS/TS (Express/NestJS + axios/fetch/got), Go (Gin/Chi/Echo/"
+                "net/http). Path parameters (:id/{id}/<id>) are canonicalized to {} for "
+                "framework-agnostic matching. "
+                "Supports filter_type: 'all' (default, every link), 'by_service' (one repo's "
+                "inbound/outbound links), 'by_method' (HTTP method), 'by_path' (URL "
+                "substring), 'trace' (transitive call chain from a root service). "
+                "Reads results persisted by analyze_workspace under <output_dir>/.meta/"
+                "(cross_service_links.json + workspace_routes.json). "
+                "🧠 CBM ENHANCEMENT: pair with codebase-memory-mcp's trace_path "
+                "(mode='cross_service') to extend the static RouteNode matches into multi-hop "
+                "semantic call chains that traverse through internal functions."
             ),
             inputSchema={
                 "type": "object",
@@ -1277,12 +1298,38 @@ async def list_prompts() -> list:
         ),
         Prompt(
             name="workspace-analysis",
-            title="多仓库工作区分析",
-            description="扫描父目录下的多个 git 仓库，为每个生成独立 Wiki 并创建跨服务总览",
+            title="多仓库工作区分析（含跨服务拓扑）",
+            description=(
+                "扫描父目录下的多个 git 仓库，为每个生成独立 Wiki 并自动执行跨服务分析："
+                "RouteNode 匹配（HTTP+MQ，覆盖 Py/Java/JS/TS/Go）、Mermaid 服务拓扑图、"
+                "基础设施扫描（docker-compose/.env/application.yml）。可搭配 codebase-memory-mcp "
+                "做语义级深度追踪。"
+            ),
             arguments=[
                 PromptArgument(
                     name="workspace_path",
                     description="包含多个 git 仓库的父目录路径（相对路径基于当前工作目录，默认当前目录）",
+                    required=False,
+                ),
+            ],
+        ),
+        Prompt(
+            name="cross-service-trace",
+            title="跨服务调用链追踪",
+            description=(
+                "对指定根服务执行跨服务调用链分析：先走 CodeWiki RouteNode 静态匹配（HTTP 路由 + "
+                "MQ 生产者/消费者），再用 codebase-memory-mcp trace_path(mode='cross_service') "
+                "做多跳语义追踪，产出调用链图 + 架构诊断（循环依赖/扇入热点/未匹配路由）。"
+            ),
+            arguments=[
+                PromptArgument(
+                    name="workspace_path",
+                    description="包含多个 git 仓库的工作区根目录（须已执行过 analyze_workspace）",
+                    required=True,
+                ),
+                PromptArgument(
+                    name="filter_value",
+                    description="追踪起点：服务名 / HTTP 方法 / URL 子串 / 路径前缀",
                     required=False,
                 ),
             ],
@@ -1303,6 +1350,7 @@ async def get_prompt(name: str, arguments: dict[str, str] | None) -> Any:
         "quality-check": _prompt_quality_check,
         "incremental-update": _prompt_incremental_update,
         "workspace-analysis": _prompt_workspace_analysis,
+        "cross-service-trace": _prompt_cross_service_trace,
     }
 
     handler = prompts_map.get(name)
@@ -1535,34 +1583,149 @@ def _prompt_incremental_update(args: dict[str, str]) -> str:
 - 如果 metadata.json 不存在，会执行全量分析"""
 
 
+def _prompt_cross_service_trace(args: dict[str, str]) -> str:
+    workspace_path = _resolve_path(args.get("workspace_path", ""))
+    root_service = args.get("root_service", "")
+    filter_value = args.get("filter_value", "") or root_service or "<目标服务>"
+    return f"""请对工作区 `{workspace_path}` 执行跨服务调用分析（Cross-Service Trace）。
+本流程综合使用 CodeWiki 的 RouteNode 静态匹配和 codebase-memory-mcp（如可用）的语义追踪，
+产出完整的跨服务调用拓扑。
+
+## 步骤 0：前置检查
+- 确认已执行 `analyze_workspace`。如未执行，先调用：
+  ```
+  analyze_workspace(workspace_path="{workspace_path}")
+  ```
+- 记录返回的 `workspace_session_id` 和 `overview_path`
+- 检查 MCP 工具列表中是否有 `trace_path`（codebase-memory-mcp），有则步骤 4 可用
+
+## 步骤 1：读取基线拓扑
+读取 `{workspace_path}/workspace-wiki/overview.md`，定位：
+- Mermaid 服务流程图（识别核心枢纽服务）
+- 已匹配路由表（已发现的跨服务调用）
+- 未匹配路由表（潜在的盲点）
+
+## 步骤 2：从根服务出发追踪调用链
+调用 query_cross_service：
+```json
+{{
+  "workspace_path": "{workspace_path}",
+  "filter_type": "trace",
+  "filter_value": "{filter_value}"
+}}
+```
+- 返回从 `{filter_value}` 出发的所有下游调用链（深度不限）
+- 每条链包含：源服务 → 客户端组件 → 协议/方法/路径 → 目标服务 → 服务端组件
+
+## 步骤 3：多维度切片分析
+针对步骤 2 的结果，从不同维度切片：
+- **协议分布**：`filter_type="by_method", filter_value="POST"` 查看所有写操作链路
+- **路径前缀**：`filter_type="by_path", filter_value="/api/v1/orders"` 聚焦订单域调用
+- **单服务画像**：`filter_type="by_service", filter_value="<服务名>"` 看某服务的完整入向+出向
+
+## 步骤 4：🧠 语义深度追踪（CBM 增强，可选）
+对步骤 2 中的关键链路，用 codebase-memory-mcp 的 `trace_path` 做语义穿透：
+```json
+{{
+  "project": "<CBM 项目名>",
+  "function_name": "<客户端函数名>",
+  "mode": "cross_service",
+  "depth": 3
+}}
+```
+- 从客户端函数入口一路追踪到服务端处理函数的内部实现
+- 揭示 RouteNode 匹配不到的深层依赖：中间件调用、数据库查询、异步任务派发
+
+## 步骤 5：架构诊断
+根据收集到的调用链，输出以下诊断：
+- **循环依赖**：A→B→A 的调用环（架构坏味道）
+- **扇入热点**：被 ≥3 个服务调用的"上帝服务"
+- **单向依赖缺失**：某服务的所有调用都是出向（可能是纯客户端/worker）
+- **未匹配路由**：客户端 URL 无法与服务端路由对应（可能是外部系统调用）
+
+## 步骤 6：归档发现
+调用 ingest_note 归档到 workspace 级别知识库（workspace_session_id）：
+```json
+{{
+  "note_type": "architecture",
+  "title": "跨服务调用拓扑（{filter_value} 视角）",
+  "content": "Mermaid 调用链图 + 诊断结果 + 优化建议",
+  "related_modules": ["<涉及的服务名>"],
+  "aliases": ["cross-service", "topology", "{filter_value}"]
+}}
+```
+
+## 步骤 7：输出交付物
+最终产出两份文档：
+1. **拓扑报告**（Markdown）：Mermaid 图 + 调用链明细 + 架构诊断
+2. **优化建议**：基于诊断的架构改进建议（拆分热点服务、消除循环依赖、
+   显式化外部调用）"""
+
+
 def _prompt_workspace_analysis(args: dict[str, str]) -> str:
     workspace_path = _resolve_path(args.get("workspace_path", ""))
     return f"""请分析多仓库工作区并生成跨服务文档。按以下步骤执行：
 
-## 步骤 1: 扫描工作区
+## 步骤 0：环境检测
+- 检查 MCP 工具列表：
+  - 是否有 `query_cross_service`？有则启用 🌐 跨服务分析
+  - 是否有 `index_repository`？有则启用 🧠 codebase-memory 深度增强
+  - 是否有 `codegraph_status`？有则启用 🔗 CodeGraph 调用图增强
+
+## 步骤 1：扫描工作区（自动执行跨服务分析）
 调用 analyze_workspace(workspace_path="{workspace_path}")
 - 自动发现所有 git 仓库（一个 .git = 一个 repowiki）
 - 为每个子仓库独立执行 analyze_repo
-- 生成 workspace 级别的 overview.md
+- 🌐 **自动执行 RouteNode 跨服务匹配**（HTTP 路由 + MQ 生产者/消费者）
+- **自动扫描** docker-compose.yml / .env / application.yml 发现服务名和端口
+- **自动生成** workspace-wiki/overview.md，内含 Mermaid 服务拓扑图 + 路由表
+- 返回 `workspace_session_id`、`overview_path`、各仓库 `session_id`
 
-## 步骤 2: 逐仓库生成 Wiki
+## 步骤 2：审阅跨服务拓扑
+读取返回的 `overview_path`（通常是 `{workspace_path}/workspace-wiki/overview.md`）：
+- 查看 Mermaid 服务流程图：识别核心枢纽服务、单向依赖、循环依赖
+- 查看匹配的路由表：理解服务间的 API 契约
+- 查看未匹配路由：发现潜在的客户端调用盲点（例如硬编码 URL、动态路径）
+
+## 步骤 3：深入查询跨服务调用
+调用 query_cross_service(workspace_path="{workspace_path}") 进行多角度查询：
+- `filter_type="all"`：全量跨服务链接
+- `filter_type="by_service", filter_value="<服务名>"`：某服务的入向/出向调用
+- `filter_type="by_method", filter_value="POST"`：所有写操作
+- `filter_type="by_path", filter_value="/api/v1/"`：某 API 前缀下的调用
+- `filter_type="trace", filter_value="<根服务>"`：从某服务出发的调用链
+
+## 步骤 4：🧠 深度追踪（如 codebase-memory-mcp 可用）
+对步骤 3 发现的关键调用链，用 CBM 的 `trace_path(mode="cross_service", depth=3)` 做
+多跳语义追踪：从客户端函数一路追踪到服务端处理函数的内部调用链（包括中间件、
+数据库访问、异步任务派发），揭示 RouteNode 匹配不到的深层依赖。
+
+## 步骤 5：逐仓库生成 Wiki
 对每个子仓库执行标准 Wiki 生成流程：
+- 共享 workspace_session_id，各仓库使用自己的 session_id
 - analyze_repo → 聚类 → 逐模块撰写 → close_session
 - 每个仓库的 Wiki 位于 <repo>/repowiki/
+- 🔗 CodeGraph 增强模式可补充单仓内的调用图细节
 
-## 步骤 3: 跨服务文档
-- 在 workspace-wiki/ 目录创建跨服务文档
-- 使用 ingest_note(note_type="architecture") 记录跨服务架构决策
-- 记录服务间调用关系、共享数据模型、API 契约
+## 步骤 6：归档跨服务架构决策
+用 workspace_session_id 调用 ingest_note(note_type="architecture") 记录：
+- 跨服务 API 契约（URL、方法、参数、返回结构）
+- 消息协议约定（topic、payload schema、消费语义）
+- 共享数据模型和 schema 约定
+- 跨服务熔断/限流/重试策略
 
-## 步骤 4: 工作区总览
-- overview.md 包含：服务列表、职责描述、交互关系图
-- 链接到各子仓库的 repowiki/overview.md
+## 步骤 7：工作区总览
+- overview.md 已包含服务拓扑图，可在此基础上补充：
+  - 各子仓库 `repowiki/overview.md` 的链接
+  - 共享基础设施（数据库、消息队列、缓存）的职责说明
+  - 部署依赖顺序（来自 InfraScanner）
 
 ## 注意事项
 - 每个子仓库独立管理自己的 Wiki
 - workspace 级别只存放跨服务关注点
-- 使用 query_wiki 在 workspace 级别搜索跨服务知识"""
+- 使用 query_wiki 在 workspace 级别搜索跨服务知识
+- 未匹配的客户端调用（在 overview.md 路由表中标记）需人工确认：可能是外部系统调用、
+  硬编码 URL、或客户端使用了 RouteNode 匹配不到的协议（如 gRPC）"""
 
 
 # ===================================================================
@@ -1640,7 +1803,8 @@ async def read_resource(uri: Any) -> str:
                 {"name": "search-wiki", "title": "知识库搜索策略", "description": "BM25 + 图谱扩展 + 深度阅读的分层搜索策略", "arguments": ["query (required)"]},
                 {"name": "quality-check", "title": "文档质量审计", "description": "全面质量检查：过时引用、断链、覆盖率、循环依赖", "arguments": ["output_dir (optional)"]},
                 {"name": "incremental-update", "title": "增量更新 Wiki", "description": "检测代码变更并增量更新受影响的模块文档", "arguments": ["repo_path (optional, 默认当前目录)"]},
-                {"name": "workspace-analysis", "title": "多仓库工作区分析", "description": "扫描多 git 仓库，生成独立 Wiki 和跨服务总览", "arguments": ["workspace_path (optional, 默认当前目录)"]},
+                {"name": "workspace-analysis", "title": "多仓库工作区分析（含跨服务拓扑）", "description": "扫描多 git 仓库，生成独立 Wiki 并自动执行 RouteNode 跨服务匹配 + 拓扑图 + 基础设施扫描", "arguments": ["workspace_path (optional, 默认当前目录)"]},
+                {"name": "cross-service-trace", "title": "跨服务调用链追踪", "description": "对指定根服务做跨服务调用链分析：RouteNode 静态匹配 + CBM trace_path 语义穿透", "arguments": ["workspace_path (required)", "filter_value (optional, 追踪起点)"]},
             ],
             "usage": "通过 MCP prompts/get 协议获取完整工作流指引，或调用 get_prompt 工具获取代码生成阶段的 prompt 模板",
         }, ensure_ascii=False, indent=2)
@@ -1651,6 +1815,7 @@ async def read_resource(uri: Any) -> str:
             "tool_count": 21,
             "tool_categories": {
                 "代码分析": ["analyze_repo", "analyze_workspace", "list_components", "list_dependencies", "read_code_components", "view_repo_file"],
+                "跨服务分析": ["query_cross_service"],
                 "文档生成": ["write_doc_file", "edit_doc_file", "save_module_tree", "get_processing_order", "get_prompt", "generate_docs (legacy)"],
                 "知识库管理": ["query_wiki", "ingest_note", "ingest_source", "retract_source", "batch_ingest"],
                 "质量保障": ["lint_wiki", "flag_issue"],
@@ -1661,6 +1826,7 @@ async def read_resource(uri: Any) -> str:
                 "session_lifecycle": "analyze_repo 创建 → 工具调用 → close_session 清理（2h TTL）",
                 "page_type_routing": "module→wiki/modules/, entity→wiki/entities/, concept→wiki/concepts/, source→wiki/sources/",
                 "search_layers": "BM25 全文 → hop 图谱扩展 → expand 深度阅读",
+                "cross_service": "analyze_workspace 自动生成拓扑 → query_cross_service 多维切片 → (可选) CBM trace_path 语义追踪",
             },
         }, ensure_ascii=False, indent=2)
 
