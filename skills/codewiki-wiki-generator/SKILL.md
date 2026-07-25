@@ -24,8 +24,15 @@ version: 5.1.0
 2. 检查是否存在 `codegraph_status`：
    - 存在 → **增强模式**（标注 `🔗 CodeGraph 增强` 的步骤）
    - 不存在 → **标准模式**（跳过增强步骤）
+3. 检查是否存在 `index_repository`（codebase-memory-mcp）：
+   - 存在 → **深度增强模式**（标注 `🧠 codebase-memory 增强`，详见 [references/codebase-memory.md](references/codebase-memory.md)）
+   - 深度增强模式可叠加在 CodeGraph 增强之上，获得语义搜索 + 跨服务图追踪能力
+4. 检查 MCP 工具列表中是否存在 `query_cross_service`：
+   - 存在 → **跨服务模式**（标注 `🌐 跨服务分析` 的步骤）
+   - `analyze_workspace` 会自动执行 RouteNode 匹配、生成 Mermaid 拓扑图、扫描基础设施配置
+   - 此能力**独立于** CodeGraph/codebase-memory，任何模式都可启用
 
-两种模式产出的文档结构和质量一致，增强模式在模块聚类精度和调用关系描述上更优。
+三种增强维度彼此正交，可同时激活（🔗+🧠+🌐）。
 
 ## schema.yaml 配置
 
@@ -230,6 +237,40 @@ Wiki 生成后，8 个知识管理工具**无需活跃 session**，通过 `outpu
 ```json
 {"prompt_type": "entity_page", "variables": {"entity_name": "PaymentService"}}
 ```
+
+## 跨服务工作流（🌐）
+
+当多仓库工作区（多 `.git` 目录）存在服务间调用关系时，使用跨服务工作流生成全局拓扑文档。
+
+### 自动能力
+
+`analyze_workspace` 调用后，CodeWiki 会自动：
+- **RouteNode 匹配**：跨 5 种语言（Python/Java/JS/TS/Go）+ MQ 协议，提取服务端声明与客户端调用，在 `__route__METHOD__path` 会合点配对
+- **拓扑图生成**：Mermaid 服务流程图 + 路由表 + 未匹配路由清单，写入 `workspace-wiki/overview.md`
+- **基础设施扫描**：解析 `docker-compose.yml`、`.env`、`application.yml` 发现服务名/端口/依赖
+
+### 工作流
+
+1. `analyze_workspace(workspace_path="<工作区根>")` — 分析所有子仓库，返回 `workspace_session_id` 和 `overview_path`
+2. 读取 `overview_path` 查看拓扑图和路由表
+3. `query_cross_service(workspace_path, filter_type, filter_value)` 深入查询：
+   - `filter_type="all"`：所有跨服务调用
+   - `filter_type="by_service"`：某个服务的入向/出向调用
+   - `filter_type="by_method"`：按 HTTP 方法过滤
+   - `filter_type="by_path"`：URL 子串匹配
+   - `filter_type="trace"`：从某服务出发的调用链
+4. 🧠 **可选深度追踪**（需 codebase-memory-mcp）：对关键调用用 `trace_path(mode="cross_service", depth=3)` 获取多跳语义调用链
+5. `ingest_note(note_type="architecture", workspace_session_id=...)` 归档跨服务架构决策（API 契约、消息协议、共享数据模型）
+6. `get_prompt(prompt_type="cross-service-trace")` 获取完整跨服务分析模板
+
+### 与各层增强的组合
+
+| 组合 | 能力 |
+|------|------|
+| 标准 + 🌐 | RouteNode 静态匹配 + 拓扑图 |
+| 🔗 + 🌐 | CodeGraph 提供单仓调用图 + RouteNode 跨仓匹配 |
+| 🧠 + 🌐 | RouteNode 基础匹配 + CBM `trace_path` 多跳语义追踪 + Cypher 复杂依赖查询 |
+| 🔗 + 🧠 + 🌐 | 全维度覆盖（调用图 + 语义 + 跨服务） |
 
 ## Mermaid 规范
 

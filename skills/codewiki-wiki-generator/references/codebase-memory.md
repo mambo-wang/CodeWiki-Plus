@@ -55,6 +55,25 @@ codebase-memory-mcp 提供知识图谱、Leiden 社区检测、Cypher 查询、�
    ```
    这会揭示子服务之间通过 HTTP/gRPC/异步消息的调用关系。
 
+### 🌐 与 CodeWiki RouteNode 匹配的组合（多仓场景）
+
+CodeWiki-CN 的 `analyze_workspace` 已内置 RouteNode 静态匹配能力（HTTP 路由 + MQ 生产者/消费者，覆盖 Python/Java/JS/TS/Go 五种语言）。与 CBM 的 `trace_path(mode="cross_service")` 是互补关系：
+
+| 维度 | CodeWiki RouteNode | CBM trace_path |
+|------|--------------------|----------------|
+| 范围 | 多仓库（多 `.git`） | Monorepo 内子服务 |
+| 匹配方式 | 路径规范化 + rendezvous key | 函数调用图 BFS |
+| 协议 | HTTP + MQ（Kafka/RabbitMQ/RocketMQ/Celery） | HTTP + gRPC + 异步消息 |
+| 深度 | 1 跳（客户端函数 → 服务端函数） | N 跳（可穿透内部实现） |
+| 成本 | 轻量（纯 AST/正则，无 LLM） | 中（需先 index_repository） |
+
+**推荐工作流**：
+1. 先用 `analyze_workspace` 获得全局拓扑（哪些服务在互相调用）
+2. 用 `query_cross_service(filter_type="trace")` 获得具体调用链路
+3. 对关键链路用 CBM `trace_path` 做语义穿透：客户端函数 → HTTP 客户端封装 → 中间件 → 服务端 handler → 数据库访问 → 异步任务
+
+这种分层组合能同时覆盖"服务间调用全景"和"函数级调用细节"两个层次。
+
 ## 阶段 2：Leiden 聚类驱动模块划分
 
 用 Leiden 社区检测结果替代或增强手动聚类：
