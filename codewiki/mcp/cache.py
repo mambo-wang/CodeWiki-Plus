@@ -278,6 +278,22 @@ class AnalysisCache:
                 link_type TEXT DEFAULT 'wikilink',
                 PRIMARY KEY(source_doc, target_doc));
             CREATE INDEX IF NOT EXISTS ix_wiki_links_target ON wiki_links(target_doc);
+            CREATE TABLE IF NOT EXISTS routes (
+                route_key TEXT NOT NULL,
+                protocol TEXT NOT NULL DEFAULT 'http',
+                method TEXT,
+                path TEXT NOT NULL DEFAULT '',
+                role TEXT NOT NULL,
+                component_id TEXT NOT NULL,
+                repo_name TEXT NOT NULL DEFAULT '',
+                file_path TEXT NOT NULL DEFAULT '',
+                line_number INTEGER DEFAULT 0,
+                framework TEXT,
+                extra_json TEXT DEFAULT '{}',
+                PRIMARY KEY(route_key, component_id, role));
+            CREATE INDEX IF NOT EXISTS ix_routes_key ON routes(route_key);
+            CREATE INDEX IF NOT EXISTS ix_routes_role ON routes(role);
+            CREATE INDEX IF NOT EXISTS ix_routes_protocol ON routes(protocol);
         """)
 
     # -- meta --
@@ -314,6 +330,116 @@ class AnalysisCache:
         for r in rows:
             result.setdefault(r["name"], []).append(r["file_path"])
         return result
+
+    # -- routes (cross-service analysis) --
+
+    def batch_insert_routes(self, routes: List[Dict], incremental: bool = False):
+        """Persist route nodes to the routes table.
+
+        Args:
+            routes: List of route dicts (from RouteNode.model_dump())
+            incremental: If True, upsert; if False, replace all.
+        """
+        if not routes:
+            return
+        c = self.conn
+        if not incremental:
+            c.execute("DELETE FROM routes")
+        rows = [
+            (
+                r.get("route_key", ""),
+                r.get("protocol", "http"),
+                r.get("method"),
+                r.get("path", ""),
+                r.get("role", "server"),
+                r.get("component_id", ""),
+                r.get("repo_name", ""),
+                r.get("file_path", ""),
+                r.get("line_number", 0),
+                r.get("framework"),
+                json.dumps(r.get("extra", {})),
+            )
+            for r in routes
+        ]
+        c.executemany(
+            "INSERT OR REPLACE INTO routes VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            rows,
+        )
+        c.commit()
+        logger.info("Cached %d routes (%s)", len(routes), "incremental" if incremental else "full")
+
+    def get_all_routes(self) -> List[Dict]:
+        """Load all route nodes from SQLite."""
+        rows = self.conn.execute(
+            "SELECT route_key, protocol, method, path, role, component_id, "
+            "repo_name, file_path, line_number, framework, extra_json FROM routes"
+        ).fetchall()
+        result: List[Dict] = []
+        for r in rows:
+            extra = {}
+            try:
+                extra = json.loads(r["extra_json"]) if r["extra_json"] else {}
+            except Exception:
+                pass
+            result.append({
+                "route_key": r["route_key"],
+                "protocol": r["protocol"],
+                "method": r["method"],
+                "path": r["path"],
+                "role": r["role"],
+                "component_id": r["component_id"],
+                "repo_name": r["repo_name"],
+                "file_path": r["file_path"],
+                "line_number": r["line_number"],
+                "framework": r["framework"],
+                "extra": extra,
+            })
+        return result
+
+    def get_routes_by_role(self, role: str) -> List[Dict]:
+        """Load routes filtered by role ('server' or 'client')."""
+        rows = self.conn.execute(
+            "SELECT route_key, protocol, method, path, role, component_id, "
+            "repo_name, file_path, line_number, framework, extra_json "
+            "FROM routes WHERE role=?", (role,),
+        ).fetchall()
+        result: List[Dict] = []
+        for r in rows:
+            extra = {}
+            try:
+                extra = json.loads(r["extra_json"]) if r["extra_json"] else {}
+            except Exception:
+                pass
+            result.append({
+                "route_key": r["route_key"],
+                "protocol": r["protocol"],
+                "method": r["method"],
+                "path": r["path"],
+                "role": r["role"],
+                "component_id": r["component_id"],
+                "repo_name": r["repo_name"],
+                "file_path": r["file_path"],
+                "line_number": r["line_number"],
+                "framework": r["framework"],
+                "extra": extra,
+            })
+        return result
+
+    def remove_routes_by_file(self, fp: str) -> int:
+        """Remove routes for a specific file (for incremental updates)."""
+        fp_norm = fp.replace("\\", "/")
+        ids = [
+            r["rowid"]
+            for r in self.conn.execute(
+                "SELECT rowid FROM routes WHERE file_path=? OR replace(file_path, '\\', '/')=?",
+                (fp, fp_norm),
+            ).fetchall()
+        ]
+        if ids:
+            ph = ",".join("?" * len(ids))
+            self.conn.execute(f"DELETE FROM routes WHERE rowid IN ({ph})", ids)
+            self.conn.commit()
+        return len(ids)
 
     # -- components --
 

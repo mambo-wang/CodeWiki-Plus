@@ -16,6 +16,11 @@ from collections import defaultdict
 from pathlib import Path
 from contextlib import contextmanager
 from codewiki.src.be.dependency_analyzer.models.core import Node, CallRelationship
+from codewiki.src.be.dependency_analyzer.models.cross_service import RouteNode
+from codewiki.src.be.dependency_analyzer.analyzers.route_extractors import get_extractor
+from codewiki.src.be.dependency_analyzer.analyzers.route_extractors.mq_patterns import (
+    extract_mq_routes,
+)
 from codewiki.src.be.dependency_analyzer.utils.patterns import CODE_EXTENSIONS
 from codewiki.src.be.dependency_analyzer.utils.security import safe_open_text
 from codewiki.src.be.dependency_analyzer.utils.external_symbols import (
@@ -59,6 +64,8 @@ class CallGraphAnalyzer:
         """Initialize the call graph analyzer."""
         self.functions: Dict[str, Node] = {}
         self.call_relationships: List[CallRelationship] = []
+        self.routes: List[RouteNode] = []
+        self._repo_name: str = ""
         logger.debug("CallGraphAnalyzer initialized.")
 
     def analyze_code_files(self, code_files: List[Dict], base_dir: str,
@@ -88,6 +95,8 @@ class CallGraphAnalyzer:
 
         self.functions = {}
         self.call_relationships = []
+        self.routes = []
+        self._repo_name = Path(base_dir).name
         code_files = self._route_contextual_headers(code_files, base_dir)
 
         files_analyzed = 0
@@ -113,7 +122,8 @@ class CallGraphAnalyzer:
         elapsed_time = time.time() - start_time
         logger.info(
             f"✓ Analysis complete: {files_analyzed}/{len(code_files)} files analyzed, "
-            f"{files_failed} failed, {len(self.functions)} functions, {len(self.call_relationships)} relationships ({elapsed_time:.1f}s)"
+            f"{files_failed} failed, {len(self.functions)} functions, {len(self.call_relationships)} relationships, "
+            f"{len(self.routes)} routes ({elapsed_time:.1f}s)"
         )
 
         logger.debug("Resolving call relationships")
@@ -132,6 +142,7 @@ class CallGraphAnalyzer:
             "functions": [func.model_dump() for func in self.functions.values()],
             "relationships": [rel.model_dump() for rel in self.call_relationships],
             "visualization": viz_data,
+            "routes": [r.model_dump() for r in self.routes],
         }
 
     def extract_code_files(self, file_tree: Dict) -> List[Dict]:
@@ -260,6 +271,9 @@ class CallGraphAnalyzer:
                 #     logger.warning(
                 #         f"Unsupported language for call graph analysis: {language} for file {file_path}"
                 #     )
+
+                # Post-pass: extract HTTP/MQ routes for cross-service analysis
+                self._extract_routes(str(file_path), content, language)
 
         except TimeoutError as e:
             logger.warning(f"⏱️  Timeout analyzing {file_path}: {str(e)}")
@@ -489,6 +503,31 @@ class CallGraphAnalyzer:
             self.call_relationships.extend(relationships)
         except Exception as e:
             logger.error(f"Failed to analyze Go file {file_path}: {e}", exc_info=True)
+
+    def _extract_routes(self, file_path: str, content: str, language: str):
+        """Post-pass: extract HTTP/MQ routes for cross-service analysis.
+
+        Dispatches to the language-specific route extractor (if available)
+        and the language-agnostic MQ pattern detector.
+        """
+        ext = Path(file_path).suffix.lower()
+        repo_name = self._repo_name
+
+        # HTTP route extraction (language-specific)
+        extractor = get_extractor(ext)
+        if extractor:
+            try:
+                routes = extractor(file_path, content, repo_name)
+                self.routes.extend(routes)
+            except Exception as e:
+                logger.debug(f"Route extraction failed for {file_path}: {e}")
+
+        # MQ pattern extraction (language-agnostic)
+        try:
+            mq_routes = extract_mq_routes(file_path, content, repo_name)
+            self.routes.extend(mq_routes)
+        except Exception as e:
+            logger.debug(f"MQ route extraction failed for {file_path}: {e}")
 
     def _resolve_call_relationships(self):
         """

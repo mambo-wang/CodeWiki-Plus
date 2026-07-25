@@ -83,9 +83,13 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         if changes_info and changes_info.get("changed_files"):
             changed = changes_info["changed_files"]
             logger.info("Incremental mode: %d files changed", len(changed))
-            # Remove stale components for changed files
+            # Remove stale components and routes for changed files
             for cf in changed:
                 cache.remove_by_file(cf)
+                try:
+                    cache.remove_routes_by_file(cf)
+                except Exception as e:
+                    logger.warning("Route removal for %s failed (non-fatal): %s", cf, e)
 
             # Compute set of unchanged files to skip during parsing
             changed_set = set(changed)
@@ -115,7 +119,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     import shutil
     builder = DependencyGraphBuilder(config)
     try:
-        components, leaf_nodes = builder.build_dependency_graph(skip_file_paths=skip_file_paths)
+        components, leaf_nodes, routes = builder.build_dependency_graph(skip_file_paths=skip_file_paths)
     finally:
         shutil.rmtree(str(_tmp), ignore_errors=True)
 
@@ -138,6 +142,14 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         logger.info("Components cached to SQLite (%s mode)", "incremental" if is_incremental else "full")
     except Exception as e:
         logger.warning("SQLite cache write failed (continuing in memory): %s", e)
+
+    # Store cross-service routes to SQLite cache
+    try:
+        if routes:
+            cache.batch_insert_routes(routes, incremental=is_incremental)
+            logger.info("Cached %d routes to SQLite", len(routes))
+    except Exception as e:
+        logger.warning("Route cache write failed (non-fatal): %s", e)
 
     # Build LazyComponentStore from ComponentMeta
     metas: Dict[str, ComponentMeta] = {}

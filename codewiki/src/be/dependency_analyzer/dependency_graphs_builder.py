@@ -15,15 +15,15 @@ class DependencyGraphBuilder:
     def __init__(self, config: Config):
         self.config = config
     
-    def build_dependency_graph(self, skip_file_paths: set = None) -> tuple[Dict[str, Any], List[str]]:
+    def build_dependency_graph(self, skip_file_paths: set = None) -> tuple[Dict[str, Any], List[str], List[Dict]]:
         """
-        Build and save dependency graph, returning components and leaf nodes.
+        Build and save dependency graph, returning components, leaf nodes, and routes.
 
         Args:
             skip_file_paths: Optional set of absolute file paths to skip (for incremental mode)
 
         Returns:
-            Tuple of (components, leaf_nodes)
+            Tuple of (components, leaf_nodes, routes)
         """
         # Ensure output directory exists
         file_manager.ensure_directory(self.config.dependency_graph_dir)
@@ -101,5 +101,8 @@ class DependencyGraphBuilder:
                     pass
             else:
                 logger.warning(f"Leaf node {leaf_node} not found in components, removing it")
-        
-        return components, keep_leaf_nodes
+
+        # Collect cross-service routes from the parser
+        routes = getattr(parser, 'routes', [])
+
+        return components, keep_leaf_nodes, routes
