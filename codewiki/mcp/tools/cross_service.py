@@ -28,7 +28,10 @@ def handle_query_cross_service(
     filter_value = arguments.get("filter_value", "")
 
     # Load topology from workspace meta
+    # Try workspace-level first (analyze_workspace), then repo-level (analyze_repo monorepo)
     meta_dir = workspace_path / "workspace-wiki" / ".meta"
+    if not meta_dir.exists():
+        meta_dir = workspace_path / "repowiki" / ".meta"
     links_path = meta_dir / "cross_service_links.json"
     routes_path = meta_dir / "workspace_routes.json"
 
