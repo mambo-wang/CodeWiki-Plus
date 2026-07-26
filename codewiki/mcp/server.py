@@ -133,7 +133,12 @@ def _fine_grained_tools() -> list[Tool]:
                 "then save_module_tree to persist your grouping. "
                 "INCREMENTAL UPDATE: If docs already exist in output_dir (.meta/metadata.json + "
                 ".meta/module_tree.json), the response includes a 'changes' field showing which "
-                "files changed and which modules need updating."
+                "files changed and which modules need updating. "
+                "🌐 MONOREPO CROSS-SERVICE: automatically detects sub-services within a single "
+                "repo (via docker-compose, Dockerfiles, build manifests, convention directories) "
+                "and runs intra-repo cross-service matching (HTTP + MQ). Results appear in the "
+                "'cross_service' response field and are persisted to <output_dir>/.meta/. "
+                "Follow up with query_cross_service for filtered views."
             ),
             inputSchema={
                 "type": "object",
@@ -153,6 +158,11 @@ def _fine_grained_tools() -> list[Tool]:
                     "exclude_patterns": {
                         "type": "string",
                         "description": "Comma-separated patterns to exclude (e.g., '*test*,*spec*')",
+                    },
+                    "detect_services": {
+                        "type": "boolean",
+                        "description": "Detect sub-services in monorepo and run intra-repo cross-service analysis (default: true).",
+                        "default": True,
                     },
                 },
                 "required": ["repo_path"],
@@ -665,8 +675,72 @@ def _fine_grained_tools() -> list[Tool]:
                             "after identifying relevant pages with a normal search."
                         ),
                     },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["overview", "directory", "detail"],
+                        "description": (
+                            "Progressive reading mode. "
+                            "'overview': returns overview.md + page frontmatter list (lightweight orientation). "
+                            "'directory': returns Component Constraint Index sections from matching pages. "
+                            "'detail': returns full content of a specific page/section (requires 'page' param). "
+                            "Omit for standard BM25 search."
+                        ),
+                    },
+                    "page": {
+                        "type": "string",
+                        "description": "Page path for mode=detail (relative to output_dir, e.g. 'wiki/modules/auth.md')",
+                    },
+                    "section": {
+                        "type": "string",
+                        "description": "Section heading for mode=detail (e.g. 'Business Constraints'). Omit for full page.",
+                    },
                 },
                 "required": ["query"],
+            },
+        ),
+        # --- LLM Wiki: knowledge flywheel (Roadmap 2.2) ---
+        Tool(
+            name="confirm_note",
+            description=(
+                "Confirm a candidate note, promoting it to verified domain knowledge. "
+                "Confirmed notes are returned by query_wiki without the [unconfirmed] annotation. "
+                "Use after a developer reviews and validates an LLM-generated note."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "Session ID (optional)"},
+                    "output_dir": {"type": "string", "description": "Output directory (alternative to session_id)"},
+                    "note_file": {
+                        "type": "string",
+                        "description": "Note filename relative to notes/ directory (e.g. '2026-07-26-jwt-decision.md')",
+                    },
+                },
+                "required": ["note_file"],
+            },
+        ),
+        Tool(
+            name="reject_note",
+            description=(
+                "Reject a candidate note, excluding it from future query_wiki results. "
+                "The note file is preserved but marked as rejected with an optional reason. "
+                "Use when an LLM-generated note contains incorrect or duplicate information."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "Session ID (optional)"},
+                    "output_dir": {"type": "string", "description": "Output directory (alternative to session_id)"},
+                    "note_file": {
+                        "type": "string",
+                        "description": "Note filename relative to notes/ directory",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional reason for rejection",
+                    },
+                },
+                "required": ["note_file"],
             },
         ),
         # --- LLM Wiki: third-party source management ---
@@ -955,10 +1029,12 @@ def _fine_grained_tools() -> list[Tool]:
         Tool(
             name="query_cross_service",
             description=(
-                "Query cross-service call relationships discovered during analyze_workspace. "
+                "Query cross-service call relationships discovered during analyze_workspace "
+                "or analyze_repo (monorepo mode). "
                 "Matches HTTP routes (server declarations vs client calls) and MQ "
                 "producer/consumer (Kafka/RabbitMQ/RocketMQ/Celery) across repos in a "
-                "multi-repo workspace. Languages covered: Python (FastAPI/Flask/Django + "
+                "multi-repo workspace, or across sub-services within a monorepo. "
+                "Languages covered: Python (FastAPI/Flask/Django + "
                 "requests/httpx/aiohttp), Java (Spring MVC/JAX-RS + Feign/RestTemplate/"
                 "WebClient), JS/TS (Express/NestJS + axios/fetch/got), Go (Gin/Chi/Echo/"
                 "net/http). Path parameters (:id/{id}/<id>) are canonicalized to {} for "
@@ -966,8 +1042,8 @@ def _fine_grained_tools() -> list[Tool]:
                 "Supports filter_type: 'all' (default, every link), 'by_service' (one repo's "
                 "inbound/outbound links), 'by_method' (HTTP method), 'by_path' (URL "
                 "substring), 'trace' (transitive call chain from a root service). "
-                "Reads results persisted by analyze_workspace under <output_dir>/.meta/"
-                "(cross_service_links.json + workspace_routes.json). "
+                "Reads results persisted under <workspace>/workspace-wiki/.meta/ (multi-repo) "
+                "or <repo>/repowiki/.meta/ (monorepo single-repo). "
                 "🧠 CBM ENHANCEMENT: pair with codebase-memory-mcp's trace_path "
                 "(mode='cross_service') to extend the static RouteNode matches into multi-hop "
                 "semantic call chains that traverse through internal functions."
@@ -977,7 +1053,7 @@ def _fine_grained_tools() -> list[Tool]:
                 "properties": {
                     "workspace_path": {
                         "type": "string",
-                        "description": "Absolute path to the workspace root (same path passed to analyze_workspace).",
+                        "description": "Absolute path to the workspace root (for analyze_workspace) or repo root (for analyze_repo monorepo mode).",
                     },
                     "filter_type": {
                         "type": "string",
@@ -1178,6 +1254,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         elif name == "query_wiki":
             from codewiki.mcp.tools.knowledge_loop import handle_query_wiki
             return [_text(await asyncio.to_thread(handle_query_wiki, arguments, _store))]
+
+        elif name == "confirm_note":
+            from codewiki.mcp.tools.knowledge_loop import handle_confirm_note
+            return [_text(await asyncio.to_thread(handle_confirm_note, arguments, _store))]
+
+        elif name == "reject_note":
+            from codewiki.mcp.tools.knowledge_loop import handle_reject_note
+            return [_text(await asyncio.to_thread(handle_reject_note, arguments, _store))]
 
         elif name == "ingest_source":
             from codewiki.mcp.tools.source_ingest import handle_ingest_source
@@ -1826,7 +1910,7 @@ async def read_resource(uri: Any) -> str:
                 "session_lifecycle": "analyze_repo 创建 → 工具调用 → close_session 清理（2h TTL）",
                 "page_type_routing": "module→wiki/modules/, entity→wiki/entities/, concept→wiki/concepts/, source→wiki/sources/",
                 "search_layers": "BM25 全文 → hop 图谱扩展 → expand 深度阅读",
-                "cross_service": "analyze_workspace 自动生成拓扑 → query_cross_service 多维切片 → (可选) CBM trace_path 语义追踪",
+                "cross_service": "analyze_workspace（多仓库）或 analyze_repo（monorepo 单仓库）自动生成拓扑 → query_cross_service 多维切片 → (可选) CBM trace_path 语义追踪",
             },
         }, ensure_ascii=False, indent=2)
 

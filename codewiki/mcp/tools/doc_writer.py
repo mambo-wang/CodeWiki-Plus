@@ -279,6 +279,24 @@ def _build_okf_frontmatter(
         f"tags: [{', '.join(tags)}]",
     ]
 
+    # Roadmap 1.4: record code version for freshness tracking
+    _gen_from = ""
+    if session.repo_path:
+        try:
+            import subprocess
+            _sha = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=session.repo_path, capture_output=True, text=True, timeout=5,
+            ).stdout.strip()
+            if _sha:
+                _gen_from = _sha
+        except Exception:
+            pass
+    if not _gen_from:
+        from datetime import datetime, timezone
+        _gen_from = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    fm_parts.append(f"generated_from: {_gen_from}")
+
     # Merge frontmatter_extra
     extra = frontmatter_extra or {}
     if extra.get("aliases"):

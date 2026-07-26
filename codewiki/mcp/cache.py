@@ -252,7 +252,8 @@ class AnalysisCache:
                 class_name TEXT, display_name TEXT, qualified_name TEXT,
                 has_docstring INTEGER DEFAULT 0, docstring TEXT DEFAULT '',
                 parameters TEXT, depends_on TEXT NOT NULL DEFAULT '[]',
-                metadata_json TEXT DEFAULT '{}');
+                metadata_json TEXT DEFAULT '{}',
+                content_hash TEXT DEFAULT '');
             CREATE INDEX IF NOT EXISTS ix_comp_type ON components(component_type);
             CREATE INDEX IF NOT EXISTS ix_comp_file ON components(relative_path);
             CREATE TABLE IF NOT EXISTS file_fingerprints (
@@ -295,6 +296,12 @@ class AnalysisCache:
             CREATE INDEX IF NOT EXISTS ix_routes_role ON routes(role);
             CREATE INDEX IF NOT EXISTS ix_routes_protocol ON routes(protocol);
         """)
+        # Migration: add content_hash column for existing databases (Roadmap 2.4)
+        try:
+            self.conn.execute("ALTER TABLE components ADD COLUMN content_hash TEXT DEFAULT ''")
+            self.conn.commit()
+        except Exception:
+            pass  # Column already exists
 
     # -- meta --
 
@@ -462,6 +469,16 @@ class AnalysisCache:
         if not components:
             return
         c = self.conn
+
+        def _comp_hash(n: Node) -> str:
+            """Compute content hash from source code or structural metadata."""
+            src = getattr(n, "source_code", None) or ""
+            if src:
+                return hashlib.sha256(src.encode("utf-8", errors="replace")).hexdigest()[:16]
+            # Fallback: hash structural signature
+            sig = f"{n.name}|{n.start_line}|{n.end_line}|{json.dumps(n.parameters or [])}|{json.dumps(sorted(n.depends_on))}"
+            return hashlib.sha256(sig.encode()).hexdigest()[:16]
+
         rows = [
             (
                 n.id, n.name, n.component_type, n.file_path, n.relative_path,
@@ -474,13 +491,14 @@ class AnalysisCache:
                 json.dumps(n.parameters) if n.parameters else None,
                 json.dumps(sorted(n.depends_on)) if n.depends_on else "[]",
                 "{}",
+                _comp_hash(n),
             )
             for n in components.values()
         ]
         if incremental:
             # Incremental mode: upsert only the provided components
             c.executemany(
-                "INSERT OR REPLACE INTO components VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO components VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 rows,
             )
             # Upsert dependencies for these components only
@@ -494,7 +512,7 @@ class AnalysisCache:
         else:
             c.execute("DELETE FROM components")
             c.executemany(
-                "INSERT INTO components VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO components VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 rows,
             )
             c.execute("DELETE FROM dependencies")
@@ -520,6 +538,46 @@ class AnalysisCache:
         self.conn.commit()
         logger.info("Cached %d components (%s), %d dep edges",
                      len(components), "incremental" if incremental else "full", len(deps))
+
+    def get_stale_components(self, new_components: Dict[str, "Node"]) -> Dict[str, List[str]]:
+        """Compare incoming components against stored content hashes.
+
+        Returns a dict with three lists:
+          - "added": component IDs present in new_components but not in cache
+          - "modified": component IDs whose content_hash differs
+          - "deleted": component IDs in cache but absent from new_components
+
+        Callers can use these lists for cascade wiki-page invalidation.
+        """
+        import hashlib as _hl
+
+        def _hash_node(n) -> str:
+            src = getattr(n, "source_code", None) or ""
+            if src:
+                return _hl.sha256(src.encode("utf-8", errors="replace")).hexdigest()[:16]
+            sig = f"{n.name}|{n.start_line}|{n.end_line}|{json.dumps(n.parameters or [])}|{json.dumps(sorted(n.depends_on))}"
+            return _hl.sha256(sig.encode()).hexdigest()[:16]
+
+        # Load stored hashes
+        rows = self.conn.execute("SELECT id, content_hash FROM components").fetchall()
+        stored: Dict[str, str] = {r["id"]: (r["content_hash"] or "") for r in rows}
+
+        added: List[str] = []
+        modified: List[str] = []
+        for cid, node in new_components.items():
+            new_hash = _hash_node(node)
+            if cid not in stored:
+                added.append(cid)
+            elif stored[cid] != new_hash:
+                modified.append(cid)
+
+        new_ids = set(new_components.keys())
+        deleted = [cid for cid in stored if cid not in new_ids]
+
+        if added or modified or deleted:
+            logger.info("Stale detection: %d added, %d modified, %d deleted",
+                        len(added), len(modified), len(deleted))
+        return {"added": added, "modified": modified, "deleted": deleted}
 
     def get_leaf_nodes(self) -> List[str]:
         raw = self._mget("leaf_nodes")

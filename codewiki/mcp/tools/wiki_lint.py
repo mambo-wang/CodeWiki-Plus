@@ -25,7 +25,7 @@ _SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 _ALL_CHECKS = {
     "stale_refs", "undocumented", "broken_links", "cycles", "coverage",
     "orphan_pages", "no_outlinks", "missing_aliases", "stale_sources",
-    "superseded_pages", "overview_stale",
+    "superseded_pages", "overview_stale", "unsupported_claims",
 }
 
 # Regex patterns for markdown links
@@ -577,6 +577,84 @@ def _check_overview_stale_lint(
     return issues
 
 
+# Regex for business constraint assertions: lines containing (confidence: 0.XX)
+_CONFIDENCE_RE = re.compile(r"\(confidence:\s*([\d.]+)\)")
+_EVIDENCE_RE = re.compile(r">\s*Evidence:", re.IGNORECASE)
+_CANDIDATE_RE = re.compile(r"\[candidate\]", re.IGNORECASE)
+
+
+def _check_unsupported_claims(
+    output_dir: Path,
+    threshold: float = 0.3,
+) -> List[Dict[str, Any]]:
+    """Flag wiki pages where business assertions lack code evidence.
+
+    Scans for lines with '(confidence: X.XX)' markers.  An assertion is
+    considered 'supported' if it is followed (within 2 lines) by a
+    '> Evidence:' line.  Assertions marked [candidate] are always
+    unsupported.  If the unsupported ratio exceeds *threshold*, a warning
+    is emitted for that file.
+    """
+    issues: List[Dict[str, Any]] = []
+    from codewiki.src.config import WIKI_DIR, WIKI_SYSTEM_FILES
+
+    wiki_dir = output_dir / WIKI_DIR
+    scan_dirs = [wiki_dir] if wiki_dir.is_dir() else [output_dir]
+
+    for scan_dir in scan_dirs:
+        for md_file in scan_dir.rglob("*.md"):
+            if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
+                continue
+            try:
+                lines = md_file.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+
+            total_claims = 0
+            unsupported = 0
+
+            for i, line in enumerate(lines):
+                if not _CONFIDENCE_RE.search(line):
+                    continue
+                total_claims += 1
+
+                # [candidate] marks are always unsupported
+                if _CANDIDATE_RE.search(line):
+                    unsupported += 1
+                    continue
+
+                # Check next 2 lines for evidence
+                has_evidence = False
+                for j in range(i + 1, min(i + 3, len(lines))):
+                    if _EVIDENCE_RE.search(lines[j]):
+                        has_evidence = True
+                        break
+                if not has_evidence:
+                    unsupported += 1
+
+            if total_claims == 0:
+                continue
+
+            ratio = unsupported / total_claims
+            if ratio > threshold:
+                rel_path = str(md_file.relative_to(output_dir))
+                issues.append({
+                    "check": "unsupported_claims",
+                    "severity": "warning",
+                    "message": (
+                        f"{unsupported}/{total_claims} business assertions lack code evidence "
+                        f"({ratio:.0%} > {threshold:.0%} threshold)"
+                    ),
+                    "file": rel_path,
+                    "suggestion": (
+                        "Add '> Evidence: `<code quote>` — <reason>' lines after each assertion, "
+                        "or mark unsupported assertions as [candidate]"
+                    ),
+                })
+
+    return issues
+
+
 # ---------------------------------------------------------------------------
 #  Main handler
 # ---------------------------------------------------------------------------
@@ -659,6 +737,9 @@ def handle_lint_wiki(
 
     if "overview_stale" in checks and output_dir:
         all_issues.extend(_check_overview_stale_lint(output_dir))
+
+    if "unsupported_claims" in checks and output_dir:
+        all_issues.extend(_check_unsupported_claims(output_dir))
 
     # Filter by severity
     filtered = [

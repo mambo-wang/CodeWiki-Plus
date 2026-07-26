@@ -258,6 +258,8 @@ def handle_ingest_note(
     root_cause = arguments.get("root_cause")
     source_ref = arguments.get("source_ref")
     aliases = arguments.get("aliases", [])
+    # Roadmap 2.2: knowledge flywheel status
+    note_status = arguments.get("status", "candidate")  # candidate | confirmed | rejected
 
     # Auto-match modules if not provided
     auto_matched: List[str] = []
@@ -300,6 +302,7 @@ def handle_ingest_note(
         frontmatter_lines.append(f"root_cause: \"{root_cause}\"")
     if source_ref:
         frontmatter_lines.append(f"source_ref: \"{source_ref}\"")
+    frontmatter_lines.append(f"status: {note_status}")
     frontmatter_lines.append("---")
     note_content = "\n".join(frontmatter_lines) + "\n\n" + content + "\n"
 
@@ -348,6 +351,107 @@ def handle_ingest_note(
         "related_modules": related_modules,
         "tags": tags,
     }, indent=2, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+#  confirm_note / reject_note (Roadmap 2.2 — knowledge flywheel)
+# ---------------------------------------------------------------------------
+
+def _update_note_status(output_dir: Path, note_file: str, new_status: str,
+                        reason: str = "") -> str:
+    """Update the status field in a note's YAML frontmatter."""
+    from codewiki.src.config import NOTES_DIR
+
+    note_path = output_dir / NOTES_DIR / note_file
+    if not note_path.exists():
+        # Try direct path
+        note_path = output_dir / note_file
+    if not note_path.exists():
+        return json.dumps({"error": f"Note not found: {note_file}"})
+
+    try:
+        text = note_path.read_text(encoding="utf-8")
+    except OSError as e:
+        return json.dumps({"error": f"Cannot read note: {e}"})
+
+    if not text.startswith("---"):
+        return json.dumps({"error": "Note has no YAML frontmatter."})
+
+    end = text.find("---", 3)
+    if end < 0:
+        return json.dumps({"error": "Malformed frontmatter."})
+
+    fm_text = text[3:end]
+    body = text[end + 3:]
+
+    # Replace or insert status line
+    import re as _re
+    if _re.search(r"^status:", fm_text, _re.MULTILINE):
+        fm_text = _re.sub(r"^status:.*$", f"status: {new_status}", fm_text, flags=_re.MULTILINE)
+    else:
+        fm_text = fm_text.rstrip("\n") + f"\nstatus: {new_status}\n"
+
+    # Add rejection reason if provided
+    if reason and new_status == "rejected":
+        if _re.search(r"^reject_reason:", fm_text, _re.MULTILINE):
+            fm_text = _re.sub(r"^reject_reason:.*$", f'reject_reason: "{reason}"', fm_text, flags=_re.MULTILINE)
+        else:
+            fm_text = fm_text.rstrip("\n") + f'\nreject_reason: "{reason}"\n'
+
+    new_text = f"---{fm_text}---{body}"
+    note_path.write_text(new_text, encoding="utf-8")
+
+    # Update search index
+    try:
+        from codewiki.mcp.tools.wiki_search import update_file
+        update_file(output_dir, note_path)
+    except Exception:
+        pass
+
+    return json.dumps({
+        "status": new_status,
+        "note_file": str(note_path.relative_to(output_dir)),
+        "message": f"Note marked as {new_status}." + (f" Reason: {reason}" if reason else ""),
+    }, indent=2, ensure_ascii=False)
+
+
+def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """Confirm a candidate note, promoting it to verified domain knowledge."""
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    if session:
+        output_dir = Path(session.output_dir)
+    else:
+        od = arguments.get("output_dir")
+        if not od:
+            return json.dumps({"error": "session_id or output_dir is required."})
+        output_dir = Path(od).expanduser().resolve()
+
+    note_file = arguments.get("note_file", "")
+    if not note_file:
+        return json.dumps({"error": "note_file is required (relative path within notes/)."})
+
+    return _update_note_status(output_dir, note_file, "confirmed")
+
+
+def handle_reject_note(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """Reject a candidate note, excluding it from future query results."""
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    if session:
+        output_dir = Path(session.output_dir)
+    else:
+        od = arguments.get("output_dir")
+        if not od:
+            return json.dumps({"error": "session_id or output_dir is required."})
+        output_dir = Path(od).expanduser().resolve()
+
+    note_file = arguments.get("note_file", "")
+    if not note_file:
+        return json.dumps({"error": "note_file is required (relative path within notes/)."})
+    reason = arguments.get("reason", "")
+
+    return _update_note_status(output_dir, note_file, "rejected", reason)
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +524,256 @@ def _get_module_doc_name(module_name: str) -> str:
     return module_name.lower().replace(" ", "_") + ".md"
 
 
+# ---------------------------------------------------------------------------
+#  Progressive reading modes (1.3 Roadmap)
+# ---------------------------------------------------------------------------
+
+def _extract_frontmatter_block(text: str) -> Dict[str, Any]:
+    """Parse YAML frontmatter into a dict. Returns {} on failure."""
+    if not text.startswith("---"):
+        return {}
+    try:
+        end = text.index("---", 3)
+        fm_text = text[3:end]
+    except ValueError:
+        return {}
+    try:
+        import yaml
+        return yaml.safe_load(fm_text) or {}
+    except Exception:
+        return {}
+
+
+def _extract_section(text: str, section_title: str) -> Optional[str]:
+    """Extract a markdown section by heading title (## or ###).
+
+    Returns the section content (including sub-headings) up to the next
+    heading of the same or higher level, or None if not found.
+    """
+    lines = text.splitlines()
+    start_idx = None
+    start_level = 0
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            level = len(stripped) - len(stripped.lstrip("#"))
+            title = stripped.lstrip("#").strip()
+            if section_title.lower() in title.lower():
+                start_idx = i
+                start_level = level
+                break
+
+    if start_idx is None:
+        return None
+
+    # Collect until next heading of same or higher level
+    end_idx = len(lines)
+    for j in range(start_idx + 1, len(lines)):
+        stripped = lines[j].strip()
+        if stripped.startswith("#"):
+            level = len(stripped) - len(stripped.lstrip("#"))
+            if level <= start_level:
+                end_idx = j
+                break
+
+    return "\n".join(lines[start_idx:end_idx]).strip()
+
+
+def _query_mode_overview(
+    output_dir: Path,
+    query: str,
+    scope: Optional[str],
+    type_filter: Optional[str],
+    max_results: int,
+    session,
+) -> str:
+    """Mode=overview: lightweight orientation — overview.md + page frontmatter list."""
+    from codewiki.src.config import WIKI_DIR, OVERVIEW_FILENAME, WIKI_SYSTEM_FILES
+
+    result: Dict[str, Any] = {"mode": "overview", "query": query}
+
+    # 1. Include overview.md content (truncated)
+    overview_path = output_dir / OVERVIEW_FILENAME
+    if not overview_path.exists():
+        overview_path = output_dir / WIKI_DIR / OVERVIEW_FILENAME
+    if overview_path.exists():
+        try:
+            ov_text = overview_path.read_text(encoding="utf-8", errors="replace")
+            # Strip frontmatter
+            if ov_text.startswith("---"):
+                end = ov_text.find("---", 3)
+                if end > 0:
+                    ov_text = ov_text[end + 3:]
+            result["overview"] = ov_text[:1500].strip()
+        except OSError:
+            result["overview"] = ""
+
+    # 2. List matching pages with frontmatter only
+    pages: List[Dict[str, Any]] = []
+    wiki_dir = output_dir / WIKI_DIR
+    scan_dir = wiki_dir if wiki_dir.is_dir() else output_dir
+
+    for md_file in scan_dir.rglob("*.md"):
+        if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
+            continue
+        rel = str(md_file.relative_to(output_dir))
+        if scope and not rel.startswith(scope) and scope.lower() not in rel.lower():
+            continue
+        try:
+            text = md_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        fm = _extract_frontmatter_block(text)
+        page_type = fm.get("type", "")
+        if type_filter and page_type != type_filter:
+            continue
+        pages.append({
+            "file": rel,
+            "title": fm.get("title", md_file.stem),
+            "type": page_type,
+            "tags": fm.get("tags", []),
+            "description": fm.get("description", "")[:120],
+        })
+
+    # Sort by relevance to query (simple keyword overlap)
+    if query:
+        q_tokens = set(query.lower().split())
+        for p in pages:
+            text_blob = f"{p['title']} {p['description']} {' '.join(p['tags'])}".lower()
+            p["_score"] = sum(1 for t in q_tokens if t in text_blob)
+        pages.sort(key=lambda x: x["_score"], reverse=True)
+        for p in pages:
+            del p["_score"]
+
+    result["pages"] = pages[:max_results]
+    result["total_pages"] = len(pages)
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+
+def _query_mode_directory(
+    output_dir: Path,
+    query: str,
+    scope: Optional[str],
+    type_filter: Optional[str],
+    max_results: int,
+    session,
+) -> str:
+    """Mode=directory: return Component Constraint Index sections from matching pages."""
+    from codewiki.src.config import WIKI_DIR, WIKI_SYSTEM_FILES
+
+    result: Dict[str, Any] = {"mode": "directory", "query": query}
+    directories: List[Dict[str, Any]] = []
+
+    wiki_dir = output_dir / WIKI_DIR
+    scan_dir = wiki_dir if wiki_dir.is_dir() else output_dir
+
+    # First pass: find relevant pages via keyword matching
+    candidates: List[tuple] = []  # (score, md_file, text)
+    q_tokens = set(query.lower().split()) if query else set()
+
+    for md_file in scan_dir.rglob("*.md"):
+        if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
+            continue
+        rel = str(md_file.relative_to(output_dir))
+        if scope and not rel.startswith(scope) and scope.lower() not in rel.lower():
+            continue
+        try:
+            text = md_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        fm = _extract_frontmatter_block(text)
+        if type_filter and fm.get("type", "") != type_filter:
+            continue
+        # Score by keyword overlap
+        score = sum(1 for t in q_tokens if t in text.lower()[:3000])
+        if score > 0 or not q_tokens:
+            candidates.append((score, md_file, text))
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+
+    for score, md_file, text in candidates[:max_results]:
+        rel = str(md_file.relative_to(output_dir))
+        # Try to extract "Component Constraint Index" section
+        index_section = _extract_section(text, "Component Constraint Index")
+        if not index_section:
+            # Fallback: try "Constraint" or "Business Constraints"
+            index_section = _extract_section(text, "Constraint")
+        if index_section:
+            directories.append({
+                "file": rel,
+                "title": _extract_frontmatter_block(text).get("title", md_file.stem),
+                "index": index_section[:2000],
+            })
+
+    result["directories"] = directories
+    result["hint"] = (
+        "Use mode=detail with page=<file> and section=<heading> to read full details "
+        "for a specific component."
+    )
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+
+def _query_mode_detail(
+    output_dir: Path,
+    page: str,
+    section: Optional[str],
+) -> str:
+    """Mode=detail: return full content of a page or a specific section."""
+    if not page:
+        return json.dumps({"error": "mode=detail requires 'page' parameter (relative path)."})
+
+    file_path = output_dir / page
+    if not file_path.exists():
+        # Try with wiki/ prefix
+        from codewiki.src.config import WIKI_DIR
+        alt_path = output_dir / WIKI_DIR / page
+        if alt_path.exists():
+            file_path = alt_path
+        else:
+            return json.dumps({"error": f"Page not found: {page}"})
+
+    try:
+        text = file_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        return json.dumps({"error": f"Cannot read page: {e}"})
+
+    # Strip frontmatter for cleaner output
+    fm = _extract_frontmatter_block(text)
+    body = text
+    if text.startswith("---"):
+        end = text.find("---", 3)
+        if end > 0:
+            body = text[end + 3:].strip()
+
+    result: Dict[str, Any] = {
+        "mode": "detail",
+        "page": page,
+        "frontmatter": fm,
+    }
+
+    if section:
+        section_content = _extract_section(body, section)
+        if section_content:
+            result["section"] = section
+            result["content"] = section_content[:5000]
+        else:
+            result["error"] = f"Section '{section}' not found in {page}"
+            # List available sections as hint
+            headings = [
+                line.strip().lstrip("#").strip()
+                for line in body.splitlines()
+                if line.strip().startswith("##")
+            ]
+            result["available_sections"] = headings[:20]
+    else:
+        result["content"] = body[:5000]
+        if len(body) > 5000:
+            result["content_truncated"] = True
+
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+
 def handle_query_wiki(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -454,6 +808,17 @@ def handle_query_wiki(
     type_filter = arguments.get("type_filter")  # optional page type filter
     hop = min(3, max(0, arguments.get("hop", 0)))  # graph expansion hops (0-3)
     expand = arguments.get("expand", False)  # return full content instead of snippet
+    mode = arguments.get("mode")  # progressive reading: overview | directory | detail
+
+    # --- Progressive reading modes (early return) ---
+    if mode == "overview":
+        return _query_mode_overview(output_dir, query, scope, type_filter, max_results, session)
+    if mode == "directory":
+        return _query_mode_directory(output_dir, query, scope, type_filter, max_results, session)
+    if mode == "detail":
+        page = arguments.get("page", "")
+        section = arguments.get("section")
+        return _query_mode_detail(output_dir, page, section)
 
     # Load module tree for component mapping
     module_tree = None
@@ -509,6 +874,14 @@ def handle_query_wiki(
                 "snippet": r["snippet"],
                 "relevance_score": r["relevance_score"],
             }
+            # Source type annotation (Roadmap 1.4)
+            _fpath = r["file"]
+            if _fpath.startswith("notes/"):
+                entry["source_type"] = "developer_note"
+            elif _fpath.startswith("raw/sources/"):
+                entry["source_type"] = "ingested_source"
+            else:
+                entry["source_type"] = "auto_generated"
             # Pass through graph expansion metadata
             if "hop" in r:
                 entry["hop"] = r["hop"]
@@ -530,12 +903,21 @@ def handle_query_wiki(
                     except OSError:
                         pass
             if r["source"] == "note":
-                # Extract date from note frontmatter for notes
+                # Extract date and status from note frontmatter
                 note_path = output_dir / r["file"]
                 if note_path.exists():
                     try:
                         nc = note_path.read_text(encoding="utf-8", errors="replace")
                         entry["date"] = _extract_frontmatter(nc, "date") or ""
+                        # Roadmap 2.2: knowledge flywheel status filtering
+                        note_st = _extract_frontmatter(nc, "status") or "confirmed"
+                        if note_st == "rejected":
+                            continue  # skip rejected notes entirely
+                        if note_st == "candidate":
+                            entry["note_status"] = "candidate"
+                            entry["title"] = f"[unconfirmed] {entry['title']}"
+                        else:
+                            entry["note_status"] = "confirmed"
                     except OSError:
                         entry["date"] = ""
 
