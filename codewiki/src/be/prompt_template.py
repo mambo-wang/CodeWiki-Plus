@@ -29,6 +29,43 @@ Generate documentation following this structure:
    - Process flow diagrams where relevant
 </DOCUMENTATION_STRUCTURE>
 
+<BUSINESS_RULES_EXTRACTION>
+When documenting components, identify and extract business rules/constraints with evidence:
+
+1. For each business rule found in the code, provide:
+   - The rule statement (concise, actionable)
+   - Evidence: the specific code quote that supports this rule
+   - Reason: why this code constitutes evidence for the rule
+   - Confidence: 0.0–1.0 (how certain this is a real business constraint)
+
+2. Rules WITHOUT direct code evidence MUST be marked as [candidate] with confidence ≤ 0.5.
+
+3. Format in documentation as a "Business Constraints" section per component:
+   - <rule statement> (confidence: 0.85)
+     > Evidence: `<code quote>` — <reason>
+   - [candidate] <rule statement> (confidence: 0.4)
+     > No direct code evidence; requires developer confirmation
+
+4. Do NOT fabricate evidence. If you cannot point to specific code that enforces the rule, mark it as [candidate].
+5. Sort rules by confidence descending; limit to the 5 most critical rules per component.
+</BUSINESS_RULES_EXTRACTION>
+
+<COMPONENT_CONSTRAINT_INDEX>
+Near the top of each module documentation page (after the introduction, before detailed sections), include a "Component Constraint Index" table:
+
+## Component Constraint Index
+| Component | Constraints | Risks | Summary |
+|-----------|-------------|-------|---------|
+| <ClassName.method> | <count> | <count> | <one-line summary of key constraints> |
+
+Rules for the index table:
+1. One row per business-critical component (Service, Controller, Handler methods).
+2. Sort rows by (Constraints + Risks) descending — densest components first.
+3. Keep the table under 20 rows. Omit trivial getters/setters/utilities.
+4. "Summary" column: max 10 words, capturing the most important constraint.
+5. This table serves as a navigation aid — readers scan it first, then jump to relevant sections.
+</COMPONENT_CONSTRAINT_INDEX>
+
 <WORKFLOW>
 1. Analyze the provided code components and module structure, explore the not given dependencies between the components if needed
 2. Create the main `{module_name}.md` file with overview and architecture in working directory
@@ -63,6 +100,43 @@ Generate documentation following the following requirements:
 2. Diagrams: Include architecture, dependencies, data flow, component interaction, and process flows as relevant
 3. References: Link to other module documentation instead of duplicating information
 </DOCUMENTATION_REQUIREMENTS>
+
+<BUSINESS_RULES_EXTRACTION>
+When documenting components, identify and extract business rules/constraints with evidence:
+
+1. For each business rule found in the code, provide:
+   - The rule statement (concise, actionable)
+   - Evidence: the specific code quote that supports this rule
+   - Reason: why this code constitutes evidence for the rule
+   - Confidence: 0.0–1.0 (how certain this is a real business constraint)
+
+2. Rules WITHOUT direct code evidence MUST be marked as [candidate] with confidence ≤ 0.5.
+
+3. Format in documentation as a "Business Constraints" section per component:
+   - <rule statement> (confidence: 0.85)
+     > Evidence: `<code quote>` — <reason>
+   - [candidate] <rule statement> (confidence: 0.4)
+     > No direct code evidence; requires developer confirmation
+
+4. Do NOT fabricate evidence. If you cannot point to specific code that enforces the rule, mark it as [candidate].
+5. Sort rules by confidence descending; limit to the 5 most critical rules per component.
+</BUSINESS_RULES_EXTRACTION>
+
+<COMPONENT_CONSTRAINT_INDEX>
+Near the top of each module documentation page (after the introduction, before detailed sections), include a "Component Constraint Index" table:
+
+## Component Constraint Index
+| Component | Constraints | Risks | Summary |
+|-----------|-------------|-------|---------|
+| <ClassName.method> | <count> | <count> | <one-line summary of key constraints> |
+
+Rules for the index table:
+1. One row per business-critical component (Service, Controller, Handler methods).
+2. Sort rows by (Constraints + Risks) descending — densest components first.
+3. Keep the table under 20 rows. Omit trivial getters/setters/utilities.
+4. "Summary" column: max 10 words, capturing the most important constraint.
+5. This table serves as a navigation aid — readers scan it first, then jump to relevant sections.
+</COMPONENT_CONSTRAINT_INDEX>
 
 <WORKFLOW>
 1. Analyze provided code components and module structure
@@ -218,6 +292,74 @@ Reasoning at first, then return the list of relative paths in JSON format.
 from typing import Dict, Any
 from codewiki.src.utils import file_manager
 
+# ---------------------------------------------------------------------------
+#  Code routing: classify components as boilerplate / business / infra
+#  (Roadmap 2.1 — reduces LLM cost by routing boilerplate to templates)
+# ---------------------------------------------------------------------------
+
+_DEFAULT_CODE_ROUTING = {
+    "boilerplate": {
+        "suffixes": [
+            "DTO", "VO", "Request", "Response", "Entity", "PO", "DO",
+            "Model", "Schema", "Form", "Serializer", "Mapper", "Repository",
+            "Dao", "DAO", "DataClass",
+        ],
+        "annotations": ["@Data", "@Getter", "@Setter", "@Entity", "@Table", "@Document"],
+        "path_keywords": ["model", "models", "dto", "vo", "entity", "entities", "schema", "pojo"],
+    },
+    "business": {
+        "suffixes": [
+            "Service", "Controller", "Job", "Consumer", "Handler",
+            "Manager", "Processor", "Executor", "UseCase", "Interactor",
+            "Provider", "Resolver", "Facade", "Orchestrator",
+        ],
+        "annotations": ["@Service", "@RestController", "@Controller", "@Component", "@Scheduled"],
+        "path_keywords": ["service", "services", "controller", "handler", "job", "consumer"],
+    },
+    "infra": {
+        "suffixes": [
+            "Util", "Utils", "Helper", "Factory", "Builder", "Interceptor",
+            "Filter", "Middleware", "Adapter", "Wrapper", "Proxy", "Client",
+            "Config", "Configuration", "Properties",
+        ],
+        "annotations": ["@Configuration", "@ConfigurationProperties", "@Bean"],
+        "path_keywords": ["util", "utils", "config", "infrastructure", "common", "shared"],
+    },
+}
+
+
+def classify_component(name: str, relative_path: str = "", source_code: str = "",
+                       routing_config: dict | None = None) -> str:
+    """Classify a component as 'boilerplate', 'business', or 'infra'.
+
+    Uses suffix matching on the component/class name, path keyword matching,
+    and annotation detection in source code.  Returns 'business' as default
+    when no pattern matches (safe default: goes through full LLM processing).
+    """
+    config = routing_config or _DEFAULT_CODE_ROUTING
+    name_lower = name.lower()
+    path_lower = relative_path.lower().replace("\\", "/")
+
+    # Check each category in priority order: boilerplate > infra > business
+    for category in ("boilerplate", "infra", "business"):
+        rules = config.get(category, {})
+        # Suffix match
+        for suffix in rules.get("suffixes", []):
+            if name_lower.endswith(suffix.lower()):
+                return category
+        # Path keyword match
+        for kw in rules.get("path_keywords", []):
+            if f"/{kw}/" in f"/{path_lower}/" or path_lower.startswith(f"{kw}/"):
+                return category
+        # Annotation match (only if source available)
+        if source_code:
+            for anno in rules.get("annotations", []):
+                if anno in source_code[:2000]:
+                    return category
+
+    return "business"  # default: full LLM processing
+
+
 EXTENSION_TO_LANGUAGE = {
     ".py": "python",
     ".md": "markdown",
@@ -308,23 +450,86 @@ def format_user_prompt(module_name: str, core_component_ids: list[str], componen
 
     core_component_codes = ""
     for path, component_ids_in_file in grouped_components.items():
+        # Roadmap 2.1: classify components for code routing
+        file_categories = set()
+        for cid in component_ids_in_file:
+            comp = components[cid]
+            cat = classify_component(
+                name=comp.name,
+                relative_path=getattr(comp, "relative_path", path),
+                source_code=getattr(comp, "source_code", "") or "",
+            )
+            file_categories.add(cat)
+
+        is_boilerplate = file_categories == {"boilerplate"}
+
         core_component_codes += f"# File: {path}\n\n"
         core_component_codes += f"## Core Components in this file:\n"
-        
+
         for component_id in component_ids_in_file:
             core_component_codes += f"- {component_id}\n"
-        
-        core_component_codes += f"\n## File Content:\n```{EXTENSION_TO_LANGUAGE['.'+path.split('.')[-1]]}\n"
-        
-        # Read content of the file using the first component's file path
-        try:
-            core_component_codes += file_manager.load_text(components[component_ids_in_file[0]].file_path)
-        except (FileNotFoundError, IOError) as e:
-            core_component_codes += f"# Error reading file: {e}\n"
-        
-        core_component_codes += "```\n\n"
-        
-    return USER_PROMPT.format(module_name=module_name, formatted_core_component_codes=core_component_codes, module_tree=formatted_module_tree)
+
+        if is_boilerplate:
+            # Abbreviated: signature-only for boilerplate (DTO/VO/Entity/Mapper)
+            core_component_codes += f"\n## File Content (data class — signature only):\n"
+            for cid in component_ids_in_file:
+                comp = components[cid]
+                params = getattr(comp, "parameters", None) or []
+                params_str = ", ".join(params[:15]) if params else ""
+                core_component_codes += f"- {comp.name}({params_str})\n"
+            core_component_codes += "\n"
+        else:
+            # Full source for business/infra components
+            lang = EXTENSION_TO_LANGUAGE.get('.' + path.split('.')[-1], "")
+            core_component_codes += f"\n## File Content:\n```{lang}\n"
+            try:
+                core_component_codes += file_manager.load_text(components[component_ids_in_file[0]].file_path)
+            except (FileNotFoundError, IOError) as e:
+                core_component_codes += f"# Error reading file: {e}\n"
+            core_component_codes += "```\n\n"
+
+    # Roadmap 2.3: BFS 1-hop call context — signatures of directly related components
+    call_context_lines: list[str] = []
+    core_set = set(core_component_ids)
+    seen: set[str] = set()
+    for cid in core_component_ids:
+        if cid not in components:
+            continue
+        comp = components[cid]
+        deps = getattr(comp, "depends_on", None) or set()
+        for dep_id in deps:
+            if dep_id in core_set or dep_id in seen:
+                continue
+            seen.add(dep_id)
+            dep_comp = components.get(dep_id)
+            if dep_comp is None:
+                continue
+            params = getattr(dep_comp, "parameters", None) or []
+            params_str = ", ".join(params[:8]) if params else ""
+            call_context_lines.append(
+                f"- {dep_comp.name}({params_str}) [{getattr(dep_comp, 'relative_path', '')}]"
+            )
+            if len(call_context_lines) >= 15:
+                break
+        if len(call_context_lines) >= 15:
+            break
+
+    call_context = ""
+    if call_context_lines:
+        call_context = (
+            "\n\n<CALL_CONTEXT>\n"
+            "Related components (1-hop dependencies, signature only — "
+            "use read_code_components for full source if needed):\n"
+            + "\n".join(call_context_lines)
+            + "\n</CALL_CONTEXT>"
+        )
+
+    prompt = USER_PROMPT.format(
+        module_name=module_name,
+        formatted_core_component_codes=core_component_codes,
+        module_tree=formatted_module_tree,
+    )
+    return prompt + call_context
 
 
 

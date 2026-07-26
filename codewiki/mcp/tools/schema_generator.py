@@ -34,6 +34,7 @@ _DEFAULT_CONVENTIONS = {
 
 _DEFAULT_REQUIRED_SECTIONS = [
     {"title": "Architecture Overview", "mermaid_diagram": True},
+    {"title": "Component Constraint Index"},
     {"title": "Component Responsibilities"},
     {"title": "Cross-References"},
 ]
@@ -55,6 +56,18 @@ _DEFAULT_LINT = {
     "high_impact_threshold": 5,
 }
 
+# Default code routing rules (Roadmap 2.1)
+_DEFAULT_CODE_ROUTING = {
+    "boilerplate_patterns": {
+        "suffix": ["DTO", "VO", "Request", "Response", "Entity", "PO", "Model", "Mapper", "Repository", "Dao"],
+        "annotation": ["@Data", "@Getter", "@Entity", "@Table", "@Document"],
+    },
+    "business_patterns": {
+        "suffix": ["Service", "Controller", "Job", "Consumer", "Handler", "Manager", "Processor"],
+        "annotation": ["@Service", "@RestController", "@Controller", "@Component"],
+    },
+}
+
 # Default page type routing table (LLM Wiki knowledge layer)
 _DEFAULT_PAGE_TYPES = {
     "module": {
@@ -62,6 +75,7 @@ _DEFAULT_PAGE_TYPES = {
         "description": "代码模块文档，描述一个功能模块的架构、组件和依赖",
         "required_sections": [
             "Architecture Overview",
+            "Component Constraint Index",
             "Component Responsibilities",
             "Cross-References",
         ],
@@ -141,6 +155,7 @@ def _get_defaults() -> dict:
         "documentation_dimensions": cfg.get("documentation_dimensions", _DEFAULT_DIMENSIONS),
         "update_policy": {**_DEFAULT_UPDATE_POLICY, **cfg.get("update_policy", {})},
         "lint": {**_DEFAULT_LINT, **cfg.get("lint", {})},
+        "code_routing": {**_DEFAULT_CODE_ROUTING, **cfg.get("code_routing", {})},
         "page_types": cfg.get("page_types", _DEFAULT_PAGE_TYPES),
         "extraction_granularity": cfg.get("extraction_granularity", "standard"),
         "wiki_link_syntax": cfg.get("wiki_link_syntax", False),
