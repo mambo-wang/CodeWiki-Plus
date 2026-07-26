@@ -151,6 +151,17 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     except Exception as e:
         logger.warning("Route cache write failed (non-fatal): %s", e)
 
+    # Monorepo sub-service detection + intra-repo cross-service analysis
+    cross_service_info: Dict[str, Any] = {}
+    detect_services_flag = arguments.get("detect_services", True)
+    if detect_services_flag:
+        try:
+            cross_service_info = _run_monorepo_cross_service(
+                repo_path, output_dir, cache,
+            )
+        except Exception as e:
+            logger.warning("Monorepo cross-service analysis failed (non-fatal): %s", e)
+
     # Build LazyComponentStore from ComponentMeta
     metas: Dict[str, ComponentMeta] = {}
     for comp_id, node in components.items():
@@ -324,6 +335,8 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
             "Call get_prompt('cluster') for clustering rules."
         ),
     }
+    if cross_service_info:
+        result["cross_service"] = cross_service_info
     if changes_info and not changes_info.get("no_changes"):
         result["hint"] = (
             "Incremental update detected. Only update affected modules. "
@@ -376,6 +389,174 @@ def _build_no_change_response(
         "cache_mode": "sqlite",
         "hint": "No changes detected since last analysis. Documentation is up to date.",
     }, indent=2, ensure_ascii=False)
+
+
+def _run_monorepo_cross_service(
+    repo_path: Path,
+    output_dir: Path,
+    cache: AnalysisCache,
+) -> Dict[str, Any]:
+    """Detect sub-services in a monorepo and run intra-repo cross-service matching.
+
+    Loads the *full* route set from the SQLite cache (not just newly-parsed
+    routes) so that incremental mode produces correct results.  Re-tags all
+    routes with sub-service labels and writes the complete set back.
+
+    Returns a cross_service info dict for the response, or an empty dict
+    if fewer than 2 sub-services are detected.
+    """
+    from codewiki.src.be.dependency_analyzer.analysis.service_detector import (
+        detect_services,
+    )
+
+    services = detect_services(repo_path)
+    if len(services) < 2:
+        return {}
+
+    logger.info(
+        "Monorepo cross-service: %d sub-services detected in %s",
+        len(services), repo_path.name,
+    )
+
+    # Load the FULL route set from cache (includes unchanged routes in
+    # incremental mode — the `routes` variable from build_dependency_graph
+    # only contains newly-parsed files).
+    try:
+        all_routes = cache.get_all_routes()
+    except Exception as e:
+        logger.warning("Failed to load routes from cache: %s", e)
+        return {}
+
+    if not all_routes:
+        return {}
+
+    # Re-tag all routes with sub-service labels
+    repo_name = repo_path.name
+    retagged = _retag_routes_by_service(all_routes, services, str(repo_path), repo_name)
+
+    # Write back the complete retagged set (replaces old repo_name values)
+    try:
+        cache.batch_insert_routes(retagged, incremental=False)
+        logger.info("Re-tagged %d routes with sub-service labels", len(retagged))
+    except Exception as e:
+        logger.warning("Failed to update route cache with service labels: %s", e)
+
+    # Convert to RouteNode objects and group by service
+    from codewiki.src.be.dependency_analyzer.analysis.cross_service_matcher import (
+        CrossServiceMatcher,
+    )
+    from codewiki.src.be.dependency_analyzer.models.cross_service import (
+        RouteNode, RouteProtocol, RouteRole,
+    )
+
+    matcher = CrossServiceMatcher()
+    service_routes: Dict[str, List[RouteNode]] = {}
+
+    for rd in retagged:
+        try:
+            node = RouteNode(
+                route_key=rd["route_key"],
+                protocol=RouteProtocol(rd.get("protocol", "http")),
+                method=rd.get("method"),
+                path=rd.get("path", ""),
+                role=RouteRole(rd.get("role", "server")),
+                component_id=rd.get("component_id", ""),
+                repo_name=rd.get("repo_name", repo_name),
+                file_path=rd.get("file_path", ""),
+                line_number=rd.get("line_number", 0),
+                framework=rd.get("framework"),
+                extra=rd.get("extra", {}),
+            )
+            svc = node.repo_name
+            if svc not in service_routes:
+                service_routes[svc] = []
+            service_routes[svc].append(node)
+        except Exception:
+            continue
+
+    for svc_name, svc_nodes in service_routes.items():
+        matcher.add_repo_routes(svc_name, svc_nodes)
+
+    topology = matcher.match()
+    logger.info(
+        "Intra-repo cross-service matching: %d routes → %d links, %d unmatched",
+        len(topology.routes), len(topology.links), len(topology.unmatched_routes),
+    )
+
+    # Render topology as Markdown
+    from codewiki.src.be.dependency_analyzer.analysis.topology_visualizer import (
+        TopologyVisualizer,
+    )
+    viz = TopologyVisualizer()
+    cross_service_md = viz.render_all(topology)
+
+    # Persist results to <output_dir>/.meta/
+    try:
+        from codewiki.src.config import meta_join
+        meta_dir = Path(meta_join(output_dir, ""))
+        meta_dir.mkdir(parents=True, exist_ok=True)
+
+        links_data = [link.model_dump() for link in topology.links]
+        (meta_dir / "cross_service_links.json").write_text(
+            json.dumps(links_data, ensure_ascii=False, indent=2), encoding="utf-8",
+        )
+        routes_data = [route.model_dump() for route in topology.routes]
+        (meta_dir / "workspace_routes.json").write_text(
+            json.dumps(routes_data, ensure_ascii=False, indent=2), encoding="utf-8",
+        )
+        logger.info("Cross-service results persisted to %s", meta_dir)
+    except Exception as e:
+        logger.warning("Failed to persist cross-service results: %s", e)
+
+    # Run InfraScanner for supplementary service discovery
+    try:
+        from codewiki.src.be.dependency_analyzer.analysis.infra_scanner import InfraScanner
+        scanner = InfraScanner(str(repo_path))
+        infra_services = scanner.scan()
+        if infra_services:
+            from codewiki.src.config import meta_join
+            meta_dir = Path(meta_join(output_dir, ""))
+            meta_dir.mkdir(parents=True, exist_ok=True)
+            infra_data = {name: svc.to_dict() for name, svc in infra_services.items()}
+            (meta_dir / "infra_services.json").write_text(
+                json.dumps(infra_data, ensure_ascii=False, indent=2), encoding="utf-8",
+            )
+    except Exception as e:
+        logger.debug("Infra scanner skipped: %s", e)
+
+    return {
+        "services_detected": sorted(services.keys()),
+        "total_routes": len(topology.routes),
+        "total_links": len(topology.links),
+        "total_unmatched": len(topology.unmatched_routes),
+        "cross_service_md": cross_service_md,
+    }
+
+
+def _retag_routes_by_service(
+    routes: List[Dict],
+    services: Dict,
+    repo_path: str,
+    fallback_repo_name: str,
+) -> List[Dict]:
+    """Re-assign repo_name on each route dict based on sub-service membership.
+
+    Uses longest-prefix matching on the route's file_path (relative to
+    ``repo_path``) to determine which sub-service it belongs to.  Routes
+    that don't fall under any detected service get the label ``_root``.
+    """
+    from codewiki.src.be.dependency_analyzer.analysis.service_detector import (
+        assign_service_label,
+    )
+
+    retagged: List[Dict] = []
+    for rd in routes:
+        rd = dict(rd)  # shallow copy to avoid mutating the original
+        fp = rd.get("file_path", "")
+        label = assign_service_label(fp, services, repo_path=repo_path, fallback="_root")
+        rd["repo_name"] = label
+        retagged.append(rd)
+    return retagged
 
 
 _LINKABLE_TYPES = {"class", "interface", "struct", "enum", "record", "annotation"}
