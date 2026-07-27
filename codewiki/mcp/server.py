@@ -477,6 +477,54 @@ def _fine_grained_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="analyze_impact",
+            description=(
+                "Transitive dependency impact analysis. "
+                "Given components (by ID or file path), traverse the dependency graph "
+                "to find all transitively affected components. "
+                "direction='depended_by' answers 'who depends on me, transitively?'; "
+                "direction='depends_on' answers 'what do I depend on, transitively?'; "
+                "direction='both' gives the union. "
+                "Set include_paths=true to get shortest call-chain paths. "
+                "Results include per-component depth, module-level aggregation, "
+                "and high-risk components (many direct dependents). "
+                "Use this to assess the blast radius of a code change."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session ID from analyze_repo",
+                    },
+                    "component_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Component IDs to analyze (e.g. 'src/utils.py::parse_config')",
+                    },
+                    "file_paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Source file paths; resolved to component IDs automatically",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["depended_by", "depends_on", "both"],
+                        "description": "Traversal direction (default: depended_by)",
+                    },
+                    "max_depth": {
+                        "type": "integer",
+                        "description": "Maximum BFS depth in hops (default: 10, max: 50)",
+                    },
+                    "include_paths": {
+                        "type": "boolean",
+                        "description": "Include shortest call-chain paths in output (default: false)",
+                    },
+                },
+                "required": ["session_id"],
+            },
+        ),
+        Tool(
             name="lint_wiki",
             description=(
                 "Check documentation-code consistency. Works with or without an active session. "
@@ -1243,6 +1291,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             from codewiki.mcp.tools.crosslink import handle_list_dependencies
             return [_text(await asyncio.to_thread(handle_list_dependencies, arguments, _store))]
 
+        elif name == "analyze_impact":
+            from codewiki.mcp.tools.impact import handle_analyze_impact
+            return [_text(await asyncio.to_thread(handle_analyze_impact, arguments, _store))]
+
         elif name == "lint_wiki":
             from codewiki.mcp.tools.wiki_lint import handle_lint_wiki
             return [_text(await asyncio.to_thread(handle_lint_wiki, arguments, _store))]
@@ -1896,9 +1948,9 @@ async def read_resource(uri: Any) -> str:
     elif uri_str == "codewiki://capabilities":
         return json.dumps({
             "server": "CodeWiki-CN MCP Server v5.1.0",
-            "tool_count": 21,
+            "tool_count": 22,
             "tool_categories": {
-                "代码分析": ["analyze_repo", "analyze_workspace", "list_components", "list_dependencies", "read_code_components", "view_repo_file"],
+                "代码分析": ["analyze_repo", "analyze_workspace", "list_components", "list_dependencies", "analyze_impact", "read_code_components", "view_repo_file"],
                 "跨服务分析": ["query_cross_service"],
                 "文档生成": ["write_doc_file", "edit_doc_file", "save_module_tree", "get_processing_order", "get_prompt", "generate_docs (legacy)"],
                 "知识库管理": ["query_wiki", "ingest_note", "ingest_source", "retract_source", "batch_ingest"],
