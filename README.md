@@ -95,14 +95,11 @@ python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
     "codewiki": {
       "command": "python",
       "args": ["-m", "codewiki.mcp.server"],
-      "cwd": "/你的路径/CodeWiki-Plus",
       "timeout": 36000000
     }
   }
 }
 ```
-
-> 将 `/你的路径/CodeWiki-Plus` 替换为你实际克隆 CodeWiki-Plus 的绝对路径。
 
 配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 23 个工具。
 
