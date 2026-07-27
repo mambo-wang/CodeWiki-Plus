@@ -27,6 +27,32 @@ logger = logging.getLogger(__name__)
 _FILE_THRESHOLD = 4096
 
 
+def resolve_session(
+    arguments: Dict[str, Any],
+    store: Any,
+) -> Optional[Any]:
+    """Resolve a session from either ``session_id`` or ``repo_path`` in *arguments*.
+
+    If ``session_id`` is provided, looks it up in the store.
+    If only ``repo_path`` is provided, calls ``store.find_or_restore()`` to
+    auto-load from SQLite cache (no prior analyze_repo needed in current session).
+
+    Returns the ``SessionState`` or ``None`` if resolution fails.
+    Callers should check the return value and return an error JSON if ``None``.
+    """
+    session_id = arguments.get("session_id")
+    repo_path = arguments.get("repo_path")
+
+    if session_id:
+        return store.get(session_id)
+
+    if repo_path:
+        rp = str(Path(repo_path).expanduser().resolve()) if Path(repo_path).is_absolute() else str((Path.cwd() / repo_path).expanduser().resolve())
+        return store.find_or_restore(rp)
+
+    return None
+
+
 def write_result(
     session: Any,
     filename: str,

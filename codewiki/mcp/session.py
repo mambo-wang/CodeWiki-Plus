@@ -113,6 +113,51 @@ class SessionStore:
     def remove(self, session_id: str) -> bool:
         with self._lock: return self._sessions.pop(session_id, None) is not None
 
+    def find_or_restore(self, repo_path: str) -> Optional[SessionState]:
+        """Find an active session for *repo_path*, or restore from SQLite cache.
+
+        This lets query tools (analyze_impact, list_dependencies, list_components)
+        work with just a repo_path — no prior analyze_repo call needed in the
+        current session, as long as SQLite data exists from a previous run.
+
+        Returns ``None`` if no session exists and SQLite has no cached data.
+        """
+        rp = str(repo_path)
+
+        # 1. Try to find an existing active session
+        with self._lock:
+            for state in self._sessions.values():
+                if state.repo_path == rp and not state.is_expired:
+                    state.touch()
+                    return state
+
+        # 2. Load from SQLite cache
+        cache = self.get_cache(rp)
+        if not cache.is_fresh():
+            return None  # no cached data
+
+        metas = cache.get_all_metas()
+        if not metas:
+            return None
+
+        leaf_nodes = cache.get_leaf_nodes()
+        lazy_store = LazyComponentStore(cache, metas)
+
+        # Determine output_dir from repo convention
+        from pathlib import Path as _P
+        output_dir = str(_P(rp) / "repowiki")
+
+        session = self.create(
+            repo_path=rp, output_dir=output_dir,
+            components=lazy_store, leaf_nodes=leaf_nodes, cache=cache,
+        )
+
+        # Create a lightweight workspace so write_result works
+        from codewiki.mcp.workspace import SessionWorkspace
+        workspace = SessionWorkspace(_P(rp), session.session_id)
+        session.workspace = workspace
+        return session
+
     def close_cache(self, repo_path: str) -> None:
         """Close a repo's shared cache (e.g. on server shutdown)."""
         with self._lock:

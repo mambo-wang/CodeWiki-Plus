@@ -107,11 +107,17 @@ def handle_list_dependencies(
     The full dependency data (entries, module graph, high-impact components)
     is written to ``dependencies.json`` in the session workspace.  Only a
     compact summary with the file path is returned through MCP stdio.
+
+    Accepts either session_id (from analyze_repo) or repo_path
+    (auto-loads from SQLite cache).
     """
-    session_id = arguments["session_id"]
-    session = store.get(session_id)
+    from codewiki.mcp.tools.workspace_result import resolve_session
+
+    session = resolve_session(arguments, store)
     if session is None:
-        return json.dumps({"error": f"Session {session_id} not found or expired."})
+        if arguments.get("session_id"):
+            return json.dumps({"error": f"Session {arguments['session_id']} not found or expired."})
+        return json.dumps({"error": "Provide either session_id or repo_path."})
 
     components = session.components
     module_tree = session.module_tree
