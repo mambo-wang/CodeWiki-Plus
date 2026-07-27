@@ -471,14 +471,20 @@ def _fine_grained_tools() -> list[Tool]:
                 "Supports component-level and module-level aggregation. "
                 "Use this during module documentation to understand call relationships "
                 "and identify key dependencies to highlight in architecture diagrams. "
-                "Set module_level=true to see inter-module dependencies instead of component-level."
+                "Set module_level=true to see inter-module dependencies instead of component-level. "
+                "Accepts either session_id (from analyze_repo) or repo_path "
+                "(auto-loads from SQLite cache)."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "session_id": {
                         "type": "string",
-                        "description": "Session ID from analyze_repo",
+                        "description": "Session ID from analyze_repo (optional if repo_path provided)",
+                    },
+                    "repo_path": {
+                        "type": "string",
+                        "description": "Repository path — alternative to session_id. Auto-loads from SQLite cache if a previous analysis exists.",
                     },
                     "component_ids": {
                         "type": "array",
@@ -495,7 +501,7 @@ def _fine_grained_tools() -> list[Tool]:
                         "description": "Include module-level dependency graph (default: false)",
                     },
                 },
-                "required": ["session_id"],
+                "required": [],
             },
         ),
         Tool(
@@ -510,14 +516,20 @@ def _fine_grained_tools() -> list[Tool]:
                 "Set include_paths=true to get shortest call-chain paths. "
                 "Results include per-component depth, module-level aggregation, "
                 "and high-risk components (many direct dependents). "
-                "Use this to assess the blast radius of a code change."
+                "Use this to assess the blast radius of a code change. "
+                "Accepts either session_id (from analyze_repo) or repo_path "
+                "(auto-loads from SQLite cache — no prior analyze_repo needed in current session)."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "session_id": {
                         "type": "string",
-                        "description": "Session ID from analyze_repo",
+                        "description": "Session ID from analyze_repo (optional if repo_path provided)",
+                    },
+                    "repo_path": {
+                        "type": "string",
+                        "description": "Repository path — alternative to session_id. Auto-loads from SQLite cache if a previous analysis exists.",
                     },
                     "component_ids": {
                         "type": "array",
@@ -543,7 +555,7 @@ def _fine_grained_tools() -> list[Tool]:
                         "description": "Include shortest call-chain paths in output (default: false)",
                     },
                 },
-                "required": ["session_id"],
+                "required": [],
             },
         ),
         Tool(
@@ -1046,14 +1058,20 @@ def _fine_grained_tools() -> list[Tool]:
                 "Use this after analyze_repo to discover components for clustering (save_module_tree) "
                 "or source reading (read_code_components). "
                 "Supports filtering by file_prefix (e.g., 'src/auth/') and component_type "
-                "(e.g., 'class', 'function', 'interface')."
+                "(e.g., 'class', 'function', 'interface'). "
+                "Accepts either session_id (from analyze_repo) or repo_path "
+                "(auto-loads from SQLite cache)."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "session_id": {
                         "type": "string",
-                        "description": "Session ID from analyze_repo",
+                        "description": "Session ID from analyze_repo (optional if repo_path provided)",
+                    },
+                    "repo_path": {
+                        "type": "string",
+                        "description": "Repository path — alternative to session_id. Auto-loads from SQLite cache if a previous analysis exists.",
                     },
                     "file_prefix": {
                         "type": "string",
@@ -1064,7 +1082,7 @@ def _fine_grained_tools() -> list[Tool]:
                         "description": "Filter by type: class, function, interface, etc.",
                     },
                 },
-                "required": ["session_id"],
+                "required": [],
             },
         ),
         Tool(
@@ -1950,6 +1968,13 @@ def _prompt_code_analysis(args: dict[str, str]) -> str:
 - 返回 session_id、组件数量、语言统计
 - 结果缓存在 SQLite 中，支持增量更新
 
+**快捷方式**：如果此仓库之前分析过，查询工具可以直接传 repo_path，无需 session_id：
+```
+analyze_impact(repo_path="{repo_path}", file_paths=['src/utils.py'], direction='depended_by')
+list_dependencies(repo_path="{repo_path}", module_level=true)
+list_components(repo_path="{repo_path}", component_type='function')
+```
+
 ## 步骤 2: 浏览组件
 调用 list_components(session_id, filter_type='all') 浏览所有组件
 - filter_type='by_file', filter_value='src/auth/' 按路径筛选
@@ -1988,6 +2013,7 @@ read_code_components(session_id, component_ids=['src/auth.py::AuthService'])
 ## 关键点
 - 所有分析本地运行（Tree-sitter），无需 LLM/API Key
 - 结果持久化到 SQLite，关闭会话后可重新分析（增量模式自动复用缓存）
+- 查询工具（analyze_impact, list_dependencies, list_components）支持直接传 repo_path，无需 session_id
 - 后续想生成 Wiki 时，直接执行 generate-wiki 工作流即可
 - 使用 get_prompt(prompt_type="code_analysis") 获取更详细的工具用法说明"""
 
@@ -1998,30 +2024,26 @@ def _prompt_impact_review(args: dict[str, str]) -> str:
     # Determine if target looks like a component_id (has ::) or a file path
     is_component = "::" in target
     if is_component:
-        impact_call = f"analyze_impact(session_id, component_ids=['{target}'], direction='depended_by', include_paths=true)"
-        reverse_call = f"analyze_impact(session_id, component_ids=['{target}'], direction='depends_on')"
+        impact_call = f"analyze_impact(repo_path='{repo_path}', component_ids=['{target}'], direction='depended_by', include_paths=true)"
+        reverse_call = f"analyze_impact(repo_path='{repo_path}', component_ids=['{target}'], direction='depends_on')"
     else:
-        impact_call = f"analyze_impact(session_id, file_paths=['{target}'], direction='depended_by', include_paths=true)"
-        reverse_call = f"analyze_impact(session_id, file_paths=['{target}'], direction='depends_on')"
+        impact_call = f"analyze_impact(repo_path='{repo_path}', file_paths=['{target}'], direction='depended_by', include_paths=true)"
+        reverse_call = f"analyze_impact(repo_path='{repo_path}', file_paths=['{target}'], direction='depends_on')"
     return f"""请评估修改 `{target}` 的影响范围。按以下步骤执行：
 
-## 步骤 1: 确保已分析
-调用 analyze_repo(repo_path="{repo_path}")
-- 如果已有 SQLite 缓存，会自动增量更新
-- 记录返回的 session_id
-
-## 步骤 2: 正向影响分析（谁依赖我）
+## 步骤 1: 正向影响分析（谁依赖我）
 调用 {impact_call}
+- 如果此仓库之前分析过，会直接从 SQLite 缓存加载，无需先跑 analyze_repo
 - 返回所有传递性受影响的组件
 - depth 0 = 目标组件本身，depth 1 = 直接调用者，depth 2+ = 间接调用者
 - include_paths=true 会返回从目标到每个受影响组件的最短调用链
 
-## 步骤 3: 反向依赖分析（我依赖谁）
+## 步骤 2: 反向依赖分析（我依赖谁）
 调用 {reverse_call}
 - 返回目标组件传递性依赖的所有组件
 - 帮助理解修改可能破坏的上游依赖
 
-## 步骤 4: 风险评估
+## 步骤 3: 风险评估
 根据分析结果评估：
 - **爆炸半径**：<10 个受影响组件 = 低风险，10-50 = 中等，50+ = 高风险
 - **模块扩散**：受影响组件分布在 1-2 个模块还是 5+ 个？跨模块影响需要更多集成测试
@@ -2029,7 +2051,7 @@ def _prompt_impact_review(args: dict[str, str]) -> str:
 - **高风险组件**：是否有 high_risk_components（5+ 直接依赖者）在受影响集合中？
 - **入口点**：受影响组件是否有 API 端点、CLI 命令、事件处理器？这些是面向用户的
 
-## 步骤 5: 制定变更计划
+## 步骤 4: 制定变更计划
 - **低风险**：直接修改，跑现有测试
 - **中等风险**：审查受影响模块的测试，为 depth-1 调用者添加回归测试
 - **高风险**：拆分为小步骤；用 read_code_components 审查每个 depth-1 调用者；考虑特性开关
@@ -2037,12 +2059,12 @@ def _prompt_impact_review(args: dict[str, str]) -> str:
 ## 后续查询
 ```
 # 钻入某个受影响的组件
-analyze_impact(session_id, component_ids=['<affected_id>'], direction='depends_on')
+analyze_impact(repo_path='{repo_path}', component_ids=['<affected_id>'], direction='depends_on')
 
 # 查看模块级依赖
-list_dependencies(session_id, module_level=true)
+list_dependencies(repo_path='{repo_path}', module_level=true)
 
-# 阅读高风险组件源码
+# 阅读高风险组件源码（需要 session_id，从 analyze_repo 获取）
 read_code_components(session_id, component_ids=['<high_risk_id>'])
 ```
 
@@ -2201,7 +2223,7 @@ async def read_resource(uri: Any) -> str:
                 "会话管理": ["close_session", "get_module_tree (legacy)"],
             },
             "key_patterns": {
-                "workspace_file": "大结果写入 .codewiki/sessions/{id}/ 目录，通过 file_path 读取",
+                "workspace_file": "大结果写入 .codewiki/workspace/ 目录，通过 file_path 读取",
                 "session_lifecycle": "analyze_repo 创建 → 工具调用 → close_session 清理（2h TTL）",
                 "page_type_routing": "module→wiki/modules/, entity→wiki/entities/, concept→wiki/concepts/, source→wiki/sources/",
                 "search_layers": "BM25 全文 → hop 图谱扩展 → expand 深度阅读",

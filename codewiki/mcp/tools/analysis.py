@@ -208,6 +208,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     # Create workspace
     workspace = SessionWorkspace(repo_path, session.session_id)
     session.workspace = workspace
+    SessionWorkspace.cleanup_legacy_sessions(repo_path)
 
     # -- Write workspace files --
 
@@ -362,6 +363,7 @@ def _build_no_change_response(
 
     workspace = SessionWorkspace(repo_path, session.session_id)
     session.workspace = workspace
+    SessionWorkspace.cleanup_legacy_sessions(repo_path)
 
     langs = {}
     for m in metas.values():

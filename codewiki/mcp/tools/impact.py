@@ -89,8 +89,11 @@ def handle_analyze_impact(
 
     Parameters (via *arguments*)
     ----------------------------
-    session_id : str
+    session_id : str, optional
         Active session from ``analyze_repo``.
+    repo_path : str, optional
+        Repository path — alternative to session_id. Auto-loads from SQLite
+        cache if a previous analysis exists. One of session_id/repo_path required.
     component_ids : list[str], optional
         Component IDs to analyze.  Mutually complementary with *file_paths*.
     file_paths : list[str], optional
@@ -102,10 +105,13 @@ def handle_analyze_impact(
     include_paths : bool
         Include shortest call-chain paths in the output (default False).
     """
-    session_id = arguments["session_id"]
-    session = store.get(session_id)
+    from codewiki.mcp.tools.workspace_result import resolve_session
+
+    session = resolve_session(arguments, store)
     if session is None:
-        return json.dumps({"error": f"Session {session_id} not found or expired."})
+        if arguments.get("session_id"):
+            return json.dumps({"error": f"Session {arguments['session_id']} not found or expired."})
+        return json.dumps({"error": "Provide either session_id or repo_path."})
 
     components = session.components
     module_tree = session.module_tree or {}
