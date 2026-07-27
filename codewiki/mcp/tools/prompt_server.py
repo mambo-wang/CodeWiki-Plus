@@ -186,6 +186,29 @@ _PROMPT_CATALOG: Dict[str, Dict[str, str]] = {
             "Save the result as overview.md."
         ),
     },
+    # --- Code analysis prompts (standalone, no wiki generation) ---
+    "code_analysis": {
+        "description": "Step-by-step workflow for standalone code analysis: call graph exploration, dependency queries, and impact assessment — without generating any wiki documentation.",
+        "usage_hint": (
+            "Call this when the user wants to analyze code structure, trace call chains, "
+            "or assess modification impact WITHOUT generating wiki docs. "
+            "The analysis results persist in SQLite and can be used for wiki generation later."
+        ),
+    },
+    "impact_review": {
+        "description": "Guide for interpreting analyze_impact results: risk assessment, module-level blast radius, and actionable change planning.",
+        "usage_hint": (
+            "Call this after running analyze_impact to understand the results "
+            "and create a prioritized change plan with risk assessment."
+        ),
+    },
+    "architecture_review": {
+        "description": "Workflow for understanding a codebase's architecture: layer identification, dependency hotspots, module boundaries, and entry points.",
+        "usage_hint": (
+            "Call this when the user wants to understand a codebase's high-level architecture "
+            "using dependency graph analysis. Pairs well with code_analysis for deeper dives."
+        ),
+    },
     # --- LLM Wiki prompts ---
     "wiki_query": {
         "description": "Guidance for using query_wiki results as development context.",
@@ -418,6 +441,162 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             repo_name=repo_name,
             repo_structure=repo_structure if isinstance(repo_structure, str) else json.dumps(repo_structure, indent=4),
             custom_instructions=custom_section,
+        )
+
+    # --- Code analysis prompts (standalone, no wiki generation) ---
+    elif prompt_type == "code_analysis":
+        return (
+            "## Code Analysis Workflow (No Wiki Generation)\n\n"
+            "This workflow uses CodeWiki's Tree-sitter analysis engine purely for code "
+            "understanding. No documentation will be generated.\n\n"
+            "### Step 1: Analyze the repository\n"
+            "```\n"
+            "analyze_repo(repo_path='/path/to/repo')\n"
+            "```\n"
+            "This builds a function-level call graph (AST parsing, no LLM) and caches "
+            "results in SQLite. Note the `session_id` from the response.\n\n"
+            "### Step 2: Explore components\n"
+            "```\n"
+            "list_components(session_id, filter_type='all')        # browse all components\n"
+            "list_components(session_id, filter_type='by_file', filter_value='src/auth/')  # by path\n"
+            "list_components(session_id, filter_type='by_type', filter_value='class')      # by type\n"
+            "```\n"
+            "Read the workspace file for the full component index.\n\n"
+            "### Step 3: Query dependencies\n"
+            "```\n"
+            "# Direct (1-hop) dependencies\n"
+            "list_dependencies(session_id, component_ids=['src/auth.py::AuthService'],\n"
+            "                  direction='both')\n\n"
+            "# Module-level dependency graph\n"
+            "list_dependencies(session_id, module_level=true)\n"
+            "```\n\n"
+            "### Step 4: Transitive impact analysis\n"
+            "```\n"
+            "# Who depends on this component, transitively?\n"
+            "analyze_impact(session_id, component_ids=['src/utils.py::parse_config'],\n"
+            "               direction='depended_by')\n\n"
+            "# By file path (auto-resolves to components)\n"
+            "analyze_impact(session_id, file_paths=['src/utils.py'],\n"
+            "               direction='depended_by')\n\n"
+            "# Full call-chain paths\n"
+            "analyze_impact(session_id, component_ids=['src/utils.py::parse_config'],\n"
+            "               direction='depended_by', include_paths=true)\n\n"
+            "# What does this component depend on, transitively?\n"
+            "analyze_impact(session_id, component_ids=['src/api.py::handler'],\n"
+            "               direction='depends_on')\n"
+            "```\n\n"
+            "### Step 5: Read source code\n"
+            "```\n"
+            "read_code_components(session_id, component_ids=['src/auth.py::AuthService'])\n"
+            "```\n\n"
+            "### Key points\n"
+            "- All analysis runs locally via Tree-sitter — no LLM, no API keys needed.\n"
+            "- Results persist in SQLite. You can close the session and re-analyze later "
+            "(incremental mode auto-reuses the cache).\n"
+            "- To generate wiki docs later, simply continue with "
+            "get_prompt('cluster') → save_module_tree → write_doc_file.\n"
+            "- Use get_prompt('impact_review') after analyze_impact for risk assessment guidance.\n"
+            "- Use get_prompt('architecture_review') for high-level architecture understanding."
+        )
+
+    elif prompt_type == "impact_review":
+        return (
+            "## Impact Analysis Review Guide\n\n"
+            "After running `analyze_impact`, use this guide to interpret results "
+            "and plan your change.\n\n"
+            "### Reading the output\n"
+            "The result file (`impact_analysis.json`) contains:\n"
+            "- **affected_components**: every transitively affected component with `depth` "
+            "(hops from your change). Depth 0 = the component you're changing, "
+            "depth 1 = direct callers, depth 2+ = indirect callers.\n"
+            "- **module_impact**: affected components grouped by module, sorted by count. "
+            "Modules with high `affected_count` and `max_depth` are your biggest risk areas.\n"
+            "- **high_risk_components**: components with 5+ direct dependents. "
+            "Changes to these ripple widely — treat them as high-risk.\n"
+            "- **call_path** (if include_paths=true): the shortest chain from your change "
+            "to each affected component, e.g. `[utils::parse, auth::validate, api::handler]`.\n\n"
+            "### Risk assessment checklist\n"
+            "1. **Blast radius**: How many components are affected? "
+            "<10 = low risk, 10-50 = moderate, 50+ = high risk.\n"
+            "2. **Module spread**: Are affected components in 1-2 modules or 5+? "
+            "Cross-module impact means more integration testing.\n"
+            "3. **Depth distribution**: Most affected at depth 1-2? "
+            "Deep chains (depth 5+) suggest tight coupling.\n"
+            "4. **High-risk components**: Are any high_risk_components in the affected set? "
+            "If so, their own dependents are also at risk.\n"
+            "5. **Entry points**: Check if any affected component is a leaf node "
+            "(API endpoint, CLI command, event handler). These are user-facing.\n\n"
+            "### Recommended actions\n"
+            "- **Low risk**: Proceed with the change; run existing tests.\n"
+            "- **Moderate risk**: Review affected modules' tests; consider adding "
+            "regression tests for depth-1 callers.\n"
+            "- **High risk**: Break the change into smaller steps; "
+            "use `read_code_components` to review each depth-1 caller; "
+            "consider feature flags or backward-compatible interfaces.\n\n"
+            "### Follow-up queries\n"
+            "```\n"
+            "# Drill into a specific affected component\n"
+            "analyze_impact(session_id, component_ids=['<affected_id>'],\n"
+            "               direction='depends_on')  # what does IT depend on?\n\n"
+            "# Check module-level dependencies\n"
+            "list_dependencies(session_id, module_level=true)\n\n"
+            "# Read the source of a high-risk component\n"
+            "read_code_components(session_id, component_ids=['<high_risk_id>'])\n"
+            "```"
+        )
+
+    elif prompt_type == "architecture_review":
+        return (
+            "## Architecture Review Workflow\n\n"
+            "Understand a codebase's high-level architecture using dependency graph analysis.\n\n"
+            "### Step 1: Analyze and get the big picture\n"
+            "```\n"
+            "analyze_repo(repo_path='/path/to/repo')\n"
+            "```\n"
+            "Note: total_components, languages, and leaf_nodes_preview from the response. "
+            "Leaf nodes are entry points (top-level consumers with no dependents).\n\n"
+            "### Step 2: Identify layers via dependency direction\n"
+            "```\n"
+            "# High-impact components (depended on by many) = infrastructure/core layer\n"
+            "list_dependencies(session_id, direction='depended_by')\n"
+            "# → Check high_impact_components in the output file\n\n"
+            "# Leaf nodes = application/API layer (consume others, consumed by none)\n"
+            "# Already in session.leaf_nodes from analyze_repo\n"
+            "```\n"
+            "Components with high `depended_by_count` are your core/infrastructure layer. "
+            "Leaf nodes are your application boundary (APIs, CLIs, handlers).\n\n"
+            "### Step 3: Map module boundaries\n"
+            "```\n"
+            "list_dependencies(session_id, module_level=true)\n"
+            "```\n"
+            "This aggregates component-level dependencies into module-level. "
+            "Look for:\n"
+            "- **Hub modules**: high depends_on + depended_by (orchestrators)\n"
+            "- **Leaf modules**: only depends_on (application layer)\n"
+            "- **Core modules**: only depended_by (shared libraries)\n"
+            "- **Cycles**: modules that depend on each other (coupling smell)\n\n"
+            "### Step 4: Trace key paths\n"
+            "```\n"
+            "# Pick an entry point and trace what it depends on\n"
+            "analyze_impact(session_id, component_ids=['<leaf_node>'],\n"
+            "               direction='depends_on', include_paths=true)\n\n"
+            "# Pick a core component and see who uses it\n"
+            "analyze_impact(session_id, component_ids=['<core_component>'],\n"
+            "               direction='depended_by', include_paths=true)\n"
+            "```\n\n"
+            "### Step 5: Identify hotspots and risks\n"
+            "- Components with depended_by_count >= 10: change-resistant hotspots\n"
+            "- Modules with circular dependencies: refactoring candidates\n"
+            "- Deep dependency chains (depth 5+): tight coupling indicators\n\n"
+            "### Output template\n"
+            "Summarize your findings as:\n"
+            "1. **Layer diagram**: core → service → application (Mermaid graph TD)\n"
+            "2. **Module map**: hub/leaf/core classification with dependency arrows\n"
+            "3. **Hotspots**: top 5 most-depended-on components and their risk level\n"
+            "4. **Entry points**: leaf nodes grouped by type (API, CLI, event handler)\n"
+            "5. **Coupling concerns**: cycles, deep chains, god modules\n\n"
+            "**Tip**: Use `view_repo_file` to read specific files for deeper understanding. "
+            "Use get_prompt('code_analysis') for targeted component-level investigation."
         )
 
     # --- LLM Wiki static prompts ---
