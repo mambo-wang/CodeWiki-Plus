@@ -66,10 +66,10 @@ _store = SessionStore()
 # ---------------------------------------------------------------------------
 
 _SERVER_INSTRUCTIONS = """\
-CodeWiki-CN MCP Server — 代码仓库 Wiki 文档生成与 LLM 知识库管理平台。
+CodeWiki-CN MCP Server — 代码结构分析 + Wiki 文档生成 + LLM 知识库管理平台。
 
 ## 能力概览
-- **代码分析**: Tree-sitter AST 解析 → 依赖图 → 组件索引（无需 LLM）
+- **代码分析**: Tree-sitter AST 解析 → 函数级调用图 → 依赖索引 → 传递性影响分析（无需 LLM）
 - **Wiki 生成**: 模块化文档生成流水线（分析→聚类→逐模块撰写→总览→质检）
 - **LLM Wiki 知识库**: BM25 全文搜索 + wikilink 图谱多跳扩展 + 结构化笔记
 - **外部文档管理**: 导入 PDF/MD/DOCX/HTML → 知识抽取 → 实体/概念页面
@@ -79,16 +79,29 @@ CodeWiki-CN MCP Server — 代码仓库 Wiki 文档生成与 LLM 知识库管理
 
 ## 核心工作流
 
-### 1. Wiki 生成（完整流水线）
+### 1. 代码分析（独立使用，无需生成 Wiki）
+analyze_repo → list_components / list_dependencies / analyze_impact / read_code_components
+
+典型场景：
+- 调用链查询: list_dependencies(component_ids, direction="both") 查看直接调用关系
+- 修改影响评估: analyze_impact(component_ids 或 file_paths, direction="depended_by") 查看传递性影响范围（谁依赖我）、模块级聚合、高风险组件
+- 依赖全景: analyze_impact(direction="both", include_paths=true) 获取完整调用链路径
+- 代码阅读: read_code_components(component_ids) 读取源码
+
+分析结果持久化在 SQLite 中。用户可以只做分析不生成文档，之后随时基于缓存数据继续生成 Wiki（增量模式自动复用已有分析）。
+
+### 2. Wiki 生成（完整流水线）
 analyze_repo → get_prompt('cluster') → save_module_tree → get_processing_order → 逐模块: get_prompt('user') + read_code_components → write_doc_file → close_session
 
-### 2. 知识库搜索
+若已有分析缓存，analyze_repo 增量模式自动跳过未变更文件，直接进入文档生成。
+
+### 3. 知识库搜索
 query_wiki(query, hop=1) → 查看结果 → query_wiki(query, expand=true) 深度阅读
 
-### 3. 外部文档知识抽取
+### 4. 外部文档知识抽取
 ingest_source → get_prompt('extraction_scan') → view_repo_file 阅读原文 → write_doc_file(page_type='entity'/'concept'/'source') → [[wikilink]] 建图
 
-### 4. 经验归档
+### 5. 经验归档
 ingest_note(note_type, title, content) → 自动索引 → query_wiki 可检索
 
 ## 关键约束
@@ -100,10 +113,11 @@ ingest_note(note_type, title, content) → 自动索引 → query_wiki 可检索
 - **filename 规则**: write_doc_file 的 filename 参数只传纯文件名（如 "UserService.md"），禁止包含目录路径。目录由 page_type 自动路由，传 "entities/X.md" 会导致路径错误
 
 ## 推荐使用流程
-1. 生成 Wiki: 调用 Prompt "generate-wiki" 获取完整步骤
-2. 知识抽取: 调用 Prompt "extract-knowledge" 获取完整步骤
-3. 搜索知识库: 调用 Prompt "search-wiki" 获取搜索策略
-4. 质量检查: lint_wiki(checks=["all"]) → flag_issue 记录问题
+1. 代码分析: analyze_repo → analyze_impact / list_dependencies（无需后续 Wiki 步骤）
+2. 生成 Wiki: 调用 Prompt "generate-wiki" 获取完整步骤
+3. 知识抽取: 调用 Prompt "extract-knowledge" 获取完整步骤
+4. 搜索知识库: 调用 Prompt "search-wiki" 获取搜索策略
+5. 质量检查: lint_wiki(checks=["all"]) → flag_issue 记录问题
 """
 
 server = Server(
@@ -123,18 +137,20 @@ def _fine_grained_tools() -> list[Tool]:
         Tool(
             name="analyze_repo",
             description=(
-                "Analyze a code repository's structure, dependencies, and components "
-                "using Tree-sitter AST parsing. No LLM required. "
-                "Writes the full component index, leaf nodes, and language stats to "
-                "workspace files on disk, and returns file paths plus a compact summary. "
-                "Read the workspace files for complete data. "
-                "This is the entry point for the wiki generation pipeline. "
-                "After calling this, use get_prompt('cluster') to learn clustering rules, "
-                "then save_module_tree to persist your grouping. "
+                "Analyze a code repository: Tree-sitter AST parsing → function-level call graph → "
+                "dependency index. No LLM required. "
+                "Results persist in SQLite and can be used in two independent workflows: "
+                "(1) CODE ANALYSIS ONLY: follow up with list_dependencies, analyze_impact, "
+                "list_components, read_code_components for call chain queries, blast-radius "
+                "assessment, and code exploration — no wiki generation needed. "
+                "(2) WIKI GENERATION: follow up with get_prompt('cluster') → save_module_tree → "
+                "get_processing_order → write_doc_file. "
+                "Both workflows share the same cached analysis; users can analyze first and "
+                "generate docs later (incremental mode auto-reuses the cache). "
                 "INCREMENTAL UPDATE: If docs already exist in output_dir (.meta/metadata.json + "
                 ".meta/module_tree.json), the response includes a 'changes' field showing which "
                 "files changed and which modules need updating. "
-                "🌐 MONOREPO CROSS-SERVICE: automatically detects sub-services within a single "
+                "MONOREPO CROSS-SERVICE: automatically detects sub-services within a single "
                 "repo (via docker-compose, Dockerfiles, build manifests, convention directories) "
                 "and runs intra-repo cross-service matching (HTTP + MQ). Results appear in the "
                 "'cross_service' response field and are persisted to <output_dir>/.meta/. "
