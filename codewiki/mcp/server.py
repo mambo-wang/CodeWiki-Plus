@@ -380,6 +380,9 @@ def _fine_grained_tools() -> list[Tool]:
             description=(
                 "Retrieve CodeWiki's prompt templates for each pipeline stage. "
                 "Available prompt types and their purposes: "
+                "Code analysis (standalone, no wiki): code_analysis (full analysis workflow), "
+                "impact_review (interpret analyze_impact results + risk assessment), "
+                "architecture_review (layer/hotspot/boundary analysis). "
                 "Wiki generation: cluster (clustering rules), system_complex (parent module doc), "
                 "system_leaf (leaf module doc), user (module doc writing guide), "
                 "overview_module (module overview), overview_repo (repo overview). "
@@ -400,6 +403,9 @@ def _fine_grained_tools() -> list[Tool]:
                     "prompt_type": {
                         "type": "string",
                         "enum": [
+                            "code_analysis",
+                            "impact_review",
+                            "architecture_review",
                             "cluster",
                             "system_complex",
                             "system_leaf",
