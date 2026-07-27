@@ -197,9 +197,9 @@ def _fine_grained_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
+                    "repo_path": {
                         "type": "string",
-                        "description": "Session ID from analyze_repo",
+                        "description": "Repository path. Auto-loads from SQLite cache if a previous analysis exists.",
                     },
                     "component_ids": {
                         "type": "array",
@@ -207,7 +207,7 @@ def _fine_grained_tools() -> list[Tool]:
                         "description": "List of component IDs to read",
                     },
                 },
-                "required": ["session_id", "component_ids"],
+                "required": ["repo_path", "component_ids"],
             },
         ),
         Tool(
@@ -222,19 +222,18 @@ def _fine_grained_tools() -> list[Tool]:
                 "Use [[wikilinks]] in content to reference other pages — these are automatically "
                 "parsed into a graph for multi-hop search (query_wiki with hop parameter). "
                 "For large docs (>200 lines), use content_file instead of inline content. "
-                "Supports sessionless mode: provide output_dir instead of session_id for "
-                "knowledge extraction workflows (no analyze_repo needed)."
+                "Provide output_dir or derive it from repo_path."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID from analyze_repo (optional if output_dir is provided)",
-                    },
                     "output_dir": {
                         "type": "string",
-                        "description": "Output directory for wiki pages (alternative to session_id, for sessionless mode like knowledge extraction)",
+                        "description": "Output directory for wiki pages",
+                    },
+                    "repo_path": {
+                        "type": "string",
+                        "description": "Repository path. Derives output_dir = repo_path/repowiki.",
                     },
                     "filename": {
                         "type": "string",
@@ -280,9 +279,13 @@ def _fine_grained_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
+                    "output_dir": {
                         "type": "string",
-                        "description": "Session ID from analyze_repo",
+                        "description": "Output directory for wiki pages",
+                    },
+                    "repo_path": {
+                        "type": "string",
+                        "description": "Repository path. Derives output_dir = repo_path/repowiki.",
                     },
                     "filename": {
                         "type": "string",
@@ -319,7 +322,7 @@ def _fine_grained_tools() -> list[Tool]:
                         "description": "Line number for insert (0-indexed)",
                     },
                 },
-                "required": ["session_id", "filename", "command"],
+                "required": ["filename", "command"],
             },
         ),
         Tool(
@@ -337,9 +340,9 @@ def _fine_grained_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
+                    "repo_path": {
                         "type": "string",
-                        "description": "Session ID from analyze_repo",
+                        "description": "Repository path. Derives output_dir = repo_path/repowiki.",
                     },
                     "module_tree": {
                         "type": "object",
@@ -353,7 +356,7 @@ def _fine_grained_tools() -> list[Tool]:
                         "description": "Alternative to module_tree: absolute path to a JSON file. Use for large trees (>50 components).",
                     },
                 },
-                "required": ["session_id"],
+                "required": ["repo_path"],
             },
         ),
         Tool(
@@ -367,12 +370,12 @@ def _fine_grained_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
+                    "repo_path": {
                         "type": "string",
-                        "description": "Session ID from analyze_repo",
+                        "description": "Repository path. Derives output_dir = repo_path/repowiki.",
                     },
                 },
-                "required": ["session_id"],
+                "required": ["repo_path"],
             },
         ),
         Tool(
@@ -394,7 +397,7 @@ def _fine_grained_tools() -> list[Tool]:
                 "Advanced: comparison_page (comparison template), query_page (query result template), "
                 "taxonomy_plan (knowledge taxonomy planning). "
                 "Optionally pass variables to fill in template placeholders. "
-                "When variables produce content >4KB and a session_id is provided, "
+                "When variables produce content >4KB and a repo_path is provided, "
                 "the prompt is written to a workspace file."
             ),
             inputSchema={
@@ -429,9 +432,9 @@ def _fine_grained_tools() -> list[Tool]:
                         "type": "object",
                         "description": "Optional template variables to fill in",
                     },
-                    "session_id": {
+                    "repo_path": {
                         "type": "string",
-                        "description": "Optional session ID for writing large prompts to workspace files",
+                        "description": "Optional repository path — enables writing large prompts to workspace files",
                     },
                 },
                 "required": ["prompt_type"],
@@ -447,17 +450,17 @@ def _fine_grained_tools() -> list[Tool]:
                 "3) injects wiki usage instructions into the target project's AGENTS.md, "
                 "4) cleans up workspace files on disk. "
                 "Always call this after finishing documentation work to ensure search indexes "
-                "are up-to-date. Sessions auto-expire after 2 hours if not closed."
+                "are up-to-date."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
+                    "repo_path": {
                         "type": "string",
-                        "description": "Session ID to close",
+                        "description": "Repository path. Derives output_dir = repo_path/repowiki.",
                     },
                 },
-                "required": ["session_id"],
+                "required": ["repo_path"],
             },
         ),
         # --- LLM Wiki tools ---
@@ -472,19 +475,14 @@ def _fine_grained_tools() -> list[Tool]:
                 "Use this during module documentation to understand call relationships "
                 "and identify key dependencies to highlight in architecture diagrams. "
                 "Set module_level=true to see inter-module dependencies instead of component-level. "
-                "Accepts either session_id (from analyze_repo) or repo_path "
-                "(auto-loads from SQLite cache)."
+                "Auto-loads from SQLite cache if a previous analysis exists."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID from analyze_repo (optional if repo_path provided)",
-                    },
                     "repo_path": {
                         "type": "string",
-                        "description": "Repository path — alternative to session_id. Auto-loads from SQLite cache if a previous analysis exists.",
+                        "description": "Repository path. Auto-loads from SQLite cache if a previous analysis exists.",
                     },
                     "component_ids": {
                         "type": "array",
@@ -517,19 +515,14 @@ def _fine_grained_tools() -> list[Tool]:
                 "Results include per-component depth, module-level aggregation, "
                 "and high-risk components (many direct dependents). "
                 "Use this to assess the blast radius of a code change. "
-                "Accepts either session_id (from analyze_repo) or repo_path "
-                "(auto-loads from SQLite cache — no prior analyze_repo needed in current session)."
+                "Auto-loads from SQLite cache — no prior analyze_repo needed in current session."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID from analyze_repo (optional if repo_path provided)",
-                    },
                     "repo_path": {
                         "type": "string",
-                        "description": "Repository path — alternative to session_id. Auto-loads from SQLite cache if a previous analysis exists.",
+                        "description": "Repository path. Auto-loads from SQLite cache if a previous analysis exists.",
                     },
                     "component_ids": {
                         "type": "array",
@@ -575,13 +568,9 @@ def _fine_grained_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID (optional; can use output_dir instead)",
-                    },
                     "output_dir": {
                         "type": "string",
-                        "description": "Output directory (alternative to session_id)",
+                        "description": "Output directory for wiki pages",
                     },
                     "checks": {
                         "type": "array",
@@ -620,13 +609,9 @@ def _fine_grained_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID (optional; can use output_dir instead)",
-                    },
                     "output_dir": {
                         "type": "string",
-                        "description": "Output directory (alternative to session_id)",
+                        "description": "Output directory for wiki pages",
                     },
                     "note_type": {
                         "type": "string",
@@ -694,13 +679,9 @@ def _fine_grained_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID (optional; can use output_dir instead)",
-                    },
                     "output_dir": {
                         "type": "string",
-                        "description": "Output directory (alternative to session_id)",
+                        "description": "Output directory for wiki pages",
                     },
                     "query": {
                         "type": "string",
@@ -791,8 +772,10 @@ def _fine_grained_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {"type": "string", "description": "Session ID (optional)"},
-                    "output_dir": {"type": "string", "description": "Output directory (alternative to session_id)"},
+                    "output_dir": {
+                        "type": "string",
+                        "description": "Output directory for wiki pages",
+                    },
                     "note_file": {
                         "type": "string",
                         "description": "Note filename relative to notes/ directory (e.g. '2026-07-26-jwt-decision.md')",
@@ -811,8 +794,10 @@ def _fine_grained_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {"type": "string", "description": "Session ID (optional)"},
-                    "output_dir": {"type": "string", "description": "Output directory (alternative to session_id)"},
+                    "output_dir": {
+                        "type": "string",
+                        "description": "Output directory for wiki pages",
+                    },
                     "note_file": {
                         "type": "string",
                         "description": "Note filename relative to notes/ directory",
@@ -845,13 +830,9 @@ def _fine_grained_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID (optional; can use output_dir instead)",
-                    },
                     "output_dir": {
                         "type": "string",
-                        "description": "Output directory (alternative to session_id)",
+                        "description": "Output directory for wiki pages",
                     },
                     "source_path": {
                         "type": "string",
@@ -896,13 +877,9 @@ def _fine_grained_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID (optional; can use output_dir instead)",
-                    },
                     "output_dir": {
                         "type": "string",
-                        "description": "Output directory (alternative to session_id)",
+                        "description": "Output directory for wiki pages",
                     },
                     "name": {
                         "type": "string",
@@ -937,13 +914,9 @@ def _fine_grained_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID (optional; can use output_dir instead)",
-                    },
                     "output_dir": {
                         "type": "string",
-                        "description": "Output directory (alternative to session_id)",
+                        "description": "Output directory for wiki pages",
                     },
                     "items": {
                         "type": "array",
@@ -972,13 +945,9 @@ def _fine_grained_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID (optional; can use output_dir instead)",
-                    },
                     "output_dir": {
                         "type": "string",
-                        "description": "Output directory (alternative to session_id)",
+                        "description": "Output directory for wiki pages",
                     },
                     "issue_type": {
                         "type": "string",
@@ -1059,19 +1028,14 @@ def _fine_grained_tools() -> list[Tool]:
                 "or source reading (read_code_components). "
                 "Supports filtering by file_prefix (e.g., 'src/auth/') and component_type "
                 "(e.g., 'class', 'function', 'interface'). "
-                "Accepts either session_id (from analyze_repo) or repo_path "
-                "(auto-loads from SQLite cache)."
+                "Auto-loads from SQLite cache if a previous analysis exists."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID from analyze_repo (optional if repo_path provided)",
-                    },
                     "repo_path": {
                         "type": "string",
-                        "description": "Repository path — alternative to session_id. Auto-loads from SQLite cache if a previous analysis exists.",
+                        "description": "Repository path. Auto-loads from SQLite cache if a previous analysis exists.",
                     },
                     "file_prefix": {
                         "type": "string",
@@ -1102,16 +1066,16 @@ def _fine_grained_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {
+                    "repo_path": {
                         "type": "string",
-                        "description": "Session ID from analyze_repo",
+                        "description": "Repository path. Auto-loads from SQLite cache if a previous analysis exists.",
                     },
                     "path": {
                         "type": "string",
                         "description": "Relative path from repo root (e.g. 'repowiki/overview.md' or 'backend/src/...')",
                     },
                 },
-                "required": ["session_id", "path"],
+                "required": ["repo_path", "path"],
             },
         ),
         Tool(
@@ -1283,47 +1247,64 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             return [_text(await asyncio.to_thread(handle_get_prompt, arguments, _store))]
 
         elif name == "close_session":
-            sid = arguments["session_id"]
-            session = _store.get(sid)
-            if session:
-                # Only stamp the incremental-update baseline when this
-                # session actually produced docs — otherwise an aborted
-                # session would make the next analyze_repo report
-                # "Documentation is up to date" over missing/stale docs.
-                if session.docs_written > 0:
-                    _write_generation_metadata(session)
-                else:
-                    logger.info(
-                        "Session %s wrote no docs; skipping metadata.json baseline update", sid
-                    )
-                # LLM Wiki: update index.md, log.md, and search index before cleanup
+            repo_path = arguments.get("repo_path")
+            if not repo_path:
+                return [_text(json.dumps({"error": "repo_path is required."}))]
+
+            rp = _resolve_path(repo_path)
+            output_dir = str(Path(rp) / "repowiki")
+
+            # Try to find active session for caching (optional)
+            session = _store.find_or_restore(rp)
+
+            # Determine if docs were written
+            docs_generated = False
+            from codewiki.src.config import meta_join
+            if os.path.exists(meta_join(output_dir, "metadata.json")):
+                docs_generated = True
+            elif session is not None and session.docs_written > 0:
+                docs_generated = True
+
+            if docs_generated:
+                _write_generation_metadata_from_disk(output_dir, rp)
+            else:
+                logger.info("No docs written; skipping metadata.json baseline update")
+
+            # Rebuild wiki index.md, log.md
+            try:
+                from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
+                append_log(output_dir, "close_session", "会话关闭")
+                rebuild_index(output_dir)
+            except Exception:
+                pass
+
+            # Build final BM25 search index
+            try:
+                from codewiki.mcp.tools.wiki_search import build_full_index
+                build_full_index(output_dir, session=session)
+            except Exception:
+                pass
+
+            # Inject AGENTS.md
+            if docs_generated:
                 try:
-                    from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
-                    append_log(session.output_dir, "close_session",
-                               f"会话 {sid} 关闭")
-                    rebuild_index(session.output_dir)
+                    from codewiki.mcp.tools.agents_md import write_agents_md
+                    write_agents_md(repo_path=rp, output_dir=output_dir)
                 except Exception:
-                    pass
-                # Build final BM25 search index (SQLite-backed when session available)
-                try:
-                    from codewiki.mcp.tools.wiki_search import build_full_index
-                    build_full_index(session.output_dir, session=session)
-                except Exception:
-                    pass
-                # Inject wiki usage instructions into target project's AGENTS.md
-                if session.docs_written > 0:
-                    try:
-                        from codewiki.mcp.tools.agents_md import write_agents_md
-                        write_agents_md(session)
-                    except Exception:
-                        logger.debug("Failed to update AGENTS.md", exc_info=True)
-                # Clean up workspace files on disk
-                if session.workspace is not None:
-                    session.workspace.cleanup()
-            removed = _store.remove(sid)
+                    logger.debug("Failed to update AGENTS.md", exc_info=True)
+
+            # Clean up workspace files
+            from codewiki.mcp.workspace import SessionWorkspace
+            ws = SessionWorkspace(Path(rp), "cleanup")
+            ws.cleanup()
+
+            # Remove session from store if exists
+            if session is not None:
+                _store.remove(session.session_id)
+
             return [_text(json.dumps({
-                "status": "closed" if removed else "not_found",
-                "session_id": sid,
+                "status": "closed",
+                "output_dir": output_dir,
             }))]
 
         # --- LLM Wiki tools (zero LLM config, IDE-driven) ---
@@ -1622,35 +1603,35 @@ def _prompt_generate_wiki(args: dict[str, str]) -> str:
 
 ## 步骤 1: 分析仓库
 调用 analyze_repo(repo_path="{repo_path}"{od_note})
-- 返回 session_id、组件数量、语言统计
+- 返回组件数量、语言统计等分析结果
 - 大文件结果写入 workspace 文件，通过返回的 file_path 读取
 
 ## 步骤 2: 模块聚类
-调用 get_prompt(prompt_type="cluster", session_id=<session_id>)
+调用 get_prompt(prompt_type="cluster", repo_path="{repo_path}")
 - 获取聚类规则（按目录结构、依赖关系、功能内聚性分组）
 - 根据规则将组件分为模块，构建 module_tree JSON
-- 调用 save_module_tree(session_id, module_tree) 保存
+- 调用 save_module_tree(repo_path="{repo_path}", module_tree=...) 保存
 
 ## 步骤 3: 获取处理顺序
-调用 get_processing_order(session_id)
+调用 get_processing_order(repo_path="{repo_path}")
 - 返回叶优先顺序：先写叶模块，再写父模块（父模块可引用子模块文档）
 
 ## 步骤 4: 逐模块撰写文档
 对每个模块（按处理顺序）：
-1. 调用 get_prompt(prompt_type="user", session_id, variables={{"module_name": "<模块名>"}}) 获取撰写指引
-2. 调用 read_code_components(session_id, component_ids) 读取源码
-3. 调用 list_dependencies(session_id, component_ids) 获取依赖关系
+1. 调用 get_prompt(prompt_type="user", repo_path="{repo_path}", variables={{"module_name": "<模块名>"}}) 获取撰写指引
+2. 调用 read_code_components(repo_path="{repo_path}", component_ids) 读取源码
+3. 调用 list_dependencies(repo_path="{repo_path}", component_ids) 获取依赖关系
 4. 撰写 Markdown 文档（200-500 行叶模块，含 Mermaid 架构图）
-5. 调用 write_doc_file(session_id, filename="<模块名>.md", page_type="module", content=...) 写入
+5. 调用 write_doc_file(repo_path="{repo_path}", filename="<模块名>.md", page_type="module", content=...) 写入
 
 ## 步骤 5: 仓库总览
-调用 get_prompt(prompt_type="overview_repo", session_id) 获取总览模板
+调用 get_prompt(prompt_type="overview_repo", repo_path="{repo_path}") 获取总览模板
 撰写 overview.md（80-200 行），链接所有模块文档
 
 ## 步骤 6: 质检与关闭
-- 调用 lint_wiki(session_id) 检查一致性
+- 调用 lint_wiki(repo_path="{repo_path}") 检查一致性
 - 修复发现的问题（edit_doc_file）
-- 调用 close_session(session_id) 完成（触发索引重建、AGENTS.md 注入）
+- 调用 close_session(repo_path="{repo_path}") 完成（触发索引重建、AGENTS.md 注入）
 
 ## 注意事项
 - 每个叶模块至少 1 个 Mermaid 图（graph TD 或 graph LR）
@@ -1675,8 +1656,8 @@ def _prompt_extract_knowledge(args: dict[str, str]) -> str:
 ## 步骤 1: 导入文档
 调用 ingest_source(output_dir="{output_dir}", source_path="{source_path}")
 - 文档会被复制到 {output_dir}/raw/sources/ 并注册到 source_registry.json
-- 此步骤不需要 session_id，不需要 analyze_repo
-
+"- 此步骤直接传入 output_dir，无需 session
+"
 ## 步骤 2: 获取抽取方法论
 调用 get_prompt(prompt_type="extraction_scan")
 - 返回实体/概念识别规则和粒度指引
@@ -1706,8 +1687,8 @@ def _prompt_extract_knowledge(args: dict[str, str]) -> str:
 - 之后可通过 query_wiki(output_dir="{output_dir}", query, hop=1) 进行多跳关联搜索
 
 ## 注意事项
-- 整个流程不需要 analyze_repo，不需要 session_id
-- write_doc_file 支持直接传 output_dir 参数（无需 session_id）
+- 整个流程直接使用 output_dir，无需 analyze_repo
+- write_doc_file 直接传 output_dir 参数
 - ingest_source 只负责存储，不会自动生成 entity/concept 页面
 - 每个页面应包含：定义、关键属性、与其他实体的关系、来源引用
 - 使用 frontmatter_extra 添加 aliases（搜索加权 3x）和 source_refs"""
@@ -1748,7 +1729,7 @@ def _prompt_search_wiki(args: dict[str, str]) -> str:
 
 def _prompt_quality_check(args: dict[str, str]) -> str:
     output_dir = args.get("output_dir", "")
-    od_param = f'output_dir="{output_dir}"' if output_dir else 'session_id=<session_id>'
+    od_param = f'output_dir="{output_dir}"' if output_dir else 'repo_path=<repo_path>'
     return f"""请对 Wiki 文档执行全面质量审计。按以下步骤执行：
 
 ## 步骤 1: 运行全量检查
@@ -1806,8 +1787,8 @@ def _prompt_incremental_update(args: dict[str, str]) -> str:
 - lint_wiki(checks=["stale_refs"]) 检查过时引用
 
 ## 步骤 5: 重建索引
-调用 close_session(session_id) 触发索引重建
-
+"调用 close_session(repo_path=\"{repo_path}\") 触发索引重建
+"
 ## 注意事项
 - 增量更新只修改受影响的模块，不重写整个 Wiki
 - 如果 metadata.json 不存在，会执行全量分析"""
@@ -1909,7 +1890,7 @@ def _prompt_workspace_analysis(args: dict[str, str]) -> str:
 - 🌐 **自动执行 RouteNode 跨服务匹配**（HTTP 路由 + MQ 生产者/消费者）
 - **自动扫描** docker-compose.yml / .env / application.yml 发现服务名和端口
 - **自动生成** workspace-wiki/overview.md，内含 Mermaid 服务拓扑图 + 路由表
-- 返回 `workspace_session_id`、`overview_path`、各仓库 `session_id`
+- 返回 `workspace_session_id`、`overview_path`、各仓库分析结果
 
 ## 步骤 2：审阅跨服务拓扑
 读取返回的 `overview_path`（通常是 `{workspace_path}/workspace-wiki/overview.md`）：
@@ -1932,7 +1913,7 @@ def _prompt_workspace_analysis(args: dict[str, str]) -> str:
 
 ## 步骤 5：逐仓库生成 Wiki
 对每个子仓库执行标准 Wiki 生成流程：
-- 共享 workspace_session_id，各仓库使用自己的 session_id
+- 各仓库使用自己的 repo_path 执行 Wiki 生成流程
 - analyze_repo → 聚类 → 逐模块撰写 → close_session
 - 每个仓库的 Wiki 位于 <repo>/repowiki/
 - 🔗 CodeGraph 增强模式可补充单仓内的调用图细节
@@ -1965,10 +1946,10 @@ def _prompt_code_analysis(args: dict[str, str]) -> str:
 ## 步骤 1: 分析仓库
 调用 analyze_repo(repo_path="{repo_path}")
 - 构建函数级调用图（Tree-sitter AST 解析，无 LLM）
-- 返回 session_id、组件数量、语言统计
+- 返回组件数量、语言统计等分析结果
 - 结果缓存在 SQLite 中，支持增量更新
 
-**快捷方式**：如果此仓库之前分析过，查询工具可以直接传 repo_path，无需 session_id：
+所有查询工具直接传 repo_path：
 ```
 analyze_impact(repo_path="{repo_path}", file_paths=['src/utils.py'], direction='depended_by')
 list_dependencies(repo_path="{repo_path}", module_level=true)
@@ -1976,7 +1957,7 @@ list_components(repo_path="{repo_path}", component_type='function')
 ```
 
 ## 步骤 2: 浏览组件
-调用 list_components(session_id, filter_type='all') 浏览所有组件
+调用 list_components(repo_path="{repo_path}", filter_type='all') 浏览所有组件
 - filter_type='by_file', filter_value='src/auth/' 按路径筛选
 - filter_type='by_type', filter_value='class' 按类型筛选
 - 大文件结果通过 workspace file_path 读取完整组件索引
@@ -1984,36 +1965,36 @@ list_components(repo_path="{repo_path}", component_type='function')
 ## 步骤 3: 查询依赖关系
 ```
 # 直接（1跳）依赖
-list_dependencies(session_id, component_ids=['src/auth.py::AuthService'], direction='both')
+list_dependencies(repo_path="{repo_path}", component_ids=['src/auth.py::AuthService'], direction='both')
 
 # 模块级依赖图
-list_dependencies(session_id, module_level=true)
+list_dependencies(repo_path="{repo_path}", module_level=true)
 ```
 
 ## 步骤 4: 传递性影响分析
 ```
 # 谁依赖我（传递性）
-analyze_impact(session_id, component_ids=['src/utils.py::parse_config'],
+analyze_impact(repo_path="{repo_path}", component_ids=['src/utils.py::parse_config'],
                direction='depended_by')
 
 # 按文件路径（自动解析为组件）
-analyze_impact(session_id, file_paths=['src/utils.py'],
+analyze_impact(repo_path="{repo_path}", file_paths=['src/utils.py'],
                direction='depended_by')
 
 # 完整调用链路
-analyze_impact(session_id, component_ids=['src/utils.py::parse_config'],
+analyze_impact(repo_path="{repo_path}", component_ids=['src/utils.py::parse_config'],
                direction='depended_by', include_paths=true)
 ```
 
 ## 步骤 5: 阅读源码
 ```
-read_code_components(session_id, component_ids=['src/auth.py::AuthService'])
+read_code_components(repo_path="{repo_path}", component_ids=['src/auth.py::AuthService'])
 ```
 
 ## 关键点
 - 所有分析本地运行（Tree-sitter），无需 LLM/API Key
-- 结果持久化到 SQLite，关闭会话后可重新分析（增量模式自动复用缓存）
-- 查询工具（analyze_impact, list_dependencies, list_components）支持直接传 repo_path，无需 session_id
+- 结果持久化到 SQLite，重新分析时可增量复用缓存
+- 查询工具直接传 repo_path，无需 session
 - 后续想生成 Wiki 时，直接执行 generate-wiki 工作流即可
 - 使用 get_prompt(prompt_type="code_analysis") 获取更详细的工具用法说明"""
 
@@ -2064,8 +2045,8 @@ analyze_impact(repo_path='{repo_path}', component_ids=['<affected_id>'], directi
 # 查看模块级依赖
 list_dependencies(repo_path='{repo_path}', module_level=true)
 
-# 阅读高风险组件源码（需要 session_id，从 analyze_repo 获取）
-read_code_components(session_id, component_ids=['<high_risk_id>'])
+# 阅读高风险组件源码
+read_code_components(repo_path="{repo_path}", component_ids=['<high_risk_id>'])
 ```
 
 使用 get_prompt(prompt_type="impact_review") 获取更详细的解读指南。"""
@@ -2083,7 +2064,7 @@ def _prompt_architecture_review(args: dict[str, str]) -> str:
 ## 步骤 2: 识别架构层次
 ```
 # 高影响组件（被多人依赖）= 基础设施/核心层
-list_dependencies(session_id, direction='depended_by')
+list_dependencies(repo_path='{repo_path}', direction='depended_by')
 # → 查看 high_impact_components
 
 # 叶节点 = 应用/API 层（消费他人，无人消费）
@@ -2094,7 +2075,7 @@ list_dependencies(session_id, direction='depended_by')
 
 ## 步骤 3: 映射模块边界
 ```
-list_dependencies(session_id, module_level=true)
+list_dependencies(repo_path="{repo_path}", module_level=true)
 ```
 关注：
 - **枢纽模块**：高 depends_on + 高 depended_by（编排者）
@@ -2105,11 +2086,11 @@ list_dependencies(session_id, module_level=true)
 ## 步骤 4: 追踪关键路径
 ```
 # 选一个入口点，追踪它依赖什么
-analyze_impact(session_id, component_ids=['<leaf_node>'],
+analyze_impact(repo_path="{repo_path}", component_ids=['<leaf_node>'],
                direction='depends_on', include_paths=true)
 
 # 选一个核心组件，看谁使用它
-analyze_impact(session_id, component_ids=['<core_component>'],
+analyze_impact(repo_path="{repo_path}", component_ids=['<core_component>'],
                direction='depended_by', include_paths=true)
 ```
 
@@ -2498,21 +2479,20 @@ def _text(content: str) -> TextContent:
     return TextContent(type="text", text=content)
 
 
-def _write_generation_metadata(session: SessionState) -> None:
-    """Write ``metadata.json`` to the session's output directory.
+def _write_generation_metadata_from_disk(output_dir: str, repo_path: str) -> None:
+    """Write ``metadata.json`` with git commit baseline for incremental updates."""
+    _write_metadata_json(output_dir, repo_path, None)
+
+
+def _write_metadata_json(output_dir: str, repo_path: str, commit_id: str | None) -> None:
+    """Core metadata writing shared by both paths.
 
     Records the current git commit and timestamp so that
-    :func:`_detect_changes` can diff against this baseline on the next
+    ``_detect_changes`` can diff against this baseline on the next
     ``analyze_repo`` call, enabling incremental updates.
     """
     try:
-        output_dir = Path(session.output_dir)
-        repo_path = Path(session.repo_path)
-
-        # Baseline on the commit analyze_repo saw, NOT the current HEAD:
-        # commits made mid-session were never analyzed, and recording HEAD
-        # here would silently exclude them from the next incremental run.
-        commit_id: str | None = session.analyzed_commit
+        # Baseline on the commit analyze_repo saw, NOT the current HEAD
         if not commit_id:
             from codewiki.cli.utils.repo_validator import get_git_commit_hash
             commit_id = get_git_commit_hash(repo_path) or None

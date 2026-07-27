@@ -27,16 +27,16 @@ from codewiki.src.be.prompt_template import (
 )
 
 
-def _build_schema_constraints(session: Optional[SessionState]) -> str:
-    """Read schema.yaml from session output_dir and build constraint text for prompts.
+def _build_schema_constraints(output_dir: Optional[str]) -> str:
+    """Read schema.yaml from output_dir and build constraint text for prompts.
 
     Extracts required_sections, documentation_dimensions, line limits,
     page_types routing table, extraction_granularity, and purpose.md.
     Returns empty string if schema is unavailable or unreadable.
     """
-    if not session or not session.output_dir:
+    if not output_dir:
         return ""
-    schema_path = Path(session.output_dir) / "schema.yaml"
+    schema_path = Path(output_dir) / "schema.yaml"
     if not schema_path.exists():
         return ""
     try:
@@ -97,9 +97,9 @@ def _build_schema_constraints(session: Optional[SessionState]) -> str:
         parts.append(f"Extraction granularity: {granularity} (focused=3-7 items, standard=moderate, exhaustive=comprehensive)")
 
     # LLM Wiki: purpose.md
-    if session and session.output_dir:
+    if output_dir:
         from codewiki.src.config import PURPOSE_FILENAME
-        purpose_path = Path(session.output_dir) / PURPOSE_FILENAME
+        purpose_path = Path(output_dir) / PURPOSE_FILENAME
         if purpose_path.exists():
             try:
                 purpose_text = purpose_path.read_text(encoding="utf-8", errors="replace")
@@ -276,8 +276,20 @@ def handle_get_prompt(
     """
     prompt_type = arguments["prompt_type"]
     variables = arguments.get("variables", {})
-    session_id = arguments.get("session_id")
-    session = store.get(session_id) if session_id else None
+    repo_path = arguments.get("repo_path")
+    if repo_path:
+        from pathlib import Path
+        rp = str(Path(repo_path).expanduser().resolve()) if Path(repo_path).is_absolute() else str((Path.cwd() / repo_path).expanduser().resolve())
+        output_dir = str(Path(rp) / "repowiki")
+        # Try to find active session for workspace access
+        session = store.find_or_restore(rp)
+        # Create a lightweight workspace for large prompt writing if no active session
+        if session is None:
+            from codewiki.mcp.workspace import SessionWorkspace
+            session = type('obj', (object,), {'output_dir': output_dir, 'workspace': SessionWorkspace(Path(rp), 'prompt')})()
+    else:
+        session = None
+        output_dir = None
 
     if prompt_type not in _PROMPT_CATALOG:
         available = list(_PROMPT_CATALOG.keys())
@@ -289,7 +301,7 @@ def handle_get_prompt(
     catalog_entry = _PROMPT_CATALOG[prompt_type]
 
     # Inject schema constraints from schema.yaml into variables for _resolve_prompt
-    schema_constraints = _build_schema_constraints(session)
+    schema_constraints = _build_schema_constraints(output_dir)
     variables['_has_caller_ci'] = "custom_instructions" in variables and variables["custom_instructions"]
     if schema_constraints:
         caller_ci = variables.get("custom_instructions")
@@ -454,9 +466,9 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "analyze_repo(repo_path='/path/to/repo')\n"
             "```\n"
             "This builds a function-level call graph (AST parsing, no LLM) and caches "
-            "results in SQLite. Note the `session_id` from the response.\n\n"
-            "**Tip**: If this repo was analyzed before, query tools accept `repo_path` "
-            "directly — no `session_id` needed:\n"
+            "results in SQLite.\n\n"
+            "**Tip**: All query tools accept `repo_path` directly — "
+            "no need to track any session ID:\n"
             "```\n"
             "analyze_impact(repo_path='/path/to/repo', file_paths=['src/utils.py'], direction='depended_by')\n"
             "list_dependencies(repo_path='/path/to/repo', module_level=true)\n"
@@ -464,44 +476,43 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "```\n\n"
             "### Step 2: Explore components\n"
             "```\n"
-            "list_components(session_id, filter_type='all')        # browse all components\n"
-            "list_components(session_id, filter_type='by_file', filter_value='src/auth/')  # by path\n"
-            "list_components(session_id, filter_type='by_type', filter_value='class')      # by type\n"
+            "list_components(repo_path='/path/to/repo', filter_type='all')        # browse all components\n"
+            "list_components(repo_path='/path/to/repo', filter_type='by_file', filter_value='src/auth/')  # by path\n"
+            "list_components(repo_path='/path/to/repo', filter_type='by_type', filter_value='class')      # by type\n"
             "```\n"
             "Read the workspace file for the full component index.\n\n"
             "### Step 3: Query dependencies\n"
             "```\n"
             "# Direct (1-hop) dependencies\n"
-            "list_dependencies(session_id, component_ids=['src/auth.py::AuthService'],\n"
+            "list_dependencies(repo_path='/path/to/repo', component_ids=['src/auth.py::AuthService'],\n"
             "                  direction='both')\n\n"
             "# Module-level dependency graph\n"
-            "list_dependencies(session_id, module_level=true)\n"
+            "list_dependencies(repo_path='/path/to/repo', module_level=true)\n"
             "```\n\n"
             "### Step 4: Transitive impact analysis\n"
             "```\n"
             "# Who depends on this component, transitively?\n"
-            "analyze_impact(session_id, component_ids=['src/utils.py::parse_config'],\n"
+            "analyze_impact(repo_path='/path/to/repo', component_ids=['src/utils.py::parse_config'],\n"
             "               direction='depended_by')\n\n"
             "# By file path (auto-resolves to components)\n"
-            "analyze_impact(session_id, file_paths=['src/utils.py'],\n"
+            "analyze_impact(repo_path='/path/to/repo', file_paths=['src/utils.py'],\n"
             "               direction='depended_by')\n\n"
             "# Full call-chain paths\n"
-            "analyze_impact(session_id, component_ids=['src/utils.py::parse_config'],\n"
+            "analyze_impact(repo_path='/path/to/repo', component_ids=['src/utils.py::parse_config'],\n"
             "               direction='depended_by', include_paths=true)\n\n"
             "# What does this component depend on, transitively?\n"
-            "analyze_impact(session_id, component_ids=['src/api.py::handler'],\n"
+            "analyze_impact(repo_path='/path/to/repo', component_ids=['src/api.py::handler'],\n"
             "               direction='depends_on')\n"
             "```\n\n"
             "### Step 5: Read source code\n"
             "```\n"
-            "read_code_components(session_id, component_ids=['src/auth.py::AuthService'])\n"
+            "read_code_components(repo_path='/path/to/repo', component_ids=['src/auth.py::AuthService'])\n"
             "```\n\n"
             "### Key points\n"
             "- All analysis runs locally via Tree-sitter — no LLM, no API keys needed.\n"
-            "- Results persist in SQLite. You can close the session and re-analyze later "
-            "(incremental mode auto-reuses the cache).\n"
-            "- Query tools (analyze_impact, list_dependencies, list_components) accept "
-            "`repo_path` directly — no session_id needed if SQLite data exists.\n"
+            "- Results persist in SQLite. Re-run analyze_repo later for incremental updates.\n"
+            "- All query tools (analyze_impact, list_dependencies, list_components, read_code_components) "
+            "accept `repo_path` directly — no session needed.\n"
             "- To generate wiki docs later, simply continue with "
             "get_prompt('cluster') → save_module_tree → write_doc_file.\n"
             "- Use get_prompt('impact_review') after analyze_impact for risk assessment guidance.\n"
@@ -545,12 +556,12 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "### Follow-up queries\n"
             "```\n"
             "# Drill into a specific affected component\n"
-            "analyze_impact(session_id, component_ids=['<affected_id>'],\n"
+            "analyze_impact(repo_path='/path/to/repo', component_ids=['<affected_id>'],\n"
             "               direction='depends_on')  # what does IT depend on?\n\n"
             "# Check module-level dependencies\n"
-            "list_dependencies(session_id, module_level=true)\n\n"
+            "list_dependencies(repo_path='/path/to/repo', module_level=true)\n\n"
             "# Read the source of a high-risk component\n"
-            "read_code_components(session_id, component_ids=['<high_risk_id>'])\n"
+            "read_code_components(repo_path='/path/to/repo', component_ids=['<high_risk_id>'])\n"
             "```"
         )
 
@@ -567,16 +578,16 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "### Step 2: Identify layers via dependency direction\n"
             "```\n"
             "# High-impact components (depended on by many) = infrastructure/core layer\n"
-            "list_dependencies(session_id, direction='depended_by')\n"
+            "list_dependencies(repo_path='/path/to/repo', direction='depended_by')\n"
             "# → Check high_impact_components in the output file\n\n"
             "# Leaf nodes = application/API layer (consume others, consumed by none)\n"
-            "# Already in session.leaf_nodes from analyze_repo\n"
+            "# Listed in analyze_repo response as leaf_nodes_preview\n"
             "```\n"
             "Components with high `depended_by_count` are your core/infrastructure layer. "
             "Leaf nodes are your application boundary (APIs, CLIs, handlers).\n\n"
             "### Step 3: Map module boundaries\n"
             "```\n"
-            "list_dependencies(session_id, module_level=true)\n"
+            "list_dependencies(repo_path='/path/to/repo', module_level=true)\n"
             "```\n"
             "This aggregates component-level dependencies into module-level. "
             "Look for:\n"
@@ -587,10 +598,10 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "### Step 4: Trace key paths\n"
             "```\n"
             "# Pick an entry point and trace what it depends on\n"
-            "analyze_impact(session_id, component_ids=['<leaf_node>'],\n"
+            "analyze_impact(repo_path='/path/to/repo', component_ids=['<leaf_node>'],\n"
             "               direction='depends_on', include_paths=true)\n\n"
             "# Pick a core component and see who uses it\n"
-            "analyze_impact(session_id, component_ids=['<core_component>'],\n"
+            "analyze_impact(repo_path='/path/to/repo', component_ids=['<core_component>'],\n"
             "               direction='depended_by', include_paths=true)\n"
             "```\n\n"
             "### Step 5: Identify hotspots and risks\n"

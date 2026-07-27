@@ -7,6 +7,7 @@ without overwriting user-authored content.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -22,7 +23,7 @@ _BEGIN_MARKER = "<!-- CodeWiki LLM Wiki -->"
 _END_MARKER = "<!-- /CodeWiki LLM Wiki -->"
 
 
-def write_agents_md(session: SessionState) -> None:
+def write_agents_md(*, repo_path: str, output_dir: str, module_tree: dict | None = None) -> None:
     """Create or update ``<repo_path>/AGENTS.md`` with wiki usage info.
 
     - If the file does not exist, it is created with the section.
@@ -32,21 +33,26 @@ def write_agents_md(session: SessionState) -> None:
     Failures are logged and silently swallowed — this must never block
     session cleanup.
     """
-    repo_path = Path(session.repo_path)
-    output_dir = Path(session.output_dir)
+    _write_agents_md(repo_path, output_dir, module_tree or {})
+
+
+def _write_agents_md(repo_path: str, output_dir: str, module_tree: dict) -> None:
+    """Internal implementation of write_agents_md."""
+    repo_path_p = Path(repo_path)
+    output_dir_p = Path(output_dir)
 
     # Relative path from repo root to wiki output (portable across machines)
     try:
-        rel_path = os.path.relpath(output_dir, repo_path).replace("\\", "/")
+        rel_path = os.path.relpath(output_dir_p, repo_path_p).replace("\\", "/")
     except ValueError:
         # On Windows, relpath fails across drives — fall back to absolute
-        rel_path = str(output_dir).replace("\\", "/")
+        rel_path = str(output_dir_p).replace("\\", "/")
 
     # Extract module names from the saved module tree
-    modules = _extract_modules(session.module_tree)
+    modules = _extract_modules(module_tree)
 
     section = _build_section(rel_path, modules)
-    agents_path = repo_path / "AGENTS.md"
+    agents_path = repo_path_p / "AGENTS.md"
 
     if agents_path.exists():
         content = agents_path.read_text(encoding="utf-8")

@@ -109,9 +109,7 @@ def handle_analyze_impact(
 
     session = resolve_session(arguments, store)
     if session is None:
-        if arguments.get("session_id"):
-            return json.dumps({"error": f"Session {arguments['session_id']} not found or expired."})
-        return json.dumps({"error": "Provide either session_id or repo_path."})
+        return json.dumps({"error": "Session not found. Provide a valid repo_path pointing to a previously analyzed repository."})
 
     components = session.components
     module_tree = session.module_tree or {}

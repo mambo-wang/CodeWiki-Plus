@@ -157,19 +157,19 @@ def _is_within(path: Path, base: Path) -> bool:
 
 
 def _safe_doc_path(
-    session: SessionState,
+    output_dir: str,
     filename: str,
     page_type: str = "module",
 ) -> Path | None:
-    """Resolve *filename* within session.output_dir using the page type routing table.
+    """Resolve *filename* within *output_dir* using the page type routing table.
 
     Routes the file to the correct wiki subdirectory based on *page_type*
     (e.g. ``wiki/entities/`` for ``page_type="entity"``).  Guards against
     directory traversal.  Returns ``None`` if the path escapes output_dir.
     """
-    schema = load_schema(session.output_dir)
+    schema = load_schema(output_dir)
     try:
-        return resolve_doc_path(filename, page_type, session.output_dir, schema)
+        return resolve_doc_path(filename, page_type, output_dir, schema)
     except ValueError:
         return None
 
@@ -359,20 +359,26 @@ async def _validate_mermaid(file_path: str, relative_path: str) -> str:
         return f"Mermaid validation skipped: {e}"
 
 
-def _save_history(session: SessionState, doc_path: Path, content: str) -> None:
-    """Append *content* to edit history for *doc_path*, capped at _MAX_HISTORY_PER_FILE."""
-    history = session.registry.get("file_history")
-    if history is None:
-        history = {}
-    elif isinstance(history, str):
-        history = json.loads(history)
+def _save_history(output_dir: str, doc_path: Path, content: str) -> None:
+    """Append *content* to edit history for *doc_path*, capped at _MAX_HISTORY_PER_FILE.
+
+    History is persisted to ``output_dir/.meta/edit_history.json``.
+    """
+    from codewiki.src.config import meta_join
+    history_path = Path(meta_join(output_dir, "edit_history.json"))
+    history: dict = {}
+    if history_path.exists():
+        try:
+            history = json.loads(history_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
     key = str(doc_path)
-    entry = history.setdefault(key, [])
+    entry: list = history.setdefault(key, [])
     entry.append(content)
-    # Trim to last N entries
     if len(entry) > _MAX_HISTORY_PER_FILE:
         del entry[: len(entry) - _MAX_HISTORY_PER_FILE]
-    session.registry["file_history"] = history  # keep as native dict
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+    history_path.write_text(json.dumps(history, ensure_ascii=False), encoding="utf-8")
 
 
 def _inject_crosslinks(
@@ -772,30 +778,45 @@ async def handle_edit_doc_file(
     store: SessionStore,
 ) -> str:
     """Edit an existing documentation file (str_replace, insert, or undo)."""
-    session_id = arguments["session_id"]
-    session = store.get(session_id)
-    if session is None:
-        return json.dumps({"error": f"Session {session_id} not found or expired."})
+    # Resolve output directory from output_dir or repo_path
+    od = arguments.get("output_dir")
+    rp = arguments.get("repo_path")
+    if od:
+        output_dir = str(Path(od).expanduser().resolve())
+    elif rp:
+        repo_path = str(Path(rp).expanduser().resolve()) if Path(rp).is_absolute() else str((Path.cwd() / rp).expanduser().resolve())
+        output_dir = str(Path(repo_path) / "repowiki")
+    else:
+        return json.dumps({"error": "output_dir or repo_path is required."})
+
+    # Try to find active session for caching purposes (optional)
+    session = store.find_or_restore(repo_path) if repo_path else None
 
     filename = arguments["filename"]
     page_type = arguments.get("page_type", "module")
-    doc_path = _safe_doc_path(session, filename, page_type=page_type)
+    doc_path = _safe_doc_path(output_dir, filename, page_type=page_type)
     if doc_path is None:
         return json.dumps({"error": "Filename escapes output directory."})
 
     command = arguments["command"]
 
     if command == "undo":
-        # Undo via registry history
-        history = session.registry.get("file_history", {})
-        if isinstance(history, str):
-            history = json.loads(history)
-        path_history = history.get(str(doc_path), [])
+        # Undo via disk-based history
+        from codewiki.src.config import meta_join
+        history_path = Path(meta_join(output_dir, "edit_history.json"))
+        history: dict = {}
+        if history_path.exists():
+            try:
+                history = json.loads(history_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pass
+        path_history: list = history.get(str(doc_path), [])
         if not path_history:
             return json.dumps({"error": f"No edit history found for {filename}."})
         old_content = path_history.pop()
         history[str(doc_path)] = path_history
-        session.registry["file_history"] = history
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        history_path.write_text(json.dumps(history, ensure_ascii=False), encoding="utf-8")
         doc_path.write_text(old_content, encoding="utf-8")
 
         # Validate Mermaid after undo
@@ -804,14 +825,14 @@ async def handle_edit_doc_file(
         # LLM Wiki: update log.md (undo changes file content)
         try:
             from codewiki.mcp.tools.wiki_index import append_log
-            append_log(session.output_dir, "edit_doc_file", f"撤销 {filename}")
+            append_log(output_dir, "edit_doc_file", f"撤销 {filename}")
         except Exception:
             pass
 
         # Update BM25 search index after undo (SQLite-backed when session available)
         try:
             from codewiki.mcp.tools.wiki_search import update_file
-            update_file(session.output_dir, doc_path, session=session)
+            update_file(output_dir, doc_path, session=session)
         except Exception:
             pass
 
@@ -841,13 +862,13 @@ async def handle_edit_doc_file(
         new_content = current_content.replace(old_str, new_str, 1)
         # Save history only for edits that actually happen, so undo never
         # pops a no-op entry left behind by a failed/rejected command.
-        _save_history(session, doc_path, current_content)
+        _save_history(output_dir, doc_path, current_content)
         doc_path.write_text(new_content, encoding="utf-8")
 
         # Convert [[wikilink]] to markdown links
         try:
             raw = doc_path.read_text(encoding="utf-8")
-            linked = _convert_wikilinks_to_md(raw, Path(session.output_dir), doc_path)
+            linked = _convert_wikilinks_to_md(raw, Path(output_dir), doc_path)
             if linked != raw:
                 doc_path.write_text(linked, encoding="utf-8")
         except Exception:
@@ -871,13 +892,13 @@ async def handle_edit_doc_file(
         new_str_lines = new_str.split("\n")
         lines = lines[:insert_line] + new_str_lines + lines[insert_line:]
         new_content = "\n".join(lines)
-        _save_history(session, doc_path, current_content)
+        _save_history(output_dir, doc_path, current_content)
         doc_path.write_text(new_content, encoding="utf-8")
 
         # Convert [[wikilink]] to markdown links
         try:
             raw = doc_path.read_text(encoding="utf-8")
-            linked = _convert_wikilinks_to_md(raw, Path(session.output_dir), doc_path)
+            linked = _convert_wikilinks_to_md(raw, Path(output_dir), doc_path)
             if linked != raw:
                 doc_path.write_text(linked, encoding="utf-8")
         except Exception:
@@ -890,7 +911,8 @@ async def handle_edit_doc_file(
     else:
         return json.dumps({"error": f"Unknown command: {command}. Use str_replace, insert, or undo."})
 
-    session.docs_written += 1
+    if session is not None:
+        session.docs_written += 1
 
     # LLM Wiki: re-parse source_refs/chunk_refs from body after edit
     try:
@@ -908,15 +930,17 @@ async def handle_edit_doc_file(
     try:
         from codewiki.mcp.tools.knowledge_loop import _inject_symbol_links
         raw = doc_path.read_text(encoding="utf-8")
-        depth = compute_depth(doc_path, session.output_dir)
+        depth = compute_depth(doc_path, output_dir)
         # symbol_map paths are relative to repo root; add extra levels to
         # escape output_dir (e.g. docs/) up to the repository root.
-        try:
-            extra = len(Path(session.output_dir).resolve().relative_to(
-                Path(session.repo_path).resolve()).parts)
-        except (ValueError, AttributeError):
-            extra = 0
-        linked = _inject_symbol_links(raw, Path(session.output_dir), depth=depth + extra, session=session)
+        extra = 0
+        if repo_path:
+            try:
+                extra = len(Path(output_dir).resolve().relative_to(
+                    Path(repo_path).resolve()).parts)
+            except (ValueError, AttributeError):
+                pass
+        linked = _inject_symbol_links(raw, Path(output_dir), depth=depth + extra, session=session)
         if linked != raw:
             doc_path.write_text(linked, encoding="utf-8")
     except Exception:
@@ -933,16 +957,16 @@ async def handle_edit_doc_file(
     # LLM Wiki: update index.md and log.md
     try:
         from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
-        append_log(session.output_dir, "edit_doc_file",
+        append_log(output_dir, "edit_doc_file",
                    f"更新 {filename} ({command})")
-        rebuild_index(session.output_dir)
+        rebuild_index(output_dir)
     except Exception as e:
         logger.warning("Index/log update failed (non-fatal): %s", e)
 
     # Update BM25 search index (SQLite-backed when session available)
     try:
         from codewiki.mcp.tools.wiki_search import update_file
-        update_file(session.output_dir, doc_path, session=session)
+        update_file(output_dir, doc_path, session=session)
     except Exception as e:
         logger.warning("Search index update failed (non-fatal): %s", e)
 
