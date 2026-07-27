@@ -54,13 +54,8 @@ def handle_list_components(
 
     session = resolve_session(arguments, store)
     if session is None:
-        if arguments.get("session_id"):
-            return json.dumps(
-                {"error": f"Session {arguments['session_id']} not found or expired."},
-                ensure_ascii=False,
-            )
         return json.dumps(
-            {"error": "Provide either session_id or repo_path."},
+            {"error": "Session not found. Provide a valid repo_path pointing to a previously analyzed repository."},
             ensure_ascii=False,
         )
 

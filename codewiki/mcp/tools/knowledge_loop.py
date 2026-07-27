@@ -228,8 +228,6 @@ def handle_ingest_note(
     """Ingest a structured note into the knowledge base."""
     session_id = arguments.get("session_id")
     session = store.get(session_id) if session_id else None
-    if session is None and session_id:
-        return json.dumps({"error": f"Session {session_id} not found or expired."})
 
     # Resolve output directory
     if session:
@@ -237,7 +235,7 @@ def handle_ingest_note(
     else:
         od = arguments.get("output_dir")
         if not od:
-            return json.dumps({"error": "session_id or output_dir is required."})
+            return json.dumps({"error": "output_dir is required."})
         output_dir = Path(od).expanduser().resolve()
 
     from codewiki.src.config import NOTES_DIR
@@ -424,7 +422,7 @@ def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     else:
         od = arguments.get("output_dir")
         if not od:
-            return json.dumps({"error": "session_id or output_dir is required."})
+            return json.dumps({"error": "output_dir is required."})
         output_dir = Path(od).expanduser().resolve()
 
     note_file = arguments.get("note_file", "")
@@ -443,7 +441,7 @@ def handle_reject_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     else:
         od = arguments.get("output_dir")
         if not od:
-            return json.dumps({"error": "session_id or output_dir is required."})
+            return json.dumps({"error": "output_dir is required."})
         output_dir = Path(od).expanduser().resolve()
 
     note_file = arguments.get("note_file", "")
@@ -792,7 +790,7 @@ def handle_query_wiki(
     else:
         od = arguments.get("output_dir")
         if not od:
-            return json.dumps({"error": "session_id or output_dir is required."})
+            return json.dumps({"error": "output_dir is required."})
         output_dir = Path(od).expanduser().resolve()
 
     query = arguments.get("query", "")

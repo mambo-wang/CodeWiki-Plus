@@ -15,7 +15,10 @@ from typing import Any, Dict, List, Tuple
 
 from codewiki.mcp.session import SessionState, SessionStore
 from codewiki.mcp.tools.file_param import read_json_param
+from codewiki.mcp.tools.workspace_result import resolve_session
 from codewiki.src.config import FIRST_MODULE_TREE_FILENAME, MODULE_TREE_FILENAME, meta_join, meta_resolve
+from codewiki.mcp.workspace import SessionWorkspace
+from pathlib import Path as _Path
 
 logger = logging.getLogger(__name__)
 
@@ -56,15 +59,16 @@ def _get_processing_order(module_tree: Dict[str, Any], parent_path: List[str] = 
 
 
 def _save_and_compute_order(
-    session: SessionState,
+    output_dir: str,
     module_tree: Dict[str, Any],
+    *,
+    session: SessionState | None = None,
+    workspace: SessionWorkspace | None = None,
 ) -> str:
     """Persist a module tree and compute the leaf-first processing order.
 
     Shared by ``handle_save_module_tree``.
     """
-    output_dir = session.output_dir
-
     # Save both immutable snapshot and mutable working copy
     first_path = meta_join(output_dir, FIRST_MODULE_TREE_FILENAME)
     working_path = meta_join(output_dir, MODULE_TREE_FILENAME)
@@ -76,14 +80,18 @@ def _save_and_compute_order(
     with open(working_path, "w", encoding="utf-8") as f:
         json.dump(module_tree, f, indent=2, ensure_ascii=False)
 
-    # Cache in session
-    session.module_tree = module_tree
+    # Cache in session if available
+    if session is not None:
+        session.module_tree = module_tree
 
     # Compute processing order and write to workspace file
     order = _get_processing_order(module_tree)
     order_file = None
-    if session.workspace is not None:
-        order_path = session.workspace.write_json("processing_order.json", order)
+    ws = workspace
+    if ws is None and session is not None and session.workspace is not None:
+        ws = session.workspace
+    if ws is not None:
+        order_path = ws.write_json("processing_order.json", order)
         order_file = str(order_path)
 
     # Count total components assigned
@@ -117,15 +125,20 @@ def handle_save_module_tree(
     store: SessionStore,
 ) -> str:
     """Persist the IDE agent's clustering result as the module tree."""
-    session_id = arguments["session_id"]
-    session = store.get(session_id)
-    if session is None:
-        return json.dumps({"error": f"Session {session_id} not found or expired."})
+    repo_path = arguments.get("repo_path")
+    if not repo_path:
+        return json.dumps({"error": "repo_path is required."})
+    rp = str(_Path(repo_path).expanduser().resolve()) if _Path(repo_path).is_absolute() else str((_Path.cwd() / repo_path).expanduser().resolve())
+    output_dir = str(_Path(rp) / "repowiki")
+
+    # Try to reuse active session for workspace/caching, fall back to standalone
+    session = resolve_session(arguments, store)
+    workspace = session.workspace if session is not None else SessionWorkspace(_Path(rp), "standalone")
 
     module_tree = read_json_param(arguments, "module_tree")
     if module_tree is None:
         return json.dumps({"error": "module_tree or module_tree_file is required."}, ensure_ascii=False)
-    return _save_and_compute_order(session, module_tree)
+    return _save_and_compute_order(output_dir, module_tree, session=session, workspace=workspace)
 
 
 def handle_get_processing_order(
@@ -133,19 +146,24 @@ def handle_get_processing_order(
     store: SessionStore,
 ) -> str:
     """Write the leaf-first processing order to a workspace file and return its path."""
-    session_id = arguments["session_id"]
-    session = store.get(session_id)
-    if session is None:
-        return json.dumps({"error": f"Session {session_id} not found or expired."})
+    repo_path = arguments.get("repo_path")
+    if not repo_path:
+        return json.dumps({"error": "repo_path is required."})
+    rp = str(_Path(repo_path).expanduser().resolve()) if _Path(repo_path).is_absolute() else str((_Path.cwd() / repo_path).expanduser().resolve())
+    output_dir = str(_Path(rp) / "repowiki")
+
+    session = resolve_session(arguments, store)
+    workspace = session.workspace if session is not None else SessionWorkspace(_Path(rp), "standalone")
 
     # Try session cache first, then disk
-    module_tree = session.module_tree
+    module_tree = session.module_tree if session is not None else {}
     if not module_tree:
-        tree_path = meta_resolve(session.output_dir, MODULE_TREE_FILENAME)
+        tree_path = meta_resolve(output_dir, MODULE_TREE_FILENAME)
         if os.path.exists(tree_path):
             with open(tree_path, encoding="utf-8") as f:
                 module_tree = json.load(f)
-            session.module_tree = module_tree
+            if session is not None:
+                session.module_tree = module_tree
         else:
             return json.dumps({
                 "error": "Module tree not found. Call save_module_tree first."
@@ -155,12 +173,11 @@ def handle_get_processing_order(
 
     # Write to workspace file
     order_file = None
-    if session.workspace is not None:
-        order_path = session.workspace.write_json("processing_order.json", order)
+    if workspace is not None:
+        order_path = workspace.write_json("processing_order.json", order)
         order_file = str(order_path)
 
     result = {
-        "session_id": session_id,
         "module_count": len(module_tree),
         "processing_order_file": order_file,
         "hint": "Read the processing_order.json file for the full leaf-first order.",

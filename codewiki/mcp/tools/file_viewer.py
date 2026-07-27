@@ -22,29 +22,12 @@ def handle_view_repo_file(
     arguments: Dict[str, Any],
     store: SessionStore,
 ) -> str:
-    """Read a file or list a directory within the repository.
-
-    Arguments
-    ---------
-    session_id : str (required)
-        Session ID from ``analyze_repo``.
-    path : str (required)
-        Relative path from the repository root.  Can point to a file
-        (content returned) or a directory (listing returned).
-        ``repowiki/`` and other output dirs are accessible since they
-        live under ``repo_path``.
-
-    Returns
-    -------
-    For files:  ``{"path": ..., "type": "file", "content": ..., "size": N}``
-    For dirs:   ``{"path": ..., "type": "directory", "entries": [...]}`
-    For large files: ``{"path": ..., "type": "file", "workspace_file": ..., "size": N, "truncated": true}``
-    """
-    session_id = arguments.get("session_id", "")
-    session = store.get(session_id)
+    """Read a file or list a directory within the repository."""
+    from codewiki.mcp.tools.workspace_result import resolve_session
+    session = resolve_session(arguments, store)
     if session is None:
         return json.dumps(
-            {"error": f"Session {session_id} not found or expired."},
+            {"error": "Session not found. Ensure repo_path points to a previously analyzed repository."},
             ensure_ascii=False,
         )
 
