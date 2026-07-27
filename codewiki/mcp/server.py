@@ -1492,6 +1492,57 @@ async def list_prompts() -> list:
                 ),
             ],
         ),
+        Prompt(
+            name="code-analysis",
+            title="代码结构分析（不生成 Wiki）",
+            description=(
+                "仅解析代码结构、构建函数级调用图、查询依赖和评估修改影响范围，"
+                "不生成任何 Wiki 文档。分析结果缓存在 SQLite 中，后续可随时继续生成 Wiki。"
+            ),
+            arguments=[
+                PromptArgument(
+                    name="repo_path",
+                    description="要分析的代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
+                    required=False,
+                ),
+            ],
+        ),
+        Prompt(
+            name="impact-review",
+            title="修改影响范围评估",
+            description=(
+                "对指定组件或文件执行传递性影响分析（BFS 遍历），评估修改的爆炸半径："
+                "谁依赖我（depended_by）或我依赖谁（depends_on），输出模块级聚合、"
+                "高风险组件识别和完整调用链路。"
+            ),
+            arguments=[
+                PromptArgument(
+                    name="repo_path",
+                    description="代码仓库路径（须已执行过 analyze_repo 或 code-analysis）",
+                    required=False,
+                ),
+                PromptArgument(
+                    name="target",
+                    description="分析目标：组件 ID（如 src/auth.py::AuthService）或文件路径",
+                    required=True,
+                ),
+            ],
+        ),
+        Prompt(
+            name="architecture-review",
+            title="架构审查与热点分析",
+            description=(
+                "通过依赖图分析理解代码库的高层架构：识别核心层/服务层/应用层、"
+                "发现依赖热点和耦合风险、定位入口点和模块边界。"
+            ),
+            arguments=[
+                PromptArgument(
+                    name="repo_path",
+                    description="代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
+                    required=False,
+                ),
+            ],
+        ),
     ]
 
 
@@ -1509,6 +1560,9 @@ async def get_prompt(name: str, arguments: dict[str, str] | None) -> Any:
         "incremental-update": _prompt_incremental_update,
         "workspace-analysis": _prompt_workspace_analysis,
         "cross-service-trace": _prompt_cross_service_trace,
+        "code-analysis": _prompt_code_analysis,
+        "impact-review": _prompt_impact_review,
+        "architecture-review": _prompt_architecture_review,
     }
 
     handler = prompts_map.get(name)
@@ -1884,6 +1938,173 @@ def _prompt_workspace_analysis(args: dict[str, str]) -> str:
 - 使用 query_wiki 在 workspace 级别搜索跨服务知识
 - 未匹配的客户端调用（在 overview.md 路由表中标记）需人工确认：可能是外部系统调用、
   硬编码 URL、或客户端使用了 RouteNode 匹配不到的协议（如 gRPC）"""
+
+
+def _prompt_code_analysis(args: dict[str, str]) -> str:
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    return f"""请对代码仓库执行纯结构分析（不生成 Wiki 文档）。按以下步骤执行：
+
+## 步骤 1: 分析仓库
+调用 analyze_repo(repo_path="{repo_path}")
+- 构建函数级调用图（Tree-sitter AST 解析，无 LLM）
+- 返回 session_id、组件数量、语言统计
+- 结果缓存在 SQLite 中，支持增量更新
+
+## 步骤 2: 浏览组件
+调用 list_components(session_id, filter_type='all') 浏览所有组件
+- filter_type='by_file', filter_value='src/auth/' 按路径筛选
+- filter_type='by_type', filter_value='class' 按类型筛选
+- 大文件结果通过 workspace file_path 读取完整组件索引
+
+## 步骤 3: 查询依赖关系
+```
+# 直接（1跳）依赖
+list_dependencies(session_id, component_ids=['src/auth.py::AuthService'], direction='both')
+
+# 模块级依赖图
+list_dependencies(session_id, module_level=true)
+```
+
+## 步骤 4: 传递性影响分析
+```
+# 谁依赖我（传递性）
+analyze_impact(session_id, component_ids=['src/utils.py::parse_config'],
+               direction='depended_by')
+
+# 按文件路径（自动解析为组件）
+analyze_impact(session_id, file_paths=['src/utils.py'],
+               direction='depended_by')
+
+# 完整调用链路
+analyze_impact(session_id, component_ids=['src/utils.py::parse_config'],
+               direction='depended_by', include_paths=true)
+```
+
+## 步骤 5: 阅读源码
+```
+read_code_components(session_id, component_ids=['src/auth.py::AuthService'])
+```
+
+## 关键点
+- 所有分析本地运行（Tree-sitter），无需 LLM/API Key
+- 结果持久化到 SQLite，关闭会话后可重新分析（增量模式自动复用缓存）
+- 后续想生成 Wiki 时，直接执行 generate-wiki 工作流即可
+- 使用 get_prompt(prompt_type="code_analysis") 获取更详细的工具用法说明"""
+
+
+def _prompt_impact_review(args: dict[str, str]) -> str:
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    target = args.get("target", "<target>")
+    # Determine if target looks like a component_id (has ::) or a file path
+    is_component = "::" in target
+    if is_component:
+        impact_call = f"analyze_impact(session_id, component_ids=['{target}'], direction='depended_by', include_paths=true)"
+        reverse_call = f"analyze_impact(session_id, component_ids=['{target}'], direction='depends_on')"
+    else:
+        impact_call = f"analyze_impact(session_id, file_paths=['{target}'], direction='depended_by', include_paths=true)"
+        reverse_call = f"analyze_impact(session_id, file_paths=['{target}'], direction='depends_on')"
+    return f"""请评估修改 `{target}` 的影响范围。按以下步骤执行：
+
+## 步骤 1: 确保已分析
+调用 analyze_repo(repo_path="{repo_path}")
+- 如果已有 SQLite 缓存，会自动增量更新
+- 记录返回的 session_id
+
+## 步骤 2: 正向影响分析（谁依赖我）
+调用 {impact_call}
+- 返回所有传递性受影响的组件
+- depth 0 = 目标组件本身，depth 1 = 直接调用者，depth 2+ = 间接调用者
+- include_paths=true 会返回从目标到每个受影响组件的最短调用链
+
+## 步骤 3: 反向依赖分析（我依赖谁）
+调用 {reverse_call}
+- 返回目标组件传递性依赖的所有组件
+- 帮助理解修改可能破坏的上游依赖
+
+## 步骤 4: 风险评估
+根据分析结果评估：
+- **爆炸半径**：<10 个受影响组件 = 低风险，10-50 = 中等，50+ = 高风险
+- **模块扩散**：受影响组件分布在 1-2 个模块还是 5+ 个？跨模块影响需要更多集成测试
+- **深度分布**：大部分受影响在 depth 1-2？深度 5+ 意味着紧耦合
+- **高风险组件**：是否有 high_risk_components（5+ 直接依赖者）在受影响集合中？
+- **入口点**：受影响组件是否有 API 端点、CLI 命令、事件处理器？这些是面向用户的
+
+## 步骤 5: 制定变更计划
+- **低风险**：直接修改，跑现有测试
+- **中等风险**：审查受影响模块的测试，为 depth-1 调用者添加回归测试
+- **高风险**：拆分为小步骤；用 read_code_components 审查每个 depth-1 调用者；考虑特性开关
+
+## 后续查询
+```
+# 钻入某个受影响的组件
+analyze_impact(session_id, component_ids=['<affected_id>'], direction='depends_on')
+
+# 查看模块级依赖
+list_dependencies(session_id, module_level=true)
+
+# 阅读高风险组件源码
+read_code_components(session_id, component_ids=['<high_risk_id>'])
+```
+
+使用 get_prompt(prompt_type="impact_review") 获取更详细的解读指南。"""
+
+
+def _prompt_architecture_review(args: dict[str, str]) -> str:
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    return f"""请通过依赖图分析代码库的高层架构。按以下步骤执行：
+
+## 步骤 1: 分析仓库
+调用 analyze_repo(repo_path="{repo_path}")
+- 记录 total_components、languages、leaf_nodes_preview
+- leaf_nodes 是入口点（无依赖者的顶层消费者）
+
+## 步骤 2: 识别架构层次
+```
+# 高影响组件（被多人依赖）= 基础设施/核心层
+list_dependencies(session_id, direction='depended_by')
+# → 查看 high_impact_components
+
+# 叶节点 = 应用/API 层（消费他人，无人消费）
+# 已在 analyze_repo 返回的 leaf_nodes 中
+```
+- 高 depended_by_count 的组件 = 核心/基础设施层
+- leaf_nodes = 应用边界（API、CLI、Handler）
+
+## 步骤 3: 映射模块边界
+```
+list_dependencies(session_id, module_level=true)
+```
+关注：
+- **枢纽模块**：高 depends_on + 高 depended_by（编排者）
+- **叶模块**：仅 depends_on（应用层）
+- **核心模块**：仅 depended_by（共享库）
+- **循环依赖**：相互依赖的模块（耦合臭味）
+
+## 步骤 4: 追踪关键路径
+```
+# 选一个入口点，追踪它依赖什么
+analyze_impact(session_id, component_ids=['<leaf_node>'],
+               direction='depends_on', include_paths=true)
+
+# 选一个核心组件，看谁使用它
+analyze_impact(session_id, component_ids=['<core_component>'],
+               direction='depended_by', include_paths=true)
+```
+
+## 步骤 5: 识别热点和风险
+- depended_by_count >= 10：变更抗性热点
+- 循环依赖模块：重构候选
+- 深依赖链（depth 5+）：紧耦合指标
+
+## 输出模板
+总结发现：
+1. **层次图**：核心 → 服务 → 应用（Mermaid graph TD）
+2. **模块地图**：枢纽/叶/核心分类 + 依赖箭头
+3. **热点**：Top 5 最被依赖组件及其风险等级
+4. **入口点**：按类型分组的叶节点（API、CLI、事件处理器）
+5. **耦合关注点**：循环依赖、深链、上帝模块
+
+使用 get_prompt(prompt_type="architecture_review") 获取更详细的分析指南。"""
 
 
 # ===================================================================
