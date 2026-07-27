@@ -223,7 +223,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
 
     # 4. Incremental changes (from current run or saved metadata.json)
     if changes_info is None:
-        changes_info = _detect_doc_changes(repo_path, output_dir)
+        changes_info = _detect_doc_changes(repo_path, output_dir, components=metas)
     if changes_info is not None:
         workspace.write_json("changes.json", changes_info)
 
@@ -584,7 +584,11 @@ def _build_symbol_map(metas: Dict[str, ComponentMeta]) -> Dict[str, List[str]]:
     return symbol_map
 
 
-def _detect_doc_changes(repo_path: Path, output_dir: Path) -> Optional[Dict[str, Any]]:
+def _detect_doc_changes(
+    repo_path: Path,
+    output_dir: Path,
+    components: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
     """Detect documentation-level changes since last generation (legacy JSON fallback)."""
     from codewiki.src.config import meta_resolve
     mp = Path(meta_resolve(output_dir, "metadata.json"))
@@ -605,7 +609,7 @@ def _detect_doc_changes(repo_path: Path, output_dir: Path) -> Optional[Dict[str,
     if not cf:
         return {"has_previous": True, "no_changes": True,
                 "method": changes.get("method","unknown")}
-    affected, cascade = _find_affected_modules(mt, cf)
+    affected, cascade = _find_affected_modules(mt, cf, components=components)
 
     # Precise overview stale check: only mark overview stale if it actually
     # references affected modules (instead of always cascading)
@@ -687,7 +691,65 @@ def _detect_mtime_from_meta(repo_path: Path, metadata: Dict) -> Optional[Dict]:
     return {"changed_files": ch, "method": "mtime"}
 
 
-def _find_affected_modules(module_tree: Dict, changed_files: List[str]):
+def _find_affected_modules(
+    module_tree: Dict,
+    changed_files: List[str],
+    components: Optional[Dict[str, Any]] = None,
+):
+    """Find modules affected by changed files.
+
+    When *components* is provided (a dict of comp_id → ComponentMeta/Node),
+    uses graph-based transitive impact analysis: changed files are resolved
+    to component IDs, then a reverse BFS finds all transitively affected
+    components, which are mapped back to modules.  This catches cross-module
+    callers that file-path matching would miss.
+
+    Falls back to file-path substring matching + tree-ancestor cascading
+    when *components* is None (legacy / disk-only context).
+    """
+    # --- Graph-based path (preferred) ----------------------------------
+    if components:
+        try:
+            from codewiki.src.be.dependency_analyzer.topo_sort import (
+                build_graph_from_components,
+                resolve_files_to_components,
+                transitive_impact,
+            )
+            start_ids = resolve_files_to_components(components, changed_files)
+            if start_ids:
+                graph = build_graph_from_components(components)
+                result = transitive_impact(
+                    graph, set(start_ids),
+                    max_depth=10, direction="depended_by",
+                )
+                affected_ids = set(result["affected"].keys())
+
+                # Map affected component IDs → modules
+                affected: Set[str] = set()
+                cascade: Set[str] = set()
+
+                def _walk_graph(tree: Dict, parents: Optional[List[str]] = None):
+                    if parents is None:
+                        parents = []
+                    for mn, mi in tree.items():
+                        comps = mi.get("components", [])
+                        hit = any(c in affected_ids for c in comps)
+                        if hit:
+                            affected.add(mn)
+                            cascade.update(parents)
+                        children = mi.get("children", {})
+                        if isinstance(children, dict) and children:
+                            _walk_graph(children, parents + [mn])
+
+                _walk_graph(module_tree)
+                if affected:
+                    cascade.add("overview")
+                return affected, cascade
+        except Exception:
+            logger.debug("Graph-based impact failed, falling back to path matching",
+                         exc_info=True)
+
+    # --- File-path fallback (original logic) ---------------------------
     affected, cascade = set(), set()
     def _walk(tree, parents=None):
         if parents is None: parents = []

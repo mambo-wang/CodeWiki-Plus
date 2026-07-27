@@ -359,4 +359,157 @@ def get_leaf_nodes(graph: Dict[str, Set[str]], components: Dict[str, Node]) -> L
         logger.warning("No leaf nodes found in the graph")
         return []
     
-    return concise_leaf_nodes 
+    return concise_leaf_nodes
+
+
+# ---------------------------------------------------------------------------
+# Transitive impact analysis
+# ---------------------------------------------------------------------------
+
+def build_reverse_graph(graph: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
+    """Build the reverse adjacency list.
+
+    If the forward graph has edge A → B (A depends on B), the reverse
+    graph has edge B → A (B is depended-on by A).
+    """
+    reverse: Dict[str, Set[str]] = {}
+    for node in graph:
+        reverse.setdefault(node, set())
+    for node, deps in graph.items():
+        for dep in deps:
+            reverse.setdefault(dep, set()).add(node)
+    return reverse
+
+
+def transitive_impact(
+    graph: Dict[str, Set[str]],
+    start_nodes: Set[str],
+    *,
+    max_depth: int = 10,
+    direction: str = "depended_by",
+    track_paths: bool = False,
+) -> Dict[str, Any]:
+    """BFS traversal to find all transitively affected components.
+
+    Parameters
+    ----------
+    graph : Dict[str, Set[str]]
+        Forward dependency graph where edge A → B means "A depends on B".
+    start_nodes : Set[str]
+        Component IDs to start traversal from.
+    max_depth : int
+        Maximum number of hops to traverse (default 10).
+    direction : str
+        ``"depended_by"`` – walk the *reverse* graph (who depends on me,
+        transitively).  ``"depends_on"`` – walk the *forward* graph (what
+        do I depend on, transitively).  ``"both"`` – union of both.
+    track_paths : bool
+        When True, record BFS parent pointers so that the shortest path
+        from a start node to every affected node can be reconstructed.
+
+    Returns
+    -------
+    dict
+        ``"affected"`` – ``{comp_id: depth}`` for every reached component
+        (start nodes themselves are included at depth 0).
+        ``"paths"`` – ``{comp_id: [start, …, comp_id]}`` (only when
+        *track_paths* is True).
+    """
+    if direction == "both":
+        fwd = transitive_impact(
+            graph, start_nodes,
+            max_depth=max_depth, direction="depends_on",
+            track_paths=track_paths,
+        )
+        rev = transitive_impact(
+            graph, start_nodes,
+            max_depth=max_depth, direction="depended_by",
+            track_paths=track_paths,
+        )
+        # Merge: keep the smaller depth when a node appears in both
+        merged: Dict[str, int] = {}
+        for cid, d in fwd["affected"].items():
+            merged[cid] = d
+        for cid, d in rev["affected"].items():
+            if cid not in merged or d < merged[cid]:
+                merged[cid] = d
+        result: Dict[str, Any] = {"affected": merged}
+        if track_paths:
+            paths: Dict[str, List[str]] = {}
+            paths.update(fwd.get("paths", {}))
+            for cid, p in rev.get("paths", {}).items():
+                if cid not in paths or len(p) < len(paths[cid]):
+                    paths[cid] = p
+            result["paths"] = paths
+        return result
+
+    # Choose traversal graph
+    if direction == "depends_on":
+        trav = graph
+    else:  # depended_by (default)
+        trav = build_reverse_graph(graph)
+
+    affected: Dict[str, int] = {}
+    parent: Dict[str, Optional[str]] = {} if track_paths else {}
+    queue: deque = deque()
+
+    for sn in start_nodes:
+        affected[sn] = 0
+        if track_paths:
+            parent[sn] = None
+        queue.append((sn, 0))
+
+    while queue:
+        node, depth = queue.popleft()
+        if depth >= max_depth:
+            continue
+        for neighbour in trav.get(node, set()):
+            if neighbour not in affected:
+                affected[neighbour] = depth + 1
+                if track_paths:
+                    parent[neighbour] = node
+                queue.append((neighbour, depth + 1))
+
+    result = {"affected": affected}
+
+    if track_paths:
+        paths = {}
+        for cid in affected:
+            chain: List[str] = []
+            cur: Optional[str] = cid
+            while cur is not None:
+                chain.append(cur)
+                cur = parent.get(cur)
+            chain.reverse()
+            paths[cid] = chain
+        result["paths"] = paths
+
+    return result
+
+
+def resolve_files_to_components(
+    components: Dict[str, Any],
+    file_paths: List[str],
+) -> List[str]:
+    """Map file paths to component IDs.
+
+    A component matches a file path when its ``relative_path`` equals the
+    given path, or one is a suffix of the other (handles both repo-relative
+    and absolute-ish inputs).
+    """
+    matched: List[str] = []
+    for comp_id, node in components.items():
+        rp = getattr(node, "relative_path", "") or ""
+        fp = getattr(node, "file_path", "") or ""
+        for target in file_paths:
+            if (
+                rp == target
+                or fp == target
+                or rp.endswith("/" + target)
+                or target.endswith("/" + rp)
+                or fp.endswith("/" + target)
+                or target.endswith("/" + fp)
+            ):
+                matched.append(comp_id)
+                break
+    return matched 
