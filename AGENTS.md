@@ -10,35 +10,6 @@
 - [`repowiki/wiki/index.md`](repowiki/wiki/index.md) — 文档目录与知识笔记索引
 - [`repowiki/wiki/schema.yaml`](repowiki/wiki/schema.yaml) — 项目文档约定（命名规范、必填章节等）
 
-**模块列表：**
-
-- [CLI](repowiki/wiki/modules/CLI.md)
-- [CLI_Adapter](repowiki/wiki/modules/CLI_Adapter.md)
-- [CLI_Commands](repowiki/wiki/modules/CLI_Commands.md)
-- [CLI_Config](repowiki/wiki/modules/CLI_Config.md)
-- [CLI_Utils](repowiki/wiki/modules/CLI_Utils.md)
-- [DependencyAnalyzer](repowiki/wiki/modules/DependencyAnalyzer.md)
-- [AnalysisPipeline](repowiki/wiki/modules/AnalysisPipeline.md)
-- [AnalyzerModels](repowiki/wiki/modules/AnalyzerModels.md)
-- [AnalyzerUtils](repowiki/wiki/modules/AnalyzerUtils.md)
-- [GraphAndSort](repowiki/wiki/modules/GraphAndSort.md)
-- [LanguageAnalyzers](repowiki/wiki/modules/LanguageAnalyzers.md)
-- [RouteExtractors](repowiki/wiki/modules/RouteExtractors.md)
-- [Frontend](repowiki/wiki/modules/Frontend.md)
-- [DocVisualizer](repowiki/wiki/modules/DocVisualizer.md)
-- [WebApp](repowiki/wiki/modules/WebApp.md)
-- [LLM_Backend](repowiki/wiki/modules/LLM_Backend.md)
-- [MCP_Server](repowiki/wiki/modules/MCP_Server.md)
-- [MCP_Cache](repowiki/wiki/modules/MCP_Cache.md)
-- [MCP_Core](repowiki/wiki/modules/MCP_Core.md)
-- [MCP_Prompts](repowiki/wiki/modules/MCP_Prompts.md)
-- [MCP_Tools_Analysis](repowiki/wiki/modules/MCP_Tools_Analysis.md)
-- [MCP_Tools_Dependency](repowiki/wiki/modules/MCP_Tools_Dependency.md)
-- [MCP_Tools_DocWriter](repowiki/wiki/modules/MCP_Tools_DocWriter.md)
-- [MCP_Tools_Knowledge](repowiki/wiki/modules/MCP_Tools_Knowledge.md)
-- [MCP_Tools_Quality](repowiki/wiki/modules/MCP_Tools_Quality.md)
-- [SharedConfig](repowiki/wiki/modules/SharedConfig.md)
-
 ### MCP 工具用法
 
 如果当前 IDE 已配置 CodeWiki MCP 服务器，可直接使用以下工具：

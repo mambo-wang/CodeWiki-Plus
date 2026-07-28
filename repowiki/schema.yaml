@@ -3,14 +3,14 @@
 # Fields under 'project' are always auto-updated.
 ---
 version: 1
-generated_at: '2026-07-27T21:17:10.892191'
+generated_at: '2026-07-28T11:52:32.965217'
 project:
   name: CodeWiki-CN
   languages:
   - python
-  total_components: 525
+  total_components: 528
 conventions:
-  module_naming: PascalCase
+  module_naming: snake_case
   file_pattern: '*.md'
   cross_reference_format: '[[{module_name}]]({{module_name}}.md)'
   mermaid_required: true
