@@ -4,34 +4,8 @@
 
 | 时间 | 操作 | 说明 |
 |------|------|------|
-| 2026-07-27T19:15:15+08:00 | analyze_repo | 分析仓库 CodeWiki-CN，523 个组件 |
-| 2026-07-27T19:20:07+08:00 | write_doc_file | 创建 CLI_Adapter.md |
-| 2026-07-27T19:20:49+08:00 | write_doc_file | 创建 CLI_Commands.md |
-| 2026-07-27T19:21:08+08:00 | write_doc_file | 创建 CLI_Config.md |
-| 2026-07-27T19:21:37+08:00 | write_doc_file | 创建 CLI_Utils.md |
-| 2026-07-27T19:21:58+08:00 | write_doc_file | 创建 AnalysisPipeline.md |
-| 2026-07-27T19:22:19+08:00 | write_doc_file | 创建 AnalyzerModels.md |
-| 2026-07-27T19:22:33+08:00 | write_doc_file | 创建 AnalyzerUtils.md |
-| 2026-07-27T19:22:55+08:00 | write_doc_file | 创建 GraphAndSort.md |
-| 2026-07-27T19:23:14+08:00 | write_doc_file | 创建 LanguageAnalyzers.md |
-| 2026-07-27T19:23:35+08:00 | write_doc_file | 创建 RouteExtractors.md |
-| 2026-07-27T19:23:44+08:00 | write_doc_file | 创建 DocVisualizer.md |
-| 2026-07-27T19:24:04+08:00 | write_doc_file | 创建 WebApp.md |
-| 2026-07-27T19:24:27+08:00 | write_doc_file | 创建 LLM_Backend.md |
-| 2026-07-27T19:24:47+08:00 | write_doc_file | 创建 MCP_Cache.md |
-| 2026-07-27T19:25:08+08:00 | write_doc_file | 创建 MCP_Core.md |
-| 2026-07-27T19:25:22+08:00 | write_doc_file | 创建 MCP_Prompts.md |
-| 2026-07-27T19:25:55+08:00 | write_doc_file | 创建 MCP_Tools_Analysis.md |
-| 2026-07-27T19:26:14+08:00 | write_doc_file | 创建 MCP_Tools_Dependency.md |
-| 2026-07-27T19:26:37+08:00 | write_doc_file | 创建 MCP_Tools_DocWriter.md |
-| 2026-07-27T19:27:00+08:00 | write_doc_file | 创建 MCP_Tools_Knowledge.md |
-| 2026-07-27T19:27:26+08:00 | write_doc_file | 创建 MCP_Tools_Quality.md |
-| 2026-07-27T19:27:41+08:00 | write_doc_file | 创建 SharedConfig.md |
-| 2026-07-27T19:28:02+08:00 | write_doc_file | 创建 CLI.md |
-| 2026-07-27T19:28:24+08:00 | write_doc_file | 创建 DependencyAnalyzer.md |
-| 2026-07-27T19:28:41+08:00 | write_doc_file | 创建 Frontend.md |
-| 2026-07-27T19:29:07+08:00 | write_doc_file | 创建 MCP_Server.md |
-| 2026-07-27T19:29:14+08:00 | close_session | 会话 89a4ff498dd2 关闭 |
-| 2026-07-27T19:48:10+08:00 | write_doc_file | 创建 overview.md |
-| 2026-07-27T21:17:10+08:00 | analyze_repo | 分析仓库 CodeWiki-CN，525 个组件 |
-| 2026-07-27T21:18:08+08:00 | close_session | 会话 a091af769737 关闭 |
+| 2026-07-28T11:52:32+08:00 | analyze_repo | 分析仓库 CodeWiki-CN，528 个组件 |
+| 2026-07-28T11:57:00+08:00 | write_doc_file | 创建 /Users/kirito/repos/CodeWiki-CN/repowiki/wiki/modules/CLI_Adapter.md |
+| 2026-07-28T18:00:00+08:00 | write_doc_file (批量) | 生成其余 25 个模块文档：CLI / CLI_Commands / CLI_Config / CLI_Utils / DependencyAnalyzer / AnalysisPipeline / AnalyzerModels / AnalyzerUtils / GraphAndSort / LanguageAnalyzers / RouteExtractors / Frontend / DocVisualizer / WebApp / LLM_Backend / SharedConfig / MCP_Server / MCP_Cache / MCP_Core / MCP_Prompts / MCP_Tools_Analysis / MCP_Tools_Dependency / MCP_Tools_DocWriter / MCP_Tools_Knowledge / MCP_Tools_Quality |
+| 2026-07-28T18:00:00+08:00 | rebuild_index | 重建 index.md（26 个模块文档索引）与 overview.md（仓库架构总览） |
+| 2026-07-28T12:49:03+08:00 | close_session | 会话关闭 |

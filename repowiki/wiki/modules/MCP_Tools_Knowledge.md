@@ -1,77 +1,138 @@
 ---
-type: Module
-title: MCP Knowledge Management Tools
-description: MCP tools for wiki querying, note ingestion, source import, code reading, and AGENTS.md generation
-resource: codewiki/mcp/tools/
-tags: [mcp, knowledge, wiki-search, notes, ingestion, agents-md]
+title: MCP_Tools_Knowledge
+depth: 2
+module_type: leaf
+component_count: 44
+components:
+  - codewiki/mcp/tools/agents_md.py::_build_section
+  - codewiki/mcp/tools/agents_md.py::_extract_modules
+  - codewiki/mcp/tools/agents_md.py::write_agents_md
+  - codewiki/mcp/tools/agents_md.py::_write_agents_md
+  - codewiki/mcp/tools/batch_ingest.py::handle_batch_ingest
+  - codewiki/mcp/tools/code_reader.py::_read_source_from_disk
+  - codewiki/mcp/tools/code_reader.py::handle_read_code_components
+  - codewiki/mcp/tools/file_viewer.py::handle_view_repo_file
+  - codewiki/mcp/tools/knowledge_loop.py::_auto_match_modules
+  - codewiki/mcp/tools/knowledge_loop.py::_collect
+  - codewiki/mcp/tools/knowledge_loop.py::_extract_frontmatter
+  - codewiki/mcp/tools/knowledge_loop.py::_extract_frontmatter_block
+  - codewiki/mcp/tools/knowledge_loop.py::_extract_keywords
+  - codewiki/mcp/tools/knowledge_loop.py::_extract_section
+  - codewiki/mcp/tools/knowledge_loop.py::_extract_tags
+  - codewiki/mcp/tools/knowledge_loop.py::_get_module_components
+  - codewiki/mcp/tools/knowledge_loop.py::_get_module_doc_name
+  - codewiki/mcp/tools/knowledge_loop.py::_inject_symbol_links
+  - codewiki/mcp/tools/knowledge_loop.py::_legacy_keyword_search
+  - codewiki/mcp/tools/knowledge_loop.py::_load_symbol_map
+  - codewiki/mcp/tools/knowledge_loop.py::_protect
+  - codewiki/mcp/tools/knowledge_loop.py::_query_mode_detail
+  - codewiki/mcp/tools/knowledge_loop.py::_query_mode_directory
+  - codewiki/mcp/tools/knowledge_loop.py::_query_mode_overview
+  - codewiki/mcp/tools/knowledge_loop.py::_replace_symbol
+  - codewiki/mcp/tools/knowledge_loop.py::_resolve_within
+  - codewiki/mcp/tools/knowledge_loop.py::_score_document
+  - codewiki/mcp/tools/knowledge_loop.py::_slugify
+  - codewiki/mcp/tools/knowledge_loop.py::_update_note_status
+  - codewiki/mcp/tools/knowledge_loop.py::_walk
+  - codewiki/mcp/tools/knowledge_loop.py::handle_confirm_note
+  - codewiki/mcp/tools/knowledge_loop.py::handle_ingest_note
+  - codewiki/mcp/tools/knowledge_loop.py::handle_query_wiki
+  - codewiki/mcp/tools/knowledge_loop.py::handle_reject_note
+  - codewiki/mcp/tools/source_ingest.py::_clean_source_refs
+  - codewiki/mcp/tools/source_ingest.py::_count_source_refs
+  - codewiki/mcp/tools/source_ingest.py::_load_registry
+  - codewiki/mcp/tools/source_ingest.py::_resolve_output_dir
+  - codewiki/mcp/tools/source_ingest.py::_save_registry
+  - codewiki/mcp/tools/source_ingest.py::handle_ingest_source
+  - codewiki/mcp/tools/source_ingest.py::handle_retract_source
+generated_by: codewiki
+generator_version: "1.0"
+updated_at: 2026-07-28
 ---
 
-# MCP Knowledge Management Tools
+# MCP_Tools_Knowledge 模块文档
 
-## Overview
+## 概述
 
-MCP tool handlers for the knowledge management flywheel: querying wiki content, ingesting development notes, importing external sources, reading code components, and generating AGENTS.md for AI IDE integration.
+`MCP_Tools_Knowledge` 是 CodeWiki MCP 服务的知识库工具集（leaf 模块），聚焦于**离线知识沉淀与检索闭环**：从源码/AGENTS.md 生成结构化文档，录入笔记要点，并提供多模式的 Wiki 查询能力。包含 6 个源文件、44 个组件，对外暴露 10 个 `handle_*` 工具入口，内部由大量 `_` 私有辅助函数支撑解析、匹配、打分与符号链接注入。
 
-## Architecture
+## 组件清单
+
+| 组件 | 类型 | 文件 | 职责 |
+|------|------|------|------|
+| `handle_query_wiki` | 公开 | knowledge_loop.py | Wiki 多模式查询总入口（overview/directory/detail） |
+| `handle_ingest_note` | 公开 | knowledge_loop.py | 接收用户笔记要点并暂存为待确认 note |
+| `handle_confirm_note` | 公开 | knowledge_loop.py | 确认 note，注入到对应模块文档 |
+| `handle_reject_note` | 公开 | knowledge_loop.py | 拒绝 note，标记状态 |
+| `handle_batch_ingest` | 公开 | batch_ingest.py | 批量摄入多个源码路径生成文档 |
+| `handle_read_code_components` | 公开 | code_reader.py | 读取代码组件（类/函数）用于文档生成 |
+| `handle_view_repo_file` | 公开 | file_viewer.py | 查看仓库内文件内容 |
+| `handle_ingest_source` | 公开 | source_ingest.py | 摄入源文件并建立 source→doc 注册表 |
+| `handle_retract_source` | 公开 | source_ingest.py | 撤回已摄入的源文件 |
+| `write_agents_md` | 公开 | agents_md.py | 生成 AGENTS.md 入口文档 |
+| `_extract_*` (`_extract_frontmatter`,`_extract_frontmatter_block`,`_extract_keywords`,`_extract_section`,`_extract_tags`,`_get_module_components`,`_get_module_doc_name`) | 私有 | knowledge_loop.py | 从文档抽取 frontmatter/关键词/段落/标签与模块组件映射 |
+| `_query_mode_*` (`_query_mode_overview`,`_query_mode_directory`,`_query_mode_detail`) | 私有 | knowledge_loop.py | 三种查询模式的内部实现 |
+| `_` 其他辅助 (`_auto_match_modules`,`_collect`,`_walk`,`_load_symbol_map`,`_inject_symbol_links`,`_replace_symbol`,`_protect`,`_resolve_within`,`_score_document`,`_slugify`,`_legacy_keyword_search`,`_update_note_status`) | 私有 | knowledge_loop.py | 模块自动匹配、目录遍历、符号映射/链接注入、文档打分、slug 化与状态更新 |
+| `_build_section` / `_extract_modules` / `_write_agents_md` | 私有 | agents_md.py | 构建 AGENTS.md 章节、解析模块列表、落盘写入 |
+| `_read_source_from_disk` | 私有 | code_reader.py | 从磁盘读取源文件内容 |
+| `_clean_source_refs` / `_count_source_refs` / `_load_registry` / `_resolve_output_dir` / `_save_registry` | 私有 | source_ingest.py | 源引用清理/计数、注册表加载/保存、输出目录解析 |
+
+## 关键设计
+
+1. **查询三模式**：`overview` 给目录鸟瞰，`directory` 列模块与组件，`detail` 深入单模块文档并注入符号链接。
+2. **符号链接注入**：`_load_symbol_map` + `_inject_symbol_links` + `_replace_symbol` 将文档中的 `[[Symbol]]` 跨文档互链，提升可导航性。
+3. **笔记闭环**：`ingest→confirm/reject` 状态机（`_update_note_status`）保证用户知识可控沉淀。
+4. **源注册表**：source_ingest 维护 registry 记录 source 与生成 doc 的映射，支持 retract 回滚。
+5. **AGENTS.md 自动生成**：从各模块 frontmatter 抽取组件，聚合为仓库入口文档。
+
+## 数据流（mermaid）
 
 ```mermaid
-graph TB
-    A[query_wiki] --> B[BM25 search]
-    A --> C[graph hop expansion]
-    A --> D[symbol link injection]
-    E[ingest_note] --> F[note status flow]
-    F --> G[candidate]
-    F --> H[confirmed]
-    F --> I[rejected]
-    J[ingest_source] --> K[source registry]
-    K --> L[entity extraction]
-    M[read_code_components] --> N[source code]
-    O[write_agents_md] --> P[AI IDE instructions]
+flowchart LR
+  A[handle_ingest_source] --> B[_load_registry/_resolve_output_dir]
+  B --> C[生成 doc + _save_registry]
+  D[handle_batch_ingest] --> E[handle_read_code_components]
+  E --> F[_read_source_from_disk]
+  F --> G[write_agents_md/_write_agents_md]
+  H[handle_ingest_note] --> I[_auto_match_modules]
+  I --> J[待确认 note]
+  J --> K[handle_confirm_note/handle_reject_note]
+  K --> L[_update_note_status + _inject_symbol_links]
+  M[handle_query_wiki] --> N[_query_mode_overview/_directory/_detail]
+  N --> O[_score_document/_extract_*]
+  O --> P[返回 Wiki 内容]
 ```
 
-## Components
+## 依赖关系
 
-### query_wiki (knowledge_loop.py)
-Three-layer search strategy:
-1. **Overview mode**: BM25 full-text search across wiki docs
-2. **Directory mode**: Filter by module/page type
-3. **Detail mode**: Deep read with symbol link injection and keyword scoring
+- [[MCP_Server]]：注册并调度上述 `handle_*` 工具。
+- [[MCP_Core]]：复用知识库读写与文档模型。
+- [[MCP_Cache]]：缓存 symbol map 与查询结果。
+- [[MCP_Tools_Quality]]：文档质量校验（注入前）。
+- [[SharedConfig]]：仓库路径、输出目录等配置。
 
-Note lifecycle: ingest_note → candidate → confirm_note/reject_note
+## 使用示例
 
-### ingest_note / confirm_note / reject_note
-- **ingest_note**: Creates note candidates with extracted keywords and tags
-- **confirm_note**: Promotes candidate to confirmed wiki page
-- **reject_note**: Marks note as rejected with reason
+```python
+# 摄入源码并生成文档
+await handle_ingest_source(repo="myrepo", paths=["src/foo.py"])
+await handle_batch_ingest(repo="myrepo", roots=["src/"])
 
-### ingest_source / retract_source (source_ingest.py)
-- **ingest_source**: Imports external documents, extracts entities/concepts
-- **retract_source**: Removes imported source and derived pages
-- Maintains source_registry.json for tracking
+# 用户补充知识
+await handle_ingest_note(repo="myrepo", text="Foo 负责鉴权", module="Foo")
+await handle_confirm_note(repo="myrepo", note_id="n1")
 
-### read_code_components (code_reader.py)
-- Reads source code for specified component IDs from disk
-- Returns file content with line ranges
+# 查询 Wiki
+result = await handle_query_wiki(repo="myrepo", mode="detail", module="Foo")
+```
 
-### view_repo_file (file_viewer.py)
-- Reads arbitrary files from the analyzed repository
+## 扩展点（新增知识库工具）
 
-### batch_ingest (batch_ingest.py)
-- Bulk import of multiple source documents
+1. 在 `knowledge_loop.py` 新增 `handle_*` 并复用 `_extract_*`/`_score_document` 辅助。
+2. 新增查询模式：扩展 `_query_mode_*` 并在 `handle_query_wiki` 分发。
+3. 新的摄入源类型：仿 `source_ingest.py` 增加 registry 维护函数。
+4. AGENTS.md 模板扩展：`_build_section` 支持新 frontmatter 字段。
 
-### write_agents_md (agents_md.py)
-- Generates AGENTS.md with wiki usage instructions for AI IDEs
-- Extracts module names and builds section references
+## 相关模块
 
-## Cross References
-
-- [MCP_Cache](MCP_Cache.md): BM25 search index
-- [MCP_Tools_DocWriter](MCP_Tools_DocWriter.md): write_doc_file for confirmed notes
-- [[MCP_Tools_Quality]]: wiki_search.py provides search engine
-- [DocVisualizer](DocVisualizer.md): Wiki content consumed by visualizer
-
-
-<!-- crosslinks (auto-generated) -->
-## Related Modules
-- Depends on: [CLI_Utils](cli_utils.md), [DocVisualizer](docvisualizer.md), [MCP_Cache](mcp_cache.md), [MCP_Tools_Analysis](mcp_tools_analysis.md), [MCP_Tools_DocWriter](mcp_tools_docwriter.md), [MCP_Tools_Quality](mcp_tools_quality.md), [SharedConfig](sharedconfig.md)
-- Used by: [MCP_Core](mcp_core.md), [MCP_Tools_DocWriter](mcp_tools_docwriter.md)
+[[MCP_Server]] [[MCP_Core]] [[MCP_Cache]] [[MCP_Tools_Quality]] [[MCP_Tools_DocWriter]] [[MCP_Tools_Analysis]] [[SharedConfig]] [[LLM_Backend]]

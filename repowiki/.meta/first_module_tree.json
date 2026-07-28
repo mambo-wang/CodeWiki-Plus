@@ -367,7 +367,8 @@
       "codewiki/src/be/utils.py::is_complex_module",
       "codewiki/src/be/utils.py::set_main_loop",
       "codewiki/src/be/utils.py::validate_mermaid_diagrams",
-      "codewiki/src/be/utils.py::validate_single_diagram"
+      "codewiki/src/be/utils.py::validate_single_diagram",
+      "codewiki/src/be/prompt_template.py::_normalize_routing_config"
     ],
     "path": "codewiki/src/be"
   },
@@ -384,7 +385,8 @@
           "codewiki/mcp/cache.py::_extract_title",
           "codewiki/mcp/cache.py::_parse_frontmatter_dict",
           "codewiki/mcp/cache.py::_parse_row",
-          "codewiki/mcp/cache.py::_tokenize"
+          "codewiki/mcp/cache.py::_tokenize",
+          "codewiki/mcp/cache.py::_sql_chunks"
         ],
         "path": "codewiki/mcp/cache.py"
       },
@@ -403,7 +405,6 @@
           "codewiki/mcp/server.py::_wiki_catalog",
           "codewiki/mcp/server.py::_wiki_index_status",
           "codewiki/mcp/server.py::_wiki_module_tree",
-          "codewiki/mcp/server.py::_write_generation_metadata",
           "codewiki/mcp/server.py::call_tool",
           "codewiki/mcp/server.py::get_prompt",
           "codewiki/mcp/server.py::list_prompts",
@@ -476,14 +477,13 @@
           "codewiki/mcp/tools/cross_service.py::handle_query_cross_service",
           "codewiki/mcp/tools/crosslink.py::_build_module_dependency_graph",
           "codewiki/mcp/tools/crosslink.py::_build_reverse_index",
-          "codewiki/mcp/tools/crosslink.py::_component_to_module",
           "codewiki/mcp/tools/crosslink.py::_read_high_impact_threshold",
           "codewiki/mcp/tools/crosslink.py::_walk",
           "codewiki/mcp/tools/crosslink.py::handle_list_dependencies",
-          "codewiki/mcp/tools/impact.py::_component_to_module",
           "codewiki/mcp/tools/impact.py::_enrich_component",
           "codewiki/mcp/tools/impact.py::_walk",
-          "codewiki/mcp/tools/impact.py::handle_analyze_impact"
+          "codewiki/mcp/tools/impact.py::handle_analyze_impact",
+          "codewiki/mcp/tools/crosslink.py::_build_comp_module_index"
         ],
         "path": "codewiki/mcp/tools"
       },
@@ -575,7 +575,9 @@
           "codewiki/mcp/tools/source_ingest.py::_resolve_output_dir",
           "codewiki/mcp/tools/source_ingest.py::_save_registry",
           "codewiki/mcp/tools/source_ingest.py::handle_ingest_source",
-          "codewiki/mcp/tools/source_ingest.py::handle_retract_source"
+          "codewiki/mcp/tools/source_ingest.py::handle_retract_source",
+          "codewiki/mcp/tools/agents_md.py::_write_agents_md",
+          "codewiki/mcp/tools/knowledge_loop.py::_resolve_within"
         ],
         "path": "codewiki/mcp/tools"
       },
@@ -637,12 +639,16 @@
           "codewiki/mcp/tools/wiki_search.py::build_full_index",
           "codewiki/mcp/tools/wiki_search.py::remove_file",
           "codewiki/mcp/tools/wiki_search.py::search",
-          "codewiki/mcp/tools/wiki_search.py::update_file"
+          "codewiki/mcp/tools/wiki_search.py::update_file",
+          "codewiki/mcp/tools/impact.py::_build_comp_module_index"
         ],
         "path": "codewiki/mcp/tools"
       }
     },
-    "components": [],
+    "components": [
+      "codewiki/mcp/server.py::_write_generation_metadata_from_disk",
+      "codewiki/mcp/server.py::_write_metadata_json"
+    ],
     "path": "codewiki/mcp"
   },
   "SharedConfig": {
