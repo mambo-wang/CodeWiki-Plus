@@ -226,17 +226,17 @@ def handle_ingest_note(
     store: SessionStore,
 ) -> str:
     """Ingest a structured note into the knowledge base."""
-    session_id = arguments.get("session_id")
-    session = store.get(session_id) if session_id else None
+    from codewiki.mcp.tools.workspace_result import resolve_session
+    session = resolve_session(arguments, store)
 
     # Resolve output directory
-    if session:
+    od = arguments.get("output_dir")
+    if od:
+        output_dir = Path(od).expanduser().resolve()
+    elif session:
         output_dir = Path(session.output_dir)
     else:
-        od = arguments.get("output_dir")
-        if not od:
-            return json.dumps({"error": "output_dir is required."})
-        output_dir = Path(od).expanduser().resolve()
+        return json.dumps({"error": "output_dir is required."})
 
     from codewiki.src.config import NOTES_DIR
 
@@ -341,29 +341,55 @@ def handle_ingest_note(
     except Exception as e:
         logger.warning("Search index update failed (non-fatal): %s", e)
 
-    return json.dumps({
+    result: Dict[str, Any] = {
         "status": "ingested",
+        "note_status": note_status,
         "note_path": str(note_path),
         "note_type": note_type,
         "auto_matched_modules": auto_matched,
         "related_modules": related_modules,
         "tags": tags,
-    }, indent=2, ensure_ascii=False)
+    }
+    if note_status == "candidate":
+        result["hint"] = (
+            "Note saved with status=candidate; query_wiki will show it with an "
+            "[unconfirmed] prefix. Call confirm_note(note_file=...) after review "
+            "to promote it to verified knowledge."
+        )
+    return json.dumps(result, indent=2, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
 #  confirm_note / reject_note (Roadmap 2.2 — knowledge flywheel)
 # ---------------------------------------------------------------------------
 
+def _resolve_within(output_dir: Path, relative: str) -> Optional[Path]:
+    """Resolve *relative* against *output_dir*, rejecting path traversal.
+
+    Returns the resolved path, or ``None`` if it escapes *output_dir*.
+    """
+    base = output_dir.resolve()
+    candidate = (base / relative).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        return None
+    return candidate
+
+
 def _update_note_status(output_dir: Path, note_file: str, new_status: str,
                         reason: str = "") -> str:
     """Update the status field in a note's YAML frontmatter."""
     from codewiki.src.config import NOTES_DIR
 
-    note_path = output_dir / NOTES_DIR / note_file
+    note_path = _resolve_within(output_dir, f"{NOTES_DIR}/{note_file}")
+    if note_path is None:
+        return json.dumps({"error": f"Invalid note_file path: {note_file}"})
     if not note_path.exists():
         # Try direct path
-        note_path = output_dir / note_file
+        note_path = _resolve_within(output_dir, note_file)
+        if note_path is None:
+            return json.dumps({"error": f"Invalid note_file path: {note_file}"})
     if not note_path.exists():
         return json.dumps({"error": f"Note not found: {note_file}"})
 
@@ -415,15 +441,15 @@ def _update_note_status(output_dir: Path, note_file: str, new_status: str,
 
 def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     """Confirm a candidate note, promoting it to verified domain knowledge."""
-    session_id = arguments.get("session_id")
-    session = store.get(session_id) if session_id else None
-    if session:
+    from codewiki.mcp.tools.workspace_result import resolve_session
+    session = resolve_session(arguments, store)
+    od = arguments.get("output_dir")
+    if od:
+        output_dir = Path(od).expanduser().resolve()
+    elif session:
         output_dir = Path(session.output_dir)
     else:
-        od = arguments.get("output_dir")
-        if not od:
-            return json.dumps({"error": "output_dir is required."})
-        output_dir = Path(od).expanduser().resolve()
+        return json.dumps({"error": "output_dir is required."})
 
     note_file = arguments.get("note_file", "")
     if not note_file:
@@ -434,15 +460,15 @@ def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
 
 def handle_reject_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     """Reject a candidate note, excluding it from future query results."""
-    session_id = arguments.get("session_id")
-    session = store.get(session_id) if session_id else None
-    if session:
+    from codewiki.mcp.tools.workspace_result import resolve_session
+    session = resolve_session(arguments, store)
+    od = arguments.get("output_dir")
+    if od:
+        output_dir = Path(od).expanduser().resolve()
+    elif session:
         output_dir = Path(session.output_dir)
     else:
-        od = arguments.get("output_dir")
-        if not od:
-            return json.dumps({"error": "output_dir is required."})
-        output_dir = Path(od).expanduser().resolve()
+        return json.dumps({"error": "output_dir is required."})
 
     note_file = arguments.get("note_file", "")
     if not note_file:
@@ -721,12 +747,14 @@ def _query_mode_detail(
     if not page:
         return json.dumps({"error": "mode=detail requires 'page' parameter (relative path)."})
 
-    file_path = output_dir / page
+    file_path = _resolve_within(output_dir, page)
+    if file_path is None:
+        return json.dumps({"error": f"Invalid page path: {page}"})
     if not file_path.exists():
         # Try with wiki/ prefix
         from codewiki.src.config import WIKI_DIR
-        alt_path = output_dir / WIKI_DIR / page
-        if alt_path.exists():
+        alt_path = _resolve_within(output_dir, f"{WIKI_DIR}/{page}")
+        if alt_path is not None and alt_path.exists():
             file_path = alt_path
         else:
             return json.dumps({"error": f"Page not found: {page}"})
@@ -781,17 +809,17 @@ def handle_query_wiki(
     Falls back to legacy keyword matching if the BM25 index is unavailable
     and cannot be built (e.g. jieba not installed).
     """
-    session_id = arguments.get("session_id")
-    session = store.get(session_id) if session_id else None
+    from codewiki.mcp.tools.workspace_result import resolve_session
+    session = resolve_session(arguments, store)
 
     # Resolve output directory
-    if session:
+    od = arguments.get("output_dir")
+    if od:
+        output_dir = Path(od).expanduser().resolve()
+    elif session:
         output_dir = Path(session.output_dir)
     else:
-        od = arguments.get("output_dir")
-        if not od:
-            return json.dumps({"error": "output_dir is required."})
-        output_dir = Path(od).expanduser().resolve()
+        return json.dumps({"error": "output_dir is required."})
 
     query = arguments.get("query", "")
     if not query:

@@ -15,6 +15,14 @@ _CACHE_DIR = ".codewiki"
 _DEFAULT_LRU_SIZE = 500
 _K1, _B = 1.5, 0.75
 
+# SQLite bound-variable limit is 999 on older builds; stay well below it.
+_SQL_CHUNK_SIZE = 500
+
+
+def _sql_chunks(items: List[Any], size: int = _SQL_CHUNK_SIZE) -> List[List[Any]]:
+    """Split *items* into chunks small enough for SQL IN(...) placeholders."""
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
 # ------------------------------------------------------------------ Shared BM25 tokeniser
 
 _FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
@@ -320,6 +328,10 @@ class AnalysisCache:
     def get_last_commit_id(self) -> Optional[str]:
         cid = self._mget("last_commit_id"); return cid if cid else None
     def set_last_commit_id(self, cid: str): self._mset("last_commit_id", cid)
+    def get_output_dir(self) -> Optional[str]:
+        """Return the output_dir recorded by the last analyze_repo, if any."""
+        od = self._mget("output_dir"); return od if od else None
+    def set_output_dir(self, od: str): self._mset("output_dir", od)
     def get_component_count(self) -> int:
         r = self.conn.execute("SELECT COUNT(*) as c FROM components").fetchone(); return r["c"] if r else 0
     def is_fresh(self) -> bool: return self.get_component_count() > 0
@@ -449,8 +461,9 @@ class AnalysisCache:
             ).fetchall()
         ]
         if ids:
-            ph = ",".join("?" * len(ids))
-            self.conn.execute(f"DELETE FROM routes WHERE rowid IN ({ph})", ids)
+            for chunk in _sql_chunks(ids):
+                ph = ",".join("?" * len(chunk))
+                self.conn.execute(f"DELETE FROM routes WHERE rowid IN ({ph})", chunk)
             self.conn.commit()
         return len(ids)
 
@@ -476,11 +489,31 @@ class AnalysisCache:
             return
         c = self.conn
 
+        # In incremental mode, components restored from cache carry
+        # source_code="" — recomputing their hash from the structural
+        # signature would overwrite the original source-based SHA256 and
+        # make get_stale_components() misreport them as modified.
+        # Preserve the stored hash for such components.
+        stored_hashes: Dict[str, str] = {}
+        if incremental:
+            ids = list(components.keys())
+            for chunk in _sql_chunks(ids):
+                ph = ",".join("?" * len(chunk))
+                for r in c.execute(
+                    f"SELECT id, content_hash FROM components WHERE id IN ({ph})", chunk
+                ).fetchall():
+                    if r["content_hash"]:
+                        stored_hashes[r["id"]] = r["content_hash"]
+
         def _comp_hash(n: Node) -> str:
             """Compute content hash from source code or structural metadata."""
             src = getattr(n, "source_code", None) or ""
             if src:
                 return hashlib.sha256(src.encode("utf-8", errors="replace")).hexdigest()[:16]
+            # Prefer the previously stored (source-based) hash when available
+            old = stored_hashes.get(n.id)
+            if old:
+                return old
             # Fallback: hash structural signature
             sig = f"{n.name}|{n.start_line}|{n.end_line}|{json.dumps(n.parameters or [])}|{json.dumps(sorted(n.depends_on))}"
             return hashlib.sha256(sig.encode()).hexdigest()[:16]
@@ -508,10 +541,12 @@ class AnalysisCache:
                 rows,
             )
             # Upsert dependencies for these components only
-            comp_ids = set(components.keys())
-            # Remove old deps for these components
-            ph = ",".join("?" * len(comp_ids))
-            c.execute(f"DELETE FROM dependencies WHERE source_id IN ({ph})", list(comp_ids))
+            comp_ids = list(components.keys())
+            # Remove old deps for these components (chunked to stay below
+            # SQLite's bound-variable limit on large repos)
+            for chunk in _sql_chunks(comp_ids):
+                ph = ",".join("?" * len(chunk))
+                c.execute(f"DELETE FROM dependencies WHERE source_id IN ({ph})", chunk)
             deps = [(n.id, d) for n in components.values() for d in n.depends_on]
             if deps:
                 c.executemany("INSERT OR IGNORE INTO dependencies VALUES(?,?)", deps)
@@ -626,9 +661,11 @@ class AnalysisCache:
                     (fp_norm,),
                 ).fetchall()
             ]
-        if not ids:
+        if not ids and "/" in fp_norm:
             # Fallback: suffix match — covers relative paths from detect_changes
             # and monorepo subpath cases.  Normalise backslashes in the DB value.
+            # Only enabled when the path has at least one directory component,
+            # otherwise "%/main.py" would wipe same-named files everywhere.
             ids = [
                 r["id"]
                 for r in self.conn.execute(
@@ -637,14 +674,15 @@ class AnalysisCache:
                 ).fetchall()
             ]
         if ids:
-            ph = ",".join("?" * len(ids))
-            self.conn.execute(
-                f"DELETE FROM components WHERE id IN ({ph})", ids
-            )
-            self.conn.execute(
-                f"DELETE FROM dependencies WHERE source_id IN ({ph}) OR target_id IN ({ph})",
-                ids + ids,
-            )
+            for chunk in _sql_chunks(ids):
+                ph = ",".join("?" * len(chunk))
+                self.conn.execute(
+                    f"DELETE FROM components WHERE id IN ({ph})", chunk
+                )
+                self.conn.execute(
+                    f"DELETE FROM dependencies WHERE source_id IN ({ph}) OR target_id IN ({ph})",
+                    chunk + chunk,
+                )
             self.conn.commit()
         return len(ids)
 
@@ -674,8 +712,12 @@ class AnalysisCache:
 
     def _hash_file(self, rel: str) -> Optional[Tuple[float, int, str]]:
         try:
-            s = (self.repo_path / rel).stat()
-            h = hashlib.sha256((self.repo_path / rel).read_bytes()[:65536]).hexdigest()
+            p = self.repo_path / rel
+            s = p.stat()
+            # Stream only the first 64KB instead of reading the whole file
+            with open(p, "rb") as f:
+                head = f.read(65536)
+            h = hashlib.sha256(head).hexdigest()
             return s.st_mtime, s.st_size, h
         except OSError: return None
 
@@ -700,11 +742,14 @@ class AnalysisCache:
         """Load cached components for the given relative file paths."""
         if not file_paths:
             return {}
-        ph = ",".join("?" * len(file_paths))
-        rows = self.conn.execute(
-            f"SELECT * FROM components WHERE replace(relative_path, '\\', '/') IN ({ph})",
-            [fp.replace("\\", "/") for fp in file_paths],
-        ).fetchall()
+        rows = []
+        norm_paths = [fp.replace("\\", "/") for fp in file_paths]
+        for chunk in _sql_chunks(norm_paths):
+            ph = ",".join("?" * len(chunk))
+            rows.extend(self.conn.execute(
+                f"SELECT * FROM components WHERE replace(relative_path, '\\', '/') IN ({ph})",
+                chunk,
+            ).fetchall())
         result: Dict[str, Node] = {}
         for r in rows:
             extra = _parse_row(r)

@@ -664,8 +664,8 @@ def handle_lint_wiki(
     store: SessionStore,
 ) -> str:
     """Run documentation health checks and return structured results."""
-    session_id = arguments.get("session_id")
-    session = store.get(session_id) if session_id else None
+    from codewiki.mcp.tools.workspace_result import resolve_session
+    session = resolve_session(arguments, store)
 
     checks = arguments.get("checks", ["all"])
     if "all" in checks:

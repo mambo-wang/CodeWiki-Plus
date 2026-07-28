@@ -188,7 +188,7 @@ class CLIDocumentationGenerator:
         
         # Build dependency graph
         try:
-            components, leaf_nodes = doc_generator.graph_builder.build_dependency_graph()
+            components, leaf_nodes, _routes = doc_generator.graph_builder.build_dependency_graph()
             self.job.statistics.total_files_analyzed = len(components)
             self.job.statistics.leaf_nodes = len(leaf_nodes)
 

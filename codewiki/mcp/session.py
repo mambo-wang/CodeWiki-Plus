@@ -86,8 +86,11 @@ class SessionStore:
             if len(self._sessions) >= _MAX_SESSIONS:
                 oldest_id = min(self._sessions, key=lambda sid: self._sessions[sid].last_accessed)
                 evicted = self._sessions[oldest_id]
-                if evicted.workspace is not None: evicted.workspace.cleanup()
                 del self._sessions[oldest_id]
+                # The workspace dir is shared per-repo: only wipe sources/
+                # when no other live session still uses the same repo.
+                if evicted.workspace is not None and not self._repo_in_use_locked(evicted.repo_path):
+                    evicted.workspace.cleanup()
             sid = uuid.uuid4().hex[:12]
             while sid in self._sessions: sid = uuid.uuid4().hex[:12]
             state = SessionState(
@@ -104,8 +107,9 @@ class SessionStore:
             state = self._sessions.get(session_id)
             if state is None: return None
             if state.is_expired:
-                if state.workspace is not None: state.workspace.cleanup()
                 del self._sessions[session_id]
+                if state.workspace is not None and not self._repo_in_use_locked(state.repo_path):
+                    state.workspace.cleanup()
                 return None
             state.touch()
             return state
@@ -143,9 +147,16 @@ class SessionStore:
         leaf_nodes = cache.get_leaf_nodes()
         lazy_store = LazyComponentStore(cache, metas)
 
-        # Determine output_dir from repo convention
+        # Determine output_dir: prefer the dir recorded by the last
+        # analyze_repo (honours custom output_dir), else repo convention
         from pathlib import Path as _P
-        output_dir = str(_P(rp) / "repowiki")
+        output_dir = None
+        try:
+            output_dir = cache.get_output_dir()
+        except Exception:
+            pass
+        if not output_dir:
+            output_dir = str(_P(rp) / "repowiki")
 
         session = self.create(
             repo_path=rp, output_dir=output_dir,
@@ -164,9 +175,23 @@ class SessionStore:
             cache = self._caches.pop(str(repo_path), None)
             if cache: cache.close()
 
+    def _repo_in_use_locked(self, repo_path: str) -> bool:
+        """True if any remaining live session still uses *repo_path*.
+
+        The workspace directory is shared per repository, so its sources/
+        must not be wiped while another active session may still reference
+        file paths under it.
+        """
+        return any(
+            s.repo_path == repo_path and not s.is_expired
+            for s in self._sessions.values()
+        )
+
     def _purge_expired_locked(self) -> None:
-        expired = [sid for sid, s in self._sessions.items() if s.is_expired]
-        for sid in expired:
-            s = self._sessions[sid]
-            if s.workspace is not None: s.workspace.cleanup()
+        expired = [(sid, s) for sid, s in self._sessions.items() if s.is_expired]
+        for sid, _s in expired:
             del self._sessions[sid]
+        # Cleanup after removal so _repo_in_use_locked sees only live sessions
+        for _sid, s in expired:
+            if s.workspace is not None and not self._repo_in_use_locked(s.repo_path):
+                s.workspace.cleanup()

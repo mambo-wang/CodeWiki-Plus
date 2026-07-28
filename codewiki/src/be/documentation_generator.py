@@ -313,7 +313,7 @@ class DocumentationGenerator:
         """Run the complete documentation generation process using dynamic programming."""
         try:
             # Build dependency graph
-            components, leaf_nodes = self.graph_builder.build_dependency_graph()
+            components, leaf_nodes, _routes = self.graph_builder.build_dependency_graph()
 
             logger.debug(f"Found {len(leaf_nodes)} leaf nodes")
             # logger.debug(f"Leaf nodes:\n{'\n'.join(sorted(leaf_nodes)[:200])}")

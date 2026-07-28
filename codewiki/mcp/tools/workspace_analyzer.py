@@ -204,7 +204,7 @@ def _generate_overview(
             "",
             "You can add cross-service relationships manually using `ingest_note`:",
             "```",
-            "# ingest_note(session_id='<workspace_session_id>',",
+            "# ingest_note(output_dir='<workspace_output_dir>',",
             "#   note='Service A calls Service B via HTTP GET /api/users/:id',",
             "#   tags=['cross-repo', 'api-contract'])",
             "```",

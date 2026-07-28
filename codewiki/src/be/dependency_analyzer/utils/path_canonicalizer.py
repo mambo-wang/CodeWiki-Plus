@@ -33,14 +33,16 @@ def canonicalize_path(path: str) -> str:
     if f != -1:
         path = path[:f]
 
+    # JS template literals  ${...}  →  {}
+    # (must run before the generic {name} rule, which would otherwise
+    # reduce "${id}" to "${}" and leave the "$" behind)
+    path = re.sub(r"\$\{[^}]+\}", "{}", path)
     # Express / Rails  :name  →  {}
     path = re.sub(r":([a-zA-Z_]\w*)", "{}", path)
     # Spring / Axum / OpenAPI  {name}  →  {}
     path = re.sub(r"\{[^}]+\}", "{}", path)
     # Flask / Rocket  <name> or <int:name>  →  {}
     path = re.sub(r"<[^>]+>", "{}", path)
-    # JS template literals  ${...}  →  {}
-    path = re.sub(r"\$\{[^}]+\}", "{}", path)
 
     # Strip trailing slash (keep root "/")
     if len(path) > 1 and path.endswith("/"):

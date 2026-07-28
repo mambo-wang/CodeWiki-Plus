@@ -328,6 +328,23 @@ _DEFAULT_CODE_ROUTING = {
 }
 
 
+def _normalize_routing_config(config: dict) -> dict:
+    """Normalize a code_routing config into the internal format.
+
+    Accepts both the internal format ({"boilerplate": {"suffixes": [...]}})
+    and the schema.yaml format written by schema_generator
+    ({"boilerplate_patterns": {"suffix": [...], "annotation": [...]}}).
+    """
+    key_aliases = {"suffix": "suffixes", "annotation": "annotations", "path_keyword": "path_keywords"}
+    normalized: dict = {}
+    for category, rules in config.items():
+        if not isinstance(rules, dict):
+            continue
+        cat = category[:-len("_patterns")] if category.endswith("_patterns") else category
+        normalized[cat] = {key_aliases.get(k, k): v for k, v in rules.items()}
+    return normalized
+
+
 def classify_component(name: str, relative_path: str = "", source_code: str = "",
                        routing_config: dict | None = None) -> str:
     """Classify a component as 'boilerplate', 'business', or 'infra'.
@@ -336,7 +353,7 @@ def classify_component(name: str, relative_path: str = "", source_code: str = ""
     and annotation detection in source code.  Returns 'business' as default
     when no pattern matches (safe default: goes through full LLM processing).
     """
-    config = routing_config or _DEFAULT_CODE_ROUTING
+    config = _normalize_routing_config(routing_config) if routing_config else _DEFAULT_CODE_ROUTING
     name_lower = name.lower()
     path_lower = relative_path.lower().replace("\\", "/")
 

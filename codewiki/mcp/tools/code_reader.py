@@ -34,7 +34,7 @@ def _read_source_from_disk(node) -> str:
 def handle_read_code_components(
     arguments: Dict[str, Any], store: SessionStore,
 ) -> str:
-    """Read component source code. Supports repo_path as alternative to session_id."""
+    """Read component source code. Resolves the session from repo_path."""
     from codewiki.mcp.tools.workspace_result import resolve_session
     session = resolve_session(arguments, store)
     if session is None:

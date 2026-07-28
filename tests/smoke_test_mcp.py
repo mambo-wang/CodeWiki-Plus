@@ -191,7 +191,9 @@ def main():
         "content": "# Test\n\n```mermaid\ngraph TD\n  A[Hello] --> B[World]\n```\n",
     }, store)))
     check("creates test_doc.md", normal_write.get("status") == "created", str(normal_write))
-    check("file exists on disk", (Path(output_dir) / "test_doc.md").exists(), "")
+    # write_doc_file routes pages by page_type (default: wiki/modules/); use returned path
+    doc_file = Path(normal_write.get("path") or (Path(output_dir) / "test_doc.md"))
+    check("file exists on disk", doc_file.exists(), str(doc_file))
 
     # -- 7. edit_doc_file str_replace --
     print("\n[7] edit_doc_file str_replace")
@@ -203,7 +205,7 @@ def main():
         "new_str": "# Test Edited",
     }, store)))
     check("edits file", edit_result.get("status") == "edited", str(edit_result))
-    edited_content = (Path(output_dir) / "test_doc.md").read_text()
+    edited_content = doc_file.read_text()
     check("content updated", "# Test Edited" in edited_content, edited_content[:100])
 
     # -- 8. edit_doc_file undo --
@@ -215,7 +217,7 @@ def main():
     }, store)))
     check("undone", undo_result.get("status") == "undone", str(undo_result))
     check("mermaid_validation in undo", "mermaid_validation" in undo_result, str(undo_result.keys()))
-    undone_content = (Path(output_dir) / "test_doc.md").read_text()
+    undone_content = doc_file.read_text()
     check("content reverted", "# Test\n" in undone_content, undone_content[:100])
 
     # -- 9. Schema auto-generation --
@@ -312,12 +314,9 @@ def main():
             note_content = note_file.read_text(encoding="utf-8")
             check("note has frontmatter", "---" in note_content, note_content[:100])
 
-    # Check decisions_index.json
-    index_path = Path(output_dir) / "decisions_index.json"
-    check("decisions_index.json exists", index_path.exists(), "")
-    if index_path.exists():
-        index_data = json.loads(index_path.read_text(encoding="utf-8"))
-        check("index has entries", len(index_data.get("entries", [])) > 0, str(index_data))
+    # Notes are indexed via BM25/SQLite + wiki index.md (decisions_index.json removed)
+    wiki_index_path = Path(output_dir) / "wiki" / "index.md"
+    check("wiki index.md exists", wiki_index_path.exists(), str(wiki_index_path))
 
     # Duplicate protection
     note_dup = json.loads(handle_ingest_note({
@@ -363,7 +362,10 @@ def main():
         session.workspace.cleanup()
     removed = store.remove(session_id)
     check("session removed", removed, "")
-    check("workspace dir cleaned up", not ws.exists(), f"still exists: {ws}")
+    # Shared per-repo workspace persists by design; cleanup() only empties sources/
+    sources_dir = ws / "sources"
+    leftover = [f for f in sources_dir.iterdir() if f.is_file()] if sources_dir.exists() else []
+    check("workspace sources cleaned up", not leftover, f"leftover: {leftover[:3]}")
 
     # -- 15. SessionStore thread safety --
     print("\n[15] SessionStore thread safety")

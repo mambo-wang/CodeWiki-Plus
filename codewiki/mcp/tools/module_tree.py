@@ -129,10 +129,10 @@ def handle_save_module_tree(
     if not repo_path:
         return json.dumps({"error": "repo_path is required."})
     rp = str(_Path(repo_path).expanduser().resolve()) if _Path(repo_path).is_absolute() else str((_Path.cwd() / repo_path).expanduser().resolve())
-    output_dir = str(_Path(rp) / "repowiki")
 
     # Try to reuse active session for workspace/caching, fall back to standalone
     session = resolve_session(arguments, store)
+    output_dir = session.output_dir if session is not None and session.output_dir else str(_Path(rp) / "repowiki")
     workspace = session.workspace if session is not None else SessionWorkspace(_Path(rp), "standalone")
 
     module_tree = read_json_param(arguments, "module_tree")
@@ -150,9 +150,9 @@ def handle_get_processing_order(
     if not repo_path:
         return json.dumps({"error": "repo_path is required."})
     rp = str(_Path(repo_path).expanduser().resolve()) if _Path(repo_path).is_absolute() else str((_Path.cwd() / repo_path).expanduser().resolve())
-    output_dir = str(_Path(rp) / "repowiki")
 
     session = resolve_session(arguments, store)
+    output_dir = session.output_dir if session is not None and session.output_dir else str(_Path(rp) / "repowiki")
     workspace = session.workspace if session is not None else SessionWorkspace(_Path(rp), "standalone")
 
     # Try session cache first, then disk

@@ -103,12 +103,13 @@ def _filter_by_service(links: List[Dict], service: str) -> Dict:
 
 
 def _filter_by_method(links: List[Dict], method: str) -> Dict:
-    matching = [l for l in links if l.get("method", "").upper() == method.upper()]
+    # MQ links serialize method as null — guard against None before .upper()
+    matching = [l for l in links if (l.get("method") or "").upper() == method.upper()]
     return {"method": method.upper(), "count": len(matching), "links": matching}
 
 
 def _filter_by_path(links: List[Dict], path_prefix: str) -> Dict:
-    matching = [l for l in links if l.get("path", "").startswith(path_prefix)]
+    matching = [l for l in links if (l.get("path") or "").startswith(path_prefix)]
     return {"path_prefix": path_prefix, "count": len(matching), "links": matching}
 
 
