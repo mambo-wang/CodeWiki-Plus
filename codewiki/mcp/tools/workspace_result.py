@@ -59,6 +59,7 @@ def write_result(
     data: Any,
     *,
     summary: Optional[Dict[str, Any]] = None,
+    compact: bool = False,
 ) -> Dict[str, Any]:
     """Write *data* to a workspace file and return a compact response dict.
 
@@ -73,6 +74,9 @@ def write_result(
     summary : dict, optional
         Extra key-value pairs to include in the MCP response (e.g. counts,
         hints).  Merged into the response alongside ``file``.
+    compact : bool, optional (default False)
+        If True, write JSON with minimal whitespace (``separators=(",",
+        ":")``), reducing file size by ~30-40% for large data.
 
     Returns
     -------
@@ -91,7 +95,7 @@ def write_result(
     if isinstance(data, str):
         file_path = workspace.write_text(filename, data)
     else:
-        file_path = workspace.write_json(filename, data)
+        file_path = workspace.write_json(filename, data, compact=compact)
 
     logger.debug("Result written to workspace: %s (%d bytes)", file_path, file_path.stat().st_size)
 

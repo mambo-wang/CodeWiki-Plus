@@ -204,15 +204,21 @@ def handle_list_dependencies(
 
     # Write to workspace file
     total_modules = len(module_graph) if module_graph else 0
+    large_graph = len(entries) > 5000
     response = write_result(
         session,
         "dependencies.json",
         full_result,
+        compact=True,
         summary={
             "total_deps": len(entries),
             "total_modules": total_modules,
             "high_impact_count": len(high_impact),
-            "hint": "Read the file for the full dependency data.",
+            "hint": (
+                "Read the file for the full dependency data."
+                + ("  WARNING: Large dependency graph detected. Use component_ids or module_level filter to reduce output size."
+                   if large_graph else "")
+            ),
         },
     )
 

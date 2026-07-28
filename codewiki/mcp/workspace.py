@@ -67,10 +67,18 @@ class SessionWorkspace:
 
     # -- writers ----------------------------------------------------------
 
-    def write_json(self, name: str, data: Any) -> Path:
-        """Write *data* as pretty-printed JSON and return the file path."""
+    def write_json(self, name: str, data: Any, *, compact: bool = False) -> Path:
+        """Write *data* as JSON and return the file path.
+
+        When *compact* is True, uses minimal separators (no extra
+        whitespace), reducing file size by ~30-40% — useful for very
+        large dependency graphs.
+        """
         p = self.root / name
-        p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        if compact:
+            p.write_text(json.dumps(data, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
+        else:
+            p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         return p
 
     def write_component_source(
@@ -104,8 +112,21 @@ class SessionWorkspace:
     # -- cleanup ----------------------------------------------------------
 
     def cleanup(self) -> None:
-        """No-op — workspace is shared per repo, not deleted on session close."""
-        logger.debug("Workspace cleanup skipped (shared directory): %s", self.root)
+        """Clean up per-session artefacts (sources/).
+
+        The shared workspace JSON files (component_list, dependencies,
+        etc.) are kept across sessions — only transient source excerpts
+        written by ``read_code_components`` are removed.
+        """
+        sources_dir = self.root / "sources"
+        if sources_dir.exists():
+            count = 0
+            for f in sources_dir.iterdir():
+                if f.is_file():
+                    f.unlink()
+                    count += 1
+            if count:
+                logger.debug("Cleaned up %d source files from %s", count, sources_dir)
 
     @staticmethod
     def cleanup_legacy_sessions(repo_path: Path) -> int:

@@ -239,7 +239,13 @@ class AnalysisCache:
         return self._conn
 
     def close(self):
-        if self._conn: self._conn.close(); self._conn = None
+        if self._conn:
+            try:
+                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except Exception:
+                pass
+            self._conn.close()
+            self._conn = None
 
     def _create_tables(self):
         self.conn.executescript("""
