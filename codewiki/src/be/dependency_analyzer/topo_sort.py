@@ -7,7 +7,7 @@ including detection and resolution of dependency cycles.
 """
 
 import logging
-from typing import Dict, List, Set, Any
+from typing import Dict, List, Optional, Set, Any
 from collections import deque
 
 from codewiki.src.be.dependency_analyzer.models.core import Node

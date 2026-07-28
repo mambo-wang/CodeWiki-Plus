@@ -34,30 +34,27 @@ logger = logging.getLogger(__name__)
 # Helpers
 # ------------------------------------------------------------------
 
-def _component_to_module(
-    component_id: str,
-    module_tree: Dict[str, Any],
-) -> Optional[str]:
-    """Map a component ID to its module name via the module tree."""
-    def _walk(tree: Dict) -> Optional[str]:
+def _build_comp_module_index(module_tree: Dict[str, Any]) -> Dict[str, str]:
+    """Build a component-id → module-name inverted index in one tree walk."""
+    index: Dict[str, str] = {}
+
+    def _walk(tree: Dict) -> None:
         for mod_name, mod_info in tree.items():
-            comp_list = mod_info.get("components", [])
-            if component_id in comp_list:
-                return mod_name
+            for cid in mod_info.get("components", []):
+                index.setdefault(cid, mod_name)
             children = mod_info.get("children", {})
             if isinstance(children, dict) and children:
-                found = _walk(children)
-                if found:
-                    return found
-        return None
-    return _walk(module_tree)
+                _walk(children)
+
+    _walk(module_tree)
+    return index
 
 
 def _enrich_component(
     comp_id: str,
     meta: Any,
     depth: int,
-    module_tree: Dict[str, Any],
+    comp_module_idx: Dict[str, str],
     path: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Build a result entry for a single affected component."""
@@ -68,8 +65,8 @@ def _enrich_component(
         "file_path": getattr(meta, "relative_path", "") or getattr(meta, "file_path", ""),
         "depth": depth,
     }
-    if module_tree:
-        mod = _component_to_module(comp_id, module_tree)
+    if comp_module_idx:
+        mod = comp_module_idx.get(comp_id)
         if mod:
             entry["module"] = mod
     if path is not None:
@@ -89,11 +86,9 @@ def handle_analyze_impact(
 
     Parameters (via *arguments*)
     ----------------------------
-    session_id : str, optional
-        Active session from ``analyze_repo``.
-    repo_path : str, optional
-        Repository path — alternative to session_id. Auto-loads from SQLite
-        cache if a previous analysis exists. One of session_id/repo_path required.
+    repo_path : str
+        Repository path. Auto-restores the session from the SQLite
+        cache if a previous analysis exists.
     component_ids : list[str], optional
         Component IDs to analyze.  Mutually complementary with *file_paths*.
     file_paths : list[str], optional
@@ -113,6 +108,7 @@ def handle_analyze_impact(
 
     components = session.components
     module_tree = session.module_tree or {}
+    comp_module_idx = _build_comp_module_index(module_tree) if module_tree else {}
     direction = arguments.get("direction", "depended_by")
     max_depth = min(int(arguments.get("max_depth", 10)), 50)
     include_paths = arguments.get("include_paths", False)
@@ -159,7 +155,7 @@ def handle_analyze_impact(
         if meta is None:
             continue
         enriched.append(_enrich_component(
-            comp_id, meta, depth, module_tree,
+            comp_id, meta, depth, comp_module_idx,
             path=paths.get(comp_id) if include_paths else None,
         ))
 

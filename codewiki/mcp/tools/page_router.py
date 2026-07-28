@@ -117,12 +117,16 @@ def resolve_wiki_paths(output_dir: str | Path, schema: dict | None = None) -> di
         "purpose":      od / PURPOSE_FILENAME,
     }
 
-    # Allow schema.page_types to override directory names
+    # Allow schema.page_types to override directory names.
+    # schema.page_types is keyed by singular page_type (e.g. "module"),
+    # while ``paths`` uses plural keys (e.g. "modules") — map accordingly.
+    _singular_to_plural = {ptype: subdir for ptype, subdir in PAGE_TYPE_DIRS.items()}
     for ptype, config in schema.get("page_types", {}).items():
-        if ptype in paths:
+        plural_key = _singular_to_plural.get(ptype, ptype)
+        if plural_key in paths and isinstance(config, dict):
             custom_dir = config.get("directory", "")
             if custom_dir:
-                paths[ptype] = od / custom_dir
+                paths[plural_key] = od / custom_dir
 
     return paths
 
@@ -198,6 +202,18 @@ def resolve_doc_path(
             # Agent passed a bare relative path like "entities/Foo.md"
             # or "modules/auth.md" — force it under wiki/
             candidate = (od / WIKI_DIR / normalized).resolve()
+            # Legacy-layout fallback: if the forced wiki/ path does not
+            # exist but the file already lives at the old location
+            # (pre-wiki/-enforcement layout), keep the old path so
+            # existing docs remain editable/undoable.
+            if not candidate.exists():
+                legacy = (od / normalized).resolve()
+                try:
+                    legacy.relative_to(od)
+                    if legacy.exists():
+                        candidate = legacy
+                except ValueError:
+                    pass
     elif filename == OVERVIEW_FILENAME:
         # Overview always lives at wiki/overview.md (not in a page_type subdir)
         wiki_dir = od / WIKI_DIR
@@ -208,8 +224,11 @@ def resolve_doc_path(
         target_dir.mkdir(parents=True, exist_ok=True)
         candidate = (target_dir / filename).resolve()
 
-    # Guard against traversal
-    if not str(candidate).startswith(str(od)):
+    # Guard against traversal (string prefix check is bypassable by
+    # sibling dirs sharing the prefix, e.g. "out" vs "out-evil")
+    try:
+        candidate.relative_to(od)
+    except ValueError:
         raise ValueError(f"directory traversal detected: {filename}")
 
     return candidate

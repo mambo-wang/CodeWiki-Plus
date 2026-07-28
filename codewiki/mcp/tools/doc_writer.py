@@ -423,16 +423,19 @@ def _inject_crosslinks(
     depends_on_modules: set[str] = set()
     depended_by_modules: set[str] = set()
 
+    # Inverted index: component id -> module name (built once, O(components))
+    comp_to_module: dict[str, str] = {}
+    for name, info in module_tree.items():
+        for cid in info.get("components", []):
+            comp_to_module.setdefault(cid, name)
+        children = info.get("children", {})
+        if isinstance(children, dict):
+            for cname, cinfo in children.items():
+                for cid in cinfo.get("components", []):
+                    comp_to_module.setdefault(cid, cname)
+
     def _comp_to_module(comp_id: str) -> str | None:
-        for name, info in module_tree.items():
-            if comp_id in info.get("components", []):
-                return name
-            children = info.get("children", {})
-            if isinstance(children, dict):
-                for cname, cinfo in children.items():
-                    if comp_id in cinfo.get("components", []):
-                        return cname
-        return None
+        return comp_to_module.get(comp_id)
 
     for comp_id in module_components:
         node = session.components.get(comp_id)
@@ -644,21 +647,29 @@ async def handle_write_doc_file(
     store: SessionStore,
 ) -> str:
     """Create a new documentation file in the output directory."""
-    session_id = arguments.get("session_id")
-    session = store.get(session_id) if session_id else None
-    if session is None and session_id:
-        return json.dumps({"error": f"Session {session_id} not found or expired."})
+    # Resolve output directory from output_dir or repo_path (schema contract)
+    od = arguments.get("output_dir")
+    rp = arguments.get("repo_path")
+    repo_path = None
+    if rp:
+        repo_path = str(Path(rp).expanduser().resolve()) if Path(rp).is_absolute() else str((Path.cwd() / rp).expanduser().resolve())
 
-    # Resolve output directory (from session or direct parameter)
-    if session:
-        output_dir = Path(session.output_dir)
-        repo_path = session.repo_path
-    else:
-        od = arguments.get("output_dir")
-        if not od:
-            return json.dumps({"error": "session_id or output_dir is required."})
+    # Try to find/restore an active session (rich frontmatter, crosslinks, symbol links)
+    from codewiki.mcp.tools.workspace_result import resolve_session
+    session = resolve_session(arguments, store)
+
+    if od:
         output_dir = Path(od).expanduser().resolve()
-        repo_path = None
+    elif session:
+        # Prefer the session's output_dir (honours custom output_dir from analyze_repo)
+        output_dir = Path(session.output_dir).expanduser().resolve()
+    elif repo_path:
+        output_dir = Path(repo_path) / "repowiki"
+    else:
+        return json.dumps({"error": "output_dir or repo_path is required."})
+
+    if session and repo_path is None:
+        repo_path = session.repo_path
 
     filename = arguments["filename"]
     page_type = arguments.get("page_type", "module")
@@ -781,16 +792,26 @@ async def handle_edit_doc_file(
     # Resolve output directory from output_dir or repo_path
     od = arguments.get("output_dir")
     rp = arguments.get("repo_path")
+    repo_path = None
+    if rp:
+        repo_path = str(Path(rp).expanduser().resolve()) if Path(rp).is_absolute() else str((Path.cwd() / rp).expanduser().resolve())
+
+    # Try to find active session for caching purposes (optional)
+    from codewiki.mcp.tools.workspace_result import resolve_session
+    session = resolve_session(arguments, store)
+
     if od:
         output_dir = str(Path(od).expanduser().resolve())
-    elif rp:
-        repo_path = str(Path(rp).expanduser().resolve()) if Path(rp).is_absolute() else str((Path.cwd() / rp).expanduser().resolve())
+    elif session:
+        # Prefer the session's output_dir (honours custom output_dir from analyze_repo)
+        output_dir = str(Path(session.output_dir).expanduser().resolve())
+    elif repo_path:
         output_dir = str(Path(repo_path) / "repowiki")
     else:
         return json.dumps({"error": "output_dir or repo_path is required."})
 
-    # Try to find active session for caching purposes (optional)
-    session = store.find_or_restore(repo_path) if repo_path else None
+    if session and repo_path is None:
+        repo_path = session.repo_path
 
     filename = arguments["filename"]
     page_type = arguments.get("page_type", "module")

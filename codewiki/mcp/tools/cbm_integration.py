@@ -19,7 +19,7 @@ def is_cbm_available() -> bool:
         from codewiki.mcp.server import server
         # Check if CBM tools are registered by trying to import the tool list
         # This is a heuristic — actual availability depends on MCP server config
-        import importlib
+        import importlib.util
         spec = importlib.util.find_spec("codebase_memory_mcp")
         return spec is not None
     except Exception:

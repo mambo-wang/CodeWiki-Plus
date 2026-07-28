@@ -32,10 +32,8 @@ def handle_list_components(
 
     Arguments
     ---------
-    session_id : str (optional)
-        Session ID from ``analyze_repo``.
-    repo_path : str (optional)
-        Repository path — alternative to session_id. Auto-loads from SQLite
+    repo_path : str
+        Repository path. Auto-restores the session from the SQLite
         cache if a previous analysis exists.
     file_prefix : str (optional)
         Only include components whose ``file`` starts with this prefix.

@@ -457,7 +457,11 @@ def _fine_grained_tools() -> list[Tool]:
                 "properties": {
                     "repo_path": {
                         "type": "string",
-                        "description": "Repository path. Derives output_dir = repo_path/repowiki.",
+                        "description": "Repository path. output_dir is resolved from the session or cache, falling back to repo_path/repowiki.",
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": "Optional. Documentation output directory; overrides the session/cache-resolved value.",
                     },
                 },
                 "required": ["repo_path"],
@@ -1252,10 +1256,18 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 return [_text(json.dumps({"error": "repo_path is required."}))]
 
             rp = _resolve_path(repo_path)
-            output_dir = str(Path(rp) / "repowiki")
 
             # Try to find active session for caching (optional)
             session = _store.find_or_restore(rp)
+
+            # Resolve output_dir: explicit arg > session > convention
+            od_arg = arguments.get("output_dir")
+            if od_arg:
+                output_dir = str(Path(_resolve_path(od_arg)))
+            elif session is not None and session.output_dir:
+                output_dir = session.output_dir
+            else:
+                output_dir = str(Path(rp) / "repowiki")
 
             # Determine if docs were written
             docs_generated = False
@@ -1656,8 +1668,8 @@ def _prompt_extract_knowledge(args: dict[str, str]) -> str:
 ## 步骤 1: 导入文档
 调用 ingest_source(output_dir="{output_dir}", source_path="{source_path}")
 - 文档会被复制到 {output_dir}/raw/sources/ 并注册到 source_registry.json
-"- 此步骤直接传入 output_dir，无需 session
-"
+- 此步骤直接传入 output_dir，无需 session
+
 ## 步骤 2: 获取抽取方法论
 调用 get_prompt(prompt_type="extraction_scan")
 - 返回实体/概念识别规则和粒度指引
@@ -1787,8 +1799,8 @@ def _prompt_incremental_update(args: dict[str, str]) -> str:
 - lint_wiki(checks=["stale_refs"]) 检查过时引用
 
 ## 步骤 5: 重建索引
-"调用 close_session(repo_path=\"{repo_path}\") 触发索引重建
-"
+调用 close_session(repo_path="{repo_path}") 触发索引重建
+
 ## 注意事项
 - 增量更新只修改受影响的模块，不重写整个 Wiki
 - 如果 metadata.json 不存在，会执行全量分析"""

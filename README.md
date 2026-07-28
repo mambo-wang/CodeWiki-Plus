@@ -114,7 +114,7 @@ python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
 Agent 会自动按照以下流程工作：
 
 ```
-阶段 1: 调用 analyze_repo → 得到 session_id、组件索引、叶节点列表
+阶段 1: 调用 analyze_repo → 得到组件索引、叶节点列表
         （自动检测 monorepo 子服务，构建跨服务调用关系）
   ↓
 阶段 2: 调用 get_prompt("cluster") 获取聚类规则
@@ -668,7 +668,7 @@ Analyze the current repository and generate Wiki documentation into the repowiki
 The Agent follows a 5-stage pipeline:
 
 ```
-Stage 1: Call analyze_repo → get session_id, component index, leaf nodes
+Stage 1: Call analyze_repo → get component index, leaf nodes
          (auto-detects monorepo sub-services, builds cross-service topology)
 Stage 2: Call get_prompt("cluster") for clustering rules
          Read source code, reason about grouping, call save_module_tree

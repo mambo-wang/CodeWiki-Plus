@@ -134,6 +134,31 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
             len(components) - len(cached_unchanged_components),
             len(components),
         )
+        # Recompute leaf nodes on the full merged graph — the builder only
+        # saw the changed-file subgraph, so its leaf_nodes list is partial
+        # and would otherwise overwrite the full list in repo_meta.
+        try:
+            from codewiki.src.be.dependency_analyzer.topo_sort import (
+                build_graph_from_components, get_leaf_nodes,
+            )
+            graph = build_graph_from_components(components)
+            raw_leafs = get_leaf_nodes(graph, components)
+            valid_types = {"class", "interface", "struct"}
+            available_types = {c.component_type for c in components.values()}
+            if not available_types & valid_types:
+                valid_types.add("function")
+            leaf_nodes = [
+                l for l in raw_leafs
+                if isinstance(l, str) and l in components
+                and components[l].component_type in valid_types
+            ]
+            logger.info("Recomputed %d leaf nodes on merged graph", len(leaf_nodes))
+        except Exception as e:
+            logger.warning("Leaf-node recompute failed, merging with cached list: %s", e)
+            old_leafs = cache.get_leaf_nodes()
+            merged = [l for l in old_leafs if l in components]
+            merged.extend(l for l in leaf_nodes if l not in merged)
+            leaf_nodes = merged
 
     # Write to SQLite cache (incremental mode if we had cached components)
     is_incremental = bool(cached_unchanged_components)
@@ -188,6 +213,10 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     session.analyzed_commit = get_git_commit_hash(repo_path) or None
     if session.analyzed_commit:
         cache.set_last_commit_id(session.analyzed_commit)
+    try:
+        cache.set_output_dir(str(output_dir))
+    except Exception as e:
+        logger.warning("Failed to persist output_dir to cache: %s", e)
 
     # Persist repo_path ↔ output_dir mapping (enables session-free SQLite access)
     try:
@@ -331,8 +360,8 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
             "The schema.yaml at output_dir defines documentation conventions (required sections, "
             "documentation dimensions, line limits). Share it with the user — they can edit it "
             "before generating docs to customize output style and structure. "
-            "Use read_code_components(session_id, component_ids) to read source code. "
-            "Use save_module_tree(session_id, module_tree) after clustering. "
+            "Use read_code_components(repo_path, component_ids) to read source code. "
+            "Use save_module_tree(repo_path, module_tree) after clustering. "
             "Call get_prompt('cluster') for clustering rules."
         ),
     }
@@ -360,6 +389,10 @@ def _build_no_change_response(
     )
     from codewiki.cli.utils.repo_validator import get_git_commit_hash
     session.analyzed_commit = get_git_commit_hash(repo_path) or None
+    try:
+        cache.set_output_dir(str(output_dir))
+    except Exception as e:
+        logger.warning("Failed to persist output_dir to cache: %s", e)
 
     workspace = SessionWorkspace(repo_path, session.session_id)
     session.workspace = workspace

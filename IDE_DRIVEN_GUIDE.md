@@ -72,10 +72,10 @@ codewiki/mcp/
 
 ### 文件侧通道（File-Side-Channel）
 
-为避免大段数据通过 MCP stdio 传输导致性能瓶颈，我们引入了文件侧通道架构：`analyze_repo` 和 `read_code_components` 等大结果不直接返回给 Agent，而是写入 `{repo_path}/.codewiki/sessions/{session_id}/` 目录下的文件，MCP 响应仅包含文件路径和摘要信息。Agent 直接读取磁盘文件获取完整数据。
+为避免大段数据通过 MCP stdio 传输导致性能瓶颈，我们引入了文件侧通道架构：`analyze_repo` 和 `read_code_components` 等大结果不直接返回给 Agent，而是写入 `{repo_path}/.codewiki/workspace/` 目录下的文件，MCP 响应仅包含文件路径和摘要信息。Agent 直接读取磁盘文件获取完整数据。
 
 ```
-.codewiki/sessions/{session_id}/
+.codewiki/workspace/
 ├── component_index.json    # 组件索引
 ├── leaf_nodes.json         # 叶节点列表
 ├── languages.json          # 检测到的语言
@@ -130,15 +130,7 @@ python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
 }
 ```
 
-**步骤 2**：将技能文件拷贝到 CodeBuddy 的技能目录：
-
-```bash
-cp -r skills/codewiki-wiki-generator .codebuddy/skills/
-```
-
-当你在 Agent 模式中提及"生成文档"或"Wiki"时，CodeBuddy 会自动加载该技能。
-
-**步骤 3**：打开 CodeBuddy Agent 模式，输入：
+**步骤 2**：打开 CodeBuddy Agent 模式，输入：
 
 ```
 帮我分析这个仓库并生成 Wiki 文档
@@ -194,7 +186,7 @@ cp -r skills/codewiki-wiki-generator .codebuddy/skills/
 
 ```
 阶段 1: analyze_repo
-  │  → 得到 session_id、组件索引、叶节点列表
+  │  → 得到组件索引、叶节点列表
   │
 阶段 2: get_prompt("cluster") + read_code_components + save_module_tree
   │  → Agent 自己推理，将组件分组为 3-8 个逻辑模块

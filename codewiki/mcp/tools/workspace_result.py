@@ -33,6 +33,10 @@ def resolve_session(
 ) -> Optional[Any]:
     """Resolve a session from either ``session_id`` or ``repo_path`` in *arguments*.
 
+    Note: ``session_id`` is no longer part of any public tool schema; it is
+    kept here for internal backward compatibility only. New callers should
+    pass ``repo_path``.
+
     If ``session_id`` is provided, looks it up in the store.
     If only ``repo_path`` is provided, calls ``store.find_or_restore()`` to
     auto-load from SQLite cache (no prior analyze_repo needed in current session).
