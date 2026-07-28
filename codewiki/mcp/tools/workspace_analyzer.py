@@ -283,14 +283,15 @@ def handle_analyze_workspace(
             )
             result = json.loads(result_json)
 
-            # Read summary.json for richer info
+            # Read summary.json for richer info (path comes from analyze_repo result)
             summary = {}
-            summary_path = repo_output_dir / "summary.json"
+            summary_path = Path(result.get("files", {}).get("summary") or (repo_output_dir / "summary.json"))
             if summary_path.exists():
                 try:
                     summary = json.loads(summary_path.read_text(encoding="utf-8"))
                 except Exception:
                     pass
+            stats = result.get("stats") or {}
 
             repo_results.append({
                 "name": repo_path.name,
@@ -298,9 +299,9 @@ def handle_analyze_workspace(
                 "path": str(repo_path),
                 "output_dir": str(repo_output_dir),
                 "session_id": result.get("session_id"),
-                "total_components": result.get("total_components", summary.get("total_components", 0)),
-                "total_leaf_nodes": result.get("total_leaf_nodes", summary.get("total_leaf_nodes", 0)),
-                "languages": summary.get("languages", result.get("languages", {})),
+                "total_components": stats.get("total_components", summary.get("total_components", 0)),
+                "total_leaf_nodes": stats.get("total_leaf_nodes", summary.get("total_leaf_nodes", 0)),
+                "languages": stats.get("languages", summary.get("languages", {})),
                 "has_overview": (repo_output_dir / "overview.md").exists() or (repo_output_dir / "wiki" / "overview.md").exists(),
             })
         except Exception as e:
