@@ -1,0 +1,31 @@
+{
+  "sources": {
+    "mcp_smoke_src_a": {
+      "path": "raw/sources/mcp_smoke_src_a.md",
+      "original_path": "/private/tmp/mcp_smoke_src_a.md",
+      "source_type": "md",
+      "description": "MCP smoke test source A",
+      "version": "",
+      "imported_at": "2026-07-28T13:09:36.067838",
+      "related_pages": [],
+      "status": "retracted",
+      "content_hash": "sha256:6b199ff17ebdbf2b3c997aad22583b2bee46b606b6dea9677cfec41d156e9d07",
+      "retracted_at": "2026-07-28T13:10:09.272724",
+      "retract_mode": "remove_refs"
+    },
+    "mcp_smoke_src_b": {
+      "path": "raw/sources/mcp_smoke_src_b.md",
+      "original_path": "/private/tmp/mcp_smoke_src_b.md",
+      "source_type": "md",
+      "description": "MCP smoke test source B",
+      "version": "",
+      "imported_at": "2026-07-28T13:09:37.997944",
+      "related_pages": [],
+      "status": "retracted",
+      "content_hash": "sha256:160863f50fd600698929ee17f83534d0dbea8bc5a6bd765c76a1b2d9775d4c6f",
+      "retracted_at": "2026-07-28T13:10:10.103480",
+      "retract_mode": "remove_refs"
+    }
+  },
+  "version": 1
+}
