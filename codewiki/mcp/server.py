@@ -74,7 +74,7 @@ CodeWiki-CN MCP Server — 代码结构分析 + Wiki 文档生成 + LLM 知识�
 - **LLM Wiki 知识库**: BM25 全文搜索 + wikilink 图谱多跳扩展 + 结构化笔记
 - **外部文档管理**: 导入 PDF/MD/DOCX/HTML → 知识抽取 → 实体/概念页面
 - **质量保障**: 文档-代码一致性检查（过时引用、断链、覆盖率、循环依赖）
-- **工作流指引**: 6 个 Prompt 模板（generate-wiki, extract-knowledge, search-wiki 等）
+- **工作流指引**: 11 个 Prompt 模板（generate-wiki, extract-knowledge, search-wiki, ingest-note 等）
 - **上下文资源**: Wiki 目录 (codewiki://wiki/catalog)、模块树 (codewiki://wiki/module-tree)、搜索索引状态 (codewiki://wiki/index-status)
 
 ## 核心工作流
@@ -116,8 +116,9 @@ ingest_note(note_type, title, content) → 自动索引 → query_wiki 可检索
 1. 代码分析: analyze_repo → analyze_impact / list_dependencies（无需后续 Wiki 步骤）
 2. 生成 Wiki: 调用 Prompt "generate-wiki" 获取完整步骤
 3. 知识抽取: 调用 Prompt "extract-knowledge" 获取完整步骤
-4. 搜索知识库: 调用 Prompt "search-wiki" 获取搜索策略
-5. 质量检查: lint_wiki(checks=["all"]) → flag_issue 记录问题
+4. 知识归档: 调用 Prompt "ingest-note" 归档设计决策和经验教训
+5. 搜索知识库: 调用 Prompt "search-wiki" 获取搜索策略
+6. 质量检查: lint_wiki(checks=["all"]) → flag_issue 记录问题
 """
 
 server = Server(
@@ -1560,6 +1561,26 @@ async def list_prompts() -> list:
                 ),
             ],
         ),
+        Prompt(
+            name="ingest-note",
+            title="经验知识归档",
+            description=(
+                "将设计决策、经验教训、架构 rationale、踩坑记录等知识归档到 Wiki 知识库。"
+                "支持 8 种笔记类型，自动 BM25 索引，可通过 query_wiki 检索。"
+            ),
+            arguments=[
+                PromptArgument(
+                    name="output_dir",
+                    description="Wiki 输出目录（默认: <repo>/repowiki）",
+                    required=False,
+                ),
+                PromptArgument(
+                    name="note_type",
+                    description="笔记类型：decision | lesson | architecture | bug_fix | pitfall | known_issue | workaround | general（默认 general）",
+                    required=False,
+                ),
+            ],
+        ),
     ]
 
 
@@ -1580,6 +1601,7 @@ async def get_prompt(name: str, arguments: dict[str, str] | None) -> Any:
         "code-analysis": _prompt_code_analysis,
         "impact-review": _prompt_impact_review,
         "architecture-review": _prompt_architecture_review,
+        "ingest-note": _prompt_ingest_note,
     }
 
     handler = prompts_map.get(name)
@@ -2069,6 +2091,95 @@ read_code_components(repo_path="{repo_path}", component_ids=['<high_risk_id>'])
 ```
 
 使用 get_prompt(prompt_type="impact_review") 获取更详细的解读指南。"""
+
+
+def _prompt_ingest_note(args: dict[str, str]) -> str:
+    output_dir = args.get("output_dir", "")
+    note_type = args.get("note_type", "general")
+    dir_hint = f'output_dir="{output_dir}"' if output_dir else 'output_dir="<repo>/repowiki"'
+    return f"""请将知识经验归档到 Wiki 知识库。按以下步骤执行：
+
+## 何时使用
+在以下场景完成后立即归档：
+- **设计决策**：为什么选择方案 A 而不是方案 B
+- **踩坑记录**：开发中遇到的陷阱和根因
+- **架构 rationale**：系统设计的核心理由
+- **Bug 修复**：如何定位并修复了疑难 Bug
+- **已知问题**：当前存在的限制或缺陷
+- **临时方案**：绕过问题的 workaround
+
+## 笔记类型选择
+| 类型 | 用途 | 适用场景 |
+|------|------|----------|
+| decision | 记录技术/架构选型理由 | 选择了 JWT 而非 Session 认证 |
+| lesson | 开发中获得的经验教训 | 老项目方法名与实际行为不一致 |
+| architecture | 系统设计 rationale | 为什么采用事件驱动而非同步调用 |
+| bug_fix | Bug 修复过程和方法 | 定位了竞态条件导致的偶发失败 |
+| pitfall | 带根因的踩坑记录 | 字符串转义导致运行时语法错误 |
+| known_issue | 已知的待修复问题 | API 在高并发下偶发超时 |
+| workaround | 临时绕过方案 | 通过重试机制缓解第三方服务不稳定 |
+| general | 自由格式知识 | 不属于上述类型的其他知识 |
+
+## 步骤 1: 组织笔记内容
+
+好的笔记应包含：
+- **背景**：什么场景下产生了这个知识
+- **核心内容**：决策/教训/方案本身
+- **原因分析**：为什么是这样（重点写 WHY 而非 WHAT）
+- **影响范围**：涉及哪些模块/组件
+
+控制在 200-500 字，简洁有力。
+
+## 步骤 2: 调用 ingest_note 归档
+
+```json
+{{
+  "output_dir": "{output_dir or '<repo>/repowiki'}",
+  "note_type": "{note_type}",
+  "title": "<简洁描述核心知识的标题>",
+  "content": "## 背景\\n...\\n## 核心内容\\n...\\n## 原因\\n...",
+  "related_modules": ["<相关模块名>"],
+  "aliases": ["<同义词/关键词，提升搜索命中率，3x 权重>"]
+}}
+```
+
+### 参数说明
+- **output_dir**（必填）：Wiki 输出目录路径
+- **note_type**：笔记类型，默认 general
+- **title**（必填）：简洁的标题，概括核心知识
+- **content**（必填）：Markdown 格式的笔记正文
+- **related_modules**：相关模块名列表，省略时自动从内容匹配
+- **related_components**：相关组件 ID 列表
+- **aliases**：同义词/别名列表，大幅提升 query_wiki 搜索命中率（3x 权重）
+- **severity**：严重程度 critical/high/medium/low（仅 pitfall/known_issue）
+- **root_cause**：根因描述（仅 pitfall/bug_fix）
+- **source_ref**：外部来源引用（如 'RFC-793'、'api-docs-v2'）
+
+## 步骤 3: 验证归档结果
+
+调用 query_wiki 确认笔记可被检索：
+```
+query_wiki(output_dir="{output_dir or '<repo>/repowiki'}", query="<笔记标题关键词>")
+```
+
+## 高质量笔记示例
+
+```json
+{{
+  "output_dir": "{output_dir or '<repo>/repowiki'}",
+  "note_type": "lesson",
+  "title": "OrderService.process() 只做参数校验不做业务处理",
+  "content": "## 背景\\n\\nAgent 误以为 OrderService.process() 包含完整业务逻辑，基于方法名做了错误的设计假设。\\n\\n## 正确做法\\n\\nprocess() 仅做入参校验和格式化，实际业务处理在 OrderService.execute() 中。老项目方法名与实际行为不一致是常见情况，应优先阅读实现而非信任方法名。\\n\\n## 根因\\n\\n十几年老项目，方法经过多次重构但名称未更新。",
+  "related_modules": ["order"],
+  "aliases": ["process方法", "execute方法", "方法名不一致"]
+}}
+```
+
+## 注意事项
+- 不是每次操作都需要归档，只记录有复用价值的知识
+- 如果未来的 Agent 或新同事遇到同样场景时有用，就值得记录
+- 个人偏好、临时调整等不需要记录
+- 笔记存储在 `notes/` 目录，可通过 query_wiki 全文检索"""
 
 
 def _prompt_architecture_review(args: dict[str, str]) -> str:
