@@ -222,7 +222,10 @@ def _fine_grained_tools() -> list[Tool]:
                 "Use [[wikilinks]] in content to reference other pages — these are automatically "
                 "parsed into a graph for multi-hop search (query_wiki with hop parameter). "
                 "For large docs (>200 lines), use content_file instead of inline content. "
-                "Provide output_dir or derive it from repo_path."
+                "Provide output_dir or derive it from repo_path. "
+                "MANDATORY FINAL STEP: after writing the LAST module doc, you MUST call "
+                "close_session(repo_path=...) to build the BM25 search index + wikilink graph. "
+                "query_wiki returns NOTHING until close_session runs — skipping it leaves the wiki unsearchable."
             ),
             inputSchema={
                 "type": "object",
@@ -567,7 +570,10 @@ def _fine_grained_tools() -> list[Tool]:
                 "missing_aliases (pages without search aliases), stale_sources (retracted source refs), "
                 "superseded_pages (pages marked as superseded). "
                 "Run checks=['all'] for a comprehensive audit. "
-                "After fixing issues, use flag_issue to track remaining problems."
+                "After fixing issues, use flag_issue to track remaining problems. "
+                "MANDATORY FINAL STEP: after lint passes (or issues are tracked), you MUST call "
+                "close_session(repo_path=...) — it builds the BM25 search index + wikilink graph "
+                "that makes query_wiki work. The wiki is unsearchable until close_session runs."
             ),
             inputSchema={
                 "type": "object",
@@ -1640,10 +1646,11 @@ def _prompt_generate_wiki(args: dict[str, str]) -> str:
 调用 get_prompt(prompt_type="overview_repo", repo_path="{repo_path}") 获取总览模板
 撰写 overview.md（80-200 行），链接所有模块文档
 
-## 步骤 6: 质检与关闭
+## 步骤 6: 质检与关闭（强制，不可跳过）
 - 调用 lint_wiki(repo_path="{repo_path}") 检查一致性
 - 修复发现的问题（edit_doc_file）
-- 调用 close_session(repo_path="{repo_path}") 完成（触发索引重建、AGENTS.md 注入）
+- 调用 close_session(repo_path="{repo_path}") 完成（触发索引重建、AGENTS.md 注入、构建 BM25 搜索索引与 wikilink 图）
+- 注意：close_session 是整条流水线的强制终态步骤。只有它执行后 query_wiki 才能检索到内容；漏掉它会导致 Wiki 不可搜索，且本流程视为未完成。
 
 ## 注意事项
 - 每个叶模块至少 1 个 Mermaid 图（graph TD 或 graph LR）
