@@ -147,6 +147,41 @@ def _resync_source_refs(content: str) -> str:
     return "\n".join(rebuilt)
 
 
+def _split_frontmatter(content: str) -> tuple:
+    """Split *content* into ``(frontmatter_block, body)``.
+
+    The frontmatter block keeps its ``---`` delimiters.  Documents without a
+    leading frontmatter return ``("", content)``.  Used by edit operations so
+    that a sentence echoed inside ``description:`` does not block editing the
+    same sentence in the body.
+    """
+    if content.startswith("---"):
+        lines = content.split("\n")
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                return "\n".join(lines[: i + 1]), "\n".join(lines[i + 1:])
+    return "", content
+
+
+def _find_doc_by_basename(output_dir: str, filename: str) -> Path | None:
+    """Locate an existing wiki document by its basename under ``wiki/``.
+
+    Lets :func:`handle_edit_doc_file` find ``wiki/queries/Foo.md`` even when
+    the caller passed ``page_type="module"`` (which would otherwise route to
+    ``wiki/modules/Foo.md`` and report "File not found").
+    """
+    base = filename.rsplit("/", 1)[-1]
+    if not base.endswith(".md"):
+        base += ".md"
+    wiki_dir = Path(output_dir) / "wiki"
+    if not wiki_dir.is_dir():
+        return None
+    for md_file in wiki_dir.rglob("*.md"):
+        if md_file.is_file() and md_file.name == base:
+            return md_file
+    return None
+
+
 def _is_within(path: Path, base: Path) -> bool:
     """Return True if *path* resolves to somewhere inside *base*."""
     try:
@@ -299,9 +334,13 @@ def _build_okf_frontmatter(
 
     # Merge frontmatter_extra
     extra = frontmatter_extra or {}
-    if extra.get("aliases"):
-        aliases_str = ", ".join(f'"{a}"' for a in extra["aliases"])
-        fm_parts.append(f"aliases: [{aliases_str}]")
+    # Default alias keeps the doc discoverable by its slug, so the linter's
+    # missing_aliases check stays quiet for generated docs.
+    aliases = extra.get("aliases")
+    if not aliases:
+        aliases = [filename.replace(".md", "")]
+    aliases_str = ", ".join(f'"{a}"' for a in aliases)
+    fm_parts.append(f"aliases: [{aliases_str}]")
     # Type-specific fields from extra
     for key in ("category", "domain", "origin", "version", "format",
                 "decision", "status", "decided_at", "severity", "root_cause"):
@@ -627,9 +666,17 @@ def _inject_lightweight_frontmatter(
         f"description: \"{description}\"" if description else f"description: {mod_name}",
     ]
 
+    # Default alias keeps the doc discoverable by its slug.
+    aliases = (frontmatter_extra or {}).get("aliases")
+    if not aliases:
+        aliases = [filename.replace(".md", "")]
+    fm_lines.append(f"aliases: [{', '.join(str(v) for v in aliases)}]")
+
     # Merge frontmatter_extra
     if frontmatter_extra:
         for key, value in frontmatter_extra.items():
+            if key == "aliases":
+                continue
             if isinstance(value, list):
                 fm_lines.append(f"{key}: [{', '.join(str(v) for v in value)}]")
             elif isinstance(value, str):
@@ -819,6 +866,14 @@ async def handle_edit_doc_file(
     if doc_path is None:
         return json.dumps({"error": "Filename escapes output directory."})
 
+    # Tolerance: when the page_type-routed path does not exist, locate the
+    # file by basename across the wiki tree so an omitted/incorrect page_type
+    # does not block editing an existing document.
+    if not doc_path.exists():
+        located = _find_doc_by_basename(output_dir, filename)
+        if located is not None:
+            doc_path = located
+
     command = arguments["command"]
 
     if command == "undo":
@@ -874,13 +929,28 @@ async def handle_edit_doc_file(
         if old_str is None:
             return json.dumps({"error": "old_str is required for str_replace."})
 
-        occurrences = current_content.count(old_str)
+        # Frontmatter (e.g. the auto-generated ``description:``) may echo a
+        # sentence from the body; count occurrences against the body only so
+        # editing the body is not blocked by its own frontmatter copy.
+        fm, body = _split_frontmatter(current_content)
+        occurrences = body.count(old_str)
         if occurrences == 0:
-            return json.dumps({"error": f"old_str not found in {filename}."})
-        if occurrences > 1:
+            # Fall back to a whole-document search (e.g. editing frontmatter).
+            occurrences = current_content.count(old_str)
+            if occurrences == 0:
+                return json.dumps({"error": f"old_str not found in {filename}."})
+            new_content = current_content.replace(old_str, new_str, 1)
+        elif occurrences > 1:
             return json.dumps({"error": f"old_str appears {occurrences} times in {filename}. Make it unique."})
-
-        new_content = current_content.replace(old_str, new_str, 1)
+        else:
+            new_content = fm + body.replace(old_str, new_str, 1)
+        # Calculate edit position BEFORE replacement so snippet shows the
+        # actual edit location (find() on new_content may hit a wrong match
+        # or fail entirely for deletions where new_str is empty).
+        if occurrences == 1:
+            edit_line = body.split(old_str)[0].count("\n")
+        else:
+            edit_line = current_content.split(old_str)[0].count("\n")
         # Save history only for edits that actually happen, so undo never
         # pops a no-op entry left behind by a failed/rejected command.
         _save_history(output_dir, doc_path, current_content)
@@ -895,11 +965,12 @@ async def handle_edit_doc_file(
         except Exception:
             pass
 
-        # Snippet around the edit
-        replacement_line = current_content.split(old_str)[0].count("\n")
+        # Snippet around the edit (use pre-computed edit_line)
+        fm_line_count = fm.count("\n") + 1 if fm else 0
+        replacement_line = fm_line_count + edit_line
         lines = new_content.split("\n")
         start = max(0, replacement_line - 4)
-        end = min(len(lines), start + new_str.count("\n") + 9)
+        end = min(len(lines), start + max(new_str.count("\n"), 0) + 9)
         snippet = "\n".join(f"{i + 1:6}\t{lines[i]}" for i in range(start, end))
 
     elif command == "insert":
