@@ -1,0 +1,124 @@
+
+## 一、MCP 原生 Prompts（工作流级）
+
+这些是完整的工作流指引，Agent 按 `get_prompt(name, arguments)` 调用后获得完整的多步骤执行计划。
+
+| Prompt 名称 | 作用 |
+|---|---|
+| **generate-wiki** | 完整的 Wiki 生成流水线：`analyze_repo` → 聚类 → 逐模块撰写 → 仓库总览 → `lint_wiki` 质检 → `close_session` 关闭 |
+| **extract-knowledge** | 外部文档知识抽取：`ingest_source` 导入 → 识别实体/概念 → 生成 entity/concept/source 页面 → 构建 wikilink 图谱 |
+| **search-wiki** | 知识库搜索策略：BM25 全文搜索 → wikilink 图谱多跳扩展 → 深度阅读，附过滤技巧 |
+| **quality-check** | 文档质量审计：全量 lint（过时引用/断链/覆盖率/循环依赖）→ 按严重度修复 → `flag_issue` 标记 → 验证 |
+| **incremental-update** | 增量更新 Wiki：检测变更 → 评估受影响模块 → `edit_doc_file` 精准更新 → 重建索引 |
+| **workspace-analysis** | 多仓库工作区分析：`analyze_workspace` 扫描所有 git 仓库 → RouteNode 跨服务匹配 → Mermaid 服务拓扑图 → 逐仓库生成 Wiki |
+| **cross-service-trace** | 跨服务调用链追踪：RouteNode 静态匹配（HTTP+MQ）→ codebase-memory 语义追踪 → 循环依赖/扇入热点诊断 → 归档 |
+| **code-analysis** | 纯代码结构分析（**不生成 Wiki**）：Tree-sitter 构建调用图 → 组件浏览 → 依赖查询 → 影响分析，结果缓存 SQLite |
+| **impact-review** | 修改影响范围评估：正向影响（谁依赖我）+ 反向依赖（我依赖谁）→ 爆炸半径/深度分布/高风险组件 → 变更计划 |
+| **architecture-review** | 架构审查：依赖方向识别层次（核心/服务/应用层）→ 模块边界分类（枢纽/叶/核心）→ 热点和耦合风险 |
+| **ingest-note** | 经验知识归档：8 种笔记类型（decision/lesson/architecture/bug_fix/pitfall/known_issue/workaround/general）→ `ingest_note` 归档 → 验证可检索 |
+
+---
+
+## 二、`get_prompt` 工具（步骤级模板）
+
+在 Wiki 生成流程的每一步中，Agent 调用 `get_prompt(prompt_type="xxx")` 获取具体的提示词模板。以下是全部 20 种 `prompt_type`：
+
+### 核心 Wiki 生成（6 种）
+
+| prompt_type | 作用 |
+|---|---|
+| **cluster** | 组件聚类 prompt：将 `analyze_repo` 产出的组件列表分组为 JSON 模块树，需传入 `potential_core_components` 和 `module_tree` |
+| **system_complex** | 复杂（父）模块的 system prompt：含子模块委托说明，支持 `doc_type`（design/architecture/business/api 等）定制 |
+| **system_leaf** | 叶子模块的 system prompt：详细文档要求（含 Mermaid 图），同样支持 `doc_type` 定制 |
+| **user** | 用户 prompt 模板：提供模块树上下文 + 核心组件源码，配合 `system_leaf` 或 `system_complex` 使用 |
+| **overview_module** | 父模块概览 prompt：基于子模块文档生成父模块架构概览 |
+| **overview_repo** | 仓库总览 prompt：Wiki 生成最后一步，基于全量模块树生成 `overview.md` |
+
+### 代码分析（3 种）
+
+| prompt_type | 作用 |
+|---|---|
+| **code_analysis** | 逐步代码分析工作流：`analyze_repo` → `list_components` → `list_dependencies` → `analyze_impact` → `read_code_components`，不生成文档 |
+| **impact_review** | 影响分析解读指南：如何阅读 `impact_analysis.json`，风险评估清单（爆炸半径/模块扩散/深度分布），后续钻取查询 |
+| **architecture_review** | 架构审查工作流：层次识别（核心层/服务层/应用层）→ 模块边界 → 热点识别 → 输出模板 |
+
+### LLM Wiki 知识管理（3 种）
+
+| prompt_type | 作用 |
+|---|---|
+| **wiki_query** | `query_wiki` 使用指南：如何构建查询、解读结果（source/snippet/relevance_score）、使用 `scope`/`type_filter` 过滤 |
+| **wiki_ingest** | 知识笔记创建指南：笔记结构（背景/决策/替代方案/影响）、`ingest_note` 调用规范 |
+| **wiki_lint_report** | `lint_wiki` 结果解读：error→warning→info 优先级、LLM Wiki 特有检查（orphan_pages/no_outlinks/stale_sources） |
+
+### LLM Wiki 页面类型模板（7 种）
+
+| prompt_type | 用途 | 写入目录 |
+|---|---|---|
+| **entity_page** | 实体（类/接口/数据模型）文档模板 | `wiki/entities/` |
+| **concept_page** | 概念（模式/架构决策/设计原则）文档模板 | `wiki/concepts/` |
+| **source_summary** | 第三方导入源文档摘要模板 | `wiki/sources/` |
+| **comparison_page** | 方案对比分析页面模板 | `wiki/comparisons/` |
+| **query_page** | 研究查询结果持久化模板 | `wiki/queries/` |
+| **taxonomy_plan** | 批量分类规划模板：将页面分配到目录树 | — |
+| **extraction_scan** | 知识提取扫描模板（focused/standard/exhaustive 三种粒度） | — |
+
+### 知识沉淀（1 种）
+
+| prompt_type | 作用 |
+|---|---|
+| **reflection** | 结构化反思模板：从对话中提取可持久化的知识 → 四问过滤器 → 路由到合适的 `ingest_note` / `write_doc_file` → 向用户确认后写入 |
+
+---
+
+## 总结关系
+
+```
+MCP 原生 Prompts（工作流级）
+  └─ 例如 generate-wiki 工作流
+       ├─ 第2步: get_prompt(prompt_type="cluster")     ← 聚类模板
+       ├─ 第4步: get_prompt(prompt_type="user")         ← 用户 prompt
+       ├─ 第4步: get_prompt(prompt_type="system_leaf")   ← 叶子模块模板
+       └─ 第5步: get_prompt(prompt_type="overview_repo") ← 总览模板
+```
+
+11 个 MCP 原生 Prompt 提供**完整工作流路线图**，20 种 `get_prompt` 模板提供**每一步的具体执行指南**。
+
+
+### 1. 双层提示词架构
+
+```
+MCP 原生 Prompt（工作流级）—— "做什么"
+  └─ 例: generate-wiki = 6 步完整流水线
+
+get_prompt 工具（步骤级模板）—— "怎么做"
+  └─ 例: cluster / system_leaf / overview_repo 等 20 种细粒度模板
+```
+
+上层编排整体流程，下层提供每个环节的具体执行细节，Agent 不需要自己临时造 prompt。
+
+### 2. 动态参数注入
+
+`get_prompt` 不是简单返回静态文本，它会在运行时：
+- 读取 `schema.yaml`，自动注入**必填章节、文档维度、行数限制、页面路由表**等约束
+- 根据 `doc_type`（design/architecture/business/api）自动拼接不同的**写作风格指引**
+- 对大文件结果做**阈值判断**（>4KB 写 workspace 文件），防止 MCP stdio 传输阻塞
+
+### 3. 将方法论编码到 Prompt 中
+
+CodeWiki 把整条 Wiki 生成流水线的**最佳实践**固化到了 prompt 里：
+
+- 叶优先顺序、父模块引用子文档
+- 每模块至少 1 个 Mermaid 图、wikilink 交叉引用
+- `close_session` 作为不可跳过的强制终态步骤
+- `reflection` 模板的四问过滤器（避免记录无用知识）
+
+### 4. 对比传统 Prompt Engineering
+
+| 传统做法 | CodeWiki MCP 做法 |
+|---|---|
+| Agent 每次自己编 prompt | 服务端提供标准化模板，保证一致性 |
+| 写在系统提示里，无法复用 | MCP Prompt 可被任意 IDE/Agent 消费 |
+| 约束靠自然语言描述 | schema.yaml 作为结构化配置，动态注入 |
+| 方法论靠 Agent 自己"悟" | 工作流 prompt 直接把步骤链写死 |
+
+本质上，CodeWiki 的 MCP Prompt 系统是把**"如何使用 CodeWiki 这套工具"的领域知识**，从 Agent 的临时推理变成了服务端的**可复用、可共享的结构化提示词模板**，这正是 MCP Prompts 这个协议特性的设计初衷。
