@@ -571,6 +571,10 @@ _register(
                     "type": "string",
                     "description": "Output directory for wiki pages",
                 },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
+                },
                 "checks": {
                     "type": "array",
                     "items": {
@@ -616,6 +620,10 @@ _register(
                 "output_dir": {
                     "type": "string",
                     "description": "Output directory for wiki pages",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
                 },
                 "note_type": {
                     "type": "string",
@@ -793,6 +801,10 @@ _register(
                     "type": "string",
                     "description": "Output directory for wiki pages",
                 },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
+                },
                 "note_file": {
                     "type": "string",
                     "description": "Note filename relative to notes/ directory (e.g. '2026-07-26-jwt-decision.md')",
@@ -819,6 +831,10 @@ _register(
                 "output_dir": {
                     "type": "string",
                     "description": "Output directory for wiki pages",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
                 },
                 "note_file": {
                     "type": "string",
@@ -863,6 +879,10 @@ _register(
                 "output_dir": {
                     "type": "string",
                     "description": "Output directory for wiki pages",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
                 },
                 "source_path": {
                     "type": "string",
@@ -915,6 +935,10 @@ _register(
                 "output_dir": {
                     "type": "string",
                     "description": "Output directory for wiki pages",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
                 },
                 "name": {
                     "type": "string",
@@ -993,6 +1017,10 @@ _register(
                 "output_dir": {
                     "type": "string",
                     "description": "Output directory for wiki pages",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
                 },
                 "issue_type": {
                     "type": "string",

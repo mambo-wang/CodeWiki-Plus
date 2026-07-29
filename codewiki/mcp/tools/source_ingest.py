@@ -53,9 +53,13 @@ def _resolve_output_dir(session: Optional[SessionState], arguments: Dict) -> Pat
     if session:
         return Path(session.output_dir)
     od = arguments.get("output_dir")
-    if not od:
-        raise ValueError("session_id or output_dir is required.")
-    return Path(od).expanduser().resolve()
+    if od:
+        return Path(od).expanduser().resolve()
+    # Fallback: derive from repo_path
+    rp = arguments.get("repo_path")
+    if rp:
+        return Path(rp).expanduser().resolve() / "repowiki"
+    raise ValueError("output_dir or repo_path is required (or pass an active session).")
 
 
 def handle_ingest_source(

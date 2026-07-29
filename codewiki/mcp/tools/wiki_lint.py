@@ -148,6 +148,11 @@ def _get_output_dir(session: Optional[SessionState], arguments: Dict) -> Optiona
         p = Path(output_dir).expanduser().resolve()
         p.mkdir(parents=True, exist_ok=True)
         return p
+    # Fallback: derive from repo_path
+    rp = arguments.get("repo_path")
+    if rp:
+        p = Path(rp).expanduser().resolve()
+        return p / "repowiki"
     return None
 
 

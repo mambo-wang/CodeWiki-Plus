@@ -84,7 +84,11 @@ def handle_flag_issue(
             latest = max(sessions.values(), key=lambda s: s.last_accessed)
             output_dir = latest.output_dir
     if not output_dir:
-        return json.dumps({"error": "output_dir is required."})
+        rp = arguments.get("repo_path")
+        if rp:
+            output_dir = str(Path(rp).expanduser().resolve() / "repowiki")
+        else:
+            return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
     output_dir = Path(output_dir).expanduser().resolve()
 
     # Validate inputs
