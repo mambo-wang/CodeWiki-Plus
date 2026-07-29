@@ -34,10 +34,14 @@ def _read_source_from_disk(node) -> str:
 def handle_read_code_components(
     arguments: Dict[str, Any], store: SessionStore,
 ) -> str:
-    session_id = arguments["session_id"]
-    session = store.get(session_id)
+    """Read component source code. Resolves the session from repo_path."""
+    from codewiki.mcp.tools.workspace_result import resolve_session
+    session = resolve_session(arguments, store)
     if session is None:
-        return json.dumps({"error": f"Session {session_id} not found or expired."})
+        return json.dumps(
+            {"error": "Session not found. Ensure repo_path points to a previously analyzed repository."},
+            ensure_ascii=False,
+        )
     if session.workspace is None:
         return json.dumps({"error": "Session workspace not initialized."})
 

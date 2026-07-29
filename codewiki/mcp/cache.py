@@ -15,6 +15,14 @@ _CACHE_DIR = ".codewiki"
 _DEFAULT_LRU_SIZE = 500
 _K1, _B = 1.5, 0.75
 
+# SQLite bound-variable limit is 999 on older builds; stay well below it.
+_SQL_CHUNK_SIZE = 500
+
+
+def _sql_chunks(items: List[Any], size: int = _SQL_CHUNK_SIZE) -> List[List[Any]]:
+    """Split *items* into chunks small enough for SQL IN(...) placeholders."""
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
 # ------------------------------------------------------------------ Shared BM25 tokeniser
 
 _FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
@@ -239,7 +247,13 @@ class AnalysisCache:
         return self._conn
 
     def close(self):
-        if self._conn: self._conn.close(); self._conn = None
+        if self._conn:
+            try:
+                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except Exception:
+                pass
+            self._conn.close()
+            self._conn = None
 
     def _create_tables(self):
         self.conn.executescript("""
@@ -252,7 +266,8 @@ class AnalysisCache:
                 class_name TEXT, display_name TEXT, qualified_name TEXT,
                 has_docstring INTEGER DEFAULT 0, docstring TEXT DEFAULT '',
                 parameters TEXT, depends_on TEXT NOT NULL DEFAULT '[]',
-                metadata_json TEXT DEFAULT '{}');
+                metadata_json TEXT DEFAULT '{}',
+                content_hash TEXT DEFAULT '');
             CREATE INDEX IF NOT EXISTS ix_comp_type ON components(component_type);
             CREATE INDEX IF NOT EXISTS ix_comp_file ON components(relative_path);
             CREATE TABLE IF NOT EXISTS file_fingerprints (
@@ -269,7 +284,38 @@ class AnalysisCache:
                 token TEXT NOT NULL, doc_key TEXT NOT NULL, tf INTEGER DEFAULT 1,
                 PRIMARY KEY(token, doc_key));
             CREATE TABLE IF NOT EXISTS search_stats (key TEXT PRIMARY KEY, value TEXT);
+            CREATE TABLE IF NOT EXISTS symbols (
+                name TEXT NOT NULL, file_path TEXT NOT NULL,
+                PRIMARY KEY(name, file_path));
+            CREATE INDEX IF NOT EXISTS ix_symbols_name ON symbols(name);
+            CREATE TABLE IF NOT EXISTS wiki_links (
+                source_doc TEXT NOT NULL, target_doc TEXT NOT NULL,
+                link_type TEXT DEFAULT 'wikilink',
+                PRIMARY KEY(source_doc, target_doc));
+            CREATE INDEX IF NOT EXISTS ix_wiki_links_target ON wiki_links(target_doc);
+            CREATE TABLE IF NOT EXISTS routes (
+                route_key TEXT NOT NULL,
+                protocol TEXT NOT NULL DEFAULT 'http',
+                method TEXT,
+                path TEXT NOT NULL DEFAULT '',
+                role TEXT NOT NULL,
+                component_id TEXT NOT NULL,
+                repo_name TEXT NOT NULL DEFAULT '',
+                file_path TEXT NOT NULL DEFAULT '',
+                line_number INTEGER DEFAULT 0,
+                framework TEXT,
+                extra_json TEXT DEFAULT '{}',
+                PRIMARY KEY(route_key, component_id, role));
+            CREATE INDEX IF NOT EXISTS ix_routes_key ON routes(route_key);
+            CREATE INDEX IF NOT EXISTS ix_routes_role ON routes(role);
+            CREATE INDEX IF NOT EXISTS ix_routes_protocol ON routes(protocol);
         """)
+        # Migration: add content_hash column for existing databases (Roadmap 2.4)
+        try:
+            self.conn.execute("ALTER TABLE components ADD COLUMN content_hash TEXT DEFAULT ''")
+            self.conn.commit()
+        except Exception:
+            pass  # Column already exists
 
     # -- meta --
 
@@ -282,9 +328,144 @@ class AnalysisCache:
     def get_last_commit_id(self) -> Optional[str]:
         cid = self._mget("last_commit_id"); return cid if cid else None
     def set_last_commit_id(self, cid: str): self._mset("last_commit_id", cid)
+    def get_output_dir(self) -> Optional[str]:
+        """Return the output_dir recorded by the last analyze_repo, if any."""
+        od = self._mget("output_dir"); return od if od else None
+    def set_output_dir(self, od: str): self._mset("output_dir", od)
     def get_component_count(self) -> int:
         r = self.conn.execute("SELECT COUNT(*) as c FROM components").fetchone(); return r["c"] if r else 0
     def is_fresh(self) -> bool: return self.get_component_count() > 0
+
+    # -- symbol map --
+
+    def save_symbol_map(self, symbol_map: Dict[str, List[str]]):
+        """Persist symbol_map (name → [file_paths]) to the symbols table."""
+        conn = self.conn
+        conn.execute("DELETE FROM symbols")
+        rows = [(name, fp) for name, paths in symbol_map.items() for fp in paths]
+        conn.executemany("INSERT OR IGNORE INTO symbols(name, file_path) VALUES(?,?)", rows)
+        conn.commit()
+
+    def load_symbol_map(self) -> Dict[str, List[str]]:
+        """Load symbol_map from SQLite. Returns {} if table is empty."""
+        rows = self.conn.execute("SELECT name, file_path FROM symbols").fetchall()
+        if not rows:
+            return {}
+        result: Dict[str, List[str]] = {}
+        for r in rows:
+            result.setdefault(r["name"], []).append(r["file_path"])
+        return result
+
+    # -- routes (cross-service analysis) --
+
+    def batch_insert_routes(self, routes: List[Dict], incremental: bool = False):
+        """Persist route nodes to the routes table.
+
+        Args:
+            routes: List of route dicts (from RouteNode.model_dump())
+            incremental: If True, upsert; if False, replace all.
+        """
+        if not routes:
+            return
+        c = self.conn
+        if not incremental:
+            c.execute("DELETE FROM routes")
+        rows = [
+            (
+                r.get("route_key", ""),
+                r.get("protocol", "http"),
+                r.get("method"),
+                r.get("path", ""),
+                r.get("role", "server"),
+                r.get("component_id", ""),
+                r.get("repo_name", ""),
+                r.get("file_path", ""),
+                r.get("line_number", 0),
+                r.get("framework"),
+                json.dumps(r.get("extra", {})),
+            )
+            for r in routes
+        ]
+        c.executemany(
+            "INSERT OR REPLACE INTO routes VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            rows,
+        )
+        c.commit()
+        logger.info("Cached %d routes (%s)", len(routes), "incremental" if incremental else "full")
+
+    def get_all_routes(self) -> List[Dict]:
+        """Load all route nodes from SQLite."""
+        rows = self.conn.execute(
+            "SELECT route_key, protocol, method, path, role, component_id, "
+            "repo_name, file_path, line_number, framework, extra_json FROM routes"
+        ).fetchall()
+        result: List[Dict] = []
+        for r in rows:
+            extra = {}
+            try:
+                extra = json.loads(r["extra_json"]) if r["extra_json"] else {}
+            except Exception:
+                pass
+            result.append({
+                "route_key": r["route_key"],
+                "protocol": r["protocol"],
+                "method": r["method"],
+                "path": r["path"],
+                "role": r["role"],
+                "component_id": r["component_id"],
+                "repo_name": r["repo_name"],
+                "file_path": r["file_path"],
+                "line_number": r["line_number"],
+                "framework": r["framework"],
+                "extra": extra,
+            })
+        return result
+
+    def get_routes_by_role(self, role: str) -> List[Dict]:
+        """Load routes filtered by role ('server' or 'client')."""
+        rows = self.conn.execute(
+            "SELECT route_key, protocol, method, path, role, component_id, "
+            "repo_name, file_path, line_number, framework, extra_json "
+            "FROM routes WHERE role=?", (role,),
+        ).fetchall()
+        result: List[Dict] = []
+        for r in rows:
+            extra = {}
+            try:
+                extra = json.loads(r["extra_json"]) if r["extra_json"] else {}
+            except Exception:
+                pass
+            result.append({
+                "route_key": r["route_key"],
+                "protocol": r["protocol"],
+                "method": r["method"],
+                "path": r["path"],
+                "role": r["role"],
+                "component_id": r["component_id"],
+                "repo_name": r["repo_name"],
+                "file_path": r["file_path"],
+                "line_number": r["line_number"],
+                "framework": r["framework"],
+                "extra": extra,
+            })
+        return result
+
+    def remove_routes_by_file(self, fp: str) -> int:
+        """Remove routes for a specific file (for incremental updates)."""
+        fp_norm = fp.replace("\\", "/")
+        ids = [
+            r["rowid"]
+            for r in self.conn.execute(
+                "SELECT rowid FROM routes WHERE file_path=? OR replace(file_path, '\\', '/')=?",
+                (fp, fp_norm),
+            ).fetchall()
+        ]
+        if ids:
+            for chunk in _sql_chunks(ids):
+                ph = ",".join("?" * len(chunk))
+                self.conn.execute(f"DELETE FROM routes WHERE rowid IN ({ph})", chunk)
+            self.conn.commit()
+        return len(ids)
 
     # -- components --
 
@@ -302,10 +483,41 @@ class AnalysisCache:
                     parameters=extra[2], source_code="")
 
     def batch_insert_components(self, components: Dict[str, Node],
-                                leaf_nodes: Optional[List[str]] = None):
+                                leaf_nodes: Optional[List[str]] = None,
+                                incremental: bool = False):
         if not components:
             return
         c = self.conn
+
+        # In incremental mode, components restored from cache carry
+        # source_code="" — recomputing their hash from the structural
+        # signature would overwrite the original source-based SHA256 and
+        # make get_stale_components() misreport them as modified.
+        # Preserve the stored hash for such components.
+        stored_hashes: Dict[str, str] = {}
+        if incremental:
+            ids = list(components.keys())
+            for chunk in _sql_chunks(ids):
+                ph = ",".join("?" * len(chunk))
+                for r in c.execute(
+                    f"SELECT id, content_hash FROM components WHERE id IN ({ph})", chunk
+                ).fetchall():
+                    if r["content_hash"]:
+                        stored_hashes[r["id"]] = r["content_hash"]
+
+        def _comp_hash(n: Node) -> str:
+            """Compute content hash from source code or structural metadata."""
+            src = getattr(n, "source_code", None) or ""
+            if src:
+                return hashlib.sha256(src.encode("utf-8", errors="replace")).hexdigest()[:16]
+            # Prefer the previously stored (source-based) hash when available
+            old = stored_hashes.get(n.id)
+            if old:
+                return old
+            # Fallback: hash structural signature
+            sig = f"{n.name}|{n.start_line}|{n.end_line}|{json.dumps(n.parameters or [])}|{json.dumps(sorted(n.depends_on))}"
+            return hashlib.sha256(sig.encode()).hexdigest()[:16]
+
         rows = [
             (
                 n.id, n.name, n.component_type, n.file_path, n.relative_path,
@@ -318,24 +530,42 @@ class AnalysisCache:
                 json.dumps(n.parameters) if n.parameters else None,
                 json.dumps(sorted(n.depends_on)) if n.depends_on else "[]",
                 "{}",
+                _comp_hash(n),
             )
             for n in components.values()
         ]
-        c.execute("DELETE FROM components")
-        c.executemany(
-            "INSERT INTO components VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            rows,
-        )
-        c.execute("DELETE FROM dependencies")
-        deps = [(n.id, d) for n in components.values() for d in n.depends_on]
-        if deps:
-            c.executemany("INSERT OR IGNORE INTO dependencies VALUES(?,?)", deps)
+        if incremental:
+            # Incremental mode: upsert only the provided components
+            c.executemany(
+                "INSERT OR REPLACE INTO components VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                rows,
+            )
+            # Upsert dependencies for these components only
+            comp_ids = list(components.keys())
+            # Remove old deps for these components (chunked to stay below
+            # SQLite's bound-variable limit on large repos)
+            for chunk in _sql_chunks(comp_ids):
+                ph = ",".join("?" * len(chunk))
+                c.execute(f"DELETE FROM dependencies WHERE source_id IN ({ph})", chunk)
+            deps = [(n.id, d) for n in components.values() for d in n.depends_on]
+            if deps:
+                c.executemany("INSERT OR IGNORE INTO dependencies VALUES(?,?)", deps)
+        else:
+            c.execute("DELETE FROM components")
+            c.executemany(
+                "INSERT INTO components VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                rows,
+            )
+            c.execute("DELETE FROM dependencies")
+            deps = [(n.id, d) for n in components.values() for d in n.depends_on]
+            if deps:
+                c.executemany("INSERT OR IGNORE INTO dependencies VALUES(?,?)", deps)
         c.execute(
             "DELETE FROM repo_meta WHERE key IN('component_count','analyzed_at','leaf_nodes')"
         )
         c.execute(
             "INSERT INTO repo_meta VALUES('component_count',?)",
-            (str(len(components)),),
+            (str(self.get_component_count()),),
         )
         c.execute(
             "INSERT INTO repo_meta VALUES('analyzed_at',?)",
@@ -347,7 +577,48 @@ class AnalysisCache:
                 (json.dumps(leaf_nodes),),
             )
         self.conn.commit()
-        logger.info("Cached %d components, %d edges", len(components), len(deps))
+        logger.info("Cached %d components (%s), %d dep edges",
+                     len(components), "incremental" if incremental else "full", len(deps))
+
+    def get_stale_components(self, new_components: Dict[str, "Node"]) -> Dict[str, List[str]]:
+        """Compare incoming components against stored content hashes.
+
+        Returns a dict with three lists:
+          - "added": component IDs present in new_components but not in cache
+          - "modified": component IDs whose content_hash differs
+          - "deleted": component IDs in cache but absent from new_components
+
+        Callers can use these lists for cascade wiki-page invalidation.
+        """
+        import hashlib as _hl
+
+        def _hash_node(n) -> str:
+            src = getattr(n, "source_code", None) or ""
+            if src:
+                return _hl.sha256(src.encode("utf-8", errors="replace")).hexdigest()[:16]
+            sig = f"{n.name}|{n.start_line}|{n.end_line}|{json.dumps(n.parameters or [])}|{json.dumps(sorted(n.depends_on))}"
+            return _hl.sha256(sig.encode()).hexdigest()[:16]
+
+        # Load stored hashes
+        rows = self.conn.execute("SELECT id, content_hash FROM components").fetchall()
+        stored: Dict[str, str] = {r["id"]: (r["content_hash"] or "") for r in rows}
+
+        added: List[str] = []
+        modified: List[str] = []
+        for cid, node in new_components.items():
+            new_hash = _hash_node(node)
+            if cid not in stored:
+                added.append(cid)
+            elif stored[cid] != new_hash:
+                modified.append(cid)
+
+        new_ids = set(new_components.keys())
+        deleted = [cid for cid in stored if cid not in new_ids]
+
+        if added or modified or deleted:
+            logger.info("Stale detection: %d added, %d modified, %d deleted",
+                        len(added), len(modified), len(deleted))
+        return {"added": added, "modified": modified, "deleted": deleted}
 
     def get_leaf_nodes(self) -> List[str]:
         raw = self._mget("leaf_nodes")
@@ -390,9 +661,11 @@ class AnalysisCache:
                     (fp_norm,),
                 ).fetchall()
             ]
-        if not ids:
+        if not ids and "/" in fp_norm:
             # Fallback: suffix match — covers relative paths from detect_changes
             # and monorepo subpath cases.  Normalise backslashes in the DB value.
+            # Only enabled when the path has at least one directory component,
+            # otherwise "%/main.py" would wipe same-named files everywhere.
             ids = [
                 r["id"]
                 for r in self.conn.execute(
@@ -401,14 +674,15 @@ class AnalysisCache:
                 ).fetchall()
             ]
         if ids:
-            ph = ",".join("?" * len(ids))
-            self.conn.execute(
-                f"DELETE FROM components WHERE id IN ({ph})", ids
-            )
-            self.conn.execute(
-                f"DELETE FROM dependencies WHERE source_id IN ({ph}) OR target_id IN ({ph})",
-                ids + ids,
-            )
+            for chunk in _sql_chunks(ids):
+                ph = ",".join("?" * len(chunk))
+                self.conn.execute(
+                    f"DELETE FROM components WHERE id IN ({ph})", chunk
+                )
+                self.conn.execute(
+                    f"DELETE FROM dependencies WHERE source_id IN ({ph}) OR target_id IN ({ph})",
+                    chunk + chunk,
+                )
             self.conn.commit()
         return len(ids)
 
@@ -438,8 +712,12 @@ class AnalysisCache:
 
     def _hash_file(self, rel: str) -> Optional[Tuple[float, int, str]]:
         try:
-            s = (self.repo_path / rel).stat()
-            h = hashlib.sha256((self.repo_path / rel).read_bytes()[:65536]).hexdigest()
+            p = self.repo_path / rel
+            s = p.stat()
+            # Stream only the first 64KB instead of reading the whole file
+            with open(p, "rb") as f:
+                head = f.read(65536)
+            h = hashlib.sha256(head).hexdigest()
             return s.st_mtime, s.st_size, h
         except OSError: return None
 
@@ -452,6 +730,40 @@ class AnalysisCache:
         return {r["file_path"]: dict(mtime=r["mtime"], size=r["size"],
                 content_hash=r["content_hash"], commit_id=r["commit_id"])
                 for r in self.conn.execute("SELECT * FROM file_fingerprints").fetchall()}
+
+    def get_cached_file_paths(self) -> Set[str]:
+        """Return set of all file paths that have cached components."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT relative_path FROM components"
+        ).fetchall()
+        return {r["relative_path"] for r in rows}
+
+    def get_components_by_files(self, file_paths: Set[str]) -> Dict[str, Node]:
+        """Load cached components for the given relative file paths."""
+        if not file_paths:
+            return {}
+        rows = []
+        norm_paths = [fp.replace("\\", "/") for fp in file_paths]
+        for chunk in _sql_chunks(norm_paths):
+            ph = ",".join("?" * len(chunk))
+            rows.extend(self.conn.execute(
+                f"SELECT * FROM components WHERE replace(relative_path, '\\', '/') IN ({ph})",
+                chunk,
+            ).fetchall())
+        result: Dict[str, Node] = {}
+        for r in rows:
+            extra = _parse_row(r)
+            result[r["id"]] = Node(
+                id=r["id"], name=r["name"], component_type=r["component_type"],
+                file_path=r["file_path"], relative_path=r["relative_path"],
+                start_line=r["start_line"], end_line=r["end_line"],
+                language=r["language"], depends_on=extra[0], node_type=r["node_type"],
+                base_classes=extra[1], class_name=r["class_name"],
+                display_name=r["display_name"], qualified_name=r["qualified_name"],
+                has_docstring=bool(r["has_docstring"]), docstring=r["docstring"] or "",
+                parameters=extra[2], source_code="",
+            )
+        return result
 
     # -- git change detection --
 
@@ -607,12 +919,22 @@ class AnalysisCache:
             c.execute("INSERT INTO search_stats VALUES('total_docs',?)", (str(td),))
             c.execute("INSERT INTO search_stats VALUES('avg_doc_len',?)", (str(avg),))
         self.conn.commit()
-        return {"docs_indexed": dc, "notes_indexed": nc, "sources_indexed": sc, "total_docs": td}
+
+        # Build inter-page link graph alongside the search index
+        try:
+            graph_info = self.build_link_graph(od)
+        except Exception as e:
+            logger.warning("Link graph build failed (non-fatal): %s", e)
+            graph_info = {"edges": 0, "docs_scanned": 0}
+
+        return {"docs_indexed": dc, "notes_indexed": nc, "sources_indexed": sc,
+                "total_docs": td, "graph_edges": graph_info.get("edges", 0)}
 
     def search(self, query: str, *, scope="", include_notes=True,
                max_results=10, score_threshold=0.1,
                output_dir: Optional[Path] = None,
-               type_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+               type_filter: Optional[str] = None,
+               hop: int = 0, decay: float = 0.5) -> List[Dict[str, Any]]:
         c = self.conn
         r = c.execute(
             "SELECT value FROM search_stats WHERE key='total_docs'"
@@ -670,8 +992,13 @@ class AnalysisCache:
         scored: List[Tuple[float, str]] = []
         for dk in cands:
             if scope:
+                scope_norm = scope.lower().replace(" ", "_").rstrip("/")
+                path_lower = dk.lower().replace("\\", "/")
                 stem = Path(dk).stem.lower().replace("_", " ")
-                if stem != scope.lower().replace("_", " "):
+                # Match by: stem equality, path prefix, or path component
+                if (stem != scope_norm.replace("_", " ")
+                        and not path_lower.startswith(scope_norm + "/")
+                        and f"/{scope_norm}/" not in f"/{path_lower}"):
                     continue
             # Single merged query: title, source, doc_len
             doc_row = c.execute(
@@ -721,15 +1048,55 @@ class AnalysisCache:
                         snippet = _extract_snippet(raw, qts)[:300]
                     except OSError:
                         pass
-            results.append(
-                {
-                    "file": dk,
-                    "title": doc_row["title"] if doc_row else dk,
-                    "source": doc_row["source"] if doc_row else "doc",
+            entry: Dict[str, Any] = {
+                "file": dk,
+                "title": doc_row["title"] if doc_row else dk,
+                "source": doc_row["source"] if doc_row else "doc",
+                "snippet": snippet,
+                "relevance_score": round(s, 4),
+            }
+            # Attach related pages from link graph
+            related = self.get_related_pages(dk, limit=5)
+            if related:
+                entry["related"] = related
+            results.append(entry)
+
+        # Graph expansion: discover related docs beyond BM25 hits
+        if hop > 0 and scored:
+            seed_docs = [(dk, s) for s, dk in scored[:max_results]]
+            expanded = self.graph_expand(seed_docs, hop=hop, decay=decay)
+            existing_keys = {r["file"] for r in results}
+            for ex in expanded:
+                if ex["file"] in existing_keys:
+                    continue
+                doc_row = c.execute(
+                    "SELECT title, source FROM search_index WHERE doc_key=?",
+                    (ex["file"],),
+                ).fetchone()
+                if not doc_row:
+                    continue
+                if not include_notes and doc_row["source"] == "note":
+                    continue
+                snippet = ""
+                if output_dir is not None:
+                    fpath = Path(output_dir) / ex["file"]
+                    if fpath.exists():
+                        try:
+                            raw = fpath.read_text(encoding="utf-8", errors="replace")
+                            snippet = _extract_snippet(raw, qts)[:300]
+                        except OSError:
+                            pass
+                results.append({
+                    "file": ex["file"],
+                    "title": doc_row["title"],
+                    "source": doc_row["source"],
                     "snippet": snippet,
-                    "relevance_score": round(s, 4),
-                }
-            )
+                    "relevance_score": ex["score"],
+                    "hop": ex["hop"],
+                    "via": ex["via"],
+                })
+                existing_keys.add(ex["file"])
+
         return results
 
     def update_search_doc(self, output_dir: Path, filepath: Path):
@@ -752,6 +1119,240 @@ class AnalysisCache:
                               (fk, filepath.stem, src, len(tokens), json.dumps(tf)))
             for t, f in tf.items(): self.conn.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
         self.conn.commit()
+
+    # -- wiki link graph --
+
+    _WIKILINK_RE = re.compile(r"\[\[([^\]|]+?)(?:\|[^\]]+?)?\]\]")
+    _MDLINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+\.md)\)")
+
+    def build_link_graph(self, output_dir: Path) -> Dict[str, Any]:
+        """Scan wiki pages for inter-page links and rebuild wiki_links table.
+
+        Extracts [[wikilink]] and [text](path.md) patterns, resolves targets
+        to doc_keys in the search_index, and stores directed edges.
+        """
+        od = Path(output_dir)
+        c = self.conn
+        c.execute("DELETE FROM wiki_links")
+
+        # Build a lookup: stem/slug → doc_key for resolution
+        all_docs = {
+            row["doc_key"]: row["title"]
+            for row in c.execute("SELECT doc_key, title FROM search_index").fetchall()
+        }
+        # Map various forms to doc_key for target resolution
+        stem_to_key: Dict[str, str] = {}
+        title_to_key: Dict[str, str] = {}
+        for dk, title in all_docs.items():
+            stem = Path(dk).stem.lower().replace("_", "-")
+            stem_to_key[stem] = dk
+            stem_to_key[Path(dk).stem.lower()] = dk
+            if title:
+                title_to_key[title.lower()] = dk
+                title_to_key[title.lower().replace(" ", "-")] = dk
+
+        edges: Set[Tuple[str, str, str]] = set()
+
+        from codewiki.src.config import WIKI_SYSTEM_FILES, WIKI_DIR
+        wiki_dir = od / WIKI_DIR
+        scan_dirs = [wiki_dir] if wiki_dir.is_dir() else [od]
+        # Also scan root-level .md files
+        if wiki_dir.is_dir():
+            scan_dirs.append(od)
+
+        seen_files: Set[Path] = set()
+        for scan_dir in scan_dirs:
+            if not scan_dir.is_dir():
+                continue
+            for md in scan_dir.rglob("*.md") if scan_dir == wiki_dir else scan_dir.iterdir():
+                if not md.is_file() or md.suffix != ".md":
+                    continue
+                if md.name in WIKI_SYSTEM_FILES:
+                    continue
+                if md in seen_files:
+                    continue
+                seen_files.add(md)
+                try:
+                    ct = md.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                try:
+                    source_key = str(md.relative_to(od)).replace("\\", "/")
+                except ValueError:
+                    source_key = md.name
+                if source_key not in all_docs:
+                    continue
+
+                # Strip crosslinks section for cleaner parsing (it has its own links)
+                body = ct.split("<!-- crosslinks")[0] if "<!-- crosslinks" in ct else ct
+
+                # Extract [[wikilink]] targets
+                for m in self._WIKILINK_RE.finditer(body):
+                    target_raw = m.group(1).strip()
+                    resolved = self._resolve_link_target(
+                        target_raw, stem_to_key, title_to_key, all_docs)
+                    if resolved and resolved != source_key:
+                        edges.add((source_key, resolved, "wikilink"))
+
+                # Extract [text](path.md) targets
+                for m in self._MDLINK_RE.finditer(body):
+                    href = m.group(2).strip()
+                    if href.startswith("http"):
+                        continue
+                    # Resolve relative path to doc_key
+                    resolved = self._resolve_md_href(href, source_key, all_docs)
+                    if resolved and resolved != source_key:
+                        edges.add((source_key, resolved, "mdlink"))
+
+        if edges:
+            c.executemany(
+                "INSERT OR IGNORE INTO wiki_links(source_doc, target_doc, link_type) VALUES(?,?,?)",
+                list(edges),
+            )
+        c.commit()
+        logger.info("Link graph built: %d edges from %d docs", len(edges), len(all_docs))
+        return {"edges": len(edges), "docs_scanned": len(all_docs)}
+
+    def _resolve_link_target(
+        self, target: str, stem_to_key: Dict[str, str],
+        title_to_key: Dict[str, str], all_docs: Dict[str, str],
+    ) -> Optional[str]:
+        """Resolve a [[wikilink]] target to a doc_key."""
+        t = target.strip().lower().replace(".md", "")
+        # Direct stem match
+        if t in stem_to_key:
+            return stem_to_key[t]
+        # Title match
+        if t in title_to_key:
+            return title_to_key[t]
+        # Slugified match
+        slug = re.sub(r"[\s_]+", "-", t).strip("-")
+        if slug in stem_to_key:
+            return stem_to_key[slug]
+        return None
+
+    def _resolve_md_href(
+        self, href: str, source_key: str, all_docs: Dict[str, str],
+    ) -> Optional[str]:
+        """Resolve a markdown [text](path.md) href to a doc_key."""
+        # Join href relative to source's directory, then normalize ../ segments
+        source_dir = str(Path(source_key).parent).replace("\\", "/")
+        href = href.replace("\\", "/")
+        if source_dir == ".":
+            candidate = href
+        else:
+            candidate = f"{source_dir}/{href}"
+        # Normalize ../ and ./ segments
+        parts = candidate.split("/")
+        resolved_parts: List[str] = []
+        for p in parts:
+            if p == "..":
+                if resolved_parts:
+                    resolved_parts.pop()
+            elif p not in (".", ""):
+                resolved_parts.append(p)
+        candidate = "/".join(resolved_parts)
+        if candidate in all_docs:
+            return candidate
+        # Try without wiki/ prefix variations
+        if candidate.startswith("wiki/") and candidate[5:] in all_docs:
+            return candidate[5:]
+        return None
+
+    def graph_expand(
+        self, seed_docs: List[Tuple[str, float]], *,
+        hop: int = 1, decay: float = 0.5, min_score: float = 0.05,
+        max_expand: int = 30,
+    ) -> List[Dict[str, Any]]:
+        """BFS expansion from seed docs along wiki_links edges.
+
+        Args:
+            seed_docs: List of (doc_key, bm25_score) from initial search.
+            hop: Number of hops to expand (0 = no expansion).
+            decay: Score multiplier per hop.
+            min_score: Minimum score threshold for expanded nodes.
+            max_expand: Maximum number of expanded nodes to return.
+
+        Returns:
+            List of {file, score, hop, via} for expanded docs (excludes seeds).
+        """
+        if hop <= 0:
+            return []
+
+        seed_keys = {dk for dk, _ in seed_docs}
+        # score_map tracks best score for each discovered node
+        discovered: Dict[str, Dict[str, Any]] = {}
+        # BFS frontier: (doc_key, current_score, current_hop, via_doc)
+        frontier: List[Tuple[str, float, int, str]] = [
+            (dk, score, 0, "") for dk, score in seed_docs
+        ]
+
+        c = self.conn
+        for _ in range(hop):
+            next_frontier: List[Tuple[str, float, int, str]] = []
+            for doc_key, score, cur_hop, via in frontier:
+                if cur_hop >= hop:
+                    continue
+                next_score = score * decay
+                if next_score < min_score:
+                    continue
+                # Get neighbors (both directions for undirected traversal)
+                neighbors = set()
+                for row in c.execute(
+                    "SELECT target_doc FROM wiki_links WHERE source_doc=?", (doc_key,)
+                ):
+                    neighbors.add(row["target_doc"])
+                for row in c.execute(
+                    "SELECT source_doc FROM wiki_links WHERE target_doc=?", (doc_key,)
+                ):
+                    neighbors.add(row["source_doc"])
+
+                for nb in neighbors:
+                    if nb in seed_keys:
+                        continue
+                    if nb in discovered and discovered[nb]["score"] >= next_score:
+                        continue
+                    discovered[nb] = {
+                        "file": nb, "score": round(next_score, 4),
+                        "hop": cur_hop + 1, "via": doc_key,
+                    }
+                    next_frontier.append((nb, next_score, cur_hop + 1, doc_key))
+            frontier = next_frontier
+            if not frontier:
+                break
+
+        # Sort by score descending, cap at max_expand
+        result = sorted(discovered.values(), key=lambda x: x["score"], reverse=True)
+        return result[:max_expand]
+
+    def get_related_pages(self, doc_key: str, limit: int = 8) -> List[Dict[str, str]]:
+        """Get pages linked to/from a given doc (for 'related' field in results)."""
+        c = self.conn
+        related: Dict[str, str] = {}  # doc_key → direction
+        for row in c.execute(
+            "SELECT target_doc FROM wiki_links WHERE source_doc=?", (doc_key,)
+        ):
+            related[row["target_doc"]] = "out"
+        for row in c.execute(
+            "SELECT source_doc FROM wiki_links WHERE target_doc=?", (doc_key,)
+        ):
+            if row["source_doc"] in related:
+                related[row["source_doc"]] = "both"
+            else:
+                related[row["source_doc"]] = "in"
+
+        # Get titles for related pages
+        result = []
+        for dk, direction in list(related.items())[:limit]:
+            row = c.execute(
+                "SELECT title FROM search_index WHERE doc_key=?", (dk,)
+            ).fetchone()
+            result.append({
+                "file": dk,
+                "title": row["title"] if row else Path(dk).stem,
+                "direction": direction,
+            })
+        return result
 
 # ------------------------------------------------------------------ helpers
 

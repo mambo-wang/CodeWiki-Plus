@@ -47,23 +47,20 @@ def _build_reverse_index(components: Dict[str, Any]) -> Dict[str, Set[str]]:
     return dict(reverse)
 
 
-def _component_to_module(
-    component_id: str,
-    module_tree: Dict[str, Any],
-) -> Optional[str]:
-    """Map a component ID to its module name via the module tree."""
-    def _walk(tree: Dict) -> Optional[str]:
+def _build_comp_module_index(module_tree: Dict[str, Any]) -> Dict[str, str]:
+    """Build a component-id → module-name inverted index in one tree walk."""
+    index: Dict[str, str] = {}
+
+    def _walk(tree: Dict) -> None:
         for mod_name, mod_info in tree.items():
-            comp_list = mod_info.get("components", [])
-            if component_id in comp_list:
-                return mod_name
+            for cid in mod_info.get("components", []):
+                index.setdefault(cid, mod_name)
             children = mod_info.get("children", {})
             if isinstance(children, dict) and children:
-                found = _walk(children)
-                if found:
-                    return found
-        return None
-    return _walk(module_tree)
+                _walk(children)
+
+    _walk(module_tree)
+    return index
 
 
 def _build_module_dependency_graph(
@@ -74,16 +71,16 @@ def _build_module_dependency_graph(
     graph: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: {
         "depends_on": set(), "depended_by": set()
     })
-    reverse = _build_reverse_index(components)
+    comp_module_idx = _build_comp_module_index(module_tree)
 
     for comp_id, node in components.items():
-        source_module = _component_to_module(comp_id, module_tree)
+        source_module = comp_module_idx.get(comp_id)
         if not source_module:
             continue
         # depends_on direction
         deps = getattr(node, "depends_on", None) or set()
         for dep_id in deps:
-            target_module = _component_to_module(dep_id, module_tree)
+            target_module = comp_module_idx.get(dep_id)
             if target_module and target_module != source_module:
                 graph[source_module]["depends_on"].add(target_module)
                 graph[target_module]["depended_by"].add(source_module)
@@ -107,11 +104,14 @@ def handle_list_dependencies(
     The full dependency data (entries, module graph, high-impact components)
     is written to ``dependencies.json`` in the session workspace.  Only a
     compact summary with the file path is returned through MCP stdio.
+
+    Accepts repo_path (auto-restores the session from the SQLite cache).
     """
-    session_id = arguments["session_id"]
-    session = store.get(session_id)
+    from codewiki.mcp.tools.workspace_result import resolve_session
+
+    session = resolve_session(arguments, store)
     if session is None:
-        return json.dumps({"error": f"Session {session_id} not found or expired."})
+        return json.dumps({"error": "Session not found. Provide a valid repo_path pointing to a previously analyzed repository."})
 
     components = session.components
     module_tree = session.module_tree
@@ -121,6 +121,7 @@ def handle_list_dependencies(
 
     # Build reverse index
     reverse_index = _build_reverse_index(components)
+    comp_module_idx = _build_comp_module_index(module_tree) if module_tree else {}
 
     # Filter by specific component_ids if provided
     target_ids = arguments.get("component_ids")
@@ -136,13 +137,13 @@ def handle_list_dependencies(
         if node is None:
             continue
 
-        source_module = _component_to_module(comp_id, module_tree) if module_tree else None
+        source_module = comp_module_idx.get(comp_id) if module_tree else None
 
         if direction in ("depends_on", "both"):
             deps = getattr(node, "depends_on", None) or set()
             for dep_id in sorted(deps):
                 target_module = (
-                    _component_to_module(dep_id, module_tree)
+                    comp_module_idx.get(dep_id)
                     if module_tree else None
                 )
                 entry: Dict[str, Any] = {
@@ -160,7 +161,7 @@ def handle_list_dependencies(
             dependents = reverse_index.get(comp_id, set())
             for dep_id in sorted(dependents):
                 target_module = (
-                    _component_to_module(dep_id, module_tree)
+                    comp_module_idx.get(dep_id)
                     if module_tree else None
                 )
                 entry = {
@@ -200,15 +201,21 @@ def handle_list_dependencies(
 
     # Write to workspace file
     total_modules = len(module_graph) if module_graph else 0
+    large_graph = len(entries) > 5000
     response = write_result(
         session,
         "dependencies.json",
         full_result,
+        compact=True,
         summary={
             "total_deps": len(entries),
             "total_modules": total_modules,
             "high_impact_count": len(high_impact),
-            "hint": "Read the file for the full dependency data.",
+            "hint": (
+                "Read the file for the full dependency data."
+                + ("  WARNING: Large dependency graph detected. Use component_ids or module_level filter to reduce output size."
+                   if large_graph else "")
+            ),
         },
     )
 

@@ -31,7 +31,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Base directory under repo_path
-_WORKSPACE_REL = Path(".codewiki") / "sessions"
+_WORKSPACE_REL = Path(".codewiki") / "workspace"
 
 
 def _safe_filename(component_id: str) -> str:
@@ -56,18 +56,29 @@ def _safe_filename(component_id: str) -> str:
 class SessionWorkspace:
     """Manages the on-disk workspace for a single MCP session."""
 
-    def __init__(self, repo_path: Path, session_id: str) -> None:
-        self.root = repo_path / _WORKSPACE_REL / session_id
+    def __init__(self, repo_path: Path, session_id: str = "") -> None:
+        # Use a fixed directory per repo instead of per-session.
+        # Tools write to uniquely-named files (dependencies.json, etc.)
+        # and the MCP server is single-threaded per repo, so no conflicts.
+        self.root = repo_path / _WORKSPACE_REL
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / "sources").mkdir(exist_ok=True)
-        logger.debug("Workspace created at %s", self.root)
+        logger.debug("Workspace at %s", self.root)
 
     # -- writers ----------------------------------------------------------
 
-    def write_json(self, name: str, data: Any) -> Path:
-        """Write *data* as pretty-printed JSON and return the file path."""
+    def write_json(self, name: str, data: Any, *, compact: bool = False) -> Path:
+        """Write *data* as JSON and return the file path.
+
+        When *compact* is True, uses minimal separators (no extra
+        whitespace), reducing file size by ~30-40% — useful for very
+        large dependency graphs.
+        """
         p = self.root / name
-        p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        if compact:
+            p.write_text(json.dumps(data, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
+        else:
+            p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         return p
 
     def write_component_source(
@@ -101,17 +112,40 @@ class SessionWorkspace:
     # -- cleanup ----------------------------------------------------------
 
     def cleanup(self) -> None:
-        """Remove the session directory and try to prune empty parents."""
-        if self.root.exists():
-            shutil.rmtree(self.root, ignore_errors=True)
-        # Walk up and remove empty parent directories
+        """Clean up per-session artefacts (sources/).
+
+        The shared workspace JSON files (component_list, dependencies,
+        etc.) are kept across sessions — only transient source excerpts
+        written by ``read_code_components`` are removed.
+        """
+        sources_dir = self.root / "sources"
+        if sources_dir.exists():
+            count = 0
+            for f in sources_dir.iterdir():
+                if f.is_file():
+                    f.unlink()
+                    count += 1
+            if count:
+                logger.debug("Cleaned up %d source files from %s", count, sources_dir)
+
+    @staticmethod
+    def cleanup_legacy_sessions(repo_path: Path) -> int:
+        """Remove legacy per-session directories under .codewiki/sessions/.
+
+        Returns the number of directories removed.
+        """
+        sessions_dir = repo_path / ".codewiki" / "sessions"
+        if not sessions_dir.exists():
+            return 0
+        count = 0
+        for entry in sessions_dir.iterdir():
+            if entry.is_dir():
+                shutil.rmtree(entry, ignore_errors=True)
+                count += 1
         try:
-            sessions_dir = self.root.parent  # .codewiki/sessions
-            if sessions_dir.exists() and not any(sessions_dir.iterdir()):
-                sessions_dir.rmdir()
-                base_dir = sessions_dir.parent  # .codewiki
-                if base_dir.exists() and not any(base_dir.iterdir()):
-                    base_dir.rmdir()
+            sessions_dir.rmdir()
         except OSError:
             pass
-        logger.debug("Workspace cleaned up: %s", self.root)
+        if count:
+            logger.info("Cleaned up %d legacy session directories", count)
+        return count

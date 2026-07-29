@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from codewiki.mcp.session import SessionState, SessionStore
+from codewiki.mcp.session import SessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -71,19 +71,21 @@ def handle_flag_issue(
     by a stable hash of (issue_type, page_path) so duplicate flags are
     idempotent (the timestamp is updated but the ID stays the same).
     """
-    session_id = arguments.get("session_id")
-    session = store.get(session_id) if session_id else None
-    if session is None and session_id:
-        return json.dumps({"error": f"Session {session_id} not found or expired."})
-
-    # Resolve output directory
-    if session:
-        output_dir = Path(session.output_dir)
-    else:
-        od = arguments.get("output_dir")
-        if not od:
-            return json.dumps({"error": "session_id or output_dir is required."})
-        output_dir = Path(od).expanduser().resolve()
+    # Resolve output directory.  Location is unified on ``output_dir``; when
+    # it is omitted we fall back to the active session directory so the tool
+    # still works inside a live MCP session.  The ``session_id`` parameter was
+    # removed: it only duplicated output_dir resolution and was never stored
+    # on the issue record.
+    output_dir = arguments.get("output_dir")
+    if not output_dir and store is not None:
+        # Fall back to the most recently accessed active session's output_dir
+        sessions = getattr(store, "_sessions", None) or {}
+        if sessions:
+            latest = max(sessions.values(), key=lambda s: s.last_accessed)
+            output_dir = latest.output_dir
+    if not output_dir:
+        return json.dumps({"error": "output_dir is required."})
+    output_dir = Path(output_dir).expanduser().resolve()
 
     # Validate inputs
     issue_type = arguments.get("issue_type")

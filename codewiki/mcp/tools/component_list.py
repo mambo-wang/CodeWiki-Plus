@@ -32,8 +32,9 @@ def handle_list_components(
 
     Arguments
     ---------
-    session_id : str (required)
-        Session ID from ``analyze_repo``.
+    repo_path : str
+        Repository path. Auto-restores the session from the SQLite
+        cache if a previous analysis exists.
     file_prefix : str (optional)
         Only include components whose ``file`` starts with this prefix.
     component_type : str (optional)
@@ -47,11 +48,12 @@ def handle_list_components(
     -------
     JSON string with ``file`` (workspace path), ``total`` count, and ``hint``.
     """
-    session_id = arguments.get("session_id", "")
-    session = store.get(session_id)
+    from codewiki.mcp.tools.workspace_result import resolve_session
+
+    session = resolve_session(arguments, store)
     if session is None:
         return json.dumps(
-            {"error": f"Session {session_id} not found or expired."},
+            {"error": "Session not found. Provide a valid repo_path pointing to a previously analyzed repository."},
             ensure_ascii=False,
         )
 

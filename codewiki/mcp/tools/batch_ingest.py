@@ -58,6 +58,13 @@ def handle_batch_ingest(
             if "session_id" not in item:
                 item["session_id"] = session_id
 
+    # Inject output_dir into each item if not already set
+    top_output_dir = arguments.get("output_dir")
+    if top_output_dir:
+        for item in items:
+            if "output_dir" not in item and "session_id" not in item:
+                item["output_dir"] = top_output_dir
+
     # Process items serially
     results: List[Dict[str, Any]] = []
     succeeded = 0
@@ -103,6 +110,7 @@ def handle_batch_ingest(
             output_dir = Path(od).expanduser().resolve()
 
     if output_dir:
+        output_dir.mkdir(parents=True, exist_ok=True)
         try:
             from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
             append_log(str(output_dir), "batch_ingest",

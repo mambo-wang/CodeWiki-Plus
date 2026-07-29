@@ -19,7 +19,7 @@ SCHEMA_FILENAME = 'schema.yaml'
 NOTES_DIR = 'notes'
 INDEX_FILENAME = 'index.md'
 LOG_FILENAME = 'log.md'
-SEARCH_INDEX_FILENAME = 'search_index.json'
+SEARCH_INDEX_FILENAME = 'search_index.db'
 SYMBOL_MAP_FILENAME = 'symbol_map.json'
 # LLM Wiki knowledge layer — structured layout constants
 WIKI_DIR = 'wiki'
@@ -28,6 +28,7 @@ RAW_SOURCES_DIR = 'raw/sources'
 SOURCE_REGISTRY_FILENAME = 'source_registry.json'
 ISSUES_FILENAME = 'issues.json'
 PURPOSE_FILENAME = 'purpose.md'
+PROJECT_FILENAME = 'project.json'
 # Mapping from page_type to subdirectory name under wiki/
 PAGE_TYPE_DIRS = {
     'module': 'modules',

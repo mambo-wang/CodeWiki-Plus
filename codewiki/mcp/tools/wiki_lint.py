@@ -25,13 +25,117 @@ _SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 _ALL_CHECKS = {
     "stale_refs", "undocumented", "broken_links", "cycles", "coverage",
     "orphan_pages", "no_outlinks", "missing_aliases", "stale_sources",
-    "superseded_pages",
+    "superseded_pages", "overview_stale", "unsupported_claims",
 }
 
 # Regex patterns for markdown links
 _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]\(([^\)]+\.md)\)")
 _MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+\.md)\)")
 _SIMPLE_WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+
+
+def _strip_code_blocks(content: str) -> str:
+    """Return *content* with fenced and inline code spans removed.
+
+    Markdown link patterns that appear *inside* code (e.g. a usage example
+    `` `[text](x.md)` ``) must not be treated as real references by the
+    linter, otherwise they produce false-positive broken-link errors.
+    """
+    # Replace fenced blocks with equivalent blank lines to preserve line numbering
+    def _blank_fenced(m: re.Match) -> str:
+        return "\n" * m.group(0).count("\n")
+    stripped = re.sub(r"(?ms)^[ \t]*(?:```|~~~).*?^[ \t]*(?:```|~~~)", _blank_fenced, content)
+    # Drop inline code spans (`...`)
+    stripped = re.sub(r"`[^`]*`", "", stripped)
+    return stripped
+
+
+def _build_anchor_map(output_dir: Path) -> Dict[str, str]:
+    """Map lower-cased title / slug / aliases -> relative posix path.
+
+    Used to resolve bare ``[[Name]]`` wikilinks to the file they point at,
+    since the convention in this repo stores cross-references as
+    ``[[Module Name]]`` rather than as explicit ``[[Name]](file.md)`` links.
+    """
+    from codewiki.src.config import WIKI_DIR, WIKI_SYSTEM_FILES
+
+    title_to_rel: Dict[str, str] = {}
+    wiki_dir = output_dir / WIKI_DIR
+    if not wiki_dir.is_dir():
+        return title_to_rel
+    for md_file in wiki_dir.rglob("*.md"):
+        if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
+            continue
+        rel = md_file.relative_to(output_dir).as_posix()
+        title_to_rel[md_file.stem.lower()] = rel
+        try:
+            text = md_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if not text.startswith("---"):
+            continue
+        try:
+            end = text.index("---", 3)
+        except ValueError:
+            continue
+        for line in text[3:end].splitlines():
+            s = line.strip()
+            if s.startswith("title:"):
+                t = s.split(":", 1)[1].strip().strip('"\'')
+                if t:
+                    title_to_rel[t.lower()] = rel
+                    title_to_rel[t.lower().replace(" ", "-")] = rel
+            elif s.startswith("aliases:"):
+                raw = s.split(":", 1)[1].strip().strip("[]")
+                for a in raw.split(","):
+                    a = a.strip().strip('"\'')
+                    if a:
+                        title_to_rel[a.lower()] = rel
+    return title_to_rel
+
+
+def _collect_linked_targets(
+    content: str,
+    md_file: Path,
+    output_dir: Path,
+    anchor_map: Dict[str, str],
+) -> Set[str]:
+    """Return the set of relative paths that *content* links to.
+
+    Recognises standard markdown links ``[text](file.md)``, wikilinks with an
+    explicit target ``[[Name]](file.md)``, and bare wikilinks ``[[Name]]``
+    (resolved via *anchor_map*).  The caller should pass already code-stripped
+    *content* so links inside code spans are ignored.
+    """
+    targets: Set[str] = set()
+    out_root = output_dir.resolve()
+    md_root = md_file.parent
+
+    for match in _MD_LINK_RE.finditer(content):
+        ref = match.group(2).split("#")[0]
+        if ref.startswith(("http://", "https://", "mailto:")) or not ref:
+            continue
+        try:
+            resolved = (md_root / ref).resolve()
+            targets.add(str(resolved.relative_to(out_root)))
+        except ValueError:
+            pass
+
+    for match in _WIKILINK_RE.finditer(content):
+        ref = match.group(2).split("#")[0]
+        try:
+            resolved = (md_root / ref).resolve()
+            targets.add(str(resolved.relative_to(out_root)))
+        except ValueError:
+            pass
+
+    for match in _SIMPLE_WIKILINK_RE.finditer(content):
+        name = match.group(1).strip().lower().replace(".md", "")
+        rel = anchor_map.get(name)
+        if rel:
+            targets.add(rel)
+
+    return targets
 
 
 def _get_output_dir(session: Optional[SessionState], arguments: Dict) -> Optional[Path]:
@@ -41,8 +145,8 @@ def _get_output_dir(session: Optional[SessionState], arguments: Dict) -> Optiona
     output_dir = arguments.get("output_dir")
     if output_dir:
         p = Path(output_dir).expanduser().resolve()
-        if p.is_dir():
-            return p
+        p.mkdir(parents=True, exist_ok=True)
+        return p
     return None
 
 
@@ -111,7 +215,9 @@ def _check_stale_refs(
         except OSError:
             continue
 
-        for line_no, line in enumerate(content.splitlines(), 1):
+        # Ignore markdown links / wikilinks that appear inside code spans
+        scan = _strip_code_blocks(content)
+        for line_no, line in enumerate(scan.splitlines(), 1):
             # Check [[Name]](file.md) patterns
             for match in _WIKILINK_RE.finditer(line):
                 ref_name = match.group(1)
@@ -161,7 +267,8 @@ def _check_broken_links(
         except OSError:
             continue
 
-        for line_no, line in enumerate(content.splitlines(), 1):
+        scan = _strip_code_blocks(content)
+        for line_no, line in enumerate(scan.splitlines(), 1):
             for match in _MD_LINK_RE.finditer(line):
                 ref_file = match.group(2)
                 if ref_file.startswith(("http://", "https://", "#", "mailto:")):
@@ -314,10 +421,14 @@ def _check_coverage(
 
 def _check_orphan_pages(
     output_dir: Path,
+    anchor_map: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
     """Find wiki pages with no incoming links from other pages."""
     issues: List[Dict[str, Any]] = []
     from codewiki.src.config import WIKI_SYSTEM_FILES
+
+    if anchor_map is None:
+        anchor_map = _build_anchor_map(output_dir)
 
     # Collect all .md files and their relative paths
     all_pages: Dict[str, Path] = {}
@@ -330,24 +441,16 @@ def _check_orphan_pages(
     if not all_pages:
         return issues
 
-    # Build incoming link set
+    # Build incoming link set — standard links, explicit wikilinks, and bare
+    # [[Name]] wikilinks resolved via the anchor map.
     linked_targets: Set[str] = set()
     for md_file in all_pages.values():
         try:
             content = md_file.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        for match in _MD_LINK_RE.finditer(content):
-            ref_file = match.group(2).split("#")[0]
-            if ref_file.startswith(("http://", "https://", "mailto:")):
-                continue
-            # Resolve relative to the source file
-            resolved = (md_file.parent / ref_file).resolve()
-            try:
-                resolved_rel = str(resolved.relative_to(output_dir.resolve()))
-                linked_targets.add(resolved_rel)
-            except ValueError:
-                pass
+        scan = _strip_code_blocks(content)
+        linked_targets |= _collect_linked_targets(scan, md_file, output_dir, anchor_map)
 
     # Find pages with no incoming links
     for rel_path, md_file in all_pages.items():
@@ -365,10 +468,14 @@ def _check_orphan_pages(
 
 def _check_no_outlinks(
     output_dir: Path,
+    anchor_map: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
     """Find wiki pages with no outgoing links to other wiki pages."""
     issues: List[Dict[str, Any]] = []
     from codewiki.src.config import WIKI_SYSTEM_FILES
+
+    if anchor_map is None:
+        anchor_map = _build_anchor_map(output_dir)
 
     for md_file in output_dir.rglob("*.md"):
         if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
@@ -379,17 +486,9 @@ def _check_no_outlinks(
         except OSError:
             continue
 
-        has_outlink = False
-        for match in _MD_LINK_RE.finditer(content):
-            ref_file = match.group(2).split("#")[0]
-            if ref_file.startswith(("http://", "https://", "mailto:")):
-                continue
-            resolved = (md_file.parent / ref_file).resolve()
-            if resolved.exists():
-                has_outlink = True
-                break
-
-        if not has_outlink:
+        scan = _strip_code_blocks(content)
+        targets = _collect_linked_targets(scan, md_file, output_dir, anchor_map)
+        if not targets:
             issues.append({
                 "check": "no_outlinks",
                 "severity": "info",
@@ -411,6 +510,7 @@ def _check_missing_aliases(
     if not wiki_dir.is_dir():
         return issues
 
+    missing: List[str] = []
     for md_file in wiki_dir.rglob("*.md"):
         if not md_file.is_file():
             continue
@@ -430,15 +530,22 @@ def _check_missing_aliases(
                     for line in fm.splitlines()
                 )
                 if not has_aliases:
-                    issues.append({
-                        "check": "missing_aliases",
-                        "severity": "info",
-                        "message": "Page lacks 'aliases' in frontmatter",
-                        "file": rel_path,
-                        "suggestion": "Add alternate names to improve search discoverability",
-                    })
+                    missing.append(rel_path)
             except (ValueError, IndexError):
                 pass
+
+    if missing:
+        issues.append({
+            "check": "missing_aliases",
+            "severity": "info",
+            "message": (
+                f"{len(missing)} page(s) lack 'aliases' in frontmatter; "
+                "adding alternate names improves search discoverability"
+            ),
+            "count": len(missing),
+            "files": missing,
+            "suggestion": "Add 'aliases: [<alt names>]' to frontmatter when generating docs",
+        })
 
     return issues
 
@@ -543,6 +650,118 @@ def _check_superseded_pages(
     return issues
 
 
+def _check_overview_stale_lint(
+    output_dir: Path,
+) -> List[Dict[str, Any]]:
+    """Check if overview.md is stale (references modules that have changed).
+
+    Reads the overview_stale flag from metadata.json and/or checks
+    .meta/overview_refs.json against current module state.
+    """
+    issues: List[Dict[str, Any]] = []
+    import json as _json
+    from codewiki.src.config import meta_resolve
+
+    # Check metadata.json for overview_stale flag
+    meta_path = Path(meta_resolve(output_dir, "metadata.json"))
+    overview_stale = False
+    if meta_path.exists():
+        try:
+            metadata = _json.loads(meta_path.read_text(encoding="utf-8"))
+            overview_stale = metadata.get("overview_stale", False)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    if overview_stale:
+        issues.append({
+            "check": "overview_stale",
+            "severity": "warning",
+            "message": "overview.md references modules that have changed and may need updating",
+            "file": "overview.md",
+            "suggestion": "Review and update overview.md to reflect changes in referenced modules",
+        })
+
+    return issues
+
+
+# Regex for business constraint assertions: lines containing (confidence: 0.XX)
+_CONFIDENCE_RE = re.compile(r"\(confidence:\s*([\d.]+)\)")
+_EVIDENCE_RE = re.compile(r">\s*Evidence:", re.IGNORECASE)
+_CANDIDATE_RE = re.compile(r"\[candidate\]", re.IGNORECASE)
+
+
+def _check_unsupported_claims(
+    output_dir: Path,
+    threshold: float = 0.3,
+) -> List[Dict[str, Any]]:
+    """Flag wiki pages where business assertions lack code evidence.
+
+    Scans for lines with '(confidence: X.XX)' markers.  An assertion is
+    considered 'supported' if it is followed (within 2 lines) by a
+    '> Evidence:' line.  Assertions marked [candidate] are always
+    unsupported.  If the unsupported ratio exceeds *threshold*, a warning
+    is emitted for that file.
+    """
+    issues: List[Dict[str, Any]] = []
+    from codewiki.src.config import WIKI_DIR, WIKI_SYSTEM_FILES
+
+    wiki_dir = output_dir / WIKI_DIR
+    scan_dirs = [wiki_dir] if wiki_dir.is_dir() else [output_dir]
+
+    for scan_dir in scan_dirs:
+        for md_file in scan_dir.rglob("*.md"):
+            if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
+                continue
+            try:
+                lines = md_file.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+
+            total_claims = 0
+            unsupported = 0
+
+            for i, line in enumerate(lines):
+                if not _CONFIDENCE_RE.search(line):
+                    continue
+                total_claims += 1
+
+                # [candidate] marks are always unsupported
+                if _CANDIDATE_RE.search(line):
+                    unsupported += 1
+                    continue
+
+                # Check next 2 lines for evidence
+                has_evidence = False
+                for j in range(i + 1, min(i + 3, len(lines))):
+                    if _EVIDENCE_RE.search(lines[j]):
+                        has_evidence = True
+                        break
+                if not has_evidence:
+                    unsupported += 1
+
+            if total_claims == 0:
+                continue
+
+            ratio = unsupported / total_claims
+            if ratio > threshold:
+                rel_path = str(md_file.relative_to(output_dir))
+                issues.append({
+                    "check": "unsupported_claims",
+                    "severity": "warning",
+                    "message": (
+                        f"{unsupported}/{total_claims} business assertions lack code evidence "
+                        f"({ratio:.0%} > {threshold:.0%} threshold)"
+                    ),
+                    "file": rel_path,
+                    "suggestion": (
+                        "Add '> Evidence: `<code quote>` — <reason>' lines after each assertion, "
+                        "or mark unsupported assertions as [candidate]"
+                    ),
+                })
+
+    return issues
+
+
 # ---------------------------------------------------------------------------
 #  Main handler
 # ---------------------------------------------------------------------------
@@ -552,8 +771,8 @@ def handle_lint_wiki(
     store: SessionStore,
 ) -> str:
     """Run documentation health checks and return structured results."""
-    session_id = arguments.get("session_id")
-    session = store.get(session_id) if session_id else None
+    from codewiki.mcp.tools.workspace_result import resolve_session
+    session = resolve_session(arguments, store)
 
     checks = arguments.get("checks", ["all"])
     if "all" in checks:
@@ -607,12 +826,16 @@ def handle_lint_wiki(
     if "coverage" in checks:
         all_issues.extend(_check_coverage(components, module_tree, output_dir))
 
-    # LLM Wiki checks
+    # LLM Wiki checks (build the anchor map once and reuse it)
+    _anchor_map = None
     if "orphan_pages" in checks and output_dir:
-        all_issues.extend(_check_orphan_pages(output_dir))
+        _anchor_map = _build_anchor_map(output_dir)
+        all_issues.extend(_check_orphan_pages(output_dir, _anchor_map))
 
     if "no_outlinks" in checks and output_dir:
-        all_issues.extend(_check_no_outlinks(output_dir))
+        if _anchor_map is None:
+            _anchor_map = _build_anchor_map(output_dir)
+        all_issues.extend(_check_no_outlinks(output_dir, _anchor_map))
 
     if "missing_aliases" in checks and output_dir:
         all_issues.extend(_check_missing_aliases(output_dir))
@@ -622,6 +845,12 @@ def handle_lint_wiki(
 
     if "superseded_pages" in checks and output_dir:
         all_issues.extend(_check_superseded_pages(output_dir))
+
+    if "overview_stale" in checks and output_dir:
+        all_issues.extend(_check_overview_stale_lint(output_dir))
+
+    if "unsupported_claims" in checks and output_dir:
+        all_issues.extend(_check_unsupported_claims(output_dir))
 
     # Filter by severity
     filtered = [

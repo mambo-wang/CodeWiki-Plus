@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json, logging, os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from codewiki.mcp.cache import AnalysisCache, ComponentMeta, LazyComponentStore
 from codewiki.mcp.session import SessionState, SessionStore
@@ -42,7 +42,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     if not repo_path.exists():
         return json.dumps({"error": f"Repository not found: {repo_path}"})
 
-    output_dir = Path(arguments.get("output_dir", str(repo_path / "docs"))).expanduser().resolve()
+    output_dir = Path(arguments.get("output_dir", str(repo_path / "repowiki"))).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     import tempfile
@@ -72,6 +72,8 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     # Incremental check
     incremental = arguments.get("incremental", True)
     changes_info = None
+    cached_unchanged_components: Dict[str, Any] = {}
+    skip_file_paths: Optional[set] = None
 
     if incremental and cache.is_fresh():
         changes_info = cache.detect_changes()
@@ -81,29 +83,109 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         if changes_info and changes_info.get("changed_files"):
             changed = changes_info["changed_files"]
             logger.info("Incremental mode: %d files changed", len(changed))
-            # Remove stale components
+            # Remove stale components and routes for changed files
             for cf in changed:
                 cache.remove_by_file(cf)
-            # We'll do a full re-parse on the remaining + changed files.
-            # For simplicity: do full re-parse (Tree-sitter is fast per-file
-            # but incremental file-level parsing requires filtering the parser input).
-            # TODO: pass changed_files to DependencyParser for selective re-parse.
+                try:
+                    cache.remove_routes_by_file(cf)
+                except Exception as e:
+                    logger.warning("Route removal for %s failed (non-fatal): %s", cf, e)
+
+            # Compute set of unchanged files to skip during parsing
+            changed_set = set(changed)
+            all_cached_paths = cache.get_cached_file_paths()
+            # These are the relative paths of files that are still cached and unchanged
+            unchanged_rel_paths = all_cached_paths  # After remove_by_file, only unchanged remain
+
+            # Load cached components for unchanged files
+            cached_unchanged_components = cache.get_components_by_files(unchanged_rel_paths)
+
+            # Build set of absolute paths to skip during parsing
+            skip_file_paths = set()
+            for comp in cached_unchanged_components.values():
+                if comp.file_path:
+                    skip_file_paths.add(comp.file_path)
+
+            logger.info(
+                "Incremental: %d cached components from %d unchanged files, "
+                "will skip %d files during parsing",
+                len(cached_unchanged_components),
+                len(unchanged_rel_paths),
+                len(skip_file_paths),
+            )
 
     # Full parse (writes legacy JSONs to _tmp — clean up afterwards)
     from codewiki.src.be.dependency_analyzer import DependencyGraphBuilder
     import shutil
     builder = DependencyGraphBuilder(config)
     try:
-        components, leaf_nodes = builder.build_dependency_graph()
+        components, leaf_nodes, routes = builder.build_dependency_graph(skip_file_paths=skip_file_paths)
     finally:
         shutil.rmtree(str(_tmp), ignore_errors=True)
 
-    # Write to SQLite cache
+    # Merge cached unchanged components with newly parsed ones
+    if cached_unchanged_components:
+        for comp_id, node in cached_unchanged_components.items():
+            if comp_id not in components:
+                components[comp_id] = node
+        logger.info(
+            "Merged %d cached components with %d newly parsed = %d total",
+            len(cached_unchanged_components),
+            len(components) - len(cached_unchanged_components),
+            len(components),
+        )
+        # Recompute leaf nodes on the full merged graph — the builder only
+        # saw the changed-file subgraph, so its leaf_nodes list is partial
+        # and would otherwise overwrite the full list in repo_meta.
+        try:
+            from codewiki.src.be.dependency_analyzer.topo_sort import (
+                build_graph_from_components, get_leaf_nodes,
+            )
+            graph = build_graph_from_components(components)
+            raw_leafs = get_leaf_nodes(graph, components)
+            valid_types = {"class", "interface", "struct"}
+            available_types = {c.component_type for c in components.values()}
+            if not available_types & valid_types:
+                valid_types.add("function")
+            leaf_nodes = [
+                l for l in raw_leafs
+                if isinstance(l, str) and l in components
+                and components[l].component_type in valid_types
+            ]
+            logger.info("Recomputed %d leaf nodes on merged graph", len(leaf_nodes))
+        except Exception as e:
+            logger.warning("Leaf-node recompute failed, merging with cached list: %s", e)
+            old_leafs = cache.get_leaf_nodes()
+            merged = [l for l in old_leafs if l in components]
+            merged.extend(l for l in leaf_nodes if l not in merged)
+            leaf_nodes = merged
+
+    # Write to SQLite cache (incremental mode if we had cached components)
+    is_incremental = bool(cached_unchanged_components)
     try:
-        cache.batch_insert_components(components, leaf_nodes)
-        logger.info("Components cached to SQLite")
+        cache.batch_insert_components(components, leaf_nodes, incremental=is_incremental)
+        logger.info("Components cached to SQLite (%s mode)", "incremental" if is_incremental else "full")
     except Exception as e:
         logger.warning("SQLite cache write failed (continuing in memory): %s", e)
+
+    # Store cross-service routes to SQLite cache
+    try:
+        if routes:
+            cache.batch_insert_routes(routes, incremental=is_incremental)
+            logger.info("Cached %d routes to SQLite", len(routes))
+    except Exception as e:
+        logger.warning("Route cache write failed (non-fatal): %s", e)
+
+    # Monorepo sub-service detection + intra-repo cross-service analysis
+    cross_service_info: Dict[str, Any] = {}
+    detect_services_flag = arguments.get("detect_services", True)
+    if detect_services_flag:
+        try:
+            cross_service_info = _run_monorepo_cross_service(
+                repo_path, output_dir, cache,
+            )
+        except Exception as e:
+            logger.warning("Monorepo cross-service analysis failed (non-fatal): %s", e)
 
     # Build LazyComponentStore from ComponentMeta
     metas: Dict[str, ComponentMeta] = {}
@@ -131,10 +213,31 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     session.analyzed_commit = get_git_commit_hash(repo_path) or None
     if session.analyzed_commit:
         cache.set_last_commit_id(session.analyzed_commit)
+    try:
+        cache.set_output_dir(str(output_dir))
+    except Exception as e:
+        logger.warning("Failed to persist output_dir to cache: %s", e)
+
+    # Persist repo_path ↔ output_dir mapping (enables session-free SQLite access)
+    try:
+        from codewiki.src.config import meta_join, PROJECT_FILENAME
+        meta_dir = Path(meta_join(output_dir, ""))
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        project_info = {
+            "repo_path": str(repo_path),
+            "output_dir": str(output_dir),
+            "repo_name": repo_path.name,
+            "cache_db": str(cache.db_path),
+        }
+        Path(meta_join(output_dir, PROJECT_FILENAME)).write_text(
+            json.dumps(project_info, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.warning("Failed to write project.json: %s", e)
 
     # Create workspace
     workspace = SessionWorkspace(repo_path, session.session_id)
     session.workspace = workspace
+    SessionWorkspace.cleanup_legacy_sessions(repo_path)
 
     # -- Write workspace files --
 
@@ -150,7 +253,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
 
     # 4. Incremental changes (from current run or saved metadata.json)
     if changes_info is None:
-        changes_info = _detect_doc_changes(repo_path, output_dir)
+        changes_info = _detect_doc_changes(repo_path, output_dir, components=metas)
     if changes_info is not None:
         workspace.write_json("changes.json", changes_info)
 
@@ -187,18 +290,45 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     except Exception as e:
         logger.warning("Index/log update failed: %s", e)
 
+    # 7b. Extract and save overview refs for stale detection
+    try:
+        overview_refs = _extract_overview_refs(output_dir)
+        if overview_refs:
+            _save_overview_refs(output_dir, overview_refs)
+            logger.info("Saved %d overview refs for stale detection", len(overview_refs))
+    except Exception as e:
+        logger.warning("Overview refs extraction failed: %s", e)
+
+    # 7c. Update overview_stale in metadata.json
+    try:
+        from codewiki.src.config import meta_resolve, PROJECT_FILENAME
+        meta_path = Path(meta_resolve(output_dir, "metadata.json"))
+        if meta_path.exists():
+            metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+            overview_stale = changes_info.get("overview_stale", False) if changes_info else False
+            metadata["overview_stale"] = overview_stale
+            meta_path.write_text(
+                json.dumps(metadata, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+    except Exception as e:
+        logger.warning("Failed to update overview_stale in metadata: %s", e)
+
     # 8. Symbol map (class name → source file, used by ingest_note for crosslinking)
     try:
         symbol_map = _build_symbol_map(metas)
+        # Primary: SQLite (fast lookup, no full-file parse)
+        cache.save_symbol_map(symbol_map)
+        # Compat: keep a compact JSON copy for tools that read it directly
         from codewiki.src.config import meta_join
         meta_dir = Path(meta_join(output_dir, ""))
         meta_dir.mkdir(parents=True, exist_ok=True)
         symbol_map_path = Path(meta_join(output_dir, "symbol_map.json"))
         symbol_map_path.write_text(
-            json.dumps(symbol_map, indent=2, ensure_ascii=False),
+            json.dumps(symbol_map, ensure_ascii=False, separators=(",", ":")),
             encoding="utf-8",
         )
-        logger.info("Symbol map written: %d symbols", len(symbol_map))
+        logger.info("Symbol map written: %d symbols (SQLite + JSON)", len(symbol_map))
     except Exception as e:
         logger.warning("Symbol map generation failed (non-fatal): %s", e)
 
@@ -230,11 +360,13 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
             "The schema.yaml at output_dir defines documentation conventions (required sections, "
             "documentation dimensions, line limits). Share it with the user — they can edit it "
             "before generating docs to customize output style and structure. "
-            "Use read_code_components(session_id, component_ids) to read source code. "
-            "Use save_module_tree(session_id, module_tree) after clustering. "
+            "Use read_code_components(repo_path, component_ids) to read source code. "
+            "Use save_module_tree(repo_path, module_tree) after clustering. "
             "Call get_prompt('cluster') for clustering rules."
         ),
     }
+    if cross_service_info:
+        result["cross_service"] = cross_service_info
     if changes_info and not changes_info.get("no_changes"):
         result["hint"] = (
             "Incremental update detected. Only update affected modules. "
@@ -257,9 +389,14 @@ def _build_no_change_response(
     )
     from codewiki.cli.utils.repo_validator import get_git_commit_hash
     session.analyzed_commit = get_git_commit_hash(repo_path) or None
+    try:
+        cache.set_output_dir(str(output_dir))
+    except Exception as e:
+        logger.warning("Failed to persist output_dir to cache: %s", e)
 
     workspace = SessionWorkspace(repo_path, session.session_id)
     session.workspace = workspace
+    SessionWorkspace.cleanup_legacy_sessions(repo_path)
 
     langs = {}
     for m in metas.values():
@@ -289,6 +426,174 @@ def _build_no_change_response(
     }, indent=2, ensure_ascii=False)
 
 
+def _run_monorepo_cross_service(
+    repo_path: Path,
+    output_dir: Path,
+    cache: AnalysisCache,
+) -> Dict[str, Any]:
+    """Detect sub-services in a monorepo and run intra-repo cross-service matching.
+
+    Loads the *full* route set from the SQLite cache (not just newly-parsed
+    routes) so that incremental mode produces correct results.  Re-tags all
+    routes with sub-service labels and writes the complete set back.
+
+    Returns a cross_service info dict for the response, or an empty dict
+    if fewer than 2 sub-services are detected.
+    """
+    from codewiki.src.be.dependency_analyzer.analysis.service_detector import (
+        detect_services,
+    )
+
+    services = detect_services(repo_path)
+    if len(services) < 2:
+        return {}
+
+    logger.info(
+        "Monorepo cross-service: %d sub-services detected in %s",
+        len(services), repo_path.name,
+    )
+
+    # Load the FULL route set from cache (includes unchanged routes in
+    # incremental mode — the `routes` variable from build_dependency_graph
+    # only contains newly-parsed files).
+    try:
+        all_routes = cache.get_all_routes()
+    except Exception as e:
+        logger.warning("Failed to load routes from cache: %s", e)
+        return {}
+
+    if not all_routes:
+        return {}
+
+    # Re-tag all routes with sub-service labels
+    repo_name = repo_path.name
+    retagged = _retag_routes_by_service(all_routes, services, str(repo_path), repo_name)
+
+    # Write back the complete retagged set (replaces old repo_name values)
+    try:
+        cache.batch_insert_routes(retagged, incremental=False)
+        logger.info("Re-tagged %d routes with sub-service labels", len(retagged))
+    except Exception as e:
+        logger.warning("Failed to update route cache with service labels: %s", e)
+
+    # Convert to RouteNode objects and group by service
+    from codewiki.src.be.dependency_analyzer.analysis.cross_service_matcher import (
+        CrossServiceMatcher,
+    )
+    from codewiki.src.be.dependency_analyzer.models.cross_service import (
+        RouteNode, RouteProtocol, RouteRole,
+    )
+
+    matcher = CrossServiceMatcher()
+    service_routes: Dict[str, List[RouteNode]] = {}
+
+    for rd in retagged:
+        try:
+            node = RouteNode(
+                route_key=rd["route_key"],
+                protocol=RouteProtocol(rd.get("protocol", "http")),
+                method=rd.get("method"),
+                path=rd.get("path", ""),
+                role=RouteRole(rd.get("role", "server")),
+                component_id=rd.get("component_id", ""),
+                repo_name=rd.get("repo_name", repo_name),
+                file_path=rd.get("file_path", ""),
+                line_number=rd.get("line_number", 0),
+                framework=rd.get("framework"),
+                extra=rd.get("extra", {}),
+            )
+            svc = node.repo_name
+            if svc not in service_routes:
+                service_routes[svc] = []
+            service_routes[svc].append(node)
+        except Exception:
+            continue
+
+    for svc_name, svc_nodes in service_routes.items():
+        matcher.add_repo_routes(svc_name, svc_nodes)
+
+    topology = matcher.match()
+    logger.info(
+        "Intra-repo cross-service matching: %d routes → %d links, %d unmatched",
+        len(topology.routes), len(topology.links), len(topology.unmatched_routes),
+    )
+
+    # Render topology as Markdown
+    from codewiki.src.be.dependency_analyzer.analysis.topology_visualizer import (
+        TopologyVisualizer,
+    )
+    viz = TopologyVisualizer()
+    cross_service_md = viz.render_all(topology)
+
+    # Persist results to <output_dir>/.meta/
+    try:
+        from codewiki.src.config import meta_join
+        meta_dir = Path(meta_join(output_dir, ""))
+        meta_dir.mkdir(parents=True, exist_ok=True)
+
+        links_data = [link.model_dump() for link in topology.links]
+        (meta_dir / "cross_service_links.json").write_text(
+            json.dumps(links_data, ensure_ascii=False, indent=2), encoding="utf-8",
+        )
+        routes_data = [route.model_dump() for route in topology.routes]
+        (meta_dir / "workspace_routes.json").write_text(
+            json.dumps(routes_data, ensure_ascii=False, indent=2), encoding="utf-8",
+        )
+        logger.info("Cross-service results persisted to %s", meta_dir)
+    except Exception as e:
+        logger.warning("Failed to persist cross-service results: %s", e)
+
+    # Run InfraScanner for supplementary service discovery
+    try:
+        from codewiki.src.be.dependency_analyzer.analysis.infra_scanner import InfraScanner
+        scanner = InfraScanner(str(repo_path))
+        infra_services = scanner.scan()
+        if infra_services:
+            from codewiki.src.config import meta_join
+            meta_dir = Path(meta_join(output_dir, ""))
+            meta_dir.mkdir(parents=True, exist_ok=True)
+            infra_data = {name: svc.to_dict() for name, svc in infra_services.items()}
+            (meta_dir / "infra_services.json").write_text(
+                json.dumps(infra_data, ensure_ascii=False, indent=2), encoding="utf-8",
+            )
+    except Exception as e:
+        logger.debug("Infra scanner skipped: %s", e)
+
+    return {
+        "services_detected": sorted(services.keys()),
+        "total_routes": len(topology.routes),
+        "total_links": len(topology.links),
+        "total_unmatched": len(topology.unmatched_routes),
+        "cross_service_md": cross_service_md,
+    }
+
+
+def _retag_routes_by_service(
+    routes: List[Dict],
+    services: Dict,
+    repo_path: str,
+    fallback_repo_name: str,
+) -> List[Dict]:
+    """Re-assign repo_name on each route dict based on sub-service membership.
+
+    Uses longest-prefix matching on the route's file_path (relative to
+    ``repo_path``) to determine which sub-service it belongs to.  Routes
+    that don't fall under any detected service get the label ``_root``.
+    """
+    from codewiki.src.be.dependency_analyzer.analysis.service_detector import (
+        assign_service_label,
+    )
+
+    retagged: List[Dict] = []
+    for rd in routes:
+        rd = dict(rd)  # shallow copy to avoid mutating the original
+        fp = rd.get("file_path", "")
+        label = assign_service_label(fp, services, repo_path=repo_path, fallback="_root")
+        rd["repo_name"] = label
+        retagged.append(rd)
+    return retagged
+
+
 _LINKABLE_TYPES = {"class", "interface", "struct", "enum", "record", "annotation"}
 
 
@@ -314,7 +619,11 @@ def _build_symbol_map(metas: Dict[str, ComponentMeta]) -> Dict[str, List[str]]:
     return symbol_map
 
 
-def _detect_doc_changes(repo_path: Path, output_dir: Path) -> Optional[Dict[str, Any]]:
+def _detect_doc_changes(
+    repo_path: Path,
+    output_dir: Path,
+    components: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
     """Detect documentation-level changes since last generation (legacy JSON fallback)."""
     from codewiki.src.config import meta_resolve
     mp = Path(meta_resolve(output_dir, "metadata.json"))
@@ -335,12 +644,23 @@ def _detect_doc_changes(repo_path: Path, output_dir: Path) -> Optional[Dict[str,
     if not cf:
         return {"has_previous": True, "no_changes": True,
                 "method": changes.get("method","unknown")}
-    affected, cascade = _find_affected_modules(mt, cf)
+    affected, cascade = _find_affected_modules(mt, cf, components=components)
+
+    # Precise overview stale check: only mark overview stale if it actually
+    # references affected modules (instead of always cascading)
+    overview_stale = _check_overview_stale(output_dir, mt, affected)
+    # Remove "overview" from cascade (added unconditionally by _find_affected_modules)
+    cascade.discard("overview")
+    if overview_stale:
+        cascade.add("overview")
+
     return {"has_previous": True, "no_changes": False,
             "method": changes.get("method","unknown"),
             "changed_files": cf, "affected_modules": sorted(affected),
             "cascade_modules": sorted(cascade),
-            "hint": f"Only {len(affected)} module(s) need updating."}
+            "overview_stale": overview_stale,
+            "hint": f"Only {len(affected)} module(s) need updating."
+                    + (" Overview.md is stale." if overview_stale else "")}
 
 
 def _detect_git_from_meta(repo_path: Path, metadata: Dict, output_dir: Path) -> Optional[Dict]:
@@ -406,7 +726,65 @@ def _detect_mtime_from_meta(repo_path: Path, metadata: Dict) -> Optional[Dict]:
     return {"changed_files": ch, "method": "mtime"}
 
 
-def _find_affected_modules(module_tree: Dict, changed_files: List[str]):
+def _find_affected_modules(
+    module_tree: Dict,
+    changed_files: List[str],
+    components: Optional[Dict[str, Any]] = None,
+):
+    """Find modules affected by changed files.
+
+    When *components* is provided (a dict of comp_id → ComponentMeta/Node),
+    uses graph-based transitive impact analysis: changed files are resolved
+    to component IDs, then a reverse BFS finds all transitively affected
+    components, which are mapped back to modules.  This catches cross-module
+    callers that file-path matching would miss.
+
+    Falls back to file-path substring matching + tree-ancestor cascading
+    when *components* is None (legacy / disk-only context).
+    """
+    # --- Graph-based path (preferred) ----------------------------------
+    if components:
+        try:
+            from codewiki.src.be.dependency_analyzer.topo_sort import (
+                build_graph_from_components,
+                resolve_files_to_components,
+                transitive_impact,
+            )
+            start_ids = resolve_files_to_components(components, changed_files)
+            if start_ids:
+                graph = build_graph_from_components(components)
+                result = transitive_impact(
+                    graph, set(start_ids),
+                    max_depth=10, direction="depended_by",
+                )
+                affected_ids = set(result["affected"].keys())
+
+                # Map affected component IDs → modules
+                affected: Set[str] = set()
+                cascade: Set[str] = set()
+
+                def _walk_graph(tree: Dict, parents: Optional[List[str]] = None):
+                    if parents is None:
+                        parents = []
+                    for mn, mi in tree.items():
+                        comps = mi.get("components", [])
+                        hit = any(c in affected_ids for c in comps)
+                        if hit:
+                            affected.add(mn)
+                            cascade.update(parents)
+                        children = mi.get("children", {})
+                        if isinstance(children, dict) and children:
+                            _walk_graph(children, parents + [mn])
+
+                _walk_graph(module_tree)
+                if affected:
+                    cascade.add("overview")
+                return affected, cascade
+        except Exception:
+            logger.debug("Graph-based impact failed, falling back to path matching",
+                         exc_info=True)
+
+    # --- File-path fallback (original logic) ---------------------------
     affected, cascade = set(), set()
     def _walk(tree, parents=None):
         if parents is None: parents = []
@@ -428,3 +806,103 @@ def _find_affected_modules(module_tree: Dict, changed_files: List[str]):
     _walk(module_tree)
     if affected: cascade.add("overview")
     return affected, cascade
+
+
+def _extract_overview_refs(output_dir: Path) -> Set[str]:
+    """Extract module names referenced in overview.md by parsing wiki-links and markdown links.
+
+    Returns a set of module names (slugs) that overview.md links to.
+    """
+    import re
+    overview_path = output_dir / "overview.md"
+    if not overview_path.exists():
+        return set()
+
+    try:
+        content = overview_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+
+    refs: Set[str] = set()
+
+    # Match [[Name]](file.md) wiki-links
+    wikilink_re = re.compile(r"\[\[([^\]]+)\]\]\(([^\)]+\.md)\)")
+    for m in wikilink_re.finditer(content):
+        ref_name = m.group(1).strip()
+        # Use the slug (lowercase, hyphenated) as the module identifier
+        slug = ref_name.lower().replace(" ", "-").replace("_", "-")
+        refs.add(slug)
+        # Also add the raw name for matching
+        refs.add(ref_name.lower().replace(" ", "_"))
+
+    # Match [text](path.md) markdown links
+    mdlink_re = re.compile(r"\[([^\]]*)\]\(([^)]+\.md)\)")
+    for m in mdlink_re.finditer(content):
+        ref_file = m.group(2)
+        if ref_file.startswith(("http://", "https://")):
+            continue
+        # Extract the module name from the file path (stem)
+        stem = Path(ref_file).stem.lower().replace("-", "_")
+        refs.add(stem)
+        # Also add hyphenated form
+        refs.add(stem.replace("_", "-"))
+
+    return refs
+
+
+def _save_overview_refs(output_dir: Path, refs: Set[str]):
+    """Save overview refs to .meta/overview_refs.json."""
+    from codewiki.src.config import meta_join, META_DIR
+    meta_dir = Path(meta_join(output_dir, ""))
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    refs_path = meta_dir / "overview_refs.json"
+    refs_path.write_text(
+        json.dumps(sorted(refs), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _load_overview_refs(output_dir: Path) -> Set[str]:
+    """Load overview refs from .meta/overview_refs.json."""
+    from codewiki.src.config import meta_join
+    meta_dir = Path(meta_join(output_dir, ""))
+    refs_path = meta_dir / "overview_refs.json"
+    if not refs_path.exists():
+        return set()
+    try:
+        data = json.loads(refs_path.read_text(encoding="utf-8"))
+        return set(data) if isinstance(data, list) else set()
+    except (json.JSONDecodeError, OSError):
+        return set()
+
+
+def _check_overview_stale(
+    output_dir: Path,
+    module_tree: Optional[Dict],
+    affected_modules: Set[str],
+) -> bool:
+    """Check if overview.md references any modules that have changed.
+
+    Returns True if overview.md is stale (references affected modules).
+    """
+    if not affected_modules:
+        return False
+
+    overview_refs = _load_overview_refs(output_dir)
+    if not overview_refs:
+        # If no refs tracked yet, extract them now
+        overview_refs = _extract_overview_refs(output_dir)
+        _save_overview_refs(output_dir, overview_refs)
+
+    if not overview_refs:
+        return False
+
+    # Check if any affected module is referenced in overview
+    for mod in affected_modules:
+        mod_lower = mod.lower()
+        mod_slug = mod_lower.replace("_", "-")
+        mod_under = mod_lower.replace("-", "_")
+        if mod_lower in overview_refs or mod_slug in overview_refs or mod_under in overview_refs:
+            return True
+
+    return False

@@ -7,6 +7,7 @@ without overwriting user-authored content.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -22,7 +23,7 @@ _BEGIN_MARKER = "<!-- CodeWiki LLM Wiki -->"
 _END_MARKER = "<!-- /CodeWiki LLM Wiki -->"
 
 
-def write_agents_md(session: SessionState) -> None:
+def write_agents_md(*, repo_path: str, output_dir: str, module_tree: dict | None = None) -> None:
     """Create or update ``<repo_path>/AGENTS.md`` with wiki usage info.
 
     - If the file does not exist, it is created with the section.
@@ -32,21 +33,26 @@ def write_agents_md(session: SessionState) -> None:
     Failures are logged and silently swallowed — this must never block
     session cleanup.
     """
-    repo_path = Path(session.repo_path)
-    output_dir = Path(session.output_dir)
+    _write_agents_md(repo_path, output_dir, module_tree or {})
+
+
+def _write_agents_md(repo_path: str, output_dir: str, module_tree: dict) -> None:
+    """Internal implementation of write_agents_md."""
+    repo_path_p = Path(repo_path)
+    output_dir_p = Path(output_dir)
 
     # Relative path from repo root to wiki output (portable across machines)
     try:
-        rel_path = os.path.relpath(output_dir, repo_path).replace("\\", "/")
+        rel_path = os.path.relpath(output_dir_p, repo_path_p).replace("\\", "/")
     except ValueError:
         # On Windows, relpath fails across drives — fall back to absolute
-        rel_path = str(output_dir).replace("\\", "/")
+        rel_path = str(output_dir_p).replace("\\", "/")
 
     # Extract module names from the saved module tree
-    modules = _extract_modules(session.module_tree)
+    modules = _extract_modules(module_tree)
 
     section = _build_section(rel_path, modules)
-    agents_path = repo_path / "AGENTS.md"
+    agents_path = repo_path_p / "AGENTS.md"
 
     if agents_path.exists():
         content = agents_path.read_text(encoding="utf-8")
@@ -84,6 +90,49 @@ def _extract_modules(module_tree: dict) -> list[str]:
         if children and isinstance(children, dict):
             names.extend(_extract_modules(children))
     return names
+
+
+# Quick-reference table of all MCP tools with their *required* parameters.
+# Parameter names match the server-enforced JSON schema (verified by the
+# server rejecting unknown params).  Kept here so every generated AGENTS.md
+# stays accurate and agents stop guessing wrong param names.
+_TOOLS_QUICKREF = """\
+### MCP 工具参数速查
+
+以下为全部 25 个工具的**必填参数**（其余均为可选）。参数名以 MCP server 强制校验的 schema 为准，传错参数名会被 server 直接拒绝。
+
+> 常见陷阱：`analyze_repo` / `analyze_workspace` 会返回 `session_id`，但**下游工具并不接收 `session_id`**，请改用 `repo_path` 或 `output_dir`。
+
+| 工具 | 必填参数 | 常用可选参数 |
+| --- | --- | --- |
+| analyze_repo | repo_path | include_patterns, output_dir, exclude_patterns, max_workers |
+| read_code_components | repo_path, component_ids | include_bodies, include_source_refs |
+| write_doc_file | output_dir, filename, content | page_type, frontmatter, content_file |
+| edit_doc_file | output_dir, filename, command | page_type, old_str, new_str, target_heading |
+| save_module_tree | repo_path | module_tree, module_tree_file |
+| get_processing_order | repo_path | — |
+| get_prompt | prompt_type | variables, repo_path |
+| close_session | repo_path | — |
+| list_dependencies | repo_path | component_ids, direction, dependency_types, max_depth |
+| analyze_impact | repo_path, component_ids | direction, max_depth, include_paths |
+| lint_wiki | output_dir | checks, severity_filter, page_types |
+| ingest_note | output_dir, note_type, title, content | aliases, related_modules |
+| query_wiki | output_dir, query | scope, type_filter, include_notes, max_results, expand |
+| confirm_note | output_dir, note_file | — |
+| reject_note | output_dir, note_file | reason |
+| ingest_source | output_dir, source_path | name, description, source_type |
+| retract_source | output_dir | name, source_id, mode, dry_run |
+| batch_ingest | output_dir, items | — |
+| flag_issue | output_dir, issue_type, page_path, description | severity, related_components |
+| analyze_workspace | workspace_path | output_dir, include_patterns, max_workers |
+| list_components | repo_path | component_types, file_path, name_pattern |
+| view_repo_file | repo_path, path | max_lines, line_offset, include_line_numbers |
+| query_cross_service | workspace_path | filter_type, repo_name, http_method, min_confidence |
+| get_module_tree | repo_path, wiki_base_dir | — |
+| generate_docs | repo_path, wiki_base_dir | page_types, max_workers |
+
+注：`generate_docs`（legacy）会调用火山引擎方舟（Volcengine Ark）远程 LLM 生成文档，需配置有效 CodingPlan 订阅；未配置时返回 `InvalidSubscription`。
+"""
 
 
 def _build_section(rel_path: str, modules: list[str]) -> str:
@@ -151,6 +200,7 @@ def _build_section(rel_path: str, modules: list[str]) -> str:
 
 检查文档与代码是否一致，包括：过时引用、断链、未文档化组件、循环依赖、覆盖率。
 
+{_TOOLS_QUICKREF}
 ### 使用建议
 
 1. **编码前**：先用 `query_wiki` 搜索相关模块文档，了解架构约定和依赖关系
