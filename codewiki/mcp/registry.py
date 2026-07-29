@@ -297,6 +297,10 @@ _register(
                     "type": "string",
                     "description": "Repository path. Derives output_dir = repo_path/repowiki.",
                 },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Output directory for the module tree (default: repo_path/repowiki). Overrides repo_path-based default.",
+                },
                 "module_tree": {
                     "type": "object",
                     "description": (
@@ -1166,7 +1170,11 @@ _register(
             "properties": {
                 "workspace_path": {
                     "type": "string",
-                    "description": "Absolute path to the workspace root (for analyze_workspace) or repo root (for analyze_repo monorepo mode).",
+                    "description": "Absolute path to the workspace root (for analyze_workspace) or repo root (for analyze_repo monorepo mode). Auto-derives output_dir when omitted.",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Output directory for workspace analysis .meta/ files. Overrides auto-derived path from workspace_path.",
                 },
                 "filter_type": {
                     "type": "string",
@@ -1230,6 +1238,7 @@ _register(
     ),
     handler_path="codewiki.mcp.tools.legacy_tools:handle_generate_docs",
     mode="async",
+    takes_store=False,
 )
 
 _register(
@@ -1260,6 +1269,7 @@ _register(
     ),
     handler_path="codewiki.mcp.tools.legacy_tools:handle_get_module_tree",
     mode="async",
+    takes_store=False,
 )
 
 

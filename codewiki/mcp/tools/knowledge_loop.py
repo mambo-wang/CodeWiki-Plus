@@ -799,7 +799,12 @@ def handle_query_wiki(
     elif session:
         output_dir = Path(session.output_dir)
     else:
-        return json.dumps({"error": "output_dir is required."})
+        # Fallback: derive from repo_path if available
+        rp = arguments.get("repo_path")
+        if rp:
+            output_dir = (Path(rp).expanduser().resolve() / "repowiki")
+        else:
+            return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
 
     query = arguments.get("query", "")
     if not query:

@@ -20,6 +20,7 @@ def handle_query_cross_service(
 
     Arguments:
         workspace_path: Path to the workspace directory.
+        output_dir: Explicit output directory containing .meta/ with cross-service data.
         filter_type: One of "all", "by_service", "by_method", "by_path", "trace".
         filter_value: The value to filter by (service name, HTTP method, path prefix).
     """
@@ -27,11 +28,24 @@ def handle_query_cross_service(
     filter_type = arguments.get("filter_type", "all")
     filter_value = arguments.get("filter_value", "")
 
-    # Load topology from workspace meta
-    # Try workspace-level first (analyze_workspace), then repo-level (analyze_repo monorepo)
-    meta_dir = workspace_path / "workspace-wiki" / ".meta"
-    if not meta_dir.exists():
-        meta_dir = workspace_path / "repowiki" / ".meta"
+    # Resolve meta directory: explicit output_dir first, then auto-derive
+    explicit_od = arguments.get("output_dir")
+    if explicit_od:
+        meta_dir = Path(explicit_od).expanduser().resolve() / ".meta"
+    else:
+        meta_dir = workspace_path / "workspace-wiki" / ".meta"
+        if not meta_dir.exists():
+            meta_dir = workspace_path / "repowiki" / ".meta"
+        if not meta_dir.exists():
+            # Broader search: try common workspace subdirs
+            for candidate in workspace_path.iterdir():
+                if not candidate.is_dir() or candidate.name.startswith("."):
+                    continue
+                test_dir = candidate / ".meta"
+                if test_dir.exists() and (test_dir / "cross_service_links.json").exists():
+                    meta_dir = test_dir
+                    break
+
     links_path = meta_dir / "cross_service_links.json"
     routes_path = meta_dir / "workspace_routes.json"
 
