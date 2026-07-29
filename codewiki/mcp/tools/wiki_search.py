@@ -11,20 +11,17 @@ import json, logging, math, os, re, threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from codewiki.mcp.cache import _STOPWORDS, _K1, _B, _build_indexable_text
+from codewiki.mcp.cache import (
+    _STOPWORDS, _K1, _B, _build_indexable_text,
+    _tokenize, _extract_snippet,
+)
 
 logger = logging.getLogger(__name__)
 
 _SEARCH_INDEX_FILENAME = "search_index.json"
 _NOTES_DIR = "notes"
 _SYSTEM_FILES = {"index.md", "log.md", "overview.md"}
-_FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
-_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
-_MARKUP_RE = re.compile(r"[#*`\[\]|>_~]")
-_TOKEN_SPLIT_RE = re.compile(r"[\s,;:!?。？！，；：（）(){}<>\[\]/\\]+")
 _build_lock = threading.Lock()
-
-_JIEBA_AVAILABLE: Optional[bool] = None
 
 
 def _resolve_db_path(output_dir: Path) -> Optional[Path]:
@@ -72,21 +69,6 @@ def _open_standalone_cache(output_dir: Path, *, readonly: bool = False):
         return cache
     except Exception:
         return None
-
-def _check_jieba() -> bool:
-    global _JIEBA_AVAILABLE
-    if _JIEBA_AVAILABLE is None:
-        try: import jieba; jieba.setLogLevel(logging.WARNING); _JIEBA_AVAILABLE = True
-        except ImportError: _JIEBA_AVAILABLE = False; logger.info("jieba not installed — regex fallback")
-    return _JIEBA_AVAILABLE
-
-def _tokenize(text: str) -> List[str]:
-    text = _HTML_COMMENT_RE.sub("", text); text = _FRONTMATTER_RE.sub("", text)
-    text = _MARKUP_RE.sub(" ", text)
-    if _check_jieba(): import jieba; raw = jieba.lcut(text)
-    else: raw = _TOKEN_SPLIT_RE.split(text.lower())
-    return [t.strip().lower() for t in raw if t.strip() and len(t.strip()) >= 2
-            and not t.strip().isdigit() and t.strip().lower() not in _STOPWORDS]
 
 # ---- Legacy JSON index ----
 
@@ -172,16 +154,6 @@ def _extract_fm(ct, key):
             if l.startswith(f"{key}:"): return l[len(key)+1:].strip().strip('"').strip("'")
     except ValueError: pass
     return None
-
-def _extract_snippet(content, qts):
-    lines = content.splitlines()
-    if not lines: return ""
-    bi, bc = 0, 0
-    for i, l in enumerate(lines):
-        c = sum(1 for qt in qts if qt in l.lower())
-        if c > bc: bc, bi = c, i
-    s, e = max(0, bi - 1), min(len(lines), bi + 3)
-    return "\n".join(lines[s:e]).strip()
 
 # ---- Public API ----
 

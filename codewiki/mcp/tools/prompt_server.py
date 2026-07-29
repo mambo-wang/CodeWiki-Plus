@@ -261,6 +261,10 @@ _PROMPT_CATALOG: Dict[str, Dict[str, str]] = {
         "description": "Template for extraction scanning at configurable granularity (focused/standard/exhaustive).",
         "usage_hint": "Use to extract knowledge items from a source document at the desired granularity.",
     },
+    "reflection": {
+        "description": "Structured reflection template for proactive knowledge extraction from conversations.",
+        "usage_hint": "Use when conversation signals indicate knowledge worth persisting (decisions, pitfalls, discoveries). Guides extraction, filtering, routing, and draft formatting.",
+    },
 }
 
 
@@ -786,6 +790,55 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "3. **Sources** — Which documents/pages were consulted\n"
             "4. **Conclusion** — Summary answer or next steps\n"
             "5. **Cross-References** — Links to related pages and notes"
+        )
+
+    elif prompt_type == "reflection":
+        return (
+            "## Knowledge Reflection Template\n\n"
+            "Use this template to extract persistable knowledge from the current conversation.\n"
+            "Trigger: conversation signals (multi-step debugging resolved, design choice made, "
+            "undocumented behavior discovered, implicit project knowledge revealed, "
+            "research converged, reusable pattern found).\n\n"
+            "### Step 1: Candidate Extraction\n\n"
+            "Review recent conversation turns. For each candidate knowledge item, write:\n"
+            "- **What**: one-sentence summary of the knowledge\n"
+            "- **Context**: what situation produced this knowledge\n"
+            "- **Signal**: which trigger signal was observed\n\n"
+            "### Step 2: Four-Question Filter\n\n"
+            "For each candidate, answer ALL four (must all be YES to proceed):\n"
+            "1. Useful in a future conversation without this context?\n"
+            "2. Another agent or new team member would benefit?\n"
+            "3. Not already covered? (verify with `query_wiki`)\n"
+            "4. A fact/decision/pattern/lesson — not transient task state?\n\n"
+            "### Step 3: Routing\n\n"
+            "| Knowledge type | Write method |\n"
+            "|---|---|\n"
+            "| Technical choice / trade-off | `ingest_note(note_type=\"decision\")` |\n"
+            "| Pitfall / gotcha | `ingest_note(note_type=\"pitfall\")` |\n"
+            "| Lesson learned (debug journey, corrected assumption) | `ingest_note(note_type=\"lesson\")` |\n"
+            "| Architectural fact discovered | `ingest_note(note_type=\"architecture\")` |\n"
+            "| Temporary workaround (with recovery condition) | `ingest_note(note_type=\"workaround\")` |\n"
+            "| Multi-option comparison (with table) | `write_doc_file(page_type=\"comparison\")` |\n"
+            "| Research conclusion archive | `write_doc_file(page_type=\"query\")` |\n\n"
+            "### Step 4: Draft Format\n\n"
+            "Present to user for confirmation before writing:\n\n"
+            "```\n"
+            "📝 知识沉淀候选 ({n} 项)\n\n"
+            "1. [{note_type/page_type}] {title}\n"
+            "   背景: {one line}\n"
+            "   结论: {one line}\n"
+            "   适用范围: {when this applies}\n\n"
+            "2. ...\n\n"
+            "要记录哪些？(全部 / 选择编号 / 跳过)\n"
+            "```\n\n"
+            "### Anti-patterns (do NOT record):\n\n"
+            "- Transient variables, paths, parameters specific to this task\n"
+            "- User personal preferences (belongs in agent memory, not project wiki)\n"
+            "- Info already in code comments or README\n"
+            "- Unverified guesses ('maybe', 'probably' level confidence)\n\n"
+            "### Timing:\n\n"
+            "Accumulate candidates silently. Present at natural pause points "
+            "(task completion, topic switch). Never interrupt mid-task flow."
         )
 
     elif prompt_type == "taxonomy_plan":

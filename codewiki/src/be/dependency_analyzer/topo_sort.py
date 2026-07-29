@@ -381,6 +381,88 @@ def build_reverse_graph(graph: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
     return reverse
 
 
+def compute_pagerank(
+    graph: Dict[str, Set[str]],
+    *,
+    damping: float = 0.85,
+    max_iterations: int = 100,
+    tolerance: float = 1e-6,
+) -> Dict[str, float]:
+    """Compute PageRank scores on the dependency graph.
+
+    Uses the *reverse* direction: if A depends on B, then B receives
+    "importance" from A. Components with high PageRank are foundational —
+    many others transitively rely on them.
+
+    Args:
+        graph: Forward dependency graph (A → B means A depends on B).
+        damping: Damping factor (probability of following an edge).
+        max_iterations: Maximum power-iteration steps.
+        tolerance: Convergence threshold (L1 norm of score delta).
+
+    Returns:
+        Dict mapping component ID → PageRank score (sums to ~1.0).
+    """
+    # Build reverse graph: edge B → A means "B is depended on by A"
+    reverse = build_reverse_graph(graph)
+
+    # Collect all nodes (some may only appear as targets)
+    all_nodes = set(graph.keys())
+    for deps in graph.values():
+        all_nodes.update(deps)
+
+    n = len(all_nodes)
+    if n == 0:
+        return {}
+
+    # Initialize uniform scores
+    scores = {node: 1.0 / n for node in all_nodes}
+
+    # Precompute out-degree in the reverse graph (number of dependents)
+    out_degree = {node: len(reverse.get(node, set())) for node in all_nodes}
+
+    for _ in range(max_iterations):
+        new_scores: Dict[str, float] = {}
+        for node in all_nodes:
+            rank_sum = 0.0
+            # Nodes that point TO this node in the reverse graph
+            # = nodes that depend on this node in the forward graph
+            for dependent in reverse.get(node, set()):
+                dep_out = out_degree.get(dependent, 0)
+                if dep_out > 0:
+                    rank_sum += scores.get(dependent, 0.0) / dep_out
+            new_scores[node] = (1.0 - damping) / n + damping * rank_sum
+
+        # Check convergence
+        delta = sum(abs(new_scores[node] - scores[node]) for node in all_nodes)
+        scores = new_scores
+        if delta < tolerance:
+            break
+
+    return scores
+
+
+def find_isolated_nodes(graph: Dict[str, Set[str]]) -> List[str]:
+    """Find nodes with zero in-degree AND zero out-degree (completely disconnected).
+
+    These are potential dead code: nothing depends on them and they depend on nothing.
+
+    Args:
+        graph: Forward dependency graph (A → B means A depends on B).
+
+    Returns:
+        Sorted list of isolated node IDs.
+    """
+    reverse = build_reverse_graph(graph)
+    isolated = []
+    for node in graph:
+        out_deg = len(graph.get(node, set()))
+        in_deg = len(reverse.get(node, set()))
+        if out_deg == 0 and in_deg == 0:
+            isolated.append(node)
+    return sorted(isolated)
+
+
 def transitive_impact(
     graph: Dict[str, Set[str]],
     start_nodes: Set[str],
