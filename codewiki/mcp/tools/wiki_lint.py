@@ -26,6 +26,7 @@ _ALL_CHECKS = {
     "stale_refs", "undocumented", "broken_links", "cycles", "coverage",
     "orphan_pages", "no_outlinks", "missing_aliases", "stale_sources",
     "superseded_pages", "overview_stale", "unsupported_claims",
+    "isolated_components",
 }
 
 # Regex patterns for markdown links
@@ -355,6 +356,72 @@ def _check_cycles(
             })
     except Exception as e:
         logger.warning("Cycle detection skipped: %s", e)
+
+    return issues
+
+
+def _check_isolated_components(
+    components: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Detect completely isolated components (potential dead code).
+
+    A component is isolated when it has zero dependencies AND nothing
+    depends on it — it's disconnected from the rest of the codebase.
+    """
+    issues: List[Dict[str, Any]] = []
+    if not components:
+        return issues
+
+    try:
+        from codewiki.src.be.dependency_analyzer.topo_sort import (
+            build_graph_from_components,
+            find_isolated_nodes,
+        )
+        graph = build_graph_from_components(components)
+        isolated = find_isolated_nodes(graph)
+
+        if not isolated:
+            return issues
+
+        # Cap reporting at 20 components
+        reported = isolated[:20]
+        total = len(isolated)
+
+        # Group by file for readability
+        by_file: Dict[str, List[str]] = defaultdict(list)
+        for comp_id in reported:
+            meta = components.get(comp_id)
+            fpath = getattr(meta, "relative_path", "") or getattr(meta, "file_path", "") or "unknown"
+            name = getattr(meta, "name", comp_id) if meta else comp_id
+            by_file[fpath].append(name)
+
+        for fpath, names in sorted(by_file.items()):
+            issues.append({
+                "check": "isolated_components",
+                "severity": "info",
+                "message": (
+                    f"{len(names)} isolated component(s) in {fpath}: "
+                    f"{', '.join(names[:5])}{'...' if len(names) > 5 else ''}"
+                ),
+                "file": fpath,
+                "components": [f"{fpath}::{n}" for n in names],
+                "suggestion": (
+                    "These components have no dependency relationships. "
+                    "Verify they are not dead code, or document why they exist "
+                    "(e.g. plugin entry points, scripts, deprecated code)."
+                ),
+            })
+
+        if total > 20:
+            issues.append({
+                "check": "isolated_components",
+                "severity": "info",
+                "message": f"... and {total - 20} more isolated components (showing first 20)",
+                "suggestion": "Run with component analysis to see the full list.",
+            })
+
+    except Exception as e:
+        logger.warning("Isolated component detection skipped: %s", e)
 
     return issues
 
@@ -822,6 +889,9 @@ def handle_lint_wiki(
 
     if "cycles" in checks:
         all_issues.extend(_check_cycles(components))
+
+    if "isolated_components" in checks:
+        all_issues.extend(_check_isolated_components(components))
 
     if "coverage" in checks:
         all_issues.extend(_check_coverage(components, module_tree, output_dir))

@@ -21,29 +21,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from codewiki.mcp.session import SessionState, SessionStore
+from codewiki.mcp.cache import _STOPWORDS
 
 logger = logging.getLogger(__name__)
-
-# Stopwords to filter out during query (Chinese + English)
-_STOPWORDS: Set[str] = {
-    # English
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "shall", "can", "need", "must", "it", "its",
-    "this", "that", "these", "those", "i", "you", "he", "she", "we", "they",
-    "me", "him", "her", "us", "them", "my", "your", "his", "our", "their",
-    "what", "which", "who", "whom", "where", "when", "why", "how", "all",
-    "each", "every", "both", "few", "more", "most", "other", "some", "such",
-    "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very",
-    "just", "because", "but", "and", "or", "if", "while", "about", "with",
-    "of", "at", "by", "for", "in", "on", "to", "from", "as", "into",
-    # Chinese
-    "的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都", "一",
-    "一个", "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有",
-    "看", "好", "自己", "这", "他", "她", "它", "们", "那", "些", "什么",
-    "怎么", "如何", "可以", "能", "吗", "呢", "吧", "啊", "哦", "嗯",
-    "这个", "那个", "已经", "还是", "因为", "所以", "但是", "而且", "或者",
-}
 
 
 # ---------------------------------------------------------------------------

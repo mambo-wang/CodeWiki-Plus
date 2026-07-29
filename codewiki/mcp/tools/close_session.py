@@ -161,6 +161,33 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     except Exception:
         pass
 
+    # Auto-generate reading guide (PageRank) + optional HTML export
+    if docs_generated and session is not None and session.components:
+        try:
+            from codewiki.mcp.tools.reading_guide import generate_reading_guide
+            generate_reading_guide(
+                session.components,
+                session.module_tree or None,
+                output_dir,
+            )
+        except Exception:
+            logger.debug("Failed to generate reading guide", exc_info=True)
+
+        # HTML export is opt-in via schema.yaml → export.html: true
+        try:
+            import yaml
+            from codewiki.src.config import SCHEMA_FILENAME
+            schema_path = Path(output_dir) / SCHEMA_FILENAME
+            html_enabled = False
+            if schema_path.exists():
+                schema = yaml.safe_load(schema_path.read_text(encoding="utf-8")) or {}
+                html_enabled = schema.get("export", {}).get("html", False)
+            if html_enabled:
+                from codewiki.mcp.tools.html_export import generate_html_export
+                generate_html_export(output_dir)
+        except Exception:
+            logger.debug("Failed to generate HTML export", exc_info=True)
+
     # Inject AGENTS.md
     if docs_generated:
         try:

@@ -22,7 +22,7 @@ from codewiki.src.be.dependency_analyzer.analyzers.route_extractors.mq_patterns 
     extract_mq_routes,
 )
 from codewiki.src.be.dependency_analyzer.utils.patterns import CODE_EXTENSIONS
-from codewiki.src.be.dependency_analyzer.utils.security import safe_open_text
+from codewiki.src.be.dependency_analyzer.utils.security import safe_open_text, is_likely_minified
 from codewiki.src.be.dependency_analyzer.utils.external_symbols import (
     CPP_STANDARD_HEADERS,
     is_external_symbol,
@@ -246,6 +246,12 @@ class CallGraphAnalyzer:
             # Add timeout protection (30 seconds per file max)
             with timeout(30):
                 content = safe_open_text(base, file_path)
+
+                # Skip minified/bundled files that pass the size guard
+                if is_likely_minified(content):
+                    logger.debug(f"Skipping minified/bundled file: {file_path}")
+                    return
+
                 language = file_info["language"]
                 if language == "python":
                     self._analyze_python_file(file_path, content, repo_dir)

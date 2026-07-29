@@ -358,7 +358,8 @@ _register(
             "Wiki management: wiki_query (search query template), "
             "wiki_ingest (note ingestion guide), wiki_lint_report (quality report format). "
             "Advanced: comparison_page (comparison template), query_page (query result template), "
-            "taxonomy_plan (knowledge taxonomy planning). "
+            "taxonomy_plan (knowledge taxonomy planning), "
+            "reflection (proactive knowledge extraction from conversations). "
             "Optionally pass variables to fill in template placeholders. "
             "When variables produce content >4KB and a repo_path is provided, "
             "the prompt is written to a workspace file."
@@ -388,6 +389,7 @@ _register(
                         "query_page",
                         "taxonomy_plan",
                         "extraction_scan",
+                        "reflection",
                     ],
                     "description": "Which prompt template to retrieve",
                 },
@@ -1271,6 +1273,90 @@ def get_all_tools() -> list[Tool]:
     return [tool_def.schema for tool_def in REGISTRY.values()]
 
 
+# ===================================================================
+#  CBM enrichment (post-dispatch hook)
+# ===================================================================
+
+# Tools eligible for CBM enrichment and their enrichment strategy
+_CBM_ENRICHABLE = {"query_cross_service", "analyze_impact"}
+
+
+async def _try_cbm_enrichment(
+    tool_name: str,
+    arguments: dict[str, Any],
+    result: Any,
+) -> Any:
+    """Attempt to enrich a tool result with CBM data.
+
+    Only applies to specific tools (query_cross_service, analyze_impact).
+    Returns the original result unchanged if:
+      - CBM is not installed/enabled
+      - The tool is not enrichable
+      - CBM call fails for any reason
+      - The result is not a JSON string (e.g. TextContent passthrough)
+    """
+    if tool_name not in _CBM_ENRICHABLE:
+        return result
+
+    # Only enrich JSON string results
+    if not isinstance(result, str):
+        return result
+
+    try:
+        from codewiki.mcp.cbm_client import is_cbm_enabled
+        if not is_cbm_enabled():
+            return result
+
+        from codewiki.mcp.tools.cbm_integration import (
+            cbm_get_architecture,
+            cbm_trace_cross_service,
+            merge_cbm_and_local_results,
+        )
+
+        parsed = json.loads(result)
+
+        # Skip if the handler returned an error
+        if "error" in parsed:
+            return result
+
+        if tool_name == "query_cross_service":
+            # Enrich trace queries with CBM cross-service paths
+            filter_type = arguments.get("filter_type", "all")
+            if filter_type == "trace":
+                filter_value = arguments.get("filter_value", "")
+                if filter_value:
+                    cbm_result = await cbm_trace_cross_service(
+                        function_name=filter_value,
+                        repo_path=arguments.get("workspace_path", ""),
+                    )
+                    if cbm_result:
+                        parsed = merge_cbm_and_local_results(parsed, cbm_result)
+                        parsed["_cbm_enriched"] = True
+
+        elif tool_name == "analyze_impact":
+            # Enrich with CBM architecture data (clusters for module context)
+            repo_path = arguments.get("repo_path", "")
+            if not repo_path:
+                # Try to get from session — skip if not available
+                return result
+            cbm_arch = await cbm_get_architecture(
+                repo_path=repo_path,
+                aspects=["clusters", "hotspots"],
+            )
+            if cbm_arch:
+                parsed["cbm_architecture"] = cbm_arch
+                parsed["_cbm_enriched"] = True
+
+        if parsed.get("_cbm_enriched"):
+            return json.dumps(parsed, ensure_ascii=False)
+
+    except Exception as e:
+        # Never let CBM enrichment break the main tool
+        logger.debug("CBM enrichment skipped for %s: %s", tool_name, e)
+
+    return result
+
+
 async def dispatch(name: str, arguments: dict[str, Any], store: Any) -> list[TextContent]:
     """Look up a tool by name, dynamically import its handler, and invoke it.
 
@@ -1322,6 +1408,9 @@ async def dispatch(name: str, arguments: dict[str, Any], store: Any) -> list[Tex
             return [TextContent(type="text", text=json.dumps({
                 "error": f"Invalid mode '{tool_def.mode}' for tool '{name}'"
             }))]
+
+        # --- CBM enrichment (best-effort, async) ---
+        result = await _try_cbm_enrichment(name, arguments, result)
 
         # Wrap result in TextContent
         if isinstance(result, list) and result and isinstance(result[0], TextContent):

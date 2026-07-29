@@ -56,6 +56,10 @@ _DEFAULT_LINT = {
     "high_impact_threshold": 5,
 }
 
+_DEFAULT_EXPORT = {
+    "html": False,  # opt-in: set to true to generate wiki-export.html on close_session
+}
+
 # Default code routing rules (Roadmap 2.1)
 _DEFAULT_CODE_ROUTING = {
     "boilerplate_patterns": {
@@ -230,6 +234,7 @@ def generate_schema(
         "documentation_dimensions": list(defaults["documentation_dimensions"]),
         "update_policy": dict(defaults["update_policy"]),
         "lint": dict(defaults["lint"]),
+        "export": dict(_DEFAULT_EXPORT),
         "page_types": dict(defaults["page_types"]),
         "extraction_granularity": defaults["extraction_granularity"],
         "wiki_link_syntax": defaults["wiki_link_syntax"],

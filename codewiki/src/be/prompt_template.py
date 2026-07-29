@@ -66,6 +66,23 @@ Rules for the index table:
 5. This table serves as a navigation aid — readers scan it first, then jump to relevant sections.
 </COMPONENT_CONSTRAINT_INDEX>
 
+<ANTI_FILLER>
+Write precise, information-dense documentation. STRICTLY AVOID these filler patterns:
+- "This file/module is responsible for..." → State what it DOES directly
+- "various", "etc.", "and more", "and so on" → List specifics or omit
+- "It provides functionality for..." → Name the exact functions/capabilities
+- "This is used to handle..." → Say WHO calls it and WHEN
+- "The main purpose of this component is to..." → Just describe the behavior
+- Empty adjectives: "robust", "comprehensive", "seamless", "powerful", "flexible"
+- Redundant restatements of the class/function name in prose
+
+Rules:
+1. Every sentence must convey information not derivable from the code's naming alone.
+2. Prefer concrete nouns (specific class names, method names, data structures) over abstract descriptions.
+3. If you cannot say something specific, omit the sentence entirely.
+4. Quantify where possible: "processes 3 event types" not "processes various events".
+</ANTI_FILLER>
+
 <WORKFLOW>
 1. Analyze the provided code components and module structure, explore the not given dependencies between the components if needed
 2. Create the main `{module_name}.md` file with overview and architecture in working directory
@@ -137,6 +154,23 @@ Rules for the index table:
 4. "Summary" column: max 10 words, capturing the most important constraint.
 5. This table serves as a navigation aid — readers scan it first, then jump to relevant sections.
 </COMPONENT_CONSTRAINT_INDEX>
+
+<ANTI_FILLER>
+Write precise, information-dense documentation. STRICTLY AVOID these filler patterns:
+- "This file/module is responsible for..." → State what it DOES directly
+- "various", "etc.", "and more", "and so on" → List specifics or omit
+- "It provides functionality for..." → Name the exact functions/capabilities
+- "This is used to handle..." → Say WHO calls it and WHEN
+- "The main purpose of this component is to..." → Just describe the behavior
+- Empty adjectives: "robust", "comprehensive", "seamless", "powerful", "flexible"
+- Redundant restatements of the class/function name in prose
+
+Rules:
+1. Every sentence must convey information not derivable from the code's naming alone.
+2. Prefer concrete nouns (specific class names, method names, data structures) over abstract descriptions.
+3. If you cannot say something specific, omit the sentence entirely.
+4. Quantify where possible: "processes 3 event types" not "processes various events".
+</ANTI_FILLER>
 
 <WORKFLOW>
 1. Analyze provided code components and module structure
