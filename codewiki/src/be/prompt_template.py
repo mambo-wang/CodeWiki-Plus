@@ -246,6 +246,8 @@ Please group the components into groups such that each group is a set of compone
 
 Each component ID has the form `<file_path>::<name>`. Return the IDs EXACTLY as given — do NOT strip the `<file_path>::` prefix or shorten the ID to the bare name.
 
+IMPORTANT: Use your own reasoning to analyze component names, file paths, and their relationships to determine logical groupings. The classification should be done by YOU, not by code.
+
 Firstly reason about the components and then group them and return the result in the following format:
 <GROUPED_COMPONENTS>
 {{
@@ -285,6 +287,8 @@ Here is list of all potential core components of the module {module_name} (It's 
 Please group the components into groups such that each group is a set of components that are closely related to each other and together they form a smaller module. DO NOT include components that are not essential to the module.
 
 Each component ID has the form `<file_path>::<name>`. Return the IDs EXACTLY as given — do NOT strip the `<file_path>::` prefix or shorten the ID to the bare name.
+
+IMPORTANT: Do NOT write a script or program to classify components. Use your own reasoning to analyze component names, file paths, and their relationships to determine logical groupings. The classification should be done by YOU, not by code.
 
 Firstly reason based on given context and then group them and return the result in the following format:
 <GROUPED_COMPONENTS>

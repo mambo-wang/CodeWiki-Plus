@@ -42,6 +42,7 @@ def _prompt_generate_wiki(args: dict[str, str]) -> str:
 ## 步骤 2: 模块聚类
 调用 get_prompt(prompt_type="cluster", repo_path="{repo_path}")
 - 获取聚类规则（按目录结构、依赖关系、功能内聚性分组）
+- **重要**: 直接根据你的理解对组件进行语义分组
 - 根据规则将组件分为模块，构建 module_tree JSON
 - 调用 save_module_tree(repo_path="{repo_path}", module_tree=...) 保存
 
@@ -676,7 +677,7 @@ def register(server):
             ),
             Prompt(
                 name="search-wiki",
-                title="知识库搜索策略",
+                title="知识库搜索",
                 description="高效搜索 Wiki 知识库的策略指引：BM25 搜索、图谱扩展、深度阅读",
                 arguments=[
                     PromptArgument(

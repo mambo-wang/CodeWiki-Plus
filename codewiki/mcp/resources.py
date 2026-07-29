@@ -211,7 +211,7 @@ def register(server):
                 "prompts": [
                     {"name": "generate-wiki", "title": "生成代码 Wiki", "description": "完整的代码仓库 Wiki 生成流水线", "arguments": ["repo_path (optional, 默认当前目录)", "output_dir (optional)"]},
                     {"name": "extract-knowledge", "title": "外部文档知识抽取", "description": "导入外部文档并从中抽取实体/概念，一步完成导入+提取", "arguments": ["source_path (required, 文档绝对路径)"]},
-                    {"name": "search-wiki", "title": "知识库搜索策略", "description": "BM25 + 图谱扩展 + 深度阅读的分层搜索策略", "arguments": ["query (required)"]},
+                    {"name": "search-wiki", "title": "知识库搜索", "description": "BM25 + 图谱扩展 + 深度阅读的分层搜索策略", "arguments": ["query (required)"]},
                     {"name": "quality-check", "title": "文档质量审计", "description": "全面质量检查：过时引用、断链、覆盖率、循环依赖", "arguments": ["output_dir (optional)"]},
                     {"name": "incremental-update", "title": "增量更新 Wiki", "description": "检测代码变更并增量更新受影响的模块文档", "arguments": ["repo_path (optional, 默认当前目录)"]},
                     {"name": "workspace-analysis", "title": "多仓库工作区分析（含跨服务拓扑）", "description": "扫描多 git 仓库，生成独立 Wiki 并自动执行 RouteNode 跨服务匹配 + 拓扑图 + 基础设施扫描", "arguments": ["workspace_path (optional, 默认当前目录)"]},
