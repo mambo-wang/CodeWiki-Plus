@@ -108,6 +108,10 @@ def _run_cross_service_analysis(
 
     if total_routes == 0:
         logger.info("No routes found across workspace repos")
+        # Write empty indicator so query_cross_service knows analysis ran
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        (meta_dir / "cross_service_links.json").write_text("[]", encoding="utf-8")
+        (meta_dir / "workspace_routes.json").write_text("[]", encoding="utf-8")
         return {"total_routes": 0, "total_links": 0}
 
     # Run matching
