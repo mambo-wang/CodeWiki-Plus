@@ -216,7 +216,11 @@ def handle_ingest_note(
     elif session:
         output_dir = Path(session.output_dir)
     else:
-        return json.dumps({"error": "output_dir is required."})
+        rp = arguments.get("repo_path")
+        if rp:
+            output_dir = (Path(rp).expanduser().resolve() / "repowiki")
+        else:
+            return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
 
     from codewiki.src.config import NOTES_DIR
 
@@ -429,7 +433,11 @@ def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     elif session:
         output_dir = Path(session.output_dir)
     else:
-        return json.dumps({"error": "output_dir is required."})
+        rp = arguments.get("repo_path")
+        if rp:
+            output_dir = (Path(rp).expanduser().resolve() / "repowiki")
+        else:
+            return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
 
     note_file = arguments.get("note_file", "")
     if not note_file:
@@ -448,7 +456,11 @@ def handle_reject_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     elif session:
         output_dir = Path(session.output_dir)
     else:
-        return json.dumps({"error": "output_dir is required."})
+        rp = arguments.get("repo_path")
+        if rp:
+            output_dir = (Path(rp).expanduser().resolve() / "repowiki")
+        else:
+            return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
 
     note_file = arguments.get("note_file", "")
     if not note_file:
