@@ -44,8 +44,7 @@ TOOLS = [
                 },
                 "doc_type": {
                     "type": "string",
-                    "enum": ["api", "architecture", "user-guide", "developer", "business", "design"],
-                    "description": "Type of documentation to generate",
+                    "description": "Type of documentation to generate. Valid values defined in schema.yaml doc_types.types (default: design)",
                 },
                 "include_patterns": {
                     "type": "string",

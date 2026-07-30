@@ -31,7 +31,7 @@ def _build_schema_constraints(output_dir: Optional[str]) -> str:
     """Read schema.yaml from output_dir and build constraint text for prompts.
 
     Extracts required_sections, documentation_dimensions, line limits,
-    page_types routing table, extraction_granularity, and purpose.md.
+    page_types routing table, extraction_granularity, and purpose.
     Returns empty string if schema is unavailable or unreadable.
     """
     if not output_dir:
@@ -96,17 +96,10 @@ def _build_schema_constraints(output_dir: Optional[str]) -> str:
     if granularity:
         parts.append(f"Extraction granularity: {granularity} (focused=3-7 items, standard=moderate, exhaustive=comprehensive)")
 
-    # LLM Wiki: purpose.md
-    if output_dir:
-        from codewiki.src.config import PURPOSE_FILENAME
-        purpose_path = Path(output_dir) / PURPOSE_FILENAME
-        if purpose_path.exists():
-            try:
-                purpose_text = purpose_path.read_text(encoding="utf-8", errors="replace")
-                if purpose_text.strip():
-                    parts.append(f"Project purpose:\n{purpose_text.strip()[:500]}")
-            except OSError:
-                pass
+    # Project purpose (defined in schema.yaml)
+    purpose_text = schema.get("purpose", "")
+    if purpose_text and str(purpose_text).strip():
+        parts.append(f"Project purpose:\n{str(purpose_text).strip()[:500]}")
 
     # OKF frontmatter
     if conventions.get("okf_frontmatter", False):
@@ -135,6 +128,54 @@ def _build_schema_constraints(output_dir: Optional[str]) -> str:
     if not parts:
         return ""
     return "\n\n".join(parts)
+
+
+# Hardcoded fallback for doc_type hints (used when schema.yaml has no doc_types)
+_FALLBACK_DOC_TYPE_HINTS = {
+    "api": {"module": "Focus on API documentation: endpoints, parameters, return types, and usage examples."},
+    "architecture": {
+        "module": "Focus on architecture documentation: system design, component relationships, and data flow.",
+        "overview": "Focus on system-level architecture: show how modules relate, data flows between components, and the overall layered design. Include a high-level Mermaid architecture diagram.",
+    },
+    "user-guide": {"module": "Focus on user guide documentation: how to use features, step-by-step tutorials."},
+    "developer": {"module": "Focus on developer documentation: code structure, contribution guidelines, and implementation details."},
+    "business": {"module": "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details."},
+    "design": {
+        "module": "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity.",
+        "overview": "Focus on system-level architecture: show how modules relate to each other, data flows between components, overall layered design, and key architectural decisions. Provide a high-level view that helps readers understand the system's structural blueprint. Include Mermaid diagrams for the architecture overview.",
+    },
+}
+
+
+def _resolve_doc_type_hint(variables: dict, context: str = "module") -> Optional[str]:
+    """Resolve doc_type prompt hint from schema config or hardcoded fallback.
+
+    Returns the hint string, or None if no hint applies (e.g. caller already
+    provided custom_instructions via _has_caller_ci).
+    """
+    if variables.get("_has_caller_ci"):
+        return None
+
+    doc_types_cfg = variables.get("_doc_types", {})
+    default_type = doc_types_cfg.get("default", "design")
+    doc_type = variables.get("doc_type", default_type)
+    if not doc_type:
+        return None
+
+    # Try schema-defined types first, then hardcoded fallback
+    types = doc_types_cfg.get("types", {})
+    type_entry = types.get(doc_type.lower())
+    if type_entry is None:
+        type_entry = _FALLBACK_DOC_TYPE_HINTS.get(doc_type.lower())
+
+    if isinstance(type_entry, dict):
+        hint = type_entry.get(context) or type_entry.get("module", "")
+    elif isinstance(type_entry, str):
+        hint = type_entry
+    else:
+        hint = f"Focus on generating {doc_type} documentation."
+
+    return hint or None
 
 
 # Prompt catalog: maps prompt_type to (raw_template, usage_hint, variables_doc)
@@ -314,8 +355,22 @@ def handle_get_prompt(
         else:
             variables["custom_instructions"] = schema_constraints
 
+    # Inject doc_types config from schema for doc_type hint resolution
+    if output_dir:
+        from codewiki.mcp.tools.page_router import load_schema
+        try:
+            schema = load_schema(output_dir)
+            variables["_doc_types"] = schema.get("doc_types", {})
+        except Exception:
+            pass
+
     # Resolve the prompt content
     content = _resolve_prompt(prompt_type, variables)
+
+    # Append external tool enhancement hints (CBM / CodeGraph)
+    hint = _get_enhancement_hint(prompt_type)
+    if hint:
+        content += hint
 
     result = {
         "prompt_type": prompt_type,
@@ -342,6 +397,111 @@ def handle_get_prompt(
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
+# ===================================================================
+#  External tool enhancement hints (CBM / CodeGraph)
+# ===================================================================
+
+# Conditional hints injected into prompts when external MCP tools may be
+# available.  Phrased as "if you have X" so they are inert when the agent
+# has neither codebase-memory nor codegraph installed.
+
+_ENHANCEMENT_HINTS: Dict[str, str] = {
+    "cluster": (
+        "\n\n<EXTERNAL_ENHANCEMENT optional=true>\n"
+        "If you have the `get_architecture` MCP tool (codebase-memory), call it with "
+        "aspects=['clusters'] BEFORE grouping. Use the Leiden community detection results "
+        "as a data-driven seed: components in the same cluster likely belong together. "
+        "Override cluster boundaries only when semantic grouping clearly disagrees "
+        "(e.g., a 'utils' cluster that should be split by domain).\n"
+        "</EXTERNAL_ENHANCEMENT>"
+    ),
+    "system_leaf": (
+        "\n\n<EXTERNAL_ENHANCEMENT optional=true>\n"
+        "If you have `codegraph_callers` / `codegraph_callees` MCP tools (CodeGraph), "
+        "use them on the module's primary Service/Handler classes to discover real "
+        "runtime call relationships. Incorporate findings into the Integration / "
+        "Dependencies section: name WHO calls this module and WHAT it calls downstream. "
+        "Skip this for pure model/util/config modules with no interesting call graph.\n"
+        "</EXTERNAL_ENHANCEMENT>"
+    ),
+    "system_complex": (
+        "\n\n<EXTERNAL_ENHANCEMENT optional=true>\n"
+        "If you have `codegraph_callers` / `codegraph_callees` MCP tools (CodeGraph), "
+        "use them on the module's primary Service/Handler classes to discover real "
+        "runtime call relationships. Incorporate findings into the Architecture / "
+        "Integration sections: show cross-module call flows with Mermaid sequence "
+        "diagrams. For parent modules, also check `codegraph_impact` on key entry "
+        "points to document blast radius.\n"
+        "</EXTERNAL_ENHANCEMENT>"
+    ),
+    "code_analysis": (
+        "\n\n### Enhancement: Call-level analysis (if CodeGraph available)\n"
+        "If you have `codegraph_callers` / `codegraph_callees` / `codegraph_impact` "
+        "MCP tools, use them to go beyond import-level dependencies:\n"
+        "```\n"
+        "# Who actually CALLS this function at runtime? (not just imports it)\n"
+        "codegraph_callers(symbol='AuthService.validate_token')\n\n"
+        "# What does this function call downstream?\n"
+        "codegraph_callees(symbol='OrderService.create_order')\n\n"
+        "# Symbol-level blast radius (finer than file-level analyze_impact)\n"
+        "codegraph_impact(symbol='db.connection_pool', depth=2)\n"
+        "```\n"
+        "CodeWiki's list_dependencies shows import-level edges; CodeGraph shows "
+        "actual call edges. Use both for a complete picture."
+    ),
+    "architecture_review": (
+        "\n\n### Enhancement: Deep architecture (if external tools available)\n"
+        "If you have `get_architecture` MCP tool (codebase-memory):\n"
+        "```\n"
+        "get_architecture(aspects=['layers', 'boundaries', 'cycles', 'hotspots'])\n"
+        "```\n"
+        "This provides Leiden-based layer detection, module boundary scoring, "
+        "circular dependency detection, and complexity hotspots — complementing "
+        "CodeWiki's import-graph analysis with call-graph semantics.\n\n"
+        "If you have `codegraph_callers` / `codegraph_callees` (CodeGraph), "
+        "use them in Step 4 to trace actual runtime call paths instead of "
+        "just import chains."
+    ),
+    "wiki_query": (
+        "\n\n### Enhancement: Code-level search (if codebase-memory available)\n"
+        "If `query_wiki` returns insufficient results (low coverage or the topic "
+        "hasn't been documented yet), and you have `search_code` / `search_graph` "
+        "MCP tools (codebase-memory), use them to search code symbols directly:\n"
+        "```\n"
+        "search_code(query='websocket connection handling')\n"
+        "search_graph(query='rate limiter', min_degree=3)\n"
+        "```\n"
+        "This searches the actual codebase (BM25 + semantic), not just generated docs."
+    ),
+    "wiki_lint_report": (
+        "\n\n### Enhancement: Incremental risk detection (if codebase-memory available)\n"
+        "If you have `detect_changes` MCP tool (codebase-memory), run it after lint "
+        "to identify recently added high-risk code that lacks documentation:\n"
+        "```\n"
+        "detect_changes(scope='impact', since='HEAD~7', direction='inbound', depth=2)\n"
+        "```\n"
+        "Cross-reference the changed symbols with lint's `undocumented_components` list. "
+        "Prioritize documenting symbols that are both recently changed AND high-risk "
+        "(many inbound dependencies)."
+    ),
+    "overview_repo": (
+        "\n\n<EXTERNAL_ENHANCEMENT optional=true>\n"
+        "If you have `get_architecture` MCP tool (codebase-memory), call it with "
+        "aspects=['layers', 'boundaries', 'cycles'] to enrich the overview with:\n"
+        "- Detected architectural layers (presentation → service → data)\n"
+        "- Module boundary quality scores (cohesion vs coupling)\n"
+        "- Circular dependency warnings\n"
+        "Use this data to write an architecture narrative rather than just listing modules.\n"
+        "</EXTERNAL_ENHANCEMENT>"
+    ),
+}
+
+
+def _get_enhancement_hint(prompt_type: str) -> str:
+    """Return the enhancement hint for a prompt type, or empty string."""
+    return _ENHANCEMENT_HINTS.get(prompt_type, "")
+
+
 def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
     """Resolve a prompt template with optional variable substitution."""
 
@@ -358,17 +518,8 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
     elif prompt_type == "system_complex":
         module_name = variables.get("module_name", "MODULE_NAME")
         custom_instructions = variables.get("custom_instructions", None)
-        doc_type = variables.get("doc_type", "design")
-        if not variables.get("_has_caller_ci") and doc_type:
-            _doc_type_hints = {
-                'api': "Focus on API documentation: endpoints, parameters, return types, and usage examples.",
-                'architecture': "Focus on architecture documentation: system design, component relationships, and data flow.",
-                'user-guide': "Focus on user guide documentation: how to use features, step-by-step tutorials.",
-                'developer': "Focus on developer documentation: code structure, contribution guidelines, and implementation details.",
-                'business': "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details.",
-                'design': "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity.",
-            }
-            doc_type_hint = _doc_type_hints.get(doc_type.lower(), f"Focus on generating {doc_type} documentation.")
+        doc_type_hint = _resolve_doc_type_hint(variables, "module")
+        if doc_type_hint:
             if custom_instructions:
                 custom_instructions = doc_type_hint + "\n\n" + custom_instructions
             else:
@@ -378,17 +529,8 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
     elif prompt_type == "system_leaf":
         module_name = variables.get("module_name", "MODULE_NAME")
         custom_instructions = variables.get("custom_instructions", None)
-        doc_type = variables.get("doc_type", "design")
-        if not variables.get("_has_caller_ci") and doc_type:
-            _doc_type_hints = {
-                'api': "Focus on API documentation: endpoints, parameters, return types, and usage examples.",
-                'architecture': "Focus on architecture documentation: system design, component relationships, and data flow.",
-                'user-guide': "Focus on user guide documentation: how to use features, step-by-step tutorials.",
-                'developer': "Focus on developer documentation: code structure, contribution guidelines, and implementation details.",
-                'business': "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details.",
-                'design': "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity.",
-            }
-            doc_type_hint = _doc_type_hints.get(doc_type.lower(), f"Focus on generating {doc_type} documentation.")
+        doc_type_hint = _resolve_doc_type_hint(variables, "module")
+        if doc_type_hint:
             if custom_instructions:
                 custom_instructions = doc_type_hint + "\n\n" + custom_instructions
             else:
@@ -413,18 +555,12 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
         module_name = variables.get("module_name", "MODULE_NAME")
         repo_structure = variables.get("repo_structure", "<REPO_STRUCTURE placeholder>")
         custom_instructions = variables.get("custom_instructions", None)
-        doc_type = variables.get("doc_type", "design")
-        if not variables.get("_has_caller_ci") and doc_type:
-            _overview_hints = {
-                'architecture': "Focus on system-level architecture: show how modules relate, data flows between components, and the overall layered design. Include a high-level Mermaid architecture diagram.",
-                'design': "Focus on system-level architecture: show how modules relate to each other, data flows between components, overall layered design, and key architectural decisions. Provide a high-level view that helps readers understand the system's structural blueprint. Include Mermaid diagrams for the architecture overview.",
-            }
-            doc_type_hint = _overview_hints.get(doc_type.lower())
-            if doc_type_hint:
-                if custom_instructions:
-                    custom_instructions = doc_type_hint + "\n\n" + custom_instructions
-                else:
-                    custom_instructions = doc_type_hint
+        doc_type_hint = _resolve_doc_type_hint(variables, "overview")
+        if doc_type_hint:
+            if custom_instructions:
+                custom_instructions = doc_type_hint + "\n\n" + custom_instructions
+            else:
+                custom_instructions = doc_type_hint
         custom_section = ""
         if custom_instructions:
             custom_section = f"\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
@@ -438,18 +574,12 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
         repo_name = variables.get("repo_name", "REPO_NAME")
         repo_structure = variables.get("repo_structure", "<REPO_STRUCTURE placeholder>")
         custom_instructions = variables.get("custom_instructions", None)
-        doc_type = variables.get("doc_type", "design")
-        if not variables.get("_has_caller_ci") and doc_type:
-            _overview_hints = {
-                'architecture': "Focus on system-level architecture: show how modules relate, data flows between components, and the overall layered design. Include a high-level Mermaid architecture diagram.",
-                'design': "Focus on system-level architecture: show how modules relate to each other, data flows between components, overall layered design, and key architectural decisions. Provide a high-level view that helps readers understand the system's structural blueprint. Include Mermaid diagrams for the architecture overview.",
-            }
-            doc_type_hint = _overview_hints.get(doc_type.lower())
-            if doc_type_hint:
-                if custom_instructions:
-                    custom_instructions = doc_type_hint + "\n\n" + custom_instructions
-                else:
-                    custom_instructions = doc_type_hint
+        doc_type_hint = _resolve_doc_type_hint(variables, "overview")
+        if doc_type_hint:
+            if custom_instructions:
+                custom_instructions = doc_type_hint + "\n\n" + custom_instructions
+            else:
+                custom_instructions = doc_type_hint
         custom_section = ""
         if custom_instructions:
             custom_section = f"\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"

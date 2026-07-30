@@ -27,7 +27,6 @@ RAW_DIR = 'raw'
 RAW_SOURCES_DIR = 'raw/sources'
 SOURCE_REGISTRY_FILENAME = 'source_registry.json'
 ISSUES_FILENAME = 'issues.json'
-PURPOSE_FILENAME = 'purpose.md'
 PROJECT_FILENAME = 'project.json'
 # Mapping from page_type to subdirectory name under wiki/
 PAGE_TYPE_DIRS = {
@@ -39,7 +38,7 @@ PAGE_TYPE_DIRS = {
     'query': 'queries',
 }
 # Files excluded from wiki index and search (system files)
-WIKI_SYSTEM_FILES = {'index.md', 'log.md', 'overview.md', 'schema.yaml', 'purpose.md'}
+WIKI_SYSTEM_FILES = {'index.md', 'log.md', 'overview.md', 'schema.yaml'}
 
 
 def meta_join(base_dir, filename):

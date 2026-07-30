@@ -32,7 +32,6 @@ from codewiki.src.config import (
     LOG_FILENAME,
     OVERVIEW_FILENAME,
     SCHEMA_FILENAME,
-    PURPOSE_FILENAME,
     PAGE_TYPE_DIRS,
     WIKI_SYSTEM_FILES,
 )
@@ -91,7 +90,7 @@ def resolve_wiki_paths(output_dir: str | Path, schema: dict | None = None) -> di
 
         modules, entities, concepts, sources, comparisons, queries,
         notes, raw_sources,
-        index, log, overview, schema, purpose
+        index, log, overview, schema
 
     Directory values are absolute ``Path`` objects.
     """
@@ -114,7 +113,6 @@ def resolve_wiki_paths(output_dir: str | Path, schema: dict | None = None) -> di
         "log":          wiki / LOG_FILENAME,
         "overview":     wiki / OVERVIEW_FILENAME,
         "schema":       od / SCHEMA_FILENAME,
-        "purpose":      od / PURPOSE_FILENAME,
     }
 
     # Allow schema.page_types to override directory names.

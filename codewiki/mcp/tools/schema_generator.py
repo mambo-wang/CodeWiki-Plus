@@ -60,6 +60,25 @@ _DEFAULT_EXPORT = {
     "html": False,  # opt-in: set to true to generate wiki-export.html on close_session
 }
 
+# Default doc_type definitions (prompt hints per documentation style)
+_DEFAULT_DOC_TYPES = {
+    "default": "design",
+    "types": {
+        "api": {"module": "Focus on API documentation: endpoints, parameters, return types, and usage examples."},
+        "architecture": {
+            "module": "Focus on architecture documentation: system design, component relationships, and data flow.",
+            "overview": "Focus on system-level architecture: show how modules relate, data flows between components, and the overall layered design. Include a high-level Mermaid architecture diagram.",
+        },
+        "user-guide": {"module": "Focus on user guide documentation: how to use features, step-by-step tutorials."},
+        "developer": {"module": "Focus on developer documentation: code structure, contribution guidelines, and implementation details."},
+        "business": {"module": "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details."},
+        "design": {
+            "module": "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity.",
+            "overview": "Focus on system-level architecture: show how modules relate to each other, data flows between components, overall layered design, and key architectural decisions. Provide a high-level view that helps readers understand the system's structural blueprint. Include Mermaid diagrams for the architecture overview.",
+        },
+    },
+}
+
 # Default code routing rules (Roadmap 2.1)
 _DEFAULT_CODE_ROUTING = {
     "boilerplate_patterns": {
@@ -121,14 +140,14 @@ _DEFAULT_PAGE_TYPES = {
     },
 }
 
-# ── config.yaml loading ──────────────────────────────────────────────────
+# ── installation schema.yaml loading ─────────────────────────────────────
 
-_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config.yaml"
+_CONFIG_PATH = Path(__file__).resolve().parents[3] / "schema.yaml"
 _project_config_cache: Optional[dict] = None
 
 
 def _load_project_config() -> dict:
-    """Load config.yaml from CodeWiki-CN installation root.
+    """Load schema.yaml from CodeWiki-CN installation root as default template.
 
     Returns cached result on subsequent calls.  Returns empty dict on any
     failure so callers can transparently fall back to hardcoded defaults.
@@ -145,15 +164,17 @@ def _load_project_config() -> dict:
                 logger.info("Loaded project config from %s", _CONFIG_PATH)
                 return _project_config_cache
     except Exception as e:
-        logger.warning("Failed to load config.yaml: %s", e)
+        logger.warning("Failed to load installation schema.yaml: %s", e)
     _project_config_cache = {}
     return _project_config_cache
 
 
 def _get_defaults() -> dict:
-    """Build merged defaults: hardcoded defaults overridden by config.yaml."""
+    """Build merged defaults: hardcoded defaults overridden by installation schema.yaml."""
     cfg = _load_project_config()
     return {
+        "purpose": cfg.get("purpose", ""),
+        "doc_types": cfg.get("doc_types", _DEFAULT_DOC_TYPES),
         "conventions": {**_DEFAULT_CONVENTIONS, **cfg.get("conventions", {})},
         "required_sections": cfg.get("required_sections", _DEFAULT_REQUIRED_SECTIONS),
         "documentation_dimensions": cfg.get("documentation_dimensions", _DEFAULT_DIMENSIONS),
@@ -229,6 +250,8 @@ def generate_schema(
         "version": 1,
         "generated_at": datetime.now().isoformat(),
         "project": inferred_project,
+        "purpose": defaults["purpose"],
+        "doc_types": defaults["doc_types"],
         "conventions": inferred_conventions,
         "required_sections": list(defaults["required_sections"]),
         "documentation_dimensions": list(defaults["documentation_dimensions"]),
@@ -290,16 +313,22 @@ def _merge_schemas(existing: dict, new: dict) -> dict:
         elif key not in merged:
             merged[key] = existing[key]
         elif isinstance(existing[key], dict) and isinstance(merged.get(key), dict):
-            # Deep merge dicts: existing user values win for non-auto keys
+            # Deep merge dicts: user-customized values win, new defaults fill gaps.
+            # Start from new (picks up newly added default keys), then overlay
+            # existing user values on top so customizations are preserved.
             merged_dict = dict(merged[key])
             for sub_key, sub_val in existing[key].items():
-                if sub_key not in merged_dict:
-                    merged_dict[sub_key] = sub_val
-                # For conventions, auto-inferred keys are overwritten
-                # but user-added keys are preserved
+                merged_dict[sub_key] = sub_val
+            # conventions.module_naming is auto-inferred — always refresh
+            if key == "conventions" and "module_naming" in new.get(key, {}):
+                merged_dict["module_naming"] = new[key]["module_naming"]
             merged[key] = merged_dict
         elif isinstance(existing[key], list) and isinstance(merged.get(key), list):
             # Lists: keep existing if user modified (different length or content)
+            if existing[key] != new.get(key):
+                merged[key] = existing[key]
+        else:
+            # Scalars (str, bool, int, etc.): preserve user-customized values
             if existing[key] != new.get(key):
                 merged[key] = existing[key]
 
