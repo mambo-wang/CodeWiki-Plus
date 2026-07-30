@@ -634,6 +634,43 @@ analyze_impact(repo_path="{repo_path}", component_ids=['<core_component>'],
 使用 get_prompt(prompt_type="architecture_review") 获取更详细的分析指南。"""
 
 
+def _prompt_init_wiki(args: dict[str, str]) -> str:
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    output_dir = args.get("output_dir", "")
+    od_note = f'，output_dir="{output_dir}"' if output_dir else ""
+    return f"""请为项目初始化 Wiki 工作区。按以下步骤执行：
+
+## 步骤 1: 初始化
+调用 init_wiki(repo_path="{repo_path}"{od_note})
+- 自动创建目录结构：wiki/modules, wiki/entities, wiki/concepts, wiki/sources, wiki/comparisons, wiki/queries, notes/
+- 拷贝带注释的 schema.yaml 模板到输出目录（保留所有注释，方便阅读和自定义）
+- 在仓库根目录写入/更新 AGENTS.md（含 MCP 工具用法、自我反思协议、知识沉淀规则）
+
+## 步骤 2: 自定义 schema.yaml
+读取 `{output_dir or repo_path + '/repowiki'}/schema.yaml`，根据项目特点修改：
+- **purpose**（重要）：用一两句话描述项目定位，会注入到所有文档生成 prompt 中
+- **doc_types**：选择适合项目的文档风格（api/architecture/design/business 等）
+- **conventions**：调整命名规范、最小行数、是否需要 Mermaid 图等
+- **page_types**：按需增删页面类型
+
+## 步骤 3: 验证 AGENTS.md
+读取仓库根目录的 AGENTS.md，确认包含：
+- CodeWiki LLM Wiki 章节（入口文件链接、MCP 工具用法）
+- 纠正识别与经验沉淀（自我反思协议）
+- 主动知识沉淀（触发信号、四问过滤、路由表）
+
+## 后续工作流
+初始化完成后，可以：
+- **生成 Wiki**：使用 generate-wiki prompt 执行完整的文档生成流水线
+- **知识管理**：直接使用 ingest_note / query_wiki 进行知识归档和检索
+- **代码分析**：使用 code-analysis prompt 仅做结构分析不生成文档
+
+## 注意事项
+- init_wiki 是幂等的：重复执行不会破坏已有内容
+- AGENTS.md 使用 HTML 注释标记隔离 CodeWiki 段落，用户自有内容不受影响
+- schema.yaml 只在首次拷贝；后续 analyze_repo 会增量合并（保留用户自定义值）"""
+
+
 # ===================================================================
 #  Registration
 # ===================================================================
@@ -820,6 +857,27 @@ def register(server):
                     ),
                 ],
             ),
+            Prompt(
+                name="init-wiki",
+                title="初始化 Wiki 工作区",
+                description=(
+                    "零配置初始化：创建目录结构、拷贝带注释的 schema.yaml 模板、"
+                    "写入 AGENTS.md（含 MCP 工具用法和自我反思协议）。"
+                    "在开始任何 Wiki 生成或知识管理之前执行一次。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="repo_path",
+                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="output_dir",
+                        description="Wiki 输出目录（默认: <repo>/repowiki）",
+                        required=False,
+                    ),
+                ],
+            ),
         ]
 
     @server.get_prompt()
@@ -840,6 +898,7 @@ def register(server):
             "impact-review": _prompt_impact_review,
             "architecture-review": _prompt_architecture_review,
             "ingest-note": _prompt_ingest_note,
+            "init-wiki": _prompt_init_wiki,
         }
 
         handler = prompts_map.get(name)

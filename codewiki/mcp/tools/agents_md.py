@@ -99,12 +99,13 @@ def _extract_modules(module_tree: dict) -> list[str]:
 _TOOLS_QUICKREF = """\
 ### MCP 工具参数速查
 
-以下为全部 25 个工具的**必填参数**（其余均为可选）。参数名以 MCP server 强制校验的 schema 为准，传错参数名会被 server 直接拒绝。
+以下为全部 26 个工具的**必填参数**（其余均为可选）。参数名以 MCP server 强制校验的 schema 为准，传错参数名会被 server 直接拒绝。
 
 > 常见陷阱：`analyze_repo` / `analyze_workspace` 会返回 `session_id`，但**下游工具并不接收 `session_id`**，请改用 `repo_path` 或 `output_dir`。
 
 | 工具 | 必填参数 | 常用可选参数 |
 | --- | --- | --- |
+| init_wiki | — | repo_path, output_dir |
 | analyze_repo | repo_path | include_patterns, output_dir, exclude_patterns, max_workers |
 | read_code_components | repo_path, component_ids | include_bodies, include_source_refs |
 | write_doc_file | output_dir, filename, content | page_type, frontmatter, content_file |
