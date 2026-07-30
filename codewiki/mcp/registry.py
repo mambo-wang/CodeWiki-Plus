@@ -1300,6 +1300,40 @@ _register(
 )
 
 
+_register(
+    Tool(
+        name="init_wiki",
+        description=(
+            "Initialize a Wiki workspace for a project (zero-config bootstrap). "
+            "Creates the output directory structure (wiki/modules, wiki/entities, "
+            "wiki/concepts, wiki/sources, wiki/comparisons, wiki/queries, notes/), "
+            "copies the annotated schema.yaml template (preserving comments), and "
+            "injects wiki usage instructions + self-reflection protocols into the "
+            "project's AGENTS.md. Run this ONCE before starting any wiki generation "
+            "or knowledge ingestion workflow. Idempotent: safe to re-run — existing "
+            "AGENTS.md content outside the CodeWiki markers is preserved."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository root path. AGENTS.md is written here. Default: current working directory.",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Wiki output directory (default: <repo_path>/repowiki). Created if it does not exist.",
+                },
+            },
+            "required": [],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.init_wiki:handle_init_wiki",
+    mode="thread",
+    takes_store=False,
+)
+
+
 # ===================================================================
 #  Public API
 # ===================================================================
