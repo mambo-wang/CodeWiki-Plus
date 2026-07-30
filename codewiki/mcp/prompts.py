@@ -671,7 +671,7 @@ def register(server):
                     PromptArgument(
                         name="source_path",
                         description="要导入并提取知识的外部文档的绝对路径（支持 PDF/MD/DOCX/HTML）",
-                        required=True,
+                        required=False,
                     ),
                 ],
             ),
@@ -683,7 +683,7 @@ def register(server):
                     PromptArgument(
                         name="query",
                         description="搜索关键词或自然语言问题",
-                        required=True,
+                        required=False,
                     ),
                 ],
             ),
@@ -739,12 +739,12 @@ def register(server):
                 arguments=[
                     PromptArgument(
                         name="workspace_path",
-                        description="包含多个 git 仓库的工作区根目录（须已执行过 analyze_workspace）",
-                        required=True,
+                        description="包含多个 git 仓库的工作区根目录（相对路径基于当前工作目录，默认当前目录；须已执行过 analyze_workspace）",
+                        required=False,
                     ),
                     PromptArgument(
                         name="filter_value",
-                        description="追踪起点：服务名 / HTTP 方法 / URL 子串 / 路径前缀",
+                        description="追踪起点：服务名 / HTTP 方法 / URL 子串 / 路径前缀（可在对话中补充）",
                         required=False,
                     ),
                 ],
@@ -780,8 +780,8 @@ def register(server):
                     ),
                     PromptArgument(
                         name="target",
-                        description="分析目标：组件 ID（如 src/auth.py::AuthService）或文件路径",
-                        required=True,
+                        description="分析目标：组件 ID（如 src/auth.py::AuthService）或文件路径（留空可在对话框中填写）",
+                        required=False,
                     ),
                 ],
             ),
