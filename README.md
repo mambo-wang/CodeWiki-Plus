@@ -140,8 +140,7 @@ repowiki/
 │   ├── overview.md              #   仓库总览（从这里开始阅读）
 │   ├── index.md                 #   自动生成的文档目录索引（按类型分区）
 │   ├── log.md                   #   操作日志（记录每次写入/编辑）
-│   ├── schema.yaml              #   项目文档规范（含 page_types 路由表 + 代码路由规则）
-│   ├── purpose.md               #   项目用途说明（可选，增强搜索相关性）
+│   ├── schema.yaml              #   项目文档规范（含 purpose 定位 + page_types 路由表 + 代码路由规则）
 │   ├── modules/                 #   模块文档（含组件约束索引表 + Evidence-Based 断言）
 │   │   ├── module1.md
 │   │   └── module2.md
@@ -377,9 +376,9 @@ CodeWiki-Plus 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 
 #### schema.yaml 与配置
 
-`schema.yaml` 是项目的文档"宪法"，包含命名规范、必需章节、文档维度、lint 设置、**page_types 路由表**、以及 **code_routing 代码路由规则**。`config.yaml`（CodeWiki-Plus 安装目录下）提供与语言无关的默认配置，首次 `analyze_repo` 时会读取它生成项目级 `schema.yaml`。
+`schema.yaml` 是项目的文档"宪法"，包含项目定位（`purpose` 字段）、命名规范、必需章节、文档维度、lint 设置、**page_types 路由表**、以及 **code_routing 代码路由规则**。CodeWiki-Plus 安装目录下的 `schema.yaml` 是与语言无关的默认模板，首次 `analyze_repo` 时会读取它生成项目级 `schema.yaml`。
 
-**自定义**：修改 CodeWiki-Plus 的 `config.yaml` 改变全局默认值；修改某个项目的 `schema.yaml` 只影响该项目（增量更新时自动合并保留自定义字段）。
+**自定义**：将安装目录的 `schema.yaml` 拷贝到项目的 output_dir（如 `repowiki/schema.yaml`）并修改，即可覆盖默认值；增量更新时自动合并保留自定义字段。
 
 #### 交叉链接与别名
 

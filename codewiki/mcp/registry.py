@@ -1249,8 +1249,7 @@ _register(
                 },
                 "doc_type": {
                     "type": "string",
-                    "enum": ["api", "architecture", "user-guide", "developer", "business", "design"],
-                    "description": "Type of documentation to generate",
+                    "description": "Type of documentation to generate. Valid values defined in schema.yaml doc_types.types (default: design)",
                 },
                 "include_patterns": {
                     "type": "string",
@@ -1316,7 +1315,7 @@ def get_all_tools() -> list[Tool]:
 # ===================================================================
 
 # Tools eligible for CBM enrichment and their enrichment strategy
-_CBM_ENRICHABLE = {"query_cross_service", "analyze_impact"}
+_CBM_ENRICHABLE = {"query_cross_service", "analyze_impact", "analyze_repo"}
 
 
 async def _try_cbm_enrichment(
@@ -1346,6 +1345,7 @@ async def _try_cbm_enrichment(
             return result
 
         from codewiki.mcp.tools.cbm_integration import (
+            cbm_detect_changes,
             cbm_get_architecture,
             cbm_trace_cross_service,
             merge_cbm_and_local_results,
@@ -1383,6 +1383,37 @@ async def _try_cbm_enrichment(
             )
             if cbm_arch:
                 parsed["cbm_architecture"] = cbm_arch
+                parsed["_cbm_enriched"] = True
+
+            # Enrich with git-diff blast radius (symbol-level risk grading)
+            cbm_changes = await cbm_detect_changes(
+                repo_path=repo_path,
+                scope="impact",
+                direction="inbound",
+                depth=2,
+                since="HEAD~5",
+            )
+            if cbm_changes:
+                parsed["cbm_change_impact"] = cbm_changes
+                parsed["_cbm_enriched"] = True
+
+        elif tool_name == "analyze_repo":
+            # Enrich incremental updates with CBM risk grading
+            changes = parsed.get("changes")
+            if not changes or changes.get("no_changes"):
+                return result
+            repo_path = arguments.get("repo_path", "")
+            if not repo_path:
+                return result
+            cbm_risk = await cbm_detect_changes(
+                repo_path=repo_path,
+                scope="impact",
+                direction="inbound",
+                depth=2,
+                since="HEAD~1",
+            )
+            if cbm_risk:
+                changes["cbm_risk"] = cbm_risk
                 parsed["_cbm_enriched"] = True
 
         if parsed.get("_cbm_enriched"):

@@ -47,7 +47,7 @@ _log_create_lock = threading.Lock()
 _TZ_CST = timezone(timedelta(hours=8))
 
 # Files to exclude from the module-docs table in index.md
-_EXCLUDED_FROM_INDEX = {"index.md", "log.md", "overview.md", "schema.yaml", "purpose.md"}
+_EXCLUDED_FROM_INDEX = {"index.md", "log.md", "overview.md", "schema.yaml"}
 
 
 # ===================================================================
