@@ -5,7 +5,7 @@ This package provides a CLI tool for generating documentation from code reposito
 and an MCP server for IDE-driven documentation generation.
 """
 
-__version__ = "5.1.3"
+__version__ = "5.1.4"
 __author__ = "CodeWiki Contributors"
 __license__ = "MIT"
 
