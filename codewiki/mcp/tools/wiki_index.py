@@ -143,41 +143,53 @@ def rebuild_index(output_dir: str | Path) -> None:
 def _compute_health_score(output_dir: Path) -> int:
     """Compute a 0-100 health score for the wiki.
 
-    Reads from .meta/issues.json if available, otherwise computes from
-    simple heuristics (broken links, orphan pages).
+    Uses the same calculation as lint_wiki (the authoritative source):
+    run file-based lint checks and apply the scoring formula
+    (100 - 10*errors - 3*warnings - 1*info, clamped to 0).
     """
-    from codewiki.src.config import ISSUES_FILENAME, meta_resolve
+    try:
+        from codewiki.mcp.tools.wiki_lint import (
+            _check_stale_refs,
+            _check_broken_links,
+            _check_orphan_pages,
+            _check_no_outlinks,
+            _check_missing_aliases,
+            _check_stale_sources,
+            _check_superseded_pages,
+            _check_overview_stale_lint,
+            _check_unsupported_claims,
+            _load_module_tree,
+            _build_anchor_map,
+        )
 
-    issues_path = Path(meta_resolve(output_dir, ISSUES_FILENAME))
-    if issues_path.exists():
-        try:
-            import json
-            data = json.loads(issues_path.read_text(encoding="utf-8"))
-            issues = data.get("issues", {})
-            open_issues = [
-                v for v in issues.values()
-                if isinstance(v, dict) and v.get("status") == "open"
-            ]
-            score = 100
-            for issue in open_issues:
-                sev = issue.get("severity", "warning")
-                if sev == "error":
-                    score -= 10
-                elif sev == "warning":
-                    score -= 3
-                else:
-                    score -= 1
-            return max(0, score)
-        except Exception:
-            pass
+        module_tree = _load_module_tree(output_dir)
+        anchor_map = _build_anchor_map(output_dir)
 
-    # Fallback: count wiki pages as a proxy for wiki maturity
-    wiki_dir = output_dir / "wiki"
-    if not wiki_dir.is_dir():
-        return 50  # neutral score when no wiki/ exists yet
-    page_count = sum(1 for f in wiki_dir.rglob("*.md") if f.is_file())
-    # Simple heuristic: more pages = healthier (cap at 100)
-    return min(100, 50 + page_count * 2)
+        issues: list = []
+        issues.extend(_check_stale_refs(output_dir, module_tree))
+        issues.extend(_check_broken_links(output_dir))
+        issues.extend(_check_orphan_pages(output_dir, anchor_map))
+        issues.extend(_check_no_outlinks(output_dir, anchor_map))
+        issues.extend(_check_missing_aliases(output_dir))
+        issues.extend(_check_stale_sources(output_dir))
+        issues.extend(_check_superseded_pages(output_dir))
+        issues.extend(_check_overview_stale_lint(output_dir))
+        issues.extend(_check_unsupported_claims(output_dir))
+
+        # Same scoring formula as lint_wiki
+        score = 100
+        for issue in issues:
+            sev = issue.get("severity", "info")
+            if sev == "error":
+                score -= 10
+            elif sev == "warning":
+                score -= 3
+            else:
+                score -= 1
+        return max(0, score)
+    except Exception:
+        # If lint checks fail entirely, fall back to neutral score
+        return 50
 
 
 def append_log(

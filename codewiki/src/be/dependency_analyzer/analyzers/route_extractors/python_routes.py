@@ -83,12 +83,24 @@ def _component_id_from_context(file_path: str, func_name: str, class_name: str =
 class _RouteVisitor(ast.NodeVisitor):
     """Walk the AST and collect RouteNode instances."""
 
+    # Client class constructors that produce HTTP client instances
+    _CLIENT_CONSTRUCTORS = {
+        "httpx.Client": "httpx",
+        "httpx.AsyncClient": "httpx",
+        "requests.Session": "requests",
+        "aiohttp.ClientSession": "aiohttp",
+    }
+
+    _CLIENT_INSTANCE_METHODS = {"get", "post", "put", "delete", "patch", "head", "options"}
+
     def __init__(self, file_path: str, repo_name: str):
         self.file_path = file_path
         self.repo_name = repo_name
         self.routes: List[RouteNode] = []
         self._current_func: Optional[str] = None
         self._current_class: Optional[str] = None
+        # Track variable names bound to HTTP client instances
+        self._client_vars: dict[str, str] = {}  # var_name → framework
 
     # ---- helpers ----
 
@@ -200,51 +212,82 @@ class _RouteVisitor(ast.NodeVisitor):
         if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
             call_expr = f"{func.value.id}.{func.attr}"
 
-        if not call_expr or call_expr not in _CLIENT_LIBRARIES:
-            return
-
-        method_hint, framework = _CLIENT_LIBRARIES[call_expr]
-        args = node.args
-        if not args:
-            return
-
-        # For generic .request(method, url, ...), first arg is the method
-        if method_hint is None and args:
-            m = self._extract_string_arg(args[0])
-            if m and m.upper() in _HTTP_METHODS_UPPER:
-                method_hint = m.upper()
-                url_arg = args[1] if len(args) > 1 else None
-            else:
+        if call_expr and call_expr in _CLIENT_LIBRARIES:
+            method_hint, framework = _CLIENT_LIBRARIES[call_expr]
+            args = node.args
+            if not args:
                 return
-        else:
-            url_arg = args[0]
 
-        if url_arg is None:
+            # For generic .request(method, url, ...), first arg is the method
+            if method_hint is None and args:
+                m = self._extract_string_arg(args[0])
+                if m and m.upper() in _HTTP_METHODS_UPPER:
+                    method_hint = m.upper()
+                    url_arg = args[1] if len(args) > 1 else None
+                else:
+                    return
+            else:
+                url_arg = args[0]
+
+            if url_arg is None:
+                return
+            url = self._extract_string_arg(url_arg)
+            if not url:
+                return
+
+            # Strip scheme + host to get path
+            path = _strip_url_to_path(url)
+            if not path:
+                return
+
+            method = method_hint or "GET"
+            comp_id = self._make_component_id(self._current_func or "unknown")
+
+            self.routes.append(RouteNode(
+                route_key=make_route_key(method, path),
+                protocol=RouteProtocol.HTTP,
+                method=method,
+                path=canonicalize_path(path),
+                role=RouteRole.CLIENT,
+                component_id=comp_id,
+                repo_name=self.repo_name,
+                file_path=self.file_path,
+                line_number=node.lineno,
+                framework=framework,
+            ))
             return
-        url = self._extract_string_arg(url_arg)
-        if not url:
-            return
 
-        # Strip scheme + host to get path
-        path = _strip_url_to_path(url)
-        if not path:
-            return
-
-        method = method_hint or "GET"
-        comp_id = self._make_component_id(self._current_func or "unknown")
-
-        self.routes.append(RouteNode(
-            route_key=make_route_key(method, path),
-            protocol=RouteProtocol.HTTP,
-            method=method,
-            path=canonicalize_path(path),
-            role=RouteRole.CLIENT,
-            component_id=comp_id,
-            repo_name=self.repo_name,
-            file_path=self.file_path,
-            line_number=node.lineno,
-            framework=framework,
-        ))
+        # Pattern: instance.method(...)  e.g. c.get("/path") where c is a
+        # tracked client variable from 'with httpx.Client() as c:'
+        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            var_name = func.value.id
+            attr = func.attr
+            if var_name in self._client_vars and attr in self._CLIENT_INSTANCE_METHODS:
+                framework = self._client_vars[var_name]
+                method = attr.upper()
+                args = node.args
+                if not args:
+                    return
+                url_arg = args[0]
+                url = self._extract_string_arg(url_arg)
+                if not url:
+                    return
+                path = _strip_url_to_path(url)
+                if not path:
+                    return
+                comp_id = self._make_component_id(self._current_func or "unknown")
+                self.routes.append(RouteNode(
+                    route_key=make_route_key(method, path),
+                    protocol=RouteProtocol.HTTP,
+                    method=method,
+                    path=canonicalize_path(path),
+                    role=RouteRole.CLIENT,
+                    component_id=comp_id,
+                    repo_name=self.repo_name,
+                    file_path=self.file_path,
+                    line_number=node.lineno,
+                    framework=framework,
+                ))
 
     # ---- AST visitor methods ----
 
@@ -269,6 +312,44 @@ class _RouteVisitor(ast.NodeVisitor):
             self._check_decorator(dec, node.lineno)
         self.generic_visit(node)
         self._current_func = prev
+
+    def visit_With(self, node: ast.With):
+        self._track_with_bindings(node)
+        self.generic_visit(node)
+
+    def visit_AsyncWith(self, node: ast.AsyncWith):
+        self._track_with_bindings(node)
+        self.generic_visit(node)
+
+    def _track_with_bindings(self, node):
+        """Record variable bindings from 'with httpx.Client() as c:' etc."""
+        for item in node.items:
+            # item.context_expr is the call, item.optional_vars is the 'as' target
+            if item.optional_vars is None:
+                continue
+            if not isinstance(item.optional_vars, ast.Name):
+                continue
+            var_name = item.optional_vars.id
+            ctor = self._resolve_constructor_name(item.context_expr)
+            if ctor and ctor in self._CLIENT_CONSTRUCTORS:
+                self._client_vars[var_name] = self._CLIENT_CONSTRUCTORS[ctor]
+
+    def _resolve_constructor_name(self, node: ast.expr) -> Optional[str]:
+        """Resolve a Call node like httpx.Client() to 'httpx.Client'."""
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+                return f"{func.value.id}.{func.attr}"
+        return None
+
+    def visit_Assign(self, node: ast.Assign):
+        """Track simple assignments like 'c = httpx.Client()'."""
+        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            var_name = node.targets[0].id
+            ctor = self._resolve_constructor_name(node.value)
+            if ctor and ctor in self._CLIENT_CONSTRUCTORS:
+                self._client_vars[var_name] = self._CLIENT_CONSTRUCTORS[ctor]
+        self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call):
         self._check_client_call(node)

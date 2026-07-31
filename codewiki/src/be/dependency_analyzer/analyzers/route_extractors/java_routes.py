@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import List, Optional, Tuple
 
 from codewiki.src.be.dependency_analyzer.models.cross_service import (
@@ -110,6 +111,9 @@ class _JavaRouteParser:
         """Detect @GetMapping, @PostMapping, etc. and @RequestMapping."""
         import re
 
+        # Find class-level @RequestMapping prefix to prepend to method routes
+        class_prefix = self._find_class_request_mapping()
+
         for ann_name, method in _SPRING_MAPPING_ANNOTATIONS.items():
             # @GetMapping("/path")  or  @GetMapping(value = "/path")
             pattern = re.compile(
@@ -118,6 +122,9 @@ class _JavaRouteParser:
             )
             for m in pattern.finditer(self.content):
                 path = m.group(1)
+                # Prepend class-level @RequestMapping prefix
+                if class_prefix:
+                    path = class_prefix.rstrip("/") + "/" + path.lstrip("/")
                 lineno = self.content[:m.start()].count("\n") + 1
                 func_name = self._find_next_method_name(m.end())
                 class_name = self._find_enclosing_class(m.start())
@@ -135,11 +142,17 @@ class _JavaRouteParser:
                 ))
 
         # @RequestMapping(value="/path", method=RequestMethod.GET)
+        # Only emit method-level @RequestMapping as routes; skip class-level ones
+        # (class-level is used as prefix above).
         rm_pattern = re.compile(
             r'@RequestMapping\s*\(([^)]+)\)',
             re.MULTILINE,
         )
         for m in rm_pattern.finditer(self.content):
+            # Skip class-level @RequestMapping (appears right before class declaration)
+            if self._is_class_level_annotation(m.start()):
+                continue
+
             params = m.group(1)
             path = self._extract_param_value(params, "value") or self._extract_param_value(params, "path")
             if not path:
@@ -147,6 +160,10 @@ class _JavaRouteParser:
                 path = _extract_string_literal(params.strip())
             if not path:
                 continue
+
+            # Prepend class-level prefix for method-level @RequestMapping too
+            if class_prefix:
+                path = class_prefix.rstrip("/") + "/" + path.lstrip("/")
 
             method = "GET"  # default
             method_val = self._extract_param_value(params, "method")
@@ -225,16 +242,40 @@ class _JavaRouteParser:
 
     # ---- Client-side HTTP calls ----
 
+    # Variable name patterns that indicate Map/collection receivers (not HTTP clients)
+    _MAP_RECEIVER_PATTERN = re.compile(
+        r'(?:map|Map|hashMap|HashMap|concurrentMap|ConcurrentHashMap|linkedHashMap|'
+        r'LinkedHashMap|hashtable|Hashtable|properties|Properties|headers|headersMap|'
+        r'config|params|attributes|attrs|cache|registry|store|map\w*|\w+Map)\s*$',
+    )
+
+    # Variable name patterns that indicate a RestTemplate / HTTP client receiver
+    _HTTP_CLIENT_RECEIVER_PATTERN = re.compile(
+        r'(?:restTemplate|RestTemplate|template|httpClient|HttpClient|client|'
+        r'restClient|RestClient|http|webClient|WebClient)\s*$',
+        re.IGNORECASE,
+    )
+
     def _extract_client_calls(self):
         import re
         # RestTemplate: restTemplate.getForObject("/path", ...)
         for method_name, http_method in _REST_TEMPLATE_METHODS.items():
             pattern = re.compile(
-                rf'\.\s*{method_name}\s*\(\s*"([^"]+)"',
+                rf'(\w+)\s*\.\s*{method_name}\s*\(\s*"([^"]+)"',
                 re.MULTILINE,
             )
             for m in pattern.finditer(self.content):
-                url = m.group(1)
+                receiver = m.group(1)
+                url = m.group(2)
+
+                # For ambiguous methods (put/delete), verify receiver is an HTTP
+                # client and not a Map/collection variable.
+                if method_name in ("put", "delete"):
+                    if self._MAP_RECEIVER_PATTERN.search(receiver):
+                        continue
+                    if not self._HTTP_CLIENT_RECEIVER_PATTERN.search(receiver):
+                        continue
+
                 path = _strip_url_to_path(url)
                 lineno = self.content[:m.start()].count("\n") + 1
                 func_name = self._find_enclosing_method(m.start())
@@ -291,9 +332,12 @@ class _JavaRouteParser:
 
     def _find_next_method_name(self, pos: int) -> str:
         """Find the next Java method declaration after *pos*."""
-        import re
-        rest = self.content[pos:pos + 500]
-        m = re.search(r'(?:public|private|protected|static|\s)+\s+\w+\s+(\w+)\s*\(', rest)
+        rest = self.content[pos:pos + 1000]
+        m = re.search(
+            r'(?:public|private|protected|static|final|abstract|synchronized|\s)+\s+'
+            r'[\w<>\[\],\s]+\s+(\w+)\s*\(',
+            rest,
+        )
         return m.group(1) if m else "unknown"
 
     def _find_enclosing_class(self, pos: int) -> str:
@@ -303,10 +347,11 @@ class _JavaRouteParser:
         return matches[-1].group(1) if matches else ""
 
     def _find_enclosing_method(self, pos: int) -> Optional[str]:
-        import re
         before = self.content[:pos]
         matches = list(re.finditer(
-            r'(?:public|private|protected|static|\s)+\s+\w+\s+(\w+)\s*\(', before
+            r'(?:public|private|protected|static|final|abstract|synchronized|\s)+\s+'
+            r'[\w<>\[\],\s]+\s+(\w+)\s*\(',
+            before,
         ))
         return matches[-1].group(1) if matches else None
 
@@ -323,6 +368,49 @@ class _JavaRouteParser:
         pre_class = before[max(0, class_pos - 300):class_pos]
         path_match = re.search(r'@Path\s*\(\s*"([^"]+)"', pre_class)
         return path_match.group(1) if path_match else ""
+
+    def _find_class_request_mapping(self) -> str:
+        """Find the class-level @RequestMapping value (Spring MVC prefix)."""
+        import re
+        # Find the first class/interface declaration
+        class_match = re.search(r'(?:class|interface)\s+\w+', self.content)
+        if not class_match:
+            return ""
+        class_pos = class_match.start()
+        # Look for @RequestMapping in the 500 chars before the class declaration
+        pre_class = self.content[max(0, class_pos - 500):class_pos]
+        rm_match = re.search(r'@RequestMapping\s*\(([^)]+)\)', pre_class)
+        if not rm_match:
+            # Also try simple form: @RequestMapping("/path")
+            rm_simple = re.search(r'@RequestMapping\s*\(\s*"([^"]+)"', pre_class)
+            return rm_simple.group(1) if rm_simple else ""
+        params = rm_match.group(1)
+        # Try value = "..." or path = "..."
+        val_match = re.search(r'(?:value|path)\s*=\s*"([^"]*)"', params)
+        if val_match:
+            return val_match.group(1)
+        # Try positional string literal
+        simple = _extract_string_literal(params.strip())
+        return simple or ""
+
+    def _is_class_level_annotation(self, pos: int) -> bool:
+        """Check if the annotation at *pos* is class-level (before a class/interface decl)."""
+        import re
+        # Look at the text between this annotation and the next declaration
+        after = self.content[pos:pos + 500]
+        # If the next significant declaration after the annotation is a class/interface,
+        # then this is a class-level annotation
+        next_decl = re.search(
+            r'(?:public|private|protected|static|final|abstract|\s)*\s*(class|interface)\s+\w+',
+            after,
+        )
+        next_method = re.search(
+            r'(?:public|private|protected|static|final|abstract|synchronized|\s)+\s*[\w<>\[\],\s]+\s+\w+\s*\(',
+            after,
+        )
+        if next_decl and (not next_method or next_decl.start() <= next_method.start()):
+            return True
+        return False
 
 
 _HTTP_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}

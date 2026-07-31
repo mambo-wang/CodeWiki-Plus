@@ -73,11 +73,13 @@ def generate_reading_guide(
             "# 阅读指南",
             "",
             "> 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。",
+            "> 排序依据为 PageRank 得分（综合考虑被依赖数量及依赖方自身的重要性），",
+            "> 表中「直接被依赖数」列为原始入度，仅供参考。",
             "",
             "## 推荐阅读顺序",
             "",
-            "| # | 组件 | 类型 | 所属模块 | 被依赖数 | 文件 |",
-            "|---|------|------|----------|----------|------|",
+            "| # | 组件 | 类型 | 所属模块 | 直接被依赖数 | PageRank | 文件 |",
+            "|---|------|------|----------|--------------|----------|------|",
         ]
 
         for i, (comp_id, score) in enumerate(ranked, 1):
@@ -89,7 +91,7 @@ def generate_reading_guide(
             dep_count = len(reverse.get(comp_id, set()))
             # Truncate long paths for table readability
             short_path = fpath if len(fpath) <= 50 else "..." + fpath[-47:]
-            lines.append(f"| {i} | `{name}` | {ctype} | {mod} | {dep_count} | {short_path} |")
+            lines.append(f"| {i} | `{name}` | {ctype} | {mod} | {dep_count} | {score:.4f} | {short_path} |")
 
         # Module-level summary
         if comp_module_idx:

@@ -236,6 +236,38 @@ overview_content
 </OVERVIEW>
 """.strip()
 
+WORKSPACE_OVERVIEW_PROMPT = """
+You are an AI documentation assistant. Your task is to generate an architectural overview of the `{workspace_name}` multi-repo workspace.
+
+The workspace contains the following services:
+<SERVICES>
+{services_summary}
+</SERVICES>
+
+Cross-service topology and aggregated call summary:
+<CROSS_SERVICE>
+{cross_service_data}
+</CROSS_SERVICE>
+{custom_instructions}
+Please generate a workspace overview in markdown with the following structure:
+
+1. **Architecture Narrative** (2-3 paragraphs): Describe the system's overall purpose, how the services collaborate to deliver end-to-end functionality, the primary data flow between services, and any notable architectural patterns (e.g., API gateway, event-driven, CQRS).
+
+2. **Service Topology** (Mermaid diagram): Refine or reproduce the provided Mermaid flowchart. Group related services with subgraphs if appropriate. Keep edge labels concise (method + path prefix, not every individual endpoint).
+
+3. **Cross-Service Summary**: For each service pair with interactions, write one line in the format:
+   **Client → Server**: N calls (representative endpoints…)
+   Add a brief note on the nature of the interaction (e.g., "user authentication", "order fulfillment").
+
+4. **Service Directory**: A compact table linking to each service's wiki.
+
+Write in clear technical prose. Focus on WHY services are separated and HOW they communicate, not on listing every API endpoint.
+
+<OVERVIEW>
+overview_content
+</OVERVIEW>
+""".strip()
+
 CLUSTER_REPO_PROMPT = """
 Here is list of all potential core components of the repository (It's normal that some components are not essential to the repository):
 <POTENTIAL_CORE_COMPONENTS>

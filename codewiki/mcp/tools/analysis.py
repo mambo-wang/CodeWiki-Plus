@@ -523,7 +523,7 @@ def _run_monorepo_cross_service(
         TopologyVisualizer,
     )
     viz = TopologyVisualizer()
-    cross_service_md = viz.render_all(topology)
+    cross_service_md = viz.render_overview_section(topology)
 
     # Persist results to <output_dir>/.meta/
     try:

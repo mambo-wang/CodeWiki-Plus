@@ -223,14 +223,14 @@ def register(server):
         elif uri_str == "codewiki://capabilities":
             return json.dumps({
                 "server": "CodeWiki-CN MCP Server v5.1.0",
-                "tool_count": 22,
+                "tool_count": 26,
                 "tool_categories": {
                     "代码分析": ["analyze_repo", "analyze_workspace", "list_components", "list_dependencies", "analyze_impact", "read_code_components", "view_repo_file"],
                     "跨服务分析": ["query_cross_service"],
-                    "文档生成": ["write_doc_file", "edit_doc_file", "save_module_tree", "get_processing_order", "get_prompt", "generate_docs (legacy)"],
-                    "知识库管理": ["query_wiki", "ingest_note", "ingest_source", "retract_source", "batch_ingest"],
+                    "文档生成": ["write_doc_file", "edit_doc_file", "save_module_tree", "get_processing_order", "get_prompt", "get_module_tree", "generate_docs (legacy)"],
+                    "知识库管理": ["query_wiki", "ingest_note", "confirm_note", "reject_note", "ingest_source", "retract_source", "batch_ingest"],
                     "质量保障": ["lint_wiki", "flag_issue"],
-                    "会话管理": ["close_session", "get_module_tree (legacy)"],
+                    "会话管理": ["close_session", "init_wiki"],
                 },
                 "key_patterns": {
                     "workspace_file": "大结果写入 .codewiki/workspace/ 目录，通过 file_path 读取",

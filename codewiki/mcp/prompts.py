@@ -360,11 +360,24 @@ def _prompt_workspace_analysis(args: dict[str, str]) -> str:
 - 共享数据模型和 schema 约定
 - 跨服务熔断/限流/重试策略
 
-## 步骤 7：工作区总览
-- overview.md 已包含服务拓扑图，可在此基础上补充：
-  - 各子仓库 `repowiki/overview.md` 的链接
-  - 共享基础设施（数据库、消息队列、缓存）的职责说明
-  - 部署依赖顺序（来自 InfraScanner）
+## 步骤 7：工作区总览（LLM 生成架构叙述）
+overview.md 当前是程序化骨架（服务表 + Mermaid 拓扑 + 聚合摘要）。
+用 LLM 将其升级为有架构叙事的文档：
+
+1. 读取 `{workspace_path}/workspace-wiki/overview.md` 中的 Services 表格和
+   Cross-Service Summary 部分
+2. 调用 get_prompt(prompt_type="overview_workspace", variables={{
+     "workspace_name": "<工作区名>",
+     "services_summary": "<Services 表格内容>",
+     "cross_service_data": "<Service Topology + Cross-Service Summary 内容>"
+   }})
+3. 根据返回的模板撰写完整 overview（80-150 行），重点包含：
+   - 2-3 段架构叙述（系统目的、服务协作方式、数据流、架构模式）
+   - Mermaid 服务拓扑图（可用 subgraph 分组）
+   - 聚合跨服务摘要（每对服务一行：调用数 + 代表性端点 + 交互性质）
+   - 服务目录表（链接各仓库 wiki）
+4. 用 write_doc_file 写入 `{workspace_path}/workspace-wiki/overview.md`
+   （替换骨架中的 AGENT_ENRICH 注释占位符）
 
 ## 注意事项
 - 每个子仓库独立管理自己的 Wiki

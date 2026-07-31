@@ -14,6 +14,7 @@ DEFAULT_IGNORE_PATTERNS = {
     ".gitignore",
     ".gitmodules",
     ".gitignore",
+    ".codebuddy",
     "examples",
     # Python
     "*.pyc",

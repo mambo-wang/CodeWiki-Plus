@@ -90,7 +90,10 @@ class TreeSitterJSAnalyzer:
     def _get_relative_path(self) -> str:
         if self.repo_path:
             try:
-                return os.path.relpath(str(self.file_path), self.repo_path)
+                # BUG-21: normalize symlinks before computing relative paths
+                real_file = os.path.realpath(str(self.file_path))
+                real_repo = os.path.realpath(self.repo_path)
+                return os.path.relpath(real_file, real_repo)
             except ValueError:
                 return str(self.file_path)
         else:
@@ -157,6 +160,17 @@ class TreeSitterJSAnalyzer:
                 if func and self._should_include_function(func):
                     self.nodes.append(func)
                     self.top_level_nodes[func.name] = func
+        elif node.type == "variable_declaration":
+            # Handle var declarations with function/arrow assignments (CommonJS)
+            containing_class = self._find_containing_class(node)
+            if containing_class is None:
+                func = self._extract_arrow_function_from_declaration(node)
+                if func and self._should_include_function(func):
+                    self.nodes.append(func)
+                    self.top_level_nodes[func.name] = func
+        elif node.type == "expression_statement":
+            # Handle CommonJS exports: module.exports = ..., exports.name = ...
+            self._extract_commonjs_exports(node)
         
         for child in node.children:
             self._traverse_for_functions(child)
@@ -405,6 +419,114 @@ class TreeSitterJSAnalyzer:
             logger.debug(f"Error extracting function from declaration: {e}")
         return None
 
+    def _extract_commonjs_exports(self, node) -> None:
+        """Extract components from CommonJS export patterns.
+
+        Handles:
+          - module.exports = { name: function/arrow, ... }
+          - module.exports = function name() {} / arrow
+          - module.exports.name = function/arrow
+          - exports.name = function/arrow
+        """
+        try:
+            expr = self._find_child_by_type(node, "assignment_expression")
+            if expr is None:
+                return
+
+            left = expr.child_by_field_name("left")
+            right = expr.child_by_field_name("right")
+            if left is None or right is None:
+                return
+
+            # Determine the export pattern
+            if left.type == "member_expression":
+                obj = left.child_by_field_name("object")
+                prop = left.child_by_field_name("property")
+                if obj is None or prop is None:
+                    return
+
+                obj_text = self._get_node_text(obj)
+                prop_text = self._get_node_text(prop)
+
+                if obj_text == "module" and prop_text == "exports":
+                    # module.exports = <right>
+                    self._extract_exports_value(right)
+                elif obj_text == "exports" or (obj.type == "member_expression"):
+                    # exports.name = function/arrow  OR  module.exports.name = function/arrow
+                    if obj_text == "exports":
+                        export_name = prop_text
+                    else:
+                        # module.exports.name — prop is the name
+                        export_name = prop_text
+                    self._extract_named_export(right, export_name)
+
+        except Exception as e:
+            logger.debug(f"Error extracting CommonJS exports: {e}")
+
+    def _extract_exports_value(self, value_node) -> None:
+        """Extract components from the right-hand side of module.exports = ..."""
+        if value_node.type == "object":
+            # module.exports = { name: function() {}, name2: () => {} }
+            for child in value_node.children:
+                if child.type == "pair":
+                    key_node = child.child_by_field_name("key")
+                    val_node = child.child_by_field_name("value")
+                    if key_node and val_node and val_node.type in ("arrow_function", "function_expression", "function"):
+                        name = self._get_node_text(key_node)
+                        self._create_export_component(val_node, name)
+                elif child.type == "shorthand_property_identifier":
+                    # module.exports = { foo, bar } — references, not definitions; skip
+                    pass
+        elif value_node.type in ("arrow_function", "function_expression", "function"):
+            # module.exports = function() {} or module.exports = () => {}
+            # Try to get a name from the function itself
+            name_node = self._find_child_by_type(value_node, "identifier")
+            name = self._get_node_text(name_node) if name_node else "default"
+            self._create_export_component(value_node, name)
+
+    def _extract_named_export(self, value_node, name: str) -> None:
+        """Extract a single named export: exports.name = function/arrow"""
+        if value_node.type in ("arrow_function", "function_expression", "function"):
+            self._create_export_component(value_node, name)
+
+    def _create_export_component(self, func_node, name: str) -> None:
+        """Create a Node for a CommonJS exported function."""
+        try:
+            # Skip if already extracted (e.g., as a top-level function declaration)
+            if name in self.top_level_nodes:
+                return
+
+            line_start = func_node.start_point[0] + 1
+            line_end = func_node.end_point[0] + 1
+            parameters = self._extract_parameters(func_node)
+            code_snippet = self._get_node_text(func_node)
+
+            component_id = self._get_component_id(name, is_method=False)
+            relative_path = self._get_relative_path()
+
+            node = Node(
+                id=component_id,
+                name=name,
+                component_type="function",
+                file_path=str(self.file_path),
+                relative_path=relative_path,
+                source_code=code_snippet,
+                start_line=line_start,
+                end_line=line_end,
+                has_docstring=False,
+                docstring="",
+                parameters=parameters,
+                node_type="function",
+                base_classes=None,
+                class_name=None,
+                display_name=f"function {name}",
+                component_id=component_id,
+            )
+            self.nodes.append(node)
+            self.top_level_nodes[name] = node
+        except Exception as e:
+            logger.debug(f"Error creating export component for {name}: {e}")
+
     def _should_include_function(self, func: Node) -> bool:
         excluded_names = {}
 
@@ -467,6 +589,13 @@ class TreeSitterJSAnalyzer:
             if name_node:
                 current_top_level = self._get_node_text(name_node)
         elif node.type == "lexical_declaration":
+            for child in node.children:
+                if child.type == "variable_declarator":
+                    name_node = self._find_child_by_type(child, "identifier")
+                    func_node = self._find_child_by_type(child, "arrow_function") or self._find_child_by_type(child, "function_expression")
+                    if name_node and func_node:
+                        current_top_level = self._get_node_text(name_node)
+        elif node.type == "variable_declaration":
             for child in node.children:
                 if child.type == "variable_declarator":
                     name_node = self._find_child_by_type(child, "identifier")

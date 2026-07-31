@@ -927,6 +927,26 @@ def handle_lint_wiki(
     if "unsupported_claims" in checks and output_dir:
         all_issues.extend(_check_unsupported_claims(output_dir))
 
+    # Deduplicate: if a link is already reported as stale_refs, don't also
+    # report it as broken_links (same file + line = same underlying problem).
+    stale_locations = {
+        (issue.get("file"), issue.get("line"))
+        for issue in all_issues
+        if issue.get("check") == "stale_refs"
+    }
+    all_issues = [
+        issue for issue in all_issues
+        if not (
+            issue.get("check") == "broken_links"
+            and (issue.get("file"), issue.get("line")) in stale_locations
+        )
+    ]
+
+    # Ensure every issue has a "page" field populated from "file"
+    for issue in all_issues:
+        if "page" not in issue or issue["page"] is None:
+            issue["page"] = issue.get("file", "")
+
     # Filter by severity
     filtered = [
         issue for issue in all_issues

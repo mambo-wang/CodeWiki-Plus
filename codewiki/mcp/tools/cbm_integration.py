@@ -24,6 +24,16 @@ from codewiki.mcp.cbm_client import get_cbm_client, is_cbm_enabled
 logger = logging.getLogger(__name__)
 
 
+def _project_name(repo_path: str) -> str:
+    """Derive CBM index/project name from a repo path.
+
+    CBM uses path separators replaced with dashes as the project key,
+    e.g. ``/home/user/repos/foo`` → ``home-user-repos-foo``.
+    """
+    import re
+    return re.sub(r"[/\\]+", "-", repo_path).strip("-")
+
+
 def is_cbm_available() -> bool:
     """Check if CBM binary is installed and delegation is enabled.
 
@@ -48,14 +58,17 @@ async def cbm_trace_cross_service(
         return None
 
     client = get_cbm_client()
+    args: Dict[str, Any] = {
+        "function_name": function_name,
+        "mode": "cross_service",
+        "direction": direction,
+        "depth": min(depth, 5),  # CBM max depth is 5
+    }
+    if repo_path:
+        args["project"] = _project_name(repo_path)
     result = await client.call(
         "trace_path",
-        {
-            "function_name": function_name,
-            "mode": "cross_service",
-            "direction": direction,
-            "depth": min(depth, 5),  # CBM max depth is 5
-        },
+        args,
         timeout_seconds=30.0,
     )
 
@@ -88,7 +101,7 @@ async def cbm_get_architecture(
         "get_architecture",
         {
             "aspects": aspects,
-            "path": repo_path,
+            "project": _project_name(repo_path),
         },
         timeout_seconds=60.0,  # Architecture analysis can be slow
     )
@@ -120,6 +133,7 @@ async def cbm_detect_changes(
     result = await client.call(
         "detect_changes",
         {
+            "project": _project_name(repo_path),
             "scope": scope,
             "direction": direction,
             "depth": depth,

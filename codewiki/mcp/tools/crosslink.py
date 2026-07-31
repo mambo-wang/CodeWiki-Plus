@@ -177,8 +177,13 @@ def handle_list_dependencies(
 
     # Module-level graph
     module_graph = None
+    module_level_warning = None
     if module_level and module_tree:
         module_graph = _build_module_dependency_graph(components, module_tree)
+    elif module_level and not module_tree:
+        module_level_warning = (
+            "No module tree found. Run save_module_tree first to enable module-level dependencies."
+        )
 
     # High-impact components (depended_by >= threshold from schema.yaml)
     threshold = _read_high_impact_threshold(session.output_dir)
@@ -202,21 +207,24 @@ def handle_list_dependencies(
     # Write to workspace file
     total_modules = len(module_graph) if module_graph else 0
     large_graph = len(entries) > 5000
+    summary: Dict[str, Any] = {
+        "total_deps": len(entries),
+        "total_modules": total_modules,
+        "high_impact_count": len(high_impact),
+        "hint": (
+            "Read the file for the full dependency data."
+            + ("  WARNING: Large dependency graph detected. Use component_ids or module_level filter to reduce output size."
+               if large_graph else "")
+        ),
+    }
+    if module_level_warning:
+        summary["warning"] = module_level_warning
     response = write_result(
         session,
         "dependencies.json",
         full_result,
         compact=True,
-        summary={
-            "total_deps": len(entries),
-            "total_modules": total_modules,
-            "high_impact_count": len(high_impact),
-            "hint": (
-                "Read the file for the full dependency data."
-                + ("  WARNING: Large dependency graph detected. Use component_ids or module_level filter to reduce output size."
-                   if large_graph else "")
-            ),
-        },
+        summary=summary,
     )
 
     return json.dumps(response, indent=2, ensure_ascii=False)

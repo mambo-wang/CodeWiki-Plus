@@ -355,7 +355,8 @@ _register(
             "architecture_review (layer/hotspot/boundary analysis). "
             "Wiki generation: cluster (clustering rules), system_complex (parent module doc), "
             "system_leaf (leaf module doc), user (module doc writing guide), "
-            "overview_module (module overview), overview_repo (repo overview). "
+            "overview_module (module overview), overview_repo (repo overview), "
+            "overview_workspace (multi-repo workspace architectural overview). "
             "Knowledge extraction: extraction_scan (entity/concept identification rules), "
             "entity_page (entity page template), concept_page (concept page template), "
             "source_summary (source document summary template). "
@@ -383,6 +384,7 @@ _register(
                         "user",
                         "overview_module",
                         "overview_repo",
+                        "overview_workspace",
                         "wiki_query",
                         "wiki_ingest",
                         "wiki_lint_report",
