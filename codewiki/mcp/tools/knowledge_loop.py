@@ -179,6 +179,8 @@ def _inject_symbol_links(content: str, output_dir: Path, depth: int = 2, session
     text = re.sub(r"\[([^\]]*)\]\([^)]+\)", _protect, text)
     # 5. HTML comments
     text = re.sub(r"<!--.*?-->", _protect, text, flags=re.DOTALL)
+    # 6. Markdown headings (protect entire heading line)
+    text = re.sub(r"^(#{1,6}\s+.*)$", _protect, text, flags=re.MULTILINE)
 
     # --- compute relative path prefix based on depth ---
     prefix = "../" * depth

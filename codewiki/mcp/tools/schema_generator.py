@@ -158,9 +158,12 @@ def _load_project_config() -> dict:
     if _project_config_cache is not None:
         return _project_config_cache
     try:
-        import yaml
+        from ruamel.yaml import YAML
+
         if _CONFIG_PATH.exists():
-            data = yaml.safe_load(_CONFIG_PATH.read_text(encoding="utf-8"))
+            yaml = YAML()
+            yaml.preserve_quotes = True
+            data = yaml.load(_CONFIG_PATH)
             if isinstance(data, dict):
                 _project_config_cache = data
                 logger.info("Loaded project config from %s", _CONFIG_PATH)
@@ -276,13 +279,20 @@ def generate_schema(
     return new_schema
 
 
-def _load_existing_schema(schema_path: Path) -> Optional[dict]:
-    """Load existing schema.yaml, returning None if not found or invalid."""
+def _load_existing_schema(schema_path: Path):
+    """Load existing schema.yaml using ruamel.yaml round-trip mode.
+
+    Returns a CommentedMap (dict-like) that preserves comments, or None if
+    the file is not found or invalid.
+    """
     if not schema_path.exists():
         return None
     try:
-        import yaml
-        data = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+        from ruamel.yaml import YAML
+
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        data = yaml.load(schema_path)
         if isinstance(data, dict):
             return data
     except Exception as e:
@@ -290,72 +300,78 @@ def _load_existing_schema(schema_path: Path) -> Optional[dict]:
     return None
 
 
-def _merge_schemas(existing: dict, new: dict) -> dict:
-    """Merge existing schema with new auto-inferred data.
+def _merge_schemas(existing, new: dict):
+    """Merge new auto-inferred data into existing schema (mutates in place).
+
+    Mutating the existing CommentedMap preserves YAML comments attached to
+    user-customized keys.
 
     Auto-managed fields (version, generated_at, project.name/languages/total_components)
     are always updated.  All other fields from the existing schema are preserved.
 
     page_types uses shallow merge: user-customized types preserved, new defaults added.
     """
-    merged = dict(new)  # start from new schema
+    # Always refresh auto-managed fields from new
+    for key in _AUTO_FIELDS:
+        if key in new:
+            existing[key] = new[key]
 
-    # Preserve user-customized top-level sections
-    for key in existing:
-        if key in _AUTO_FIELDS:
-            continue  # always use new auto values
-        if key == "page_types":
-            # Shallow merge by page type name:
-            # - existing user types are preserved entirely
-            # - new default types are added if not present
-            merged_pt = dict(new.get("page_types", {}))
-            for pt_name, pt_config in existing.get("page_types", {}).items():
-                merged_pt[pt_name] = pt_config  # user customisation wins
-            merged["page_types"] = merged_pt
-        elif key not in merged:
-            merged[key] = existing[key]
-        elif isinstance(existing[key], dict) and isinstance(merged.get(key), dict):
-            # Deep merge dicts: user-customized values win, new defaults fill gaps.
-            # Start from new (picks up newly added default keys), then overlay
-            # existing user values on top so customizations are preserved.
-            merged_dict = dict(merged[key])
-            for sub_key, sub_val in existing[key].items():
-                merged_dict[sub_key] = sub_val
+    # Add top-level keys that exist in new but not in existing
+    for key in new:
+        if key not in existing:
+            existing[key] = new[key]
+
+    # Handle page_types shallow merge: add new default types not present in existing
+    if "page_types" in new and "page_types" in existing:
+        if isinstance(existing["page_types"], dict):
+            for pt_name, pt_config in new["page_types"].items():
+                if pt_name not in existing["page_types"]:
+                    existing["page_types"][pt_name] = pt_config
+
+    # Handle dict fields: add new sub-keys that don't exist in existing
+    for key in new:
+        if key in _AUTO_FIELDS or key == "page_types":
+            continue
+        if isinstance(new[key], dict) and isinstance(existing.get(key), dict):
+            for sub_key, sub_val in new[key].items():
+                if sub_key not in existing[key]:
+                    existing[key][sub_key] = sub_val
             # conventions.module_naming is auto-inferred — always refresh
             if key == "conventions" and "module_naming" in new.get(key, {}):
-                merged_dict["module_naming"] = new[key]["module_naming"]
-            merged[key] = merged_dict
-        elif isinstance(existing[key], list) and isinstance(merged.get(key), list):
-            # Lists: keep existing if user modified (different length or content)
-            if existing[key] != new.get(key):
-                merged[key] = existing[key]
-        else:
-            # Scalars (str, bool, int, etc.): preserve user-customized values
-            if existing[key] != new.get(key):
-                merged[key] = existing[key]
+                existing[key]["module_naming"] = new[key]["module_naming"]
 
-    return merged
+    return existing
 
 
-def _write_yaml(path: Path, data: dict) -> None:
-    """Write a dict as YAML, using a clean format with comments."""
+def _write_yaml(path: Path, data) -> None:
+    """Write schema data as YAML using ruamel.yaml round-trip mode.
+
+    If *data* is a CommentedMap (loaded from an existing file), all comments
+    are preserved automatically.  For brand-new schemas (plain dict), a header
+    comment block is attached before writing.
+    """
     try:
-        import yaml
+        from ruamel.yaml import YAML
+        from ruamel.yaml.comments import CommentedMap
+
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        yaml.explicit_start = True  # emit '---' document start marker
+
+        # For new schemas, wrap in CommentedMap and attach header comment
+        if not isinstance(data, CommentedMap):
+            cm = CommentedMap(data)
+            cm.yaml_set_start_comment(
+                "CodeWiki LLM Wiki — Project Documentation Constitution\n"
+                "Auto-generated, can be manually edited. "
+                "Re-running analyze_repo preserves user customizations.\n"
+                "Fields under 'project' are always auto-updated."
+            )
+            data = cm
+
         path.parent.mkdir(parents=True, exist_ok=True)
-        header = (
-            "# CodeWiki LLM Wiki — Project Documentation Constitution\n"
-            "# Auto-generated, can be manually edited. "
-            "Re-running analyze_repo preserves user customizations.\n"
-            "# Fields under 'project' are always auto-updated.\n"
-            "---\n"
-        )
-        yaml_content = yaml.dump(
-            data,
-            default_flow_style=False,
-            allow_unicode=True,
-            sort_keys=False,
-        )
-        path.write_text(header + yaml_content, encoding="utf-8")
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.dump(data, f)
         logger.info("Schema written to %s", path)
     except Exception as e:
         logger.warning("Failed to write schema.yaml: %s", e)

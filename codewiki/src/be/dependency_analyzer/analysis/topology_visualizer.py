@@ -17,7 +17,7 @@ class TopologyVisualizer:
     """Render a WorkspaceTopology as Mermaid + Markdown."""
 
     def render_all(self, topology: WorkspaceTopology) -> str:
-        """Return the full cross-service section for overview.md."""
+        """Return the full cross-service section (legacy, kept for compat)."""
         parts: List[str] = []
 
         if topology.links:
@@ -38,6 +38,62 @@ class TopologyVisualizer:
             parts.append("")
 
         return "\n".join(parts)
+
+    # ---- Overview-friendly concise section ----
+
+    def render_overview_section(self, topology: WorkspaceTopology) -> str:
+        """Return a concise cross-service section for overview.md.
+
+        Contains only the Mermaid topology diagram and an aggregated
+        per-service-pair summary.  Full API tables are excluded — they
+        belong in the separate ``cross-service-api.md`` reference file.
+        """
+        parts: List[str] = []
+
+        if topology.links:
+            parts.append("## Service Topology\n")
+            parts.append(self.generate_service_flowchart(topology))
+            parts.append("")
+            parts.append("## Cross-Service Summary\n")
+            parts.append(self.render_aggregated_summary(topology))
+            parts.append("")
+        else:
+            parts.append("## Cross-Service Relationships\n")
+            parts.append("_No cross-service API calls detected automatically._")
+            parts.append("")
+
+        return "\n".join(parts)
+
+    def render_aggregated_summary(self, topology: WorkspaceTopology) -> str:
+        """Aggregate links by service pair: count + sample paths.
+
+        Output format per pair:
+            **client → server**: 12 calls (`GET /users`, `POST /orders`, …)
+        """
+        from collections import defaultdict
+
+        pairs: dict[tuple[str, str], list[CrossServiceLink]] = defaultdict(list)
+        for link in topology.links:
+            pairs[(link.client_repo, link.server_repo)].append(link)
+
+        lines: List[str] = []
+        for (client, server), links in sorted(pairs.items()):
+            # Pick up to 3 representative paths
+            samples = []
+            seen = set()
+            for lk in links:
+                sig = f"{lk.method or '?'} {lk.path}"
+                if sig not in seen:
+                    seen.add(sig)
+                    samples.append(f"`{sig}`")
+                if len(samples) >= 3:
+                    break
+            sample_str = ", ".join(samples)
+            if len(seen) < len(links):
+                sample_str += ", …"
+            lines.append(f"- **{client} → {server}**: {len(links)} calls ({sample_str})")
+
+        return "\n".join(lines) if lines else "_No matched links._"
 
     # ---- Mermaid flowchart ----
 

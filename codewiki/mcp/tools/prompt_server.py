@@ -227,6 +227,15 @@ _PROMPT_CATALOG: Dict[str, Dict[str, str]] = {
             "Save the result as overview.md."
         ),
     },
+    "overview_workspace": {
+        "description": "Prompt for generating an architectural overview of a multi-repo workspace with cross-service topology.",
+        "usage_hint": (
+            "Use this after analyze_workspace has produced the scaffold overview.md. "
+            "Pass the Services table as 'services_summary' and the Mermaid topology + "
+            "aggregated cross-service summary as 'cross_service_data'. "
+            "The response should be wrapped in <OVERVIEW> tags and written to overview.md."
+        ),
+    },
     # --- Code analysis prompts (standalone, no wiki generation) ---
     "code_analysis": {
         "description": "Step-by-step workflow for standalone code analysis: call graph exploration, dependency queries, and impact assessment — without generating any wiki documentation.",
@@ -586,6 +595,29 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
         return REPO_OVERVIEW_PROMPT.format(
             repo_name=repo_name,
             repo_structure=repo_structure if isinstance(repo_structure, str) else json.dumps(repo_structure, indent=4),
+            custom_instructions=custom_section,
+        )
+
+    elif prompt_type == "overview_workspace":
+        from codewiki.src.be.prompt_template import WORKSPACE_OVERVIEW_PROMPT
+
+        workspace_name = variables.get("workspace_name", "WORKSPACE")
+        services_summary = variables.get("services_summary", "<SERVICES placeholder — paste the Services table from overview.md>")
+        cross_service_data = variables.get("cross_service_data", "<CROSS_SERVICE placeholder — paste the Service Topology + Cross-Service Summary from overview.md>")
+        custom_instructions = variables.get("custom_instructions", None)
+        doc_type_hint = _resolve_doc_type_hint(variables, "overview")
+        if doc_type_hint:
+            if custom_instructions:
+                custom_instructions = doc_type_hint + "\n\n" + custom_instructions
+            else:
+                custom_instructions = doc_type_hint
+        custom_section = ""
+        if custom_instructions:
+            custom_section = f"\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
+        return WORKSPACE_OVERVIEW_PROMPT.format(
+            workspace_name=workspace_name,
+            services_summary=services_summary,
+            cross_service_data=cross_service_data,
             custom_instructions=custom_section,
         )
 

@@ -80,7 +80,11 @@ class PythonASTAnalyzer(ast.NodeVisitor):
     def _get_relative_path(self) -> str:
         """Get relative path from repo root."""
         if self.repo_path:
-            return os.path.relpath(self.file_path, self.repo_path)
+            # BUG-21: normalize symlinks (e.g. macOS /tmp -> /private/tmp)
+            # before computing relative paths to avoid ../../.. artifacts
+            real_file = os.path.realpath(self.file_path)
+            real_repo = os.path.realpath(self.repo_path)
+            return os.path.relpath(real_file, real_repo)
         return str(self.file_path)
 
     def _get_module_path(self) -> str:

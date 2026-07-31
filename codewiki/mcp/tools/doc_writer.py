@@ -209,6 +209,22 @@ def _safe_doc_path(
         return None
 
 
+def _title_from_filename(name: str) -> str:
+    """Derive a human-readable title from a filename stem.
+
+    If the name is already CamelCase (starts with uppercase and has internal
+    uppercase letters), keep it as-is to preserve names like TestEntityPage.
+    Only apply title-casing to snake_case or kebab-case names.
+    """
+    # Strip extension if present
+    name = name.replace(".md", "")
+    # Detect CamelCase: starts with uppercase and has at least one internal uppercase
+    if name[0:1].isupper() and any(c.isupper() for c in name[1:]):
+        return name
+    # For snake_case or kebab-case, convert to title case
+    return name.replace("_", " ").replace("-", " ").title()
+
+
 def _build_okf_frontmatter(
     session: SessionState,
     filename: str,
@@ -232,7 +248,7 @@ def _build_okf_frontmatter(
     if content.startswith("---"):
         return None
 
-    mod_name = filename.replace(".md", "").replace("_", " ").title()
+    mod_name = _title_from_filename(filename)
     repo_name = Path(session.repo_path).name if session.repo_path else "unknown"
 
     # Determine type from page_type (capitalised)
@@ -260,6 +276,10 @@ def _build_okf_frontmatter(
         if line.startswith("---"):
             continue
         description = line[:200]
+        # BUG-16: strip dangling punctuation after truncation
+        if len(line) > 200:
+            description = description.rstrip("，,、。；;：: ")
+            description += "…"
         break
 
     # Get source files from module tree (only for module type)
@@ -499,6 +519,21 @@ def _inject_crosslinks(
     if not depends_on_modules and not depended_by_modules:
         return None
 
+    # Filter out modules whose doc page does not exist yet (BUG-4 fix)
+    from codewiki.src.config import WIKI_DIR, PAGE_TYPE_DIRS
+    od = Path(session.output_dir).resolve()
+    modules_dir = od / WIKI_DIR / PAGE_TYPE_DIRS["module"]
+
+    def _module_doc_exists(mod: str) -> bool:
+        target = modules_dir / f"{mod.lower().replace(' ', '_')}.md"
+        return target.is_file()
+
+    depends_on_modules = {m for m in depends_on_modules if _module_doc_exists(m)}
+    depended_by_modules = {m for m in depended_by_modules if _module_doc_exists(m)}
+
+    if not depends_on_modules and not depended_by_modules:
+        return None
+
     # Build crosslinks section
     lines = ["\n<!-- crosslinks (auto-generated) -->", "## Related Modules"]
     if depends_on_modules:
@@ -641,7 +676,7 @@ def _inject_lightweight_frontmatter(
     if content.startswith("---"):
         return content  # Already has frontmatter
 
-    mod_name = filename.replace(".md", "").replace("_", " ").title()
+    mod_name = _title_from_filename(filename)
     _TYPE_MAP = {
         "module": "Module", "entity": "Entity", "concept": "Concept",
         "source": "Source", "comparison": "Comparison", "query": "Query",
@@ -657,6 +692,10 @@ def _inject_lightweight_frontmatter(
         if line.startswith("#") or line.startswith("```") or line.startswith("---"):
             continue
         description = line[:200]
+        # BUG-16: strip dangling punctuation after truncation
+        if len(line) > 200:
+            description = description.rstrip("，,、。；;：: ")
+            description += "…"
         break
 
     fm_lines = [
@@ -810,6 +849,9 @@ async def handle_write_doc_file(
         "lines": content.count("\n") + 1,
         "mermaid_validation": mermaid_result,
     }
+    # BUG-17: surface Mermaid warnings prominently in the response
+    if "syntax errors" in mermaid_result.lower():
+        result["mermaid_warnings"] = mermaid_result
     if crosslink_info:
         result["crosslinks"] = crosslink_info
 
@@ -943,7 +985,7 @@ async def handle_edit_doc_file(
         elif occurrences > 1:
             return json.dumps({"error": f"old_str appears {occurrences} times in {filename}. Make it unique."})
         else:
-            new_content = fm + body.replace(old_str, new_str, 1)
+            new_content = fm + "\n" + body.replace(old_str, new_str, 1)
         # Calculate edit position BEFORE replacement so snippet shows the
         # actual edit location (find() on new_content may hit a wrong match
         # or fail entirely for deletions where new_str is empty).
@@ -1045,6 +1087,9 @@ async def handle_edit_doc_file(
         "snippet": snippet,
         "mermaid_validation": mermaid_result,
     }
+    # BUG-17: surface Mermaid warnings prominently in the response
+    if "syntax errors" in mermaid_result.lower():
+        result["mermaid_warnings"] = mermaid_result
 
     # LLM Wiki: update index.md and log.md
     try:

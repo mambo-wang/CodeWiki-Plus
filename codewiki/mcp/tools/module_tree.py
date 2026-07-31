@@ -94,18 +94,20 @@ def _save_and_compute_order(
         order_path = ws.write_json("processing_order.json", order)
         order_file = str(order_path)
 
-    # Count total components assigned
+    # Count total components assigned and total modules (recursively)
     total_assigned = 0
+    total_modules = 0
     def _count(tree):
-        nonlocal total_assigned
+        nonlocal total_assigned, total_modules
         for m in tree.values():
+            total_modules += 1
             total_assigned += len(m.get("components", []))
             _count(m.get("children", {}))
     _count(module_tree)
 
     result = {
         "status": "saved",
-        "module_count": len(module_tree),
+        "module_count": total_modules,
         "total_components_assigned": total_assigned,
         "tree_path": working_path,
         "first_tree_path": first_path,
@@ -186,8 +188,18 @@ def handle_get_processing_order(
         order_path = workspace.write_json("processing_order.json", order)
         order_file = str(order_path)
 
+    # Count all modules recursively
+    def _count_modules(tree: Dict[str, Any]) -> int:
+        count = 0
+        for info in tree.values():
+            count += 1
+            children = info.get("children", {})
+            if isinstance(children, dict):
+                count += _count_modules(children)
+        return count
+
     result = {
-        "module_count": len(module_tree),
+        "module_count": _count_modules(module_tree),
         "processing_order_file": order_file,
         "hint": "Read the processing_order.json file for the full leaf-first order.",
     }

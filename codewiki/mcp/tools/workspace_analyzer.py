@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
@@ -109,6 +110,7 @@ def _run_cross_service_analysis(
     if total_routes == 0:
         logger.info("No routes found across workspace repos")
         # Write empty indicator so query_cross_service knows analysis ran
+        meta_dir = output_dir / ".meta"
         meta_dir.mkdir(parents=True, exist_ok=True)
         (meta_dir / "cross_service_links.json").write_text("[]", encoding="utf-8")
         (meta_dir / "workspace_routes.json").write_text("[]", encoding="utf-8")
@@ -121,9 +123,9 @@ def _run_cross_service_analysis(
         len(topology.routes), len(topology.links), len(topology.unmatched_routes),
     )
 
-    # Generate visualizer output
+    # Generate visualizer output — concise for overview
     viz = TopologyVisualizer()
-    cross_service_md = viz.render_all(topology)
+    cross_service_md = viz.render_overview_section(topology)
 
     # Persist results
     meta_dir = output_dir / ".meta"
@@ -163,14 +165,31 @@ def _run_cross_service_analysis(
     }
 
 
+def _load_infra_services(output_dir: Path) -> Dict[str, Any]:
+    """Load infra_services.json from .meta/ if available."""
+    infra_path = output_dir / ".meta" / "infra_services.json"
+    if not infra_path.exists():
+        return {}
+    try:
+        return json.loads(infra_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 def _generate_overview(
     workspace_name: str,
     output_dir: Path,
     repo_results: List[Dict[str, Any]],
     cross_service_info: Dict[str, Any] = None,
 ) -> Path:
-    """Generate workspace overview.md with service table, cross-service
-    topology, and links."""
+    """Generate workspace overview.md — concise architectural scaffold.
+
+    The output is designed to be enriched by the calling LLM agent via
+    ``get_prompt(prompt_type="overview_workspace")``.  It provides:
+    - Compact service inventory
+    - Mermaid topology + aggregated cross-service summary
+    - Links to per-repo wikis and the full API reference
+    """
     overview_path = output_dir / "overview.md"
 
     lines = [
@@ -178,26 +197,59 @@ def _generate_overview(
         "",
         f"_Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}_",
         "",
+    ]
+
+    # --- Architectural narrative placeholder (for LLM enrichment) ---
+    lines.extend([
+        "<!-- AGENT_ENRICH: Replace this section with a 2-3 paragraph architectural",
+        "     narrative describing the system's purpose, high-level data flow,",
+        "     and key design decisions. Use get_prompt(prompt_type=\"overview_workspace\")",
+        "     for guidance. -->",
+        "",
+    ])
+
+    # --- Services (compact) ---
+    lines.extend([
         "## Services",
         "",
-        "| Service | Path | Languages | Components | Leaf Nodes | Wiki |",
-        "|---------|------|-----------|------------|------------|------|",
-    ]
+        "| Service | Path | Languages | Components | Wiki |",
+        "|---------|------|-----------|------------|------|",
+    ])
 
     for r in repo_results:
         name = r["name"]
         rel_path = r["relative_path"]
         languages = ", ".join(r.get("languages", {}).keys()) or "—"
         components = r.get("total_components", 0)
-        leaf_nodes = r.get("total_leaf_nodes", 0)
-        wiki_link = f"[wiki]({r['output_dir']}/wiki/)" if r.get("has_overview") else f"[wiki]({r['output_dir']}/)"
+        # BUG-20: use relative paths instead of absolute
+        try:
+            wiki_rel = os.path.relpath(r["output_dir"], str(output_dir)).replace("\\", "/")
+        except ValueError:
+            wiki_rel = r["relative_path"] + "/repowiki"
+        wiki_link = f"[wiki]({wiki_rel}/wiki/)" if r.get("has_overview") else f"[wiki]({wiki_rel}/)"
         lines.append(
-            f"| {name} | `{rel_path}` | {languages} | {components} | {leaf_nodes} | {wiki_link} |"
+            f"| {name} | `{rel_path}` | {languages} | {components} | {wiki_link} |"
         )
 
     lines.append("")
 
-    # Cross-service section
+    # --- Infra services (ports) ---
+    infra_services = _load_infra_services(output_dir)
+    if infra_services:
+        lines.extend([
+            "## Infrastructure Services",
+            "",
+            "| Service | Type | Port(s) |",
+            "|---------|------|---------|",
+        ])
+        for svc_name, svc_info in infra_services.items():
+            svc_type = svc_info.get("type", "unknown")
+            ports = svc_info.get("ports", [])
+            ports_str = ", ".join(str(p) for p in ports) if ports else "—"
+            lines.append(f"| {svc_name} | {svc_type} | {ports_str} |")
+        lines.append("")
+
+    # --- Cross-service section (concise: Mermaid + aggregated summary) ---
     if cross_service_info and cross_service_info.get("cross_service_md"):
         lines.append(cross_service_info["cross_service_md"])
     else:
@@ -206,15 +258,9 @@ def _generate_overview(
             "",
             "_No cross-service API calls detected automatically._",
             "",
-            "You can add cross-service relationships manually using `ingest_note`:",
-            "```",
-            "# ingest_note(output_dir='<workspace_output_dir>',",
-            "#   note='Service A calls Service B via HTTP GET /api/users/:id',",
-            "#   tags=['cross-repo', 'api-contract'])",
-            "```",
-            "",
         ])
 
+    # --- Per-repo overview links ---
     lines.extend([
         "## Service Overviews",
         "",
@@ -223,8 +269,16 @@ def _generate_overview(
     for r in repo_results:
         name = r["name"]
         rel_path = r["relative_path"]
-        output_rel = r["output_dir"]
-        lines.append(f"- [{name}]({output_rel}/wiki/overview.md) — `{rel_path}`")
+        # BUG-20: use relative path and only link wiki/overview.md if it exists
+        try:
+            output_rel = os.path.relpath(r["output_dir"], str(output_dir)).replace("\\", "/")
+        except ValueError:
+            output_rel = r["relative_path"] + "/repowiki"
+        overview_file = Path(r["output_dir"]) / "wiki" / "overview.md"
+        if overview_file.exists():
+            lines.append(f"- [{name}]({output_rel}/wiki/overview.md) — `{rel_path}`")
+        else:
+            lines.append(f"- {name} — `{rel_path}`")
 
     lines.append("")
 

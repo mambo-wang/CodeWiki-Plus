@@ -62,6 +62,74 @@ def _resolve_output_dir(session: Optional[SessionState], arguments: Dict) -> Pat
     raise ValueError("output_dir or repo_path is required (or pass an active session).")
 
 
+def _inject_source_refs(output_dir: Path, related_pages: List[str], source_name: str) -> None:
+    """Inject source_ref into the YAML frontmatter of related wiki pages.
+
+    For each page in *related_pages*, resolves the file path relative to
+    *output_dir* and adds ``source_ref: "<source_name>"`` to its frontmatter.
+    If the page already has a ``source_refs`` list, appends to it instead.
+    Pages that cannot be found or read are silently skipped.
+    """
+    for page_ref in related_pages:
+        # Resolve page path: try as-is relative to output_dir, then in wiki/
+        page_path = output_dir / page_ref
+        if not page_path.exists():
+            page_path = output_dir / "wiki" / page_ref
+        if not page_path.exists():
+            logger.debug("Related page not found, skipping source_ref injection: %s", page_ref)
+            continue
+
+        try:
+            content = page_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+
+        source_ref_line = f'source_ref: "{source_name}"'
+
+        if content.startswith("---"):
+            # Has existing frontmatter — find the closing delimiter
+            end_idx = content.find("---", 3)
+            if end_idx < 0:
+                continue
+            frontmatter = content[3:end_idx]
+            rest = content[end_idx:]  # includes closing "---" and body
+
+            # Check if source_refs list already exists
+            if "source_refs:" in frontmatter:
+                # Append to existing source_refs list (YAML list item)
+                # Find the source_refs line and insert after its block
+                lines = frontmatter.split("\n")
+                insert_idx = None
+                for i, line in enumerate(lines):
+                    if line.strip().startswith("source_refs:"):
+                        # Find end of the list (next non-indented, non-list line)
+                        insert_idx = i + 1
+                        while insert_idx < len(lines) and (
+                            lines[insert_idx].startswith("  ") or lines[insert_idx].strip().startswith("- ")
+                        ):
+                            insert_idx += 1
+                        break
+                if insert_idx is not None:
+                    # Avoid duplicate
+                    if f'- "{source_name}"' not in frontmatter and f"- {source_name}" not in frontmatter:
+                        lines.insert(insert_idx, f'  - "{source_name}"')
+                        frontmatter = "\n".join(lines)
+            else:
+                # Add source_ref field to frontmatter
+                frontmatter = frontmatter.rstrip("\n") + f"\n{source_ref_line}\n"
+
+            new_content = "---" + frontmatter + rest
+        else:
+            # No frontmatter — create one
+            new_content = f"---\n{source_ref_line}\n---\n\n" + content
+
+        if new_content != content:
+            try:
+                page_path.write_text(new_content, encoding="utf-8")
+            except OSError as e:
+                logger.warning("Failed to inject source_ref into %s: %s", page_path, e)
+
+
 def handle_ingest_source(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -154,6 +222,11 @@ def handle_ingest_source(
         "content_hash": f"sha256:{content_hash}" if content_hash else "",
     }
     _save_registry(output_dir, registry)
+
+    # Write source_ref back to related pages' frontmatter so that
+    # retract_source(mode=remove_refs) can find and clean them later.
+    if related_pages:
+        _inject_source_refs(output_dir, related_pages, name)
 
     # LLM Wiki: update log
     try:

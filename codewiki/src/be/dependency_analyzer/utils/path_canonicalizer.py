@@ -44,6 +44,13 @@ def canonicalize_path(path: str) -> str:
     # Flask / Rocket  <name> or <int:name>  →  {}
     path = re.sub(r"<[^>]+>", "{}", path)
 
+    # Strip leading placeholder segment that represents a variable base URL
+    # e.g. /{baseUrl}/api/tools → //{}/api/tools → /api/tools
+    if path.startswith("/{}"):
+        path = path[3:] or "/"
+        if not path.startswith("/"):
+            path = "/" + path
+
     # Strip trailing slash (keep root "/")
     if len(path) > 1 and path.endswith("/"):
         path = path.rstrip("/")

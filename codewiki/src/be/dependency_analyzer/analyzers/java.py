@@ -45,7 +45,10 @@ class TreeSitterJavaAnalyzer:
 		"""Get relative path from repo root."""
 		if self.repo_path:
 			try:
-				return os.path.relpath(str(self.file_path), self.repo_path)
+				# BUG-21: normalize symlinks before computing relative paths
+				real_file = os.path.realpath(str(self.file_path))
+				real_repo = os.path.realpath(self.repo_path)
+				return os.path.relpath(real_file, real_repo)
 			except ValueError:
 				return str(self.file_path)
 		else:

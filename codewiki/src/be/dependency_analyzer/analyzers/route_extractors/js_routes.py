@@ -83,6 +83,25 @@ class _JsRouteParser:
 
     def _extract_express_routes(self):
         """Detect app.get("/path", handler), router.post("/path", handler), etc."""
+        # Build exclusion set: known client libs + detected axios instances
+        _excluded_names = {"axios", "got", "ky", "fetch", "window", "document"}
+
+        # Detect axios instance variables: const X = axios.create(...), const X = axios,
+        # import X from 'axios'
+        for m in re.finditer(
+            r'(?:const|let|var)\s+(\w+)\s*=\s*axios(?:\s*\.\s*create\s*\(|\s*[;,\n])',
+            self.content,
+        ):
+            _excluded_names.add(m.group(1))
+        for m in re.finditer(
+            r'import\s+(\w+)\s+from\s+["\']axios["\']',
+            self.content,
+        ):
+            _excluded_names.add(m.group(1))
+
+        # Common HTTP client instance names that should not be treated as servers
+        _excluded_names.update({"http", "api", "client", "request", "service", "instance"})
+
         # Pattern: (app|router|server|r|api).(get|post|put|delete|patch|use)("/path"
         pattern = re.compile(
             r'(\w+)\s*\.\s*(get|post|put|delete|patch|head|options|use)\s*\(\s*["\'`]([^"\'`]+)["\'`]',
@@ -94,7 +113,7 @@ class _JsRouteParser:
             path = m.group(3)
 
             # Filter: only common router object names
-            if obj_name in {"axios", "got", "ky", "fetch", "window", "document"}:
+            if obj_name in _excluded_names:
                 continue
 
             if method_raw == "all":

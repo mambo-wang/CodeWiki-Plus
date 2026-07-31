@@ -722,7 +722,13 @@ class CallGraphAnalyzer:
             if match:
                 return match
 
-        return self._resolve_callee_in(relationship, indexes["exact"], indexes["simple"])
+        # Global fallback — reject cross-language matches when caller language is known
+        match = self._resolve_callee_in(relationship, indexes["exact"], indexes["simple"])
+        if match and caller_language:
+            target = self.functions.get(match)
+            if target and target.language and target.language != caller_language:
+                return None  # Reject cross-language false positive
+        return match
 
     def _resolve_callee_in(
         self,
