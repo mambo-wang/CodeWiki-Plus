@@ -11,6 +11,9 @@ from tree_sitter import Parser, Language
 import tree_sitter_typescript
 
 from codewiki.src.be.dependency_analyzer.models.core import Node, CallRelationship
+from codewiki.src.be.dependency_analyzer.utils.external_symbols import (
+    JS_TS_PROTOTYPE_METHODS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +25,8 @@ class TreeSitterTSAnalyzer:
         self.repo_path = repo_path or ""
         self.nodes: List[Node] = []
         self.call_relationships: List[CallRelationship] = []
-        
+        self.seen_relationships: Set[Tuple[str, str]] = set()
+
         self.top_level_nodes = {}
 
         try:
@@ -250,24 +254,27 @@ class TreeSitterTSAnalyzer:
         return None
     
     def _extract_method_entity(self, node, depth: int) -> dict:
-        """Extract method entity (at any depth)."""
+        """Extract method entity (at any depth), qualified by its class."""
         name_node = self._find_child_by_type(node, "property_identifier")
         if not name_node:
             return None
-        
+
         method_name = self._get_node_text(name_node)
+        class_name = self._enclosing_class_name(node)
+        qualified = f"{class_name}.{method_name}" if class_name else method_name
         parameters = self._extract_parameters(node)
         code_snippet = self._get_node_text(node)
-        
+
         is_async = "async" in code_snippet
         is_static = "static" in code_snippet
-        
-        display_name = f"{'static ' if is_static else ''}{'async ' if is_async else ''}method {method_name}"
-        
+
+        display_name = f"{'static ' if is_static else ''}{'async ' if is_async else ''}method {qualified}"
+
         return {
-            'name': method_name,
+            'name': qualified,
             'type': 'function',
             'subtype': 'method',
+            'class_name': class_name,
             'parameters': parameters,
             'code_snippet': code_snippet,
             'display_name': display_name,
@@ -276,6 +283,15 @@ class TreeSitterTSAnalyzer:
             'is_async': is_async,
             'is_static': is_static
         }
+
+    def _enclosing_class_name(self, node) -> Optional[str]:
+        current = node.parent
+        while current:
+            if current.type in ("class_declaration", "abstract_class_declaration"):
+                name_node = self._find_child_by_type(current, "type_identifier") or self._find_child_by_type(current, "identifier")
+                return self._get_node_text(name_node) if name_node else None
+            current = current.parent
+        return None
     
     def _extract_class_entity(self, node, class_type: str, depth: int) -> dict:
         name_node = self._find_child_by_type(node, "type_identifier") or self._find_child_by_type(node, "identifier")
@@ -563,21 +579,23 @@ class TreeSitterTSAnalyzer:
                 parameters=entity_data.get('parameters', []),
                 node_type=node_type,
                 base_classes=entity_data.get('base_classes'),
-                class_name=None,
+                class_name=entity_data.get('class_name'),
                 display_name=entity_data['display_name'],
                 component_id=component_id,
+                language="typescript",
+                qualified_name=name,
             )
         except Exception as e:
             logger.debug(f"Error creating node from entity: {e}")
             return None
-        
+
     def _should_include_node(self, node: Node) -> bool:
         excluded_names = {"constructor", "__proto__", "prototype"}
-        
+
         if node.component_type == "variable":
             return False
-        
-        return node.name.lower() not in excluded_names
+
+        return node.name.split(".")[-1].lower() not in excluded_names
 
     def _extract_constructor_dependencies(self, class_node, class_name: str) -> None:
         """Extract dependencies from constructor parameters."""
@@ -608,17 +626,12 @@ class TreeSitterTSAnalyzer:
                         if type_id:
                             dependency_name = self._get_node_text(type_id)
                             if dependency_name and dependency_name != caller_name:
-                                caller_id = f"{self._get_relative_path()}::{caller_name}"
-                                callee_id = f"{self._get_relative_path()}::{dependency_name}"
-                                
-                                relationship = CallRelationship(
-                                    caller=caller_id,
-                                    callee=callee_id,
-                                    call_line=child.start_point[0] + 1,
-                                    is_resolved=False
+                                self._add_relationship(
+                                    caller_name,
+                                    dependency_name,
+                                    child.start_point[0] + 1,
+                                    resolved=dependency_name in self.top_level_nodes,
                                 )
-                                
-                                self._add_relationship(relationship)
         except Exception as e:
             logger.debug(f"Error extracting parameter dependencies: {e}")
 
@@ -698,11 +711,6 @@ class TreeSitterTSAnalyzer:
             elif node.type == "new_expression":
                 self._extract_new_relationship(node, current_top_level, all_entities)
             
-            elif node.type == "member_expression":
-                self._extract_member_relationship(node, current_top_level, all_entities)
-            elif node.type == "subscript_expression":
-                self._extract_subscript_relationship(node, current_top_level, all_entities)
-            
             elif node.type == "type_annotation":
                 self._extract_type_relationship(node, current_top_level, all_entities)
             elif node.type == "type_arguments":
@@ -718,15 +726,21 @@ class TreeSitterTSAnalyzer:
     
     def _is_new_top_level(self, node) -> bool:
         return node.type in [
-            "function_declaration", "generator_function_declaration", 
+            "function_declaration", "generator_function_declaration",
             "class_declaration", "abstract_class_declaration",
             "interface_declaration", "type_alias_declaration", "enum_declaration",
-            "export_statement"
+            "export_statement", "method_definition"
         ]
-    
+
     def _get_top_level_name(self, node) -> Optional[str]:
         result = None
-        if node.type in ["function_declaration", "generator_function_declaration"]:
+        if node.type == "method_definition":
+            name_node = self._find_child_by_type(node, "property_identifier")
+            if name_node:
+                method_name = self._get_node_text(name_node)
+                class_name = self._enclosing_class_name(node)
+                result = f"{class_name}.{method_name}" if class_name else method_name
+        elif node.type in ["function_declaration", "generator_function_declaration"]:
             name_node = self._find_child_by_type(node, "identifier")
             result = self._get_node_text(name_node) if name_node else None
         elif node.type in ["class_declaration", "abstract_class_declaration", "interface_declaration", "type_alias_declaration"]:
@@ -778,45 +792,198 @@ class TreeSitterTSAnalyzer:
         return result
 
     def _extract_call_relationship(self, node, caller_name: str, all_entities: dict) -> None:
+        """Emit at most one relationship per call expression.
+
+        Plain identifier calls resolve against same-file components; member
+        calls are resolved receiver-first (this/super against the enclosing
+        class, class names and typed variables against their methods).
+        Unresolved callees are emitted as bare logical names for the global
+        resolver, never file-prefixed.
+        """
         try:
             call_line = node.start_point[0] + 1
-            callee_name = self._extract_callee_name(node)
-            
-            if not callee_name or self._is_builtin_function(callee_name):
+            func_node = node.children[0] if node.children else None
+            if func_node is None:
                 return
-            
-            call_text = self._get_node_text(node)
-            is_method_call = "this." in call_text or "super." in call_text
-            
-            if is_method_call:
-                current_class = None
-                for entity_name, entity_data in all_entities.items():
-                    if (entity_data.get('type') == 'class' and 
-                        caller_name in entity_name): 
-                        current_class = entity_name
-                        break
-                
-                if current_class and callee_name in all_entities:
-                    callee_entity = all_entities[callee_name]
-                    if (callee_entity.get('subtype') == 'method' and 
-                        callee_name in current_class):
-                        return
-              
-            if callee_name in self.top_level_nodes:
-                self._add_relationship(caller_name, callee_name, call_line)
-            elif callee_name not in all_entities:
-                self._add_relationship(caller_name, callee_name, call_line)
-            elif callee_name in all_entities:
-                entity_data = all_entities[callee_name]
-                if self._is_actually_top_level(entity_data):
-                    self._add_relationship(caller_name, callee_name, call_line)
+
+            if func_node.type == "identifier":
+                name = self._get_node_text(func_node)
+                if not name:
+                    return
+                if name in self.top_level_nodes:
+                    self._add_relationship(caller_name, name, call_line, resolved=True)
+                elif name in all_entities and not self._is_actually_top_level(all_entities[name]):
+                    logger.debug(f"Ignoring nested call: {caller_name} -> {name} (local/nested)")
                 else:
-                    logger.debug(f"Ignoring nested call: {caller_name} -> {callee_name} (local/nested)")
+                    self._add_relationship(caller_name, name, call_line, resolved=False)
+                return
+
+            if func_node.type != "member_expression":
+                return
+
+            parts = self._member_call_parts(func_node)
+            if parts is None:
+                return
+            receiver_kind, receiver_text, tail = parts
+            if not tail:
+                return
+
+            if receiver_kind in ("this", "super"):
+                self._emit_instance_method_call(caller_name, tail, call_line, prefer_bases=(receiver_kind == "super"))
+            elif receiver_kind == "identifier":
+                self._emit_receiver_method_call(node, caller_name, receiver_text, tail, call_line)
+            elif receiver_kind == "chain":
+                self._add_relationship(caller_name, f"{receiver_text}.{tail}", call_line, resolved=False)
             else:
-                logger.debug(f"Ignoring unknown call: {caller_name} -> {callee_name}")
-                
+                # Composite or literal receiver: a builtin-prototype method on
+                # an unknowable receiver can never resolve to a project
+                # component; anything else stays an honest bare name.
+                if receiver_kind == "composite" and tail not in JS_TS_PROTOTYPE_METHODS:
+                    self._add_relationship(caller_name, tail, call_line, resolved=False)
+
         except Exception as e:
             logger.debug(f"Error extracting call relationship: {e}")
+
+    def _member_call_parts(self, member_node) -> Optional[Tuple[str, Optional[str], str]]:
+        """Split a member expression callee into (receiver_kind, receiver_text, method_tail).
+
+        receiver_kind is one of: "this", "super", "identifier", "chain" (a
+        pure dotted identifier chain), "composite" (call result, subscript,
+        parenthesized, new expression), or "literal".
+        """
+        property_node = member_node.child_by_field_name("property") or self._find_child_by_type(member_node, "property_identifier")
+        tail = self._get_node_text(property_node) if property_node else ""
+        obj = member_node.child_by_field_name("object")
+        if obj is None and member_node.children:
+            obj = member_node.children[0]
+        if obj is None:
+            return None
+
+        if obj.type == "this":
+            return ("this", None, tail)
+        if obj.type == "super":
+            return ("super", None, tail)
+        if obj.type == "identifier":
+            return ("identifier", self._get_node_text(obj), tail)
+        if obj.type == "member_expression":
+            chain = self._identifier_chain(obj)
+            if chain:
+                return ("chain", chain, tail)
+            return ("composite", None, tail)
+        if obj.type in ("array", "string", "template_string", "number", "object", "regex", "true", "false"):
+            return ("literal", None, tail)
+        return ("composite", None, tail)
+
+    def _identifier_chain(self, node) -> Optional[str]:
+        """Flatten a member expression into dotted text when it is a pure
+        identifier chain; None when any link is computed."""
+        parts = []
+        current = node
+        while current.type == "member_expression":
+            property_node = current.child_by_field_name("property")
+            if property_node is None or property_node.type != "property_identifier":
+                return None
+            parts.append(self._get_node_text(property_node))
+            current = current.child_by_field_name("object")
+            if current is None:
+                return None
+        if current.type != "identifier":
+            return None
+        parts.append(self._get_node_text(current))
+        return ".".join(reversed(parts))
+
+    def _emit_instance_method_call(self, caller_name: str, tail: str, call_line: int, prefer_bases: bool = False) -> None:
+        """Resolve this.m()/super.m() against the enclosing class and its bases."""
+        class_name = caller_name.split(".")[0] if caller_name else None
+        if not class_name:
+            self._add_relationship(caller_name, tail, call_line, resolved=False)
+            return
+
+        candidates = [] if prefer_bases else [class_name]
+        class_node = self.top_level_nodes.get(class_name)
+        if class_node and class_node.base_classes:
+            candidates.extend(class_node.base_classes)
+
+        for candidate in candidates:
+            if f"{candidate}.{tail}" in self.top_level_nodes:
+                self._add_relationship(caller_name, f"{candidate}.{tail}", call_line, resolved=True)
+                return
+
+        # Not defined in this file: emit the qualified form for the global
+        # resolver (an inherited method defined in another file).
+        target = candidates[0] if candidates else class_name
+        self._add_relationship(caller_name, f"{target}.{tail}", call_line, resolved=False)
+
+    def _emit_receiver_method_call(self, call_node, caller_name: str, receiver: str, tail: str, call_line: int) -> None:
+        """Resolve recv.m() where recv is a simple identifier."""
+        if not receiver:
+            return
+        # Static call or enum/namespace access on a known component.
+        if receiver in self.top_level_nodes:
+            if f"{receiver}.{tail}" in self.top_level_nodes:
+                self._add_relationship(caller_name, f"{receiver}.{tail}", call_line, resolved=True)
+            else:
+                self._add_relationship(caller_name, f"{receiver}.{tail}", call_line, resolved=False)
+            return
+
+        inferred = self._infer_identifier_type(call_node, receiver)
+        if inferred:
+            if f"{inferred}.{tail}" in self.top_level_nodes:
+                self._add_relationship(caller_name, f"{inferred}.{tail}", call_line, resolved=True)
+            else:
+                self._add_relationship(caller_name, f"{inferred}.{tail}", call_line, resolved=False)
+            return
+
+        self._add_relationship(caller_name, f"{receiver}.{tail}", call_line, resolved=False)
+
+    def _infer_identifier_type(self, call_node, identifier: str) -> Optional[str]:
+        """Find the type of a local identifier from `new X()` initializers or
+        TS type annotations within the enclosing function/method/class."""
+        scope = call_node.parent
+        scopes = []
+        while scope:
+            if scope.type in (
+                "method_definition", "function_declaration",
+                "generator_function_declaration", "arrow_function",
+                "function_expression", "class_declaration",
+                "abstract_class_declaration", "program",
+            ):
+                scopes.append(scope)
+            scope = scope.parent
+
+        for scope_node in scopes:
+            found = self._find_declared_type(scope_node, identifier)
+            if found:
+                return found
+        return None
+
+    def _find_declared_type(self, scope_node, identifier: str) -> Optional[str]:
+        stack = [scope_node]
+        while stack:
+            current = stack.pop()
+            if current.type == "variable_declarator":
+                name_node = self._find_child_by_type(current, "identifier")
+                if name_node is not None and self._get_node_text(name_node) == identifier:
+                    new_expr = self._find_child_by_type(current, "new_expression")
+                    if new_expr is not None:
+                        for child in new_expr.children:
+                            if child.type in ("identifier", "type_identifier"):
+                                return self._get_node_text(child)
+                    annotation = self._find_child_by_type(current, "type_annotation")
+                    if annotation is not None:
+                        type_id = self._find_child_by_type(annotation, "type_identifier")
+                        if type_id is not None:
+                            return self._get_node_text(type_id)
+            elif current.type in ("required_parameter", "optional_parameter"):
+                name_node = self._find_child_by_type(current, "identifier")
+                if name_node is not None and self._get_node_text(name_node) == identifier:
+                    annotation = self._find_child_by_type(current, "type_annotation")
+                    if annotation is not None:
+                        type_id = self._find_child_by_type(annotation, "type_identifier")
+                        if type_id is not None:
+                            return self._get_node_text(type_id)
+            stack.extend(current.children)
+        return None
 
     def _extract_new_relationship(self, node, caller_name: str, all_entities: dict) -> None:
         try:
@@ -827,29 +994,16 @@ class TreeSitterTSAnalyzer:
                     if child.type not in ['new', 'type_arguments', 'arguments']:
                         constructor_node = child
                         break
-                
+
                 if constructor_node:
                     constructor_name = self._get_node_text(constructor_node)
-                    
-                    if constructor_name and not self._is_builtin_function(constructor_name):
-                        self._add_relationship(caller_name, constructor_name, call_line)
+
+                    if constructor_name:
+                        resolved = constructor_name in self.top_level_nodes
+                        self._add_relationship(caller_name, constructor_name, call_line, resolved=resolved)
 
         except Exception as e:
             logger.debug(f"Error extracting new relationship: {e}")
-
-    def _extract_member_relationship(self, node, caller_name: str, all_entities: dict) -> None:
-        try:
-            call_line = node.start_point[0] + 1
-            property_node = self._find_child_by_type(node, "property_identifier")
-            if property_node:
-                property_name = self._get_node_text(property_node)
-                if property_name and not self._is_builtin_function(property_name):
-                    self._add_relationship(caller_name, property_name, call_line)
-        except Exception as e:
-            logger.debug(f"Error extracting member relationship: {e}")
-
-    def _extract_subscript_relationship(self, node, caller_name: str, all_entities: dict) -> None:
-        pass
 
     def _extract_type_relationship(self, node, caller_name: str, all_entities: dict) -> None:
         try:
@@ -867,9 +1021,9 @@ class TreeSitterTSAnalyzer:
                 if type_name in all_entities:
                     target_name = self._resolve_to_top_level(type_name, all_entities)
                     if target_name and target_name in self.top_level_nodes:
-                        self._add_relationship(caller_name, target_name, call_line)
+                        self._add_relationship(caller_name, target_name, call_line, resolved=True)
                 else:
-                    self._add_relationship(caller_name, type_name, call_line)
+                    self._add_relationship(caller_name, type_name, call_line, resolved=False)
                     
         except Exception as e:
             logger.debug(f"Error extracting type relationship: {e}")
@@ -890,7 +1044,7 @@ class TreeSitterTSAnalyzer:
                         target_name = self._resolve_to_top_level(type_name, all_entities)
                         if target_name and target_name in self.top_level_nodes:
                             call_line = node.start_point[0] + 1
-                            self._add_relationship(caller_name, target_name, call_line)
+                            self._add_relationship(caller_name, target_name, call_line, resolved=True)
         except Exception as e:
             logger.debug(f"Error extracting type arguments relationship: {e}")
     
@@ -904,7 +1058,9 @@ class TreeSitterTSAnalyzer:
                         target_name = self._resolve_to_top_level(base_name, all_entities)
                         if target_name and target_name in self.top_level_nodes:
                             call_line = node.start_point[0] + 1
-                            self._add_relationship(caller_name, target_name, call_line)
+                            self._add_relationship(caller_name, target_name, call_line, resolved=True)
+                    else:
+                        self._add_relationship(caller_name, base_name, call_line=node.start_point[0] + 1, resolved=False)
         except Exception as e:
             logger.debug(f"Error extracting inheritance relationship: {e}")
 
@@ -918,27 +1074,25 @@ class TreeSitterTSAnalyzer:
         
         return entity_name if entity_name in self.top_level_nodes else None
 
-    def _add_relationship(self, caller_name: str, callee_name: str, call_line: int) -> None:
+    def _add_relationship(self, caller_name: str, callee_name: str, call_line: int, resolved: bool = False) -> None:
+        """Record one relationship. Resolved callees are component ids in this
+        file; unresolved callees stay bare logical names so they never look
+        like project components they are not."""
         caller_id = f"{self._get_relative_path()}::{caller_name}"
-        callee_id = f"{self._get_relative_path()}::{callee_name}"  
-        
+        callee_id = self._get_component_id(callee_name) if resolved else callee_name
+
+        key = (caller_id, callee_id)
+        if key in self.seen_relationships:
+            return
+        self.seen_relationships.add(key)
+
         relationship = CallRelationship(
             caller=caller_id,
             callee=callee_id,
             call_line=call_line,
-            is_resolved=False,  
+            is_resolved=resolved,
         )
         self.call_relationships.append(relationship)
-
-    def _extract_callee_name(self, call_node) -> Optional[str]:
-        if call_node.children:
-            callee_node = call_node.children[0]
-
-            if callee_node.type == "identifier":
-                return self._get_node_text(callee_node)
-            elif callee_node.type == "member_expression":
-                return self._get_node_text(callee_node)
-        return None
 
     def _is_builtin_type(self, name: str) -> bool:
         """Check if type name is a TypeScript/JavaScript built-in type."""

@@ -60,7 +60,8 @@ dependencies = [
     "logfire>=4.1.0",
     "coding-agent-wrapper>=0.1.2",
     "mcp>=1.0.0",
-    "jieba>=0.42.1"
+    "jieba>=0.42.1",
+    "pathspec>=0.12.1"
 ]
 
 [external]
