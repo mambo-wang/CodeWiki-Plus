@@ -36,7 +36,7 @@ CodeWiki-Plus 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/Code
 
 实际上，CodeWiki 的核心工具链——AST 解析、依赖图、Mermaid 校验——完全不需要 LLM。真正需要 LLM 智能的 4 个环节（模块聚类、文档撰写、子模块递归、总览合成），恰好是 AI IDE 的 Agent 最擅长做的事情。
 
-因此，我们将 CodeWiki 的 MCP Server 从"黑盒式一键生成"拆分为**23 个细粒度工具**，让它退化为纯工具链服务器。AI IDE 的 Agent 通过 MCP 协议调用这些工具，用自己的推理能力完成全部文档生成工作：
+因此，我们将 CodeWiki 的 MCP Server 从"黑盒式一键生成"拆分为**26 个细粒度工具**，让它退化为纯工具链服务器。AI IDE 的 Agent 通过 MCP 协议调用这些工具，用自己的推理能力完成全部文档生成工作：
 
 ```
 改造前：
@@ -52,7 +52,7 @@ CodeWiki-Plus 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/Code
 | 能力维度 | 原版 CodeWiki | CodeWiki-Plus |
 |----------|--------------|---------------|
 | LLM 配置 | 必须自行配置 API Key | 零配置，IDE 自身模型驱动 |
-| 生成模式 | 黑盒一键生成 | 23 个细粒度工具，Agent 全程可控 |
+| 生成模式 | 黑盒一键生成 | 26 个细粒度工具，Agent 全程可控 |
 | 文档质量 | 通用描述 | Evidence-Based 断言（代码引用 + 置信度） |
 | 生成效率 | 所有组件同等处理 | 代码路由分类，boilerplate 仅保留签名 |
 | 上下文精度 | 模块内组件 | BFS 1-hop 调用图扩展 + 约束索引表 |
@@ -100,13 +100,15 @@ codewiki --version
   "mcpServers": {
     "codewiki": {
       "command": "codewiki",
-      "args": ["mcp"]
+      "args": ["mcp"],
+      "maxOutputLength": 500000,
+      "timeout": 36000000
     }
   }
 }
 ```
 
-配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 23 个工具。
+配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 26 个工具。
 
 **第 3 步：在 Agent 模式中输入提示词**
 
@@ -175,7 +177,7 @@ repowiki/
 
 ### MCP 工具速查
 
-所有工具均不需要 LLM 配置，由 IDE Agent 通过 MCP 协议调用。MCP Server 内置 **instructions**（能力概览与工作流指南）、**7 个 Prompt 模板**（generate-wiki / extract-knowledge / search-wiki / quality-check / incremental-update / workspace-analysis / cross-service-trace）和 **6 个 Resource**（wiki-catalog / module-tree / index-status 等）。
+所有工具均不需要 LLM 配置，由 IDE Agent 通过 MCP 协议调用。MCP Server 内置 **instructions**（能力概览与工作流指南）、**12 个工作流 Prompt**（覆盖初始化、生成、增量、搜索、质检、跨服务等全流程）和 **6 个 Resource**（wiki-catalog / module-tree / index-status 等）。
 
 **代码分析（6 个）：**
 
@@ -465,6 +467,25 @@ CodeWiki-Plus 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 | `extraction_scan` | 源码实体/概念候选提取 |
 | `wiki_query` / `wiki_ingest` / `wiki_lint_report` | 知识管理工作流 |
 
+#### 工作流 Prompt
+
+MCP Server 内置 **12 个工作流 Prompt**，在 AI IDE 中通过 Prompt 面板直接触发，Agent 自动编排多工具调用：
+
+| Prompt 名称 | 面向场景 | 核心步骤 |
+|-------------|----------|----------|
+| `init-wiki` | 新项目初始化 Wiki 工作区 | init_wiki 创建目录 + schema.yaml → 自定义 purpose → 验证 AGENTS.md |
+| `generate-wiki` | 完整文档生成流水线 | analyze_repo → 聚类 save_module_tree → 逐模块 write_doc → overview → lint → close_session |
+| `code-analysis` | 仅分析代码结构，不生成文档 | analyze_repo → list_components → list_dependencies → 缓存到 SQLite |
+| `incremental-update` | 代码变更后增量更新文档 | analyze_repo（增量检测）→ 识别 stale 组件 → 选择性重生成 → close_session |
+| `workspace-analysis` | 多仓库工作区分析 | analyze_workspace → 逐仓库生成 Wiki → RouteNode 跨服务匹配 → Mermaid 拓扑图 |
+| `cross-service-trace` | 跨服务调用链追踪 | query_cross_service → RouteNode 静态匹配 → trace_path 多跳语义追踪 → 架构诊断 |
+| `impact-review` | 修改影响范围评估 | analyze_impact（BFS 传递性遍历）→ 模块级聚合 → 高风险组件识别 → 调用链路输出 |
+| `architecture-review` | 架构审查与热点分析 | 依赖图分析 → 核心层/服务层/应用层识别 → Top 5 热点 → 耦合风险 → 入口点 |
+| `extract-knowledge` | 外部文档知识提取 | ingest_source 导入 → extraction_scan 候选提取 → 实体/概念页面生成 → wikilink 图谱 |
+| `search-wiki` | 知识库搜索策略指引 | query_wiki（BM25）→ 图谱多跳扩展 → 渐进式阅读（overview → directory → detail） |
+| `quality-check` | Wiki 质量全面检查 | lint_wiki（11 项检查）→ health_score → flag_issue 标记 → 修复建议 |
+| `ingest-note` | 经验知识归档 | ingest_note（8 种类型）→ candidate 状态 → confirm/reject 流转 → BM25 索引 |
+
 ### 使用场景示例
 
 **场景 1：生成仓库文档**
@@ -567,7 +588,7 @@ Python、Java、JavaScript、TypeScript、C、C++、C#、Kotlin、Go、PHP
 - [Tencent/WeKnora](https://github.com/Tencent/WeKnora) — 外部文档管理、文档健康检查、自适应分块思路
 - [CodingHub](https://github.com/mambo-wang/CodingHub) — MCP Server 最佳实践（instructions / prompts / resources）
 
-我们在上游基础上将 MCP Server 从黑盒模式拆分为 **23 个细粒度工具**，并新增结构化 Wiki、Evidence-Based 断言、代码路由分类、知识飞轮、渐进式阅读、方法级增量检测、monorepo 跨服务分析等能力。
+我们在上游基础上将 MCP Server 从黑盒模式拆分为 **26 个细粒度工具**，并新增结构化 Wiki、Evidence-Based 断言、代码路由分类、知识飞轮、渐进式阅读、方法级增量检测、monorepo 跨服务分析等能力。
 
 上游论文：[CodeWiki: Evaluating AI's Ability to Generate Holistic Documentation for Large-Scale Codebases](https://arxiv.org/abs/2510.24428)
 
@@ -599,7 +620,7 @@ The original CodeWiki is an excellent repository-level documentation framework. 
 
 In practice, CodeWiki's core toolchain—Tree-sitter AST parsing, dependency graph construction, topological sorting, and Mermaid validation—does not need an LLM at all. The 4 stages that do require LLM intelligence (module clustering, document writing, sub-module recursion, and overview synthesis) are exactly what AI IDE Agents excel at.
 
-We refactored CodeWiki's MCP Server from a "one-click black box" into **23 fine-grained tools**, turning it into a pure toolchain server. The AI IDE's Agent calls these tools via MCP and uses its own reasoning to complete all documentation work:
+We refactored CodeWiki's MCP Server from a "one-click black box" into **26 fine-grained tools**, turning it into a pure toolchain server. The AI IDE's Agent calls these tools via MCP and uses its own reasoning to complete all documentation work:
 
 ```
 Before:
@@ -615,7 +636,7 @@ After:
 | Dimension | Upstream CodeWiki | CodeWiki-Plus |
 |-----------|------------------|---------------|
 | LLM config | Must configure API key | Zero-config, IDE model driven |
-| Generation mode | Black-box one-click | 23 fine-grained tools, full Agent control |
+| Generation mode | Black-box one-click | 26 fine-grained tools, full Agent control |
 | Doc quality | Generic descriptions | Evidence-Based assertions (code quotes + confidence) |
 | Generation efficiency | All components equal | Code routing: boilerplate gets signature-only |
 | Context precision | Intra-module components | BFS 1-hop call graph + constraint index table |
@@ -694,7 +715,7 @@ Stage 5: Call close_session to free resources, build search index
 
 ### MCP Tools
 
-All tools require zero LLM config. The IDE Agent invokes them via MCP. The server includes built-in **instructions**, **7 Prompt templates**, and **6 Resources**.
+All tools require zero LLM config. The IDE Agent invokes them via MCP. The server includes built-in **instructions**, **12 Workflow Prompts** (covering init, generation, incremental update, search, quality check, cross-service analysis), and **6 Resources**.
 
 **Code Analysis (6):**
 
@@ -811,6 +832,25 @@ LLM discovers cross-cutting constraint
 | `directory` | By-type page directory (< 800 tokens) | Locate target module/entity |
 | `detail` | Full page content | Deep reading |
 | default | BM25 snippet results | Keyword search |
+
+### Workflow Prompts
+
+The MCP server includes **12 built-in workflow prompts** that can be triggered from the AI IDE's prompt panel. The Agent automatically orchestrates multi-tool calls:
+
+| Prompt | Scenario | Core Steps |
+|--------|----------|------------|
+| `init-wiki` | Initialize Wiki workspace for a new project | init_wiki (dirs + schema.yaml) → customize purpose → verify AGENTS.md |
+| `generate-wiki` | Full documentation generation pipeline | analyze_repo → cluster → per-module write_doc → overview → lint → close_session |
+| `code-analysis` | Analyze code structure only (no docs) | analyze_repo → list_components → list_dependencies → cache to SQLite |
+| `incremental-update` | Update docs after code changes | analyze_repo (incremental) → detect stale → selective regeneration → close_session |
+| `workspace-analysis` | Multi-repo workspace analysis | analyze_workspace → per-repo Wiki → RouteNode cross-service matching → Mermaid topology |
+| `cross-service-trace` | Cross-service call chain tracing | query_cross_service → RouteNode matching → trace_path multi-hop → architecture diagnosis |
+| `impact-review` | Change impact assessment | analyze_impact (BFS transitive) → module aggregation → high-risk identification → call paths |
+| `architecture-review` | Architecture review & hotspot analysis | Dependency graph → layer identification → Top 5 hotspots → coupling risks → entry points |
+| `extract-knowledge` | External document knowledge extraction | ingest_source → extraction_scan → entity/concept pages → wikilink graph |
+| `search-wiki` | Knowledge base search strategy | query_wiki (BM25) → graph multi-hop expansion → progressive reading |
+| `quality-check` | Comprehensive Wiki quality check | lint_wiki (11 checks) → health_score → flag_issue → fix suggestions |
+| `ingest-note` | Experience knowledge archiving | ingest_note (8 types) → candidate status → confirm/reject → BM25 index |
 
 ### Supported Languages
 
