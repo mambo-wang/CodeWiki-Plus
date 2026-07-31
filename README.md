@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/codewiki-plus/"><img alt="PyPI" src="https://img.shields.io/pypi/v/codewiki-plus?style=flat-square&label=PyPI" /></a>
   <a href="https://python.org/"><img alt="Python version" src="https://img.shields.io/badge/python-3.12+-blue?style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" /></a>
   <a href="https://github.com/FSoft-AI4Code/CodeWiki"><img alt="Upstream: CodeWiki" src="https://img.shields.io/badge/upstream-FSoft--AI4Code%2FCodeWiki-orange?style=flat-square" /></a>
@@ -74,16 +75,21 @@ CodeWiki-Plus 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/Code
 **第 1 步：安装 CodeWiki-Plus**
 
 ```bash
-git clone https://github.com/mambo-wang/CodeWiki-Plus.git
-cd CodeWiki-Plus
-pip install -e .
+pip install codewiki-plus
 ```
 
 验证安装：
 
 ```bash
-python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
+codewiki --version
 ```
+
+> **开发者选项**：如需从源码安装（获取最新未发布改动）：
+> ```bash
+> git clone https://github.com/mambo-wang/CodeWiki-Plus.git
+> cd CodeWiki-Plus
+> pip install -e .
+> ```
 
 **第 2 步：配置 MCP Server**
 
@@ -93,9 +99,8 @@ python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
 {
   "mcpServers": {
     "codewiki": {
-      "command": "python",
-      "args": ["-m", "codewiki.mcp.server"],
-      "timeout": 36000000
+      "command": "codewiki",
+      "args": ["mcp"]
     }
   }
 }
@@ -530,7 +535,7 @@ Agent 调用 `analyze_repo`（自动检测子服务）→ `query_cross_service(f
 
 **Claude Desktop**：在 `~/Library/Application Support/Claude/claude_desktop_config.json`（macOS）中添加 MCP 配置。
 
-**其他 IDE**：指定 `command: "python"`, `args: ["-m", "codewiki.mcp.server"]` 即可。
+**其他 IDE**：指定 `command: "codewiki"`, `args: ["mcp"]` 即可。
 
 ### 原始 CLI 模式（仍然可用）
 
@@ -633,10 +638,21 @@ After:
 **Step 1: Install CodeWiki-Plus**
 
 ```bash
-git clone https://github.com/mambo-wang/CodeWiki-Plus.git
-cd CodeWiki-Plus
-pip install -e .
+pip install codewiki-plus
 ```
+
+Verify:
+
+```bash
+codewiki --version
+```
+
+> **For developers** (latest unreleased changes):
+> ```bash
+> git clone https://github.com/mambo-wang/CodeWiki-Plus.git
+> cd CodeWiki-Plus
+> pip install -e .
+> ```
 
 **Step 2: Configure MCP Server**
 
@@ -646,15 +662,12 @@ Add the following to your CodeBuddy MCP settings:
 {
   "mcpServers": {
     "codewiki": {
-      "command": "python",
-      "args": ["-m", "codewiki.mcp.server"],
-      "cwd": "/your/path/to/CodeWiki-Plus"
+      "command": "codewiki",
+      "args": ["mcp"]
     }
   }
 }
 ```
-
-> Replace `/your/path/to/CodeWiki-Plus` with the actual absolute path where you cloned CodeWiki-Plus.
 
 **Step 3: Prompt your AI Agent**
 
