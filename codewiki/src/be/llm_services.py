@@ -9,9 +9,11 @@ Supports multiple providers: openai-compatible, anthropic, bedrock, azure-openai
 import logging
 from openai.types import chat
 
-from pydantic_ai.models.openai import OpenAIModel
+try:
+    from pydantic_ai.models.openai import OpenAIModel, OpenAIModelSettings
+except ImportError:
+    from pydantic_ai.models.openai import OpenAIChatModel as OpenAIModel, OpenAIChatModelSettings as OpenAIModelSettings
 from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.models.openai import OpenAIModelSettings
 from pydantic_ai.models.fallback import FallbackModel
 from openai import OpenAI, BadRequestError
 

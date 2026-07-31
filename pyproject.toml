@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codewiki-plus"
-version = "5.1.0"
+version = "5.1.2"
 description = "Transform codebases into comprehensive documentation using AI-powered analysis"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -103,6 +103,7 @@ packages = [
     "codewiki.src.be.dependency_analyzer",
     "codewiki.src.be.dependency_analyzer.analysis",
     "codewiki.src.be.dependency_analyzer.analyzers",
+    "codewiki.src.be.dependency_analyzer.analyzers.route_extractors",
     "codewiki.src.be.dependency_analyzer.models",
     "codewiki.src.be.dependency_analyzer.utils",
     "codewiki.src.fe",
