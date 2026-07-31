@@ -142,7 +142,9 @@ _DEFAULT_PAGE_TYPES = {
 
 # ── installation schema.yaml loading ─────────────────────────────────────
 
-_CONFIG_PATH = Path(__file__).resolve().parents[3] / "schema.yaml"
+_CONFIG_PATH_PKG = Path(__file__).resolve().parents[2] / "templates" / "schema.yaml"
+_CONFIG_PATH_ROOT = Path(__file__).resolve().parents[3] / "schema.yaml"
+_CONFIG_PATH = _CONFIG_PATH_PKG if _CONFIG_PATH_PKG.exists() else _CONFIG_PATH_ROOT
 _project_config_cache: Optional[dict] = None
 
 

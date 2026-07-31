@@ -126,7 +126,7 @@ ingest_note(note_type, title, content) → 自动索引 → query_wiki 可检索
 
 server = Server(
     "codewiki",
-    version="5.1.2",
+    version="5.1.3",
     instructions=_SERVER_INSTRUCTIONS,
 )
 
