@@ -159,7 +159,7 @@ def _build_section(rel_path: str, modules: list[str]) -> str:
 
 - [`{rel_path}/wiki/overview.md`]({rel_path}/wiki/overview.md) — 仓库级架构总览（含 Mermaid 架构图）
 - [`{rel_path}/wiki/index.md`]({rel_path}/wiki/index.md) — 文档目录与知识笔记索引
-- [`{rel_path}/wiki/schema.yaml`]({rel_path}/wiki/schema.yaml) — 项目文档约定（命名规范、必填章节等）
+- [`{rel_path}/schema.yaml`]({rel_path}/schema.yaml) — 项目文档约定（命名规范、必填章节等）
 {modules_block}
 ### MCP 工具用法
 
