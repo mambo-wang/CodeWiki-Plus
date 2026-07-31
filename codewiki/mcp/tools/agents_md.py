@@ -92,50 +92,6 @@ def _extract_modules(module_tree: dict) -> list[str]:
     return names
 
 
-# Quick-reference table of all MCP tools with their *required* parameters.
-# Parameter names match the server-enforced JSON schema (verified by the
-# server rejecting unknown params).  Kept here so every generated AGENTS.md
-# stays accurate and agents stop guessing wrong param names.
-_TOOLS_QUICKREF = """\
-### MCP 工具参数速查
-
-以下为全部 26 个工具的**必填参数**（其余均为可选）。参数名以 MCP server 强制校验的 schema 为准，传错参数名会被 server 直接拒绝。
-
-> 常见陷阱：`analyze_repo` / `analyze_workspace` 会返回 `session_id`，但**下游工具并不接收 `session_id`**，请改用 `repo_path` 或 `output_dir`。
-
-| 工具 | 必填参数 | 常用可选参数 |
-| --- | --- | --- |
-| init_wiki | — | repo_path, output_dir |
-| analyze_repo | repo_path | include_patterns, output_dir, exclude_patterns, max_workers |
-| read_code_components | repo_path, component_ids | include_bodies, include_source_refs |
-| write_doc_file | output_dir, filename, content | page_type, frontmatter, content_file |
-| edit_doc_file | output_dir, filename, command | page_type, old_str, new_str, target_heading |
-| save_module_tree | repo_path | module_tree, module_tree_file |
-| get_processing_order | repo_path | — |
-| get_prompt | prompt_type | variables, repo_path |
-| close_session | repo_path | — |
-| list_dependencies | repo_path | component_ids, direction, dependency_types, max_depth |
-| analyze_impact | repo_path, component_ids | direction, max_depth, include_paths |
-| lint_wiki | output_dir | checks, severity_filter, page_types |
-| ingest_note | output_dir, note_type, title, content | aliases, related_modules |
-| query_wiki | output_dir, query | scope, type_filter, include_notes, max_results, expand |
-| confirm_note | output_dir, note_file | — |
-| reject_note | output_dir, note_file | reason |
-| ingest_source | output_dir, source_path | name, description, source_type |
-| retract_source | output_dir | name, source_id, mode, dry_run |
-| batch_ingest | output_dir, items | — |
-| flag_issue | output_dir, issue_type, page_path, description | severity, related_components |
-| analyze_workspace | workspace_path | output_dir, include_patterns, max_workers |
-| list_components | repo_path | component_types, file_path, name_pattern |
-| view_repo_file | repo_path, path | max_lines, line_offset, include_line_numbers |
-| query_cross_service | workspace_path | filter_type, repo_name, http_method, min_confidence |
-| get_module_tree | repo_path, wiki_base_dir | — |
-| generate_docs | repo_path, wiki_base_dir | page_types, max_workers |
-
-注：`generate_docs`（legacy）会调用火山引擎方舟（Volcengine Ark）远程 LLM 生成文档，需配置有效 CodingPlan 订阅；未配置时返回 `InvalidSubscription`。
-"""
-
-
 def _build_section(rel_path: str, modules: list[str]) -> str:
     """Build the delimited Markdown section for AGENTS.md."""
 
@@ -161,47 +117,6 @@ def _build_section(rel_path: str, modules: list[str]) -> str:
 - [`{rel_path}/wiki/index.md`]({rel_path}/wiki/index.md) — 文档目录与知识笔记索引
 - [`{rel_path}/schema.yaml`]({rel_path}/schema.yaml) — 项目文档约定（命名规范、必填章节等）
 {modules_block}
-### MCP 工具用法
-
-如果当前 IDE 已配置 CodeWiki MCP 服务器，可直接使用以下工具：
-
-**查询文档和笔记（query_wiki）：**
-
-```json
-{{
-  "query": "如何处理依赖分析",
-  "scope": "模块名（可选，限定搜索范围）",
-  "include_notes": true,
-  "include_code_refs": true,
-  "max_results": 10,
-  "expand_terms": ["依赖图", "依赖追踪"]
-}}
-```
-
-返回排序后的匹配结果（含上下文片段）和相关组件 ID。在编码、调试或做设计决策时，先查询 wiki 获取相关上下文。
-
-**归档决策/经验教训（ingest_note）：**
-
-```json
-{{
-  "note_type": "decision",
-  "title": "选择 SQLite 作为缓存后端",
-  "content": "选择原因：...",
-  "related_modules": ["模块名"]
-}}
-```
-
-`note_type` 可选值：`decision`（设计决策）、`lesson`（经验教训）、`architecture`（架构说明）、`bug_fix`（Bug 修复记录）、`general`（通用笔记）。笔记存储在 `{rel_path}/notes/` 目录，可被 `query_wiki` 检索。
-
-**文档一致性检查（lint_wiki）：**
-
-```json
-{{}}
-```
-
-检查文档与代码是否一致，包括：过时引用、断链、未文档化组件、循环依赖、覆盖率。
-
-{_TOOLS_QUICKREF}
 ### 使用建议
 
 1. **编码前**：先用 `query_wiki` 搜索相关模块文档，了解架构约定和依赖关系

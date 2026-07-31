@@ -644,7 +644,7 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 调用 init_wiki(repo_path="{repo_path}"{od_note})
 - 自动创建目录结构：wiki/modules, wiki/entities, wiki/concepts, wiki/sources, wiki/comparisons, wiki/queries, notes/
 - 拷贝带注释的 schema.yaml 模板到输出目录（保留所有注释，方便阅读和自定义）
-- 在仓库根目录写入/更新 AGENTS.md（含 MCP 工具用法、自我反思协议、知识沉淀规则）
+- 在仓库根目录写入/更新 AGENTS.md（含使用建议、自我反思协议、知识沉淀规则）
 
 ## 步骤 2: 自定义 schema.yaml
 读取 `{output_dir or repo_path + '/repowiki'}/schema.yaml`，根据项目特点修改：
@@ -655,7 +655,7 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 
 ## 步骤 3: 验证 AGENTS.md
 读取仓库根目录的 AGENTS.md，确认包含：
-- CodeWiki LLM Wiki 章节（入口文件链接、MCP 工具用法）
+- CodeWiki LLM Wiki 章节（入口文件链接、使用建议）
 - 纠正识别与经验沉淀（自我反思协议）
 - 主动知识沉淀（触发信号、四问过滤、路由表）
 
@@ -862,7 +862,7 @@ def register(server):
                 title="初始化 Wiki 工作区",
                 description=(
                     "零配置初始化：创建目录结构、拷贝带注释的 schema.yaml 模板、"
-                    "写入 AGENTS.md（含 MCP 工具用法和自我反思协议）。"
+                    "写入 AGENTS.md（含使用建议和自我反思协议）。"
                     "在开始任何 Wiki 生成或知识管理之前执行一次。"
                 ),
                 arguments=[
