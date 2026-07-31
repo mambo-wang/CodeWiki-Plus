@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codewiki-plus"
-version = "5.1.2"
+version = "5.1.3"
 description = "Transform codebases into comprehensive documentation using AI-powered analysis"
 readme = "README.md"
 requires-python = ">=3.12"
