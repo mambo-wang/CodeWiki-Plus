@@ -231,6 +231,9 @@ def _build_okf_frontmatter(
     content: str,
     page_type: str = "module",
     frontmatter_extra: dict | None = None,
+    user_title: str | None = None,
+    user_description: str | None = None,
+    user_tags: list | None = None,
 ) -> str | None:
     """Build OKF-compliant YAML frontmatter from session metadata.
 
@@ -249,6 +252,8 @@ def _build_okf_frontmatter(
         return None
 
     mod_name = _title_from_filename(filename)
+    if user_title:
+        mod_name = user_title
     repo_name = Path(session.repo_path).name if session.repo_path else "unknown"
 
     # Determine type from page_type (capitalised)
@@ -281,6 +286,8 @@ def _build_okf_frontmatter(
             description = description.rstrip("，,、。；;：: ")
             description += "…"
         break
+    if user_description:
+        description = user_description
 
     # Get source files from module tree (only for module type)
     source_files: list[str] = []
@@ -323,6 +330,10 @@ def _build_okf_frontmatter(
     schema = load_schema(session.output_dir)
     if schema.get("conventions", {}).get("okf_tags"):
         tags.extend(schema["conventions"]["okf_tags"])
+
+    # User-provided tags take priority over auto-generated
+    if user_tags:
+        tags = list(user_tags)
 
     # Build frontmatter lines
     fm_parts = [
@@ -388,6 +399,9 @@ def _inject_frontmatter(
     content: str,
     page_type: str = "module",
     frontmatter_extra: dict | None = None,
+    user_title: str | None = None,
+    user_description: str | None = None,
+    user_tags: list | None = None,
 ) -> str:
     """Prepend OKF frontmatter to content if not already present and enabled in schema."""
     schema = load_schema(session.output_dir)
@@ -398,6 +412,9 @@ def _inject_frontmatter(
         session, filename, content,
         page_type=page_type,
         frontmatter_extra=frontmatter_extra,
+        user_title=user_title,
+        user_description=user_description,
+        user_tags=user_tags,
     )
     if frontmatter:
         return frontmatter + content
@@ -416,6 +433,19 @@ async def _validate_mermaid(file_path: str, relative_path: str) -> str:
         return await validate_mermaid_diagrams(file_path, relative_path)
     except Exception as e:
         return f"Mermaid validation skipped: {e}"
+
+
+def _auto_fix_mermaid(content: str) -> tuple[str, list[str]]:
+    """Apply mechanical auto-fixes to Mermaid blocks in *content*.
+
+    Returns (fixed_content, fixes_list).  When *fixes_list* is empty the
+    content is returned unchanged.
+    """
+    try:
+        from codewiki.src.be.utils import auto_fix_mermaid_blocks
+        return auto_fix_mermaid_blocks(content)
+    except Exception:
+        return content, []
 
 
 def _save_history(output_dir: str, doc_path: Path, content: str) -> None:
@@ -671,6 +701,9 @@ def _inject_lightweight_frontmatter(
     content: str,
     page_type: str = "module",
     frontmatter_extra: dict | None = None,
+    user_title: str | None = None,
+    user_description: str | None = None,
+    user_tags: list | None = None,
 ) -> str:
     """Inject minimal YAML frontmatter when no session is available."""
     if content.startswith("---"):
@@ -682,6 +715,8 @@ def _inject_lightweight_frontmatter(
         "source": "Source", "comparison": "Comparison", "query": "Query",
     }
     doc_type = _TYPE_MAP.get(page_type, page_type.capitalize())
+    if user_title:
+        mod_name = user_title
 
     # Extract description from first paragraph
     description = ""
@@ -697,6 +732,8 @@ def _inject_lightweight_frontmatter(
             description = description.rstrip("，,、。；;：: ")
             description += "…"
         break
+    if user_description:
+        description = user_description
 
     fm_lines = [
         "---",
@@ -710,6 +747,10 @@ def _inject_lightweight_frontmatter(
     if not aliases:
         aliases = [filename.replace(".md", "")]
     fm_lines.append(f"aliases: [{', '.join(str(v) for v in aliases)}]")
+
+    # User-provided tags
+    if user_tags:
+        fm_lines.append(f"tags: [{', '.join(str(t) for t in user_tags)}]")
 
     # Merge frontmatter_extra
     if frontmatter_extra:
@@ -760,6 +801,7 @@ async def handle_write_doc_file(
     filename = arguments["filename"]
     page_type = arguments.get("page_type", "module")
     frontmatter_extra = arguments.get("frontmatter_extra") or None
+    strict = bool(arguments.get("strict", False))
 
     # Resolve document path using page type routing
     doc_path = _resolve_doc_path_safe(output_dir, filename, page_type=page_type)
@@ -778,18 +820,30 @@ async def handle_write_doc_file(
         })
 
     # OKF: inject YAML frontmatter (only when session is available)
+    user_title = arguments.get("title") or None
+    user_description = arguments.get("description") or None
+    user_tags = arguments.get("tags") or None
     if session:
         content = _inject_frontmatter(
             session, filename, content,
             page_type=page_type,
             frontmatter_extra=frontmatter_extra,
+            user_title=user_title,
+            user_description=user_description,
+            user_tags=user_tags,
         )
     else:
         # Lightweight frontmatter for sessionless mode
         content = _inject_lightweight_frontmatter(
             filename, content, page_type=page_type,
             frontmatter_extra=frontmatter_extra,
+            user_title=user_title,
+            user_description=user_description,
+            user_tags=user_tags,
         )
+
+    # Auto-fix common Mermaid syntax errors before writing
+    content, mermaid_fixes = _auto_fix_mermaid(content)
 
     doc_path.write_text(content, encoding="utf-8")
     if session:
@@ -804,8 +858,20 @@ async def handle_write_doc_file(
     except Exception:
         pass
 
-    # Mermaid validation
+    # Mermaid validation (on auto-fixed content)
     mermaid_result = await _validate_mermaid(str(doc_path), filename)
+
+    # strict mode: block the write if Mermaid validation STILL has errors after auto-fix
+    if strict and "syntax errors" in mermaid_result.lower():
+        try:
+            doc_path.unlink()
+        except OSError:
+            pass
+        return json.dumps({
+            "error": "Mermaid validation failed in strict mode (even after auto-fix). File was not written.",
+            "mermaid_warnings": mermaid_result,
+            "mermaid_auto_fixes": mermaid_fixes,
+        }, ensure_ascii=False)
 
     # LLM Wiki: wiki-link injection ([[slug|display]]) opt-in via schema.wiki_link_syntax
     try:
@@ -848,6 +914,7 @@ async def handle_write_doc_file(
         "page_type": page_type,
         "lines": content.count("\n") + 1,
         "mermaid_validation": mermaid_result,
+        "mermaid_auto_fixes": mermaid_fixes,
     }
     # BUG-17: surface Mermaid warnings prominently in the response
     if "syntax errors" in mermaid_result.lower():
@@ -935,6 +1002,23 @@ async def handle_edit_doc_file(
         history[str(doc_path)] = path_history
         history_path.parent.mkdir(parents=True, exist_ok=True)
         history_path.write_text(json.dumps(history, ensure_ascii=False), encoding="utf-8")
+
+        # Defensive repair: fix frontmatter/body concatenation if the history
+        # snapshot was saved from corrupted content (e.g. "---# Title" instead
+        # of "---\n# Title").
+        if old_content.startswith("---"):
+            _lines = old_content.split("\n")
+            for _i in range(1, len(_lines)):
+                if _lines[_i].strip() == "---":
+                    break  # Proper closing delimiter found, no repair needed
+                if _lines[_i].startswith("---") and len(_lines[_i]) > 3:
+                    # Corrupted: closing --- concatenated with body line
+                    remainder = _lines[_i][3:]
+                    _lines[_i] = "---"
+                    _lines.insert(_i + 1, remainder)
+                    old_content = "\n".join(_lines)
+                    break
+
         doc_path.write_text(old_content, encoding="utf-8")
 
         # Validate Mermaid after undo
@@ -1023,6 +1107,20 @@ async def handle_edit_doc_file(
 
         lines = current_content.split("\n")
         insert_line = max(0, min(insert_line, len(lines)))
+
+        # Guard: reject inserts that would corrupt YAML frontmatter
+        if current_content.startswith("---"):
+            fm_end = None
+            for _fi in range(1, len(lines)):
+                if lines[_fi].strip() == "---":
+                    fm_end = _fi
+                    break
+            if fm_end is not None and insert_line <= fm_end:
+                return json.dumps({
+                    "error": f"insert_line falls within YAML frontmatter (lines 0-{fm_end}). "
+                             f"Use insert_line >= {fm_end + 1} to insert into the body."
+                })
+
         new_str_lines = new_str.split("\n")
         lines = lines[:insert_line] + new_str_lines + lines[insert_line:]
         new_content = "\n".join(lines)

@@ -93,6 +93,8 @@ def _tokenize(text: str) -> List[str]:
 
 def _extract_snippet(content: str, query_tokens: List[str]) -> str:
     """Extract ~3 lines around the best keyword match in *content*."""
+    # Strip leading YAML frontmatter so it is never returned as snippet text
+    content = _FRONTMATTER_RE.sub("", content)
     lines = content.splitlines()
     if not lines:
         return ""

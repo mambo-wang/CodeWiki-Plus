@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -1016,12 +1017,202 @@ def handle_query_wiki(
     # Extract keywords for the response (informational)
     keywords = _extract_keywords(query)
 
+    # Record retrieval stats (which files were hit by this query)
+    _record_retrieval_stats(output_dir, query, results)
+
     return json.dumps({
         "query": query,
         "keywords": keywords,
         "search_method": search_method,
         "results": results,
         "context_package": context_package,
+    }, indent=2, ensure_ascii=False)
+
+
+# ------------------------------------------------------------------
+#  Retrieval statistics (SQLite-backed)
+# ------------------------------------------------------------------
+
+
+def _get_stats_db_path(output_dir: Path) -> Path:
+    """Return the path to the retrieval stats SQLite database."""
+    meta_dir = output_dir / ".meta"
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    return meta_dir / "retrieval_stats.db"
+
+
+def _ensure_stats_table(db_path: Path) -> None:
+    """Create the retrieval_stats table if it does not exist."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS retrieval_stats (
+                file_path  TEXT PRIMARY KEY,
+                hit_count  INTEGER NOT NULL DEFAULT 0,
+                last_query TEXT,
+                last_hit   TEXT,
+                first_hit  TEXT
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _record_retrieval_stats(
+    output_dir: Path, query: str, results: List[Dict[str, Any]]
+) -> None:
+    """Record which files were returned by a query_wiki call.
+
+    Upserts hit_count and last_query/last_hit for each result file.
+    Called on every query_wiki invocation; failures are logged and swallowed
+    so stats never break the search path.
+    """
+    if not results:
+        return
+    try:
+        db_path = _get_stats_db_path(output_dir)
+        _ensure_stats_table(db_path)
+        now = datetime.now().strftime("%Y-%m-%d")
+        conn = sqlite3.connect(str(db_path))
+        try:
+            for r in results:
+                # Prefer 'file' field (relative path); fall back to 'title'
+                file_path = r.get("file") or r.get("title") or r.get("path", "")
+                if not file_path:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO retrieval_stats
+                        (file_path, hit_count, last_query, last_hit, first_hit)
+                    VALUES (?, 1, ?, ?, ?)
+                    ON CONFLICT(file_path) DO UPDATE SET
+                        hit_count = hit_count + 1,
+                        last_query = excluded.last_query,
+                        last_hit   = excluded.last_hit
+                    """,
+                    (file_path, query, now, now),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.debug("Failed to record retrieval stats: %s", e)
+
+
+def handle_wiki_stats(
+    arguments: Dict[str, Any],
+    store: SessionStore,
+) -> str:
+    """Return per-document retrieval statistics (hit count ranking).
+
+    Reads from the SQLite retrieval_stats table. Supports optional
+    sorting, limit, and include_zero_hit (cross-references with the
+    file system to find documents that were never retrieved).
+    """
+    from codewiki.mcp.tools.workspace_result import resolve_session
+    session = resolve_session(arguments, store)
+
+    od = arguments.get("output_dir")
+    if od:
+        output_dir = Path(od).expanduser().resolve()
+    elif session:
+        output_dir = Path(session.output_dir)
+    else:
+        rp = arguments.get("repo_path")
+        if rp:
+            output_dir = (Path(rp).expanduser().resolve() / "repowiki")
+        else:
+            return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
+
+    db_path = _get_stats_db_path(output_dir)
+    if not db_path.exists():
+        return json.dumps({
+            "error": "No retrieval stats database found. Run query_wiki first to generate stats.",
+            "db_path": str(db_path),
+        })
+
+    sort_by = arguments.get("sort_by", "hit_count")
+    order = arguments.get("order", "desc")
+    limit = min(200, max(1, arguments.get("limit", 50)))
+    include_zero_hit = arguments.get("include_zero_hit", False)
+    min_hits = arguments.get("min_hits", 0)
+
+    # Validate sort column
+    sort_col = {
+        "hit_count": "hit_count",
+        "last_hit": "last_hit",
+        "first_hit": "first_hit",
+        "file_path": "file_path",
+    }.get(sort_by, "hit_count")
+    sort_dir = "DESC" if order == "desc" else "ASC"
+
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    try:
+        # Get total query count (distinct last_query values is a rough proxy;
+        # for exact count we'd need a separate query log, but hit_count sums
+        # across files give us the total queries that had results)
+        total_queries_row = conn.execute(
+            "SELECT COUNT(DISTINCT last_query) AS cnt FROM retrieval_stats"
+        ).fetchone()
+        total_queries = total_queries_row["cnt"] if total_queries_row else 0
+
+        # Fetch ranked stats
+        rows = conn.execute(
+            f"""
+            SELECT file_path, hit_count, last_query, last_hit, first_hit
+            FROM retrieval_stats
+            WHERE hit_count >= ?
+            ORDER BY {sort_col} {sort_dir}
+            LIMIT ?
+            """,
+            (min_hits, limit),
+        ).fetchall()
+
+        stats = [
+            {
+                "file_path": row["file_path"],
+                "hit_count": row["hit_count"],
+                "last_query": row["last_query"],
+                "last_hit": row["last_hit"],
+                "first_hit": row["first_hit"],
+                "hit_rate": (
+                    round(row["hit_count"] / total_queries, 4)
+                    if total_queries > 0 else 0
+                ),
+            }
+            for row in rows
+        ]
+
+        # Optionally include zero-hit documents (files on disk not in stats table)
+        zero_hit = []
+        if include_zero_hit:
+            # Scan wiki/ and notes/ for all .md files
+            all_files = set()
+            for subdir in ["wiki", "notes"]:
+                scan_dir = output_dir / subdir
+                if scan_dir.exists():
+                    for md_file in scan_dir.rglob("*.md"):
+                        rel = str(md_file.relative_to(output_dir)).replace("\\", "/")
+                        all_files.add(rel)
+
+            hit_files = {row["file_path"] for row in rows}
+            for f in sorted(all_files - hit_files):
+                zero_hit.append({"file_path": f, "hit_count": 0})
+
+    finally:
+        conn.close()
+
+    return json.dumps({
+        "total_distinct_queries": total_queries,
+        "returned": len(stats),
+        "sort_by": sort_by,
+        "order": order,
+        "stats": stats,
+        **({"zero_hit_files": zero_hit} if include_zero_hit else {}),
     }, indent=2, ensure_ascii=False)
 
 

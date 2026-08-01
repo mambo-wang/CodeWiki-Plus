@@ -117,6 +117,24 @@ class SessionStore:
     def remove(self, session_id: str) -> bool:
         with self._lock: return self._sessions.pop(session_id, None) is not None
 
+    def find_active(self, repo_path: str) -> Optional[SessionState]:
+        """Return a live in-memory session for *repo_path*, or ``None``.
+
+        Unlike :meth:`find_or_restore`, this never reconstructs a session
+        from the SQLite cache — it only reports whether an active session
+        currently exists in memory. ``close_session`` uses this to tell a
+        first close (active session present) from a repeated close (session
+        already removed), which ``find_or_restore`` would otherwise mask by
+        silently restoring from cache.
+        """
+        rp = str(repo_path)
+        with self._lock:
+            for state in self._sessions.values():
+                if state.repo_path == rp and not state.is_expired:
+                    state.touch()
+                    return state
+        return None
+
     def find_or_restore(self, repo_path: str) -> Optional[SessionState]:
         """Find an active session for *repo_path*, or restore from SQLite cache.
 
