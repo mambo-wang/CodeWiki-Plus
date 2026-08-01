@@ -40,6 +40,9 @@ def handle_list_components(
     component_type : str (optional)
         Only include components of this type (e.g. ``class``,
         ``function``, ``interface``).
+    leaf_only : bool (optional, default False)
+        If true, only include leaf components — those with no outgoing
+        dependencies in the call graph (i.e. they don't call anything).
     summary : bool (optional, default False)
         If true, return a compact file-level summary instead of
         individual component entries.  Useful for module clustering.
@@ -60,6 +63,10 @@ def handle_list_components(
     file_prefix = arguments.get("file_prefix", "")
     component_type = arguments.get("component_type", "")
     summary_mode = arguments.get("summary", False)
+    leaf_only = arguments.get("leaf_only", False)
+
+    # Build a set of leaf node IDs for fast lookup when leaf_only is requested.
+    leaf_node_set = set(session.leaf_nodes) if leaf_only else None
 
     # Collect filtered components from the in-memory session.
     raw_entries: list = []
@@ -70,6 +77,8 @@ def handle_list_components(
         if file_prefix and not comp_file.replace("\\", "/").startswith(file_prefix.replace("\\", "/")):
             continue
         if component_type and comp_type != component_type:
+            continue
+        if leaf_node_set is not None and comp_id not in leaf_node_set:
             continue
 
         raw_entries.append(

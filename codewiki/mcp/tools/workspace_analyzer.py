@@ -286,6 +286,71 @@ def _generate_overview(
     return overview_path
 
 
+def _handle_monorepo_fallback(
+    workspace_path: Path,
+    output_dir: Path,
+    store: SessionStore,
+) -> str:
+    """Handle the case where workspace_path is itself a git repo (monorepo).
+
+    Instead of failing with "No git repositories found", delegate to
+    analyze_repo which already detects sub-services within a single repo
+    (via docker-compose, Dockerfiles, build manifests, convention dirs)
+    and runs intra-repo cross-service matching.
+    """
+    from codewiki.mcp.tools.analysis import handle_analyze_repo
+
+    repo_output_dir = output_dir
+    logger.info("Monorepo fallback: analyzing %s as single repo", workspace_path.name)
+
+    try:
+        result_json = handle_analyze_repo(
+            {
+                "repo_path": str(workspace_path),
+                "output_dir": str(repo_output_dir),
+            },
+            store,
+        )
+        result = json.loads(result_json)
+    except Exception as e:
+        logger.error("Monorepo analyze_repo failed: %s", e)
+        return json.dumps({"error": f"Monorepo analysis failed: {e}"})
+
+    # Extract cross-service info from analyze_repo's sub-service detection
+    cross_service = result.get("cross_service", {})
+
+    # Create a lightweight workspace session for ingest_note / query_wiki
+    workspace_session = store.create(
+        repo_path=str(workspace_path),
+        output_dir=str(repo_output_dir),
+        components={},
+        leaf_nodes=[],
+    )
+    ws_workspace = SessionWorkspace(str(workspace_path), workspace_session.session_id)
+    workspace_session.workspace = ws_workspace
+
+    return json.dumps({
+        "mode": "monorepo",
+        "workspace_session_id": workspace_session.session_id,
+        "workspace_path": str(workspace_path),
+        "output_dir": str(repo_output_dir),
+        "explanation": (
+            "No sub-repos with individual .git directories were found. "
+            "The workspace root is itself a git repository (monorepo). "
+            "Cross-service analysis used analyze_repo's single-repo route "
+            "detection (sub-service discovery via docker-compose, Dockerfiles, "
+            "build manifests, convention directories) instead of multi-repo matching."
+        ),
+        "analyze_repo_result": result,
+        "cross_service": {
+            "total_routes": cross_service.get("total_routes", 0),
+            "total_links": cross_service.get("total_links", 0),
+            "total_unmatched": cross_service.get("total_unmatched", 0),
+            "sub_services": cross_service.get("sub_services", []),
+        },
+    }, indent=2, ensure_ascii=False)
+
+
 def handle_analyze_workspace(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -317,9 +382,14 @@ def handle_analyze_workspace(
     # Scan for git repos
     repos = _scan_git_repos(workspace_path, exclude_dirs)
     if not repos:
+        # Monorepo fallback: if the workspace itself is a git repo, delegate
+        # to analyze_repo which already handles sub-service detection.
+        if (workspace_path / ".git").exists():
+            return _handle_monorepo_fallback(workspace_path, output_dir, store)
         return json.dumps({
             "error": f"No git repositories found in {workspace_path}",
-            "hint": "Make sure each sub-project has its own .git directory.",
+            "hint": "Make sure each sub-project has its own .git directory, "
+                    "or that the workspace root is itself a git repository (monorepo).",
         })
 
     # Analyze each repo

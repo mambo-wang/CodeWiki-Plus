@@ -442,8 +442,8 @@ _register(
             "IMPORTANT: This is the final step of any wiki generation workflow. On close, "
             "the server automatically: 1) rebuilds wiki index.md and log.md, "
             "2) builds the BM25 search index + wikilink graph (enables query_wiki), "
-            "3) injects wiki usage instructions into the target project's AGENTS.md "
-            "(disable with update_agents_md=false), "
+            "3) optionally injects wiki usage instructions into the target project's AGENTS.md "
+            "(enable with update_agents_md=true), "
             "4) cleans up workspace files on disk. "
             "Always call this after finishing documentation work to ensure search indexes "
             "are up-to-date. "
@@ -473,7 +473,7 @@ _register(
                 "update_agents_md": {
                     "type": "boolean",
                     "description": (
-                        "Optional, default true. When true, inject/update the CodeWiki section in "
+                        "Optional, default false. When true, inject/update the CodeWiki section in "
                         "the target project's root AGENTS.md. When false, skip the AGENTS.md "
                         "modification entirely. The response reports the outcome via "
                         "'agents_md_updated'."
@@ -1157,6 +1157,7 @@ _register(
             "or source reading (read_code_components). "
             "Supports filtering by file_prefix (e.g., 'src/auth/') and component_type "
             "(e.g., 'class', 'function', 'interface'). "
+            "Set leaf_only=true to return only leaf components (no outgoing dependencies). "
             "Auto-loads from SQLite cache if a previous analysis exists."
         ),
         inputSchema={
@@ -1173,6 +1174,10 @@ _register(
                 "component_type": {
                     "type": "string",
                     "description": "Filter by type: class, function, interface, etc.",
+                },
+                "leaf_only": {
+                    "type": "boolean",
+                    "description": "If true, only return leaf components (components with no outgoing dependencies in the call graph).",
                 },
             },
             "required": [],
@@ -1226,6 +1231,8 @@ _register(
         description=(
             "Query cross-service call relationships discovered during analyze_workspace "
             "or analyze_repo (monorepo mode). "
+            "Pass workspace_path to specify the workspace root (multi-repo) or repo root "
+            "(monorepo single-repo). "
             "Matches HTTP routes (server declarations vs client calls) and MQ "
             "producer/consumer (Kafka/RabbitMQ/RocketMQ/Celery) across repos in a "
             "multi-repo workspace, or across sub-services within a monorepo. "
@@ -1238,8 +1245,8 @@ _register(
             "inbound/outbound links), 'by_method' (HTTP method), 'by_path' (URL path "
             "prefix match — pass a full path prefix like '/api/v1/chat', not a keyword), "
             "'trace' (transitive call chain from a root service). "
-            "Reads results persisted under <workspace>/workspace-wiki/.meta/ (multi-repo) "
-            "or <repo>/repowiki/.meta/ (monorepo single-repo). "
+            "Reads results persisted under <workspace_path>/workspace-wiki/.meta/ (multi-repo) "
+            "or <workspace_path>/repowiki/.meta/ (monorepo single-repo). "
             "\U0001f9e0 CBM ENHANCEMENT: pair with codebase-memory-mcp's trace_path "
             "(mode='cross_service') to extend the static RouteNode matches into multi-hop "
             "semantic call chains that traverse through internal functions."

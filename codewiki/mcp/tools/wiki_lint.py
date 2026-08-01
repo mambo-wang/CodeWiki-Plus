@@ -495,16 +495,26 @@ def _check_orphan_pages(
     output_dir: Path,
     anchor_map: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Find wiki pages with no incoming links from other pages."""
+    """Find wiki pages with no incoming links from other pages.
+
+    Only scans files under wiki/ subdirectories. Directories like notes/,
+    raw/, and .meta/ are raw material layers that by design don't need
+    inbound wiki links, so they are excluded from the orphan check.
+    """
     issues: List[Dict[str, Any]] = []
-    from codewiki.src.config import WIKI_SYSTEM_FILES
+    from codewiki.src.config import WIKI_DIR, WIKI_SYSTEM_FILES
 
     if anchor_map is None:
         anchor_map = _build_anchor_map(output_dir)
 
+    # Only scan wiki/ subdirectories — notes/, raw/, .meta/ etc. are
+    # raw material layers that don't require inbound wiki links.
+    wiki_dir = output_dir / WIKI_DIR
+    scan_root = wiki_dir if wiki_dir.is_dir() else output_dir
+
     # Collect all .md files and their relative paths
     all_pages: Dict[str, Path] = {}
-    for md_file in output_dir.rglob("*.md"):
+    for md_file in scan_root.rglob("*.md"):
         if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
             continue
         rel = str(md_file.relative_to(output_dir))
@@ -847,6 +857,8 @@ def handle_lint_wiki(
     session = resolve_session(arguments, store)
 
     checks = arguments.get("checks", ["all"])
+    if isinstance(checks, str):
+        checks = [checks]
     if "all" in checks:
         checks = list(_ALL_CHECKS)
     else:
