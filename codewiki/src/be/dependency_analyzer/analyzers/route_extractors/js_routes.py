@@ -234,9 +234,18 @@ class _JsRouteParser:
 
     def _find_enclosing_function(self, pos: int) -> Optional[str]:
         before = self.content[:pos]
-        # JS/TS function patterns: function name(, const name = (, name(, async name(
+        # JS/TS function patterns:
+        #   group 1: function name(
+        #   group 2: const/let/var name = <function> (arrow fn or function keyword)
+        #   group 3: name(...) {  (method shorthand)
+        #   group 4: async name(
+        # Group 2 must NOT match plain variable assignments like `const res = await ...`;
+        # only match when RHS is a function definition (has `=>` or `function` keyword).
         matches = list(re.finditer(
-            r'(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=|(\w+)\s*\([^)]*\)\s*\{|async\s+(\w+)\s*\()',
+            r'(?:function\s+(\w+)'
+            r'|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:function\b|(?:\([^)]*\)|\w+)\s*=>)'
+            r'|(\w+)\s*\([^)]*\)\s*\{'
+            r'|async\s+(\w+)\s*\()',
             before,
         ))
         if matches:

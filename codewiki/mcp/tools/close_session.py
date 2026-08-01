@@ -36,10 +36,13 @@ TOOLS = [
             "IMPORTANT: This is the final step of any wiki generation workflow. On close, "
             "the server automatically: 1) rebuilds wiki index.md and log.md, "
             "2) builds the BM25 search index + wikilink graph (enables query_wiki), "
-            "3) injects wiki usage instructions into the target project's AGENTS.md, "
+            "3) injects wiki usage instructions into the target project's AGENTS.md "
+            "(disable with update_agents_md=false), "
             "4) cleans up workspace files on disk. "
             "Always call this after finishing documentation work to ensure search indexes "
-            "are up-to-date."
+            "are up-to-date. "
+            "If the session was already closed, a normal call returns status='already_closed' "
+            "without rebuilding; pass force=true to force a full rebuild anyway."
         ),
         inputSchema={
             "type": "object",
@@ -51,6 +54,24 @@ TOOLS = [
                 "output_dir": {
                     "type": "string",
                     "description": "Optional. Documentation output directory; overrides the session/cache-resolved value.",
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": (
+                        "Optional, default false. When true, always perform the full rebuild "
+                        "(metadata.json, indexes, reading guide) even if the session was already "
+                        "closed. When false and the session is already closed, the call returns "
+                        "status='already_closed' and does nothing."
+                    ),
+                },
+                "update_agents_md": {
+                    "type": "boolean",
+                    "description": (
+                        "Optional, default true. When true, inject/update the CodeWiki section in "
+                        "the target project's root AGENTS.md. When false, skip the AGENTS.md "
+                        "modification entirely. The response reports the outcome via "
+                        "'agents_md_updated'."
+                    ),
                 },
             },
             "required": ["repo_path"],
@@ -119,9 +140,25 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     if not repo_path:
         return json.dumps({"error": "repo_path is required."})
 
+    force = bool(arguments.get("force", False))
+    update_agents_md = bool(arguments.get("update_agents_md", True))
+
     rp = _resolve_path(repo_path)
 
-    # Try to find active session for caching (optional)
+    # Distinguish a first close from a repeated close. A live in-memory session
+    # means the workflow is still open; once close_session runs it removes the
+    # session from the store, so a second call finds no active session. We check
+    # find_active (not find_or_restore) because the latter would silently
+    # resurrect a session from the SQLite cache and hide the repeated call.
+    already_closed = store.find_active(rp) is None
+    if already_closed and not force:
+        return json.dumps({
+            "status": "already_closed",
+            "hint": "Session was already closed. Use force=true to rebuild metadata.",
+        })
+
+    # Try to find active session for caching (optional); when force=true on an
+    # already-closed session this restores it from cache so the rebuild can run.
     session = store.find_or_restore(rp)
 
     # Resolve output_dir: explicit arg > session > convention
@@ -188,11 +225,13 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
         except Exception:
             logger.debug("Failed to generate HTML export", exc_info=True)
 
-    # Inject AGENTS.md
-    if docs_generated:
+    # Inject AGENTS.md (opt-out via update_agents_md=false)
+    agents_md_updated = False
+    if docs_generated and update_agents_md:
         try:
             from codewiki.mcp.tools.agents_md import write_agents_md
             write_agents_md(repo_path=rp, output_dir=output_dir)
+            agents_md_updated = True
         except Exception:
             logger.debug("Failed to update AGENTS.md", exc_info=True)
 
@@ -208,4 +247,5 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     return json.dumps({
         "status": "closed",
         "output_dir": output_dir,
+        "agents_md_updated": agents_md_updated,
     })

@@ -154,6 +154,7 @@ _register(
         name="write_doc_file",
         description=(
             "Create a new markdown documentation file in the output directory. "
+            "The filename parameter specifies the plain file name (e.g., 'auth_module.md'). "
             "Automatically validates Mermaid diagrams after writing (node IDs must be alphanumeric, "
             "labels in square brackets, no interactive syntax like 'click'). "
             "Supports LLM Wiki page types with structured routing: "
@@ -203,6 +204,23 @@ _register(
                         "origin (str), severity (str), source_refs (list), chunk_refs (list)."
                     ),
                 },
+                "title": {
+                    "type": "string",
+                    "description": "Override the auto-generated page title in frontmatter. If omitted, the title is derived from the filename.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Override the auto-generated description in frontmatter. If omitted, a description is extracted from the first paragraph of content.",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Override the auto-generated tags in frontmatter. If omitted, tags are derived from the module tree and schema conventions.",
+                },
+                "strict": {
+                    "type": "boolean",
+                    "description": "Optional, default false. When true, Mermaid validation failure blocks the write and returns an error. When false (default), invalid diagrams are written with a mermaid_warnings field in the response.",
+                },
             },
             "required": ["filename"],
         },
@@ -215,7 +233,7 @@ _register(
     Tool(
         name="edit_doc_file",
         description=(
-            "Edit an existing documentation file. Supports three commands: "
+            "Edit an existing documentation file. The command parameter accepts three values: "
             "'str_replace' (find-and-replace, requires old_str + new_str), "
             "'insert' (add text at a specific line, requires new_str + insert_line), "
             "'undo' (revert the last edit). "
@@ -282,12 +300,13 @@ _register(
         name="save_module_tree",
         description=(
             "Save the IDE agent's module clustering result. "
-            "Accepts a JSON module tree and persists it to disk. "
+            "Accepts a module tree object (dict, not a JSON string) and persists it to disk. "
             "Computes the leaf-first processing order and writes it to a workspace file. "
             "Returns the file path for the processing order. "
             "Call this after analyze_repo + get_prompt('cluster') to persist your grouping. "
-            "The module tree format: each key is a module name, value is "
-            "{'components': [component_ids], 'children': {nested modules}}. "
+            "The module tree format: each key is a module name, value is a dict "
+            "{'components': [component_ids], 'children': {nested module dict}}. "
+            "The children field must be a dict/object (not an array). "
             "For large trees (>50 components), use module_tree_file instead of inline JSON."
         ),
         inputSchema={
@@ -423,10 +442,13 @@ _register(
             "IMPORTANT: This is the final step of any wiki generation workflow. On close, "
             "the server automatically: 1) rebuilds wiki index.md and log.md, "
             "2) builds the BM25 search index + wikilink graph (enables query_wiki), "
-            "3) injects wiki usage instructions into the target project's AGENTS.md, "
+            "3) injects wiki usage instructions into the target project's AGENTS.md "
+            "(disable with update_agents_md=false), "
             "4) cleans up workspace files on disk. "
             "Always call this after finishing documentation work to ensure search indexes "
-            "are up-to-date."
+            "are up-to-date. "
+            "If the session was already closed, a normal call returns status='already_closed' "
+            "without rebuilding; pass force=true to force a full rebuild anyway."
         ),
         inputSchema={
             "type": "object",
@@ -438,6 +460,24 @@ _register(
                 "output_dir": {
                     "type": "string",
                     "description": "Optional. Documentation output directory; overrides the session/cache-resolved value.",
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": (
+                        "Optional, default false. When true, always perform the full rebuild "
+                        "(metadata.json, indexes, reading guide) even if the session was already "
+                        "closed. When false and the session is already closed, the call returns "
+                        "status='already_closed' and does nothing."
+                    ),
+                },
+                "update_agents_md": {
+                    "type": "boolean",
+                    "description": (
+                        "Optional, default true. When true, inject/update the CodeWiki section in "
+                        "the target project's root AGENTS.md. When false, skip the AGENTS.md "
+                        "modification entirely. The response reports the outcome via "
+                        "'agents_md_updated'."
+                    ),
                 },
             },
             "required": ["repo_path"],
@@ -553,13 +593,16 @@ _register(
         name="lint_wiki",
         description=(
             "Check documentation-code consistency. Works with or without an active session. "
-            "Available checks: stale_refs (docs reference deleted components), "
+            "Runs 13 available checks: stale_refs (docs reference deleted components), "
             "broken_links (markdown links to non-existent pages), "
             "undocumented (high-impact components without docs), "
             "cycles (circular module dependencies), coverage (documentation coverage gaps), "
             "orphan_pages (pages with no inbound links), no_outlinks (pages with no cross-references), "
             "missing_aliases (pages without search aliases), stale_sources (retracted source refs), "
-            "superseded_pages (pages marked as superseded). "
+            "superseded_pages (pages marked as superseded), "
+            "isolated_components (components with zero dependencies and zero dependents), "
+            "overview_stale (overview.md references modules that have changed), "
+            "unsupported_claims (business assertions lacking code evidence). "
             "Run checks=['all'] for a comprehensive audit. "
             "After fixing issues, use flag_issue to track remaining problems. "
             "MANDATORY FINAL STEP: after lint passes (or issues are tracked), you MUST call "
@@ -585,6 +628,7 @@ _register(
                             "all", "stale_refs", "undocumented", "broken_links",
                             "cycles", "coverage", "orphan_pages", "no_outlinks",
                             "missing_aliases", "stale_sources", "superseded_pages",
+                            "isolated_components", "overview_stale", "unsupported_claims",
                         ],
                     },
                     "description": "Which checks to run (default: [\"all\"])",
@@ -1333,6 +1377,71 @@ _register(
     handler_path="codewiki.mcp.tools.init_wiki:handle_init_wiki",
     mode="thread",
     takes_store=False,
+)
+
+_register(
+    Tool(
+        name="wiki_stats",
+        description=(
+            "Return per-document retrieval statistics (hit count ranking). "
+            "Shows which wiki pages and notes are most frequently returned by "
+            "query_wiki, and which are never retrieved. Use this to identify "
+            "low-value or stale documentation that no query ever surfaces. "
+            "Stats are automatically recorded every time query_wiki runs; "
+            "this tool reads them back. "
+            "Parameters: sort_by (hit_count|last_hit|first_hit|file_path), "
+            "order (desc|asc), limit (1-200), include_zero_hit (cross-reference "
+            "with the file system to find documents never returned), "
+            "min_hits (filter to files with at least N hits)."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository root path. If output_dir is not given, stats are read from <repo_path>/repowiki/.meta/retrieval_stats.db.",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Wiki output directory (default: <repo_path>/repowiki). Use this if the wiki was generated to a custom location.",
+                },
+                "sort_by": {
+                    "type": "string",
+                    "enum": ["hit_count", "last_hit", "first_hit", "file_path"],
+                    "description": "Sort column. Default: hit_count.",
+                    "default": "hit_count",
+                },
+                "order": {
+                    "type": "string",
+                    "enum": ["desc", "asc"],
+                    "description": "Sort direction. Default: desc.",
+                    "default": "desc",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of rows to return (1-200). Default: 50.",
+                    "default": 50,
+                    "minimum": 1,
+                    "maximum": 200,
+                },
+                "include_zero_hit": {
+                    "type": "boolean",
+                    "description": "If true, also list wiki/notes files that exist on disk but were never returned by any query_wiki call. Useful for finding dead documentation.",
+                    "default": False,
+                },
+                "min_hits": {
+                    "type": "integer",
+                    "description": "Only include files with at least this many hits. Default: 0.",
+                    "default": 0,
+                    "minimum": 0,
+                },
+            },
+            "required": [],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.knowledge_loop:handle_wiki_stats",
+    mode="thread",
+    takes_store=True,
 )
 
 

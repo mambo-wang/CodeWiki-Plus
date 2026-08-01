@@ -109,6 +109,94 @@ async def validate_mermaid_diagrams(md_file_path: str, relative_path: str) -> st
         return f"Error processing file: {str(e)}"
 
 
+def auto_fix_mermaid_blocks(content: str) -> Tuple[str, List[str]]:
+    """Apply mechanical auto-fixes to common Mermaid syntax errors.
+
+    Returns (fixed_content, fixes) where *fixes* is a list of human-readable
+    description strings (empty if nothing was changed).
+
+    Fix rules:
+    1. Multi-node one-liner: ``A[label] B[label]`` → split into two lines.
+       ``A --> B`` is valid and left untouched.
+    2. Unquoted labels with special chars: ``A[{id}]`` → ``A["{id}"]``.
+    3. Unquoted CJK subgraph titles: ``subgraph 中文`` → ``subgraph "中文"``.
+    """
+    fixes: List[str] = []
+    lines = content.split("\n")
+    result_lines: List[str] = []
+    in_mermaid = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Track mermaid block boundaries
+        if stripped == "```mermaid" or stripped.startswith("```mermaid"):
+            in_mermaid = True
+            result_lines.append(line)
+            continue
+        if in_mermaid and stripped == "```":
+            in_mermaid = False
+            result_lines.append(line)
+            continue
+
+        if not in_mermaid:
+            result_lines.append(line)
+            continue
+
+        # --- Inside a Mermaid block: apply fixes line-by-line ---
+
+        # Rule 3: Quote CJK subgraph titles
+        m = re.match(r'^(\s*subgraph\s+)([\u4e00-\u9fff][^\"]*?)$', line)
+        if m and not m.group(2).strip().startswith('"'):
+            title = m.group(2).strip()
+            line = f'{m.group(1)}"{title}"'
+            fixes.append(f'Quoted CJK subgraph title: "{title}"')
+
+        # Rule 2: Quote labels containing { } inside [ ] that aren't already quoted
+        # Matches A[xxx{yyy}zzz] but not A["..."] or A{label} (rhombus shape)
+        def _quote_brace_label(mo: re.Match) -> str:
+            prefix, label = mo.group(1), mo.group(2)
+            if label.startswith('"'):
+                return mo.group(0)  # already quoted
+            fixes.append(f'Quoted label with curly braces: {label[:30]}')
+            return f'{prefix}"{label}"]'
+
+        line = re.sub(
+            r'(\w\[)([^\]]*[{}][^\]]*)\]',
+            _quote_brace_label,
+            line,
+        )
+
+        # Rule 1: Split multi-node one-liners.
+        # Detect ] followed by whitespace and another node-start (word + [ or ( ),
+        # but NOT when --, -, ., ==, --> follows (that's an edge, which is valid).
+        if ']' in line:
+            # Find positions where a ] is followed by space + identifier + [ or (
+            # but not preceded by an edge arrow
+            parts = [line]
+            while True:
+                m = re.search(r'\](\s+)(\w[\w]*)\s*[\[\(]', parts[-1])
+                if not m:
+                    break
+                # Check the text between ] and the next node — reject if it's an edge
+                between = m.group(1)
+                if re.search(r'(-->|--|-|->|==|\.->|\.\.)', between.strip()):
+                    break
+                # Split: everything up to and including ] stays, rest goes to new line
+                split_pos = m.start() + 1  # right after the ]
+                parts.append(parts[-1][split_pos:].strip())
+                parts[-2] = parts[-2][:split_pos].rstrip()
+                fixes.append('Split multi-node one-liner into separate lines')
+            if len(parts) > 1:
+                result_lines.extend(parts)
+                continue
+
+        result_lines.append(line)
+
+    fixed_content = "\n".join(result_lines)
+    return fixed_content, fixes
+
+
 def extract_mermaid_blocks(content: str) -> List[Tuple[int, str]]:
     """
     Extract all mermaid code blocks from markdown content.
