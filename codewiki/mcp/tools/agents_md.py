@@ -109,7 +109,7 @@ def _build_section(rel_path: str, modules: list[str]) -> str:
 
 ## CodeWiki LLM Wiki
 
-本项目已使用 [CodeWiki](https://github.com/mambo-wang/CodeWiki-CN) 生成 LLM Wiki 文档，位于 `{rel_path}/` 目录。
+本项目已使用 [CodeWiki](https://github.com/mambo-wang/CodeWiki-Plus) 生成 LLM Wiki 文档，位于 `{rel_path}/` 目录。
 
 **入口文件：**
 

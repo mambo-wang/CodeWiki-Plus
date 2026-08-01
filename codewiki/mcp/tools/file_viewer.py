@@ -38,6 +38,8 @@ def handle_view_repo_file(
             ensure_ascii=False,
         )
 
+    max_lines = arguments.get("max_lines")
+
     repo_root = Path(session.repo_path).resolve()
 
     # Resolve the target and guard against path traversal.
@@ -94,6 +96,18 @@ def handle_view_repo_file(
 
     size = len(content)
 
+    # Apply max_lines truncation if requested (before large-file check so
+    # that a max_lines preview of a huge file stays manageable).
+    total_lines = None
+    truncated_by_lines = False
+    if max_lines and isinstance(max_lines, int) and max_lines > 0:
+        lines = content.splitlines(keepends=True)
+        total_lines = len(lines)
+        if total_lines > max_lines:
+            content = "".join(lines[:max_lines])
+            truncated_by_lines = True
+            size = len(content)
+
     # Large files: write to workspace and return the path.
     if size > _MAX_INLINE_CHARS:
         if session.workspace is not None:
@@ -109,6 +123,7 @@ def handle_view_repo_file(
                     "workspace_file": str(ws_path),
                     "size": size,
                     "truncated": True,
+                    "total_lines": total_lines,
                 },
                 ensure_ascii=False,
             )
@@ -120,6 +135,7 @@ def handle_view_repo_file(
                 "content": content[:_MAX_INLINE_CHARS],
                 "size": size,
                 "truncated": True,
+                "total_lines": total_lines,
                 "notice": "Content truncated (no workspace available).",
             },
             indent=2,
@@ -132,6 +148,8 @@ def handle_view_repo_file(
             "type": "file",
             "content": content,
             "size": size,
+            "truncated": truncated_by_lines,
+            "total_lines": total_lines if truncated_by_lines else None,
         },
         indent=2,
         ensure_ascii=False,

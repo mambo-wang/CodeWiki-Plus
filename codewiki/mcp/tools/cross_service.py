@@ -26,7 +26,24 @@ def handle_query_cross_service(
     """
     workspace_path = Path(arguments.get("workspace_path", ".")).resolve()
     filter_type = arguments.get("filter_type", "all")
-    filter_value = arguments.get("filter_value", "")
+    # filter_value is the canonical param; accept repo_name / service as
+    # aliases for compatibility with older AGENTS.md quick-reference tables.
+    filter_value = (
+        arguments.get("filter_value")
+        or arguments.get("repo_name")
+        or arguments.get("service")
+        or ""
+    )
+
+    # Guard: non-"all" filters require a non-empty value. An empty string
+    # would match everything via substring/startswith, producing confusing
+    # results (e.g. by_service returning all links with service: "").
+    if filter_type != "all" and not filter_value.strip():
+        return json.dumps({
+            "error": f"filter_value is required when filter_type='{filter_type}'. "
+                     "Pass the service name / HTTP method / path prefix / route key "
+                     "as the 'filter_value' parameter.",
+        }, ensure_ascii=False)
 
     # Resolve meta directory: explicit output_dir first, then auto-derive
     explicit_od = arguments.get("output_dir")

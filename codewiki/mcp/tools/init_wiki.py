@@ -51,6 +51,15 @@ def handle_init_wiki(arguments: dict) -> str:
         repo_path = os.getcwd()
     repo_path_p = Path(repo_path).resolve()
 
+    # Validate repo_path exists — avoid silently creating a wiki in a
+    # non-existent directory due to a typo in repo_path.
+    if not repo_path_p.exists():
+        return json.dumps(
+            {"error": f"repo_path does not exist: {repo_path_p}. "
+                     "Provide a valid repository path."},
+            ensure_ascii=False,
+        )
+
     # Resolve output_dir
     if not output_dir:
         output_dir_p = repo_path_p / "repowiki"
