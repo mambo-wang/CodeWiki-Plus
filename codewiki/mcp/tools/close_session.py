@@ -36,8 +36,8 @@ TOOLS = [
             "IMPORTANT: This is the final step of any wiki generation workflow. On close, "
             "the server automatically: 1) rebuilds wiki index.md and log.md, "
             "2) builds the BM25 search index + wikilink graph (enables query_wiki), "
-            "3) injects wiki usage instructions into the target project's AGENTS.md "
-            "(disable with update_agents_md=false), "
+            "3) optionally injects wiki usage instructions into the target project's AGENTS.md "
+            "(enable with update_agents_md=true), "
             "4) cleans up workspace files on disk. "
             "Always call this after finishing documentation work to ensure search indexes "
             "are up-to-date. "
@@ -67,7 +67,7 @@ TOOLS = [
                 "update_agents_md": {
                     "type": "boolean",
                     "description": (
-                        "Optional, default true. When true, inject/update the CodeWiki section in "
+                        "Optional, default false. When true, inject/update the CodeWiki section in "
                         "the target project's root AGENTS.md. When false, skip the AGENTS.md "
                         "modification entirely. The response reports the outcome via "
                         "'agents_md_updated'."
@@ -141,7 +141,7 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
         return json.dumps({"error": "repo_path is required."})
 
     force = bool(arguments.get("force", False))
-    update_agents_md = bool(arguments.get("update_agents_md", True))
+    update_agents_md = bool(arguments.get("update_agents_md", False))
 
     rp = _resolve_path(repo_path)
 
@@ -225,13 +225,28 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
         except Exception:
             logger.debug("Failed to generate HTML export", exc_info=True)
 
-    # Inject AGENTS.md (opt-out via update_agents_md=false)
+    # Inject AGENTS.md (opt-in via update_agents_md=true)
     agents_md_updated = False
+    agents_md_diff = None
     if docs_generated and update_agents_md:
         try:
             from codewiki.mcp.tools.agents_md import write_agents_md
+            agents_md_path = Path(rp) / "AGENTS.md"
+            # Read before
+            before_lines = 0
+            if agents_md_path.exists():
+                before_lines = len(agents_md_path.read_text(encoding="utf-8").splitlines())
             write_agents_md(repo_path=rp, output_dir=output_dir)
             agents_md_updated = True
+            # Read after and compute diff
+            after_lines = 0
+            if agents_md_path.exists():
+                after_lines = len(agents_md_path.read_text(encoding="utf-8").splitlines())
+            delta = after_lines - before_lines
+            if delta >= 0:
+                agents_md_diff = f"+{delta} lines"
+            else:
+                agents_md_diff = f"{delta} lines"
         except Exception:
             logger.debug("Failed to update AGENTS.md", exc_info=True)
 
@@ -248,4 +263,5 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
         "status": "closed",
         "output_dir": output_dir,
         "agents_md_updated": agents_md_updated,
+        "agents_md_diff": agents_md_diff,
     })

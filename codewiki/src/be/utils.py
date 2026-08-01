@@ -145,6 +145,11 @@ def auto_fix_mermaid_blocks(content: str) -> Tuple[str, List[str]]:
 
         # --- Inside a Mermaid block: apply fixes line-by-line ---
 
+        # Skip 'click' directives — semantic issue, left for the validator.
+        if stripped.startswith("click "):
+            result_lines.append(line)
+            continue
+
         # Rule 3: Quote CJK subgraph titles
         m = re.match(r'^(\s*subgraph\s+)([\u4e00-\u9fff][^\"]*?)$', line)
         if m and not m.group(2).strip().startswith('"'):
@@ -171,6 +176,8 @@ def auto_fix_mermaid_blocks(content: str) -> Tuple[str, List[str]]:
         # Detect ] followed by whitespace and another node-start (word + [ or ( ),
         # but NOT when --, -, ., ==, --> follows (that's an edge, which is valid).
         if ']' in line:
+            # Preserve original indentation for split parts
+            indent = re.match(r'^(\s*)', line).group(1)
             # Find positions where a ] is followed by space + identifier + [ or (
             # but not preceded by an edge arrow
             parts = [line]
@@ -184,7 +191,7 @@ def auto_fix_mermaid_blocks(content: str) -> Tuple[str, List[str]]:
                     break
                 # Split: everything up to and including ] stays, rest goes to new line
                 split_pos = m.start() + 1  # right after the ]
-                parts.append(parts[-1][split_pos:].strip())
+                parts.append(indent + parts[-1][split_pos:].strip())
                 parts[-2] = parts[-2][:split_pos].rstrip()
                 fixes.append('Split multi-node one-liner into separate lines')
             if len(parts) > 1:
@@ -325,6 +332,16 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
     Returns:
         Error message if invalid, empty string if valid
     """
+    # Pre-check: reject interactive 'click' directives (semantic issue, not
+    # auto-fixable). Must be caught before the external parser which may or
+    # may not flag them depending on version.
+    for line in diagram_content.split("\n"):
+        if line.strip().startswith("click "):
+            return (
+                f"Diagram {diagram_num}: Interactive 'click' directive is not "
+                f"allowed in documentation diagrams."
+            )
+
     global _MERMAID_PY_BROKEN
     core_error = await _try_pythonmonkey_parse(diagram_content)
     if core_error is None:
