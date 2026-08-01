@@ -140,7 +140,8 @@ def _filter_by_method(links: List[Dict], method: str) -> Dict:
 
 
 def _filter_by_path(links: List[Dict], path_prefix: str) -> Dict:
-    matching = [l for l in links if (l.get("path") or "").startswith(path_prefix)]
+    prefix_lower = path_prefix.lower()
+    matching = [l for l in links if (l.get("path") or "").lower().startswith(prefix_lower)]
     return {"path_prefix": path_prefix, "count": len(matching), "links": matching}
 
 

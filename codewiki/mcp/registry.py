@@ -1263,7 +1263,7 @@ _register(
                 },
                 "filter_value": {
                     "type": "string",
-                    "description": "Value for the filter: service name (for by_service), HTTP method (for by_method), path prefix (for by_path — prefix match, not substring), or root service (for trace). Note: for by_service, 'repo_name' is accepted as an alias for backward compatibility.",
+                    "description": "Value for the filter: service name substring, case-insensitive (for by_service — e.g. 'order' matches 'order-service'), HTTP method (for by_method), path prefix case-insensitive (for by_path — prefix match, not substring), or root service (for trace). Note: for by_service, 'repo_name' is accepted as an alias for backward compatibility.",
                 },
             },
             "required": ["workspace_path"],

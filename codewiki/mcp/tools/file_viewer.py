@@ -96,13 +96,15 @@ def handle_view_repo_file(
 
     size = len(content)
 
+    # Always compute total_lines so callers know the full extent of the file
+    # even when truncation happens via _MAX_INLINE_CHARS rather than max_lines.
+    total_lines = len(content.splitlines())
+
     # Apply max_lines truncation if requested (before large-file check so
     # that a max_lines preview of a huge file stays manageable).
-    total_lines = None
     truncated_by_lines = False
     if max_lines and isinstance(max_lines, int) and max_lines > 0:
         lines = content.splitlines(keepends=True)
-        total_lines = len(lines)
         if total_lines > max_lines:
             content = "".join(lines[:max_lines])
             truncated_by_lines = True
@@ -148,8 +150,8 @@ def handle_view_repo_file(
             "type": "file",
             "content": content,
             "size": size,
+            "total_lines": total_lines,
             "truncated": truncated_by_lines,
-            "total_lines": total_lines if truncated_by_lines else None,
         },
         indent=2,
         ensure_ascii=False,
