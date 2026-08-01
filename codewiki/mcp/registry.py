@@ -1208,6 +1208,10 @@ _register(
                     "type": "string",
                     "description": "Relative path from repo root (e.g. 'repowiki/overview.md' or 'backend/src/...')",
                 },
+                "max_lines": {
+                    "type": "integer",
+                    "description": "Optional. Maximum number of lines to return from the file. If the file has more lines, only the first max_lines are returned with truncated=true and total_lines showing the original count. Useful for previewing large files without consuming excessive context.",
+                },
             },
             "required": ["repo_path", "path"],
         },
@@ -1231,8 +1235,9 @@ _register(
             "net/http). Path parameters (:id/{id}/<id>) are canonicalized to {} for "
             "framework-agnostic matching. "
             "Supports filter_type: 'all' (default, every link), 'by_service' (one repo's "
-            "inbound/outbound links), 'by_method' (HTTP method), 'by_path' (URL "
-            "substring), 'trace' (transitive call chain from a root service). "
+            "inbound/outbound links), 'by_method' (HTTP method), 'by_path' (URL path "
+            "prefix match — pass a full path prefix like '/api/v1/chat', not a keyword), "
+            "'trace' (transitive call chain from a root service). "
             "Reads results persisted under <workspace>/workspace-wiki/.meta/ (multi-repo) "
             "or <repo>/repowiki/.meta/ (monorepo single-repo). "
             "\U0001f9e0 CBM ENHANCEMENT: pair with codebase-memory-mcp's trace_path "
@@ -1258,7 +1263,7 @@ _register(
                 },
                 "filter_value": {
                     "type": "string",
-                    "description": "Value for the filter: service name, HTTP method, path substring, or root service for trace.",
+                    "description": "Value for the filter: service name (for by_service), HTTP method (for by_method), path prefix (for by_path — prefix match, not substring), or root service (for trace). Note: for by_service, 'repo_name' is accepted as an alias for backward compatibility.",
                 },
             },
             "required": ["workspace_path"],
