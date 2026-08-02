@@ -26,7 +26,7 @@ _ALL_CHECKS = {
     "stale_refs", "undocumented", "broken_links", "cycles", "coverage",
     "orphan_pages", "no_outlinks", "missing_aliases", "stale_sources",
     "superseded_pages", "overview_stale", "unsupported_claims",
-    "isolated_components",
+    "isolated_components", "stale_notes", "note_clusters",
 }
 
 # Regex patterns for markdown links
@@ -845,6 +845,219 @@ def _check_unsupported_claims(
 
 
 # ---------------------------------------------------------------------------
+#  Note lifecycle checks (staleness + clustering)
+# ---------------------------------------------------------------------------
+
+def _parse_note_frontmatter(note_path: Path) -> Optional[Dict[str, Any]]:
+    """Parse a note's YAML frontmatter into a dict. Returns None on failure."""
+    try:
+        text = note_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if not text.startswith("---"):
+        return None
+    end = text.find("---", 3)
+    if end < 0:
+        return None
+    fm: Dict[str, Any] = {}
+    for line in text[3:end].splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        # Parse JSON arrays
+        if value.startswith("["):
+            try:
+                fm[key] = json.loads(value)
+            except (json.JSONDecodeError, ValueError):
+                fm[key] = value
+        else:
+            fm[key] = value.strip('"\'')
+    return fm
+
+
+def _check_stale_notes(
+    output_dir: Path,
+    stale_days: int = 90,
+    retrieval_gap_days: int = 60,
+) -> List[Dict[str, Any]]:
+    """Flag confirmed notes that are old and haven't been retrieved recently.
+
+    A note is considered stale when ALL of:
+      - status == "confirmed"
+      - note age > stale_days (default 90)
+      - last retrieval hit > retrieval_gap_days ago (or never hit)
+
+    This helps prevent knowledge rot: confirmed notes that nobody queries
+    may be outdated or superseded by newer understanding.
+    """
+    import sqlite3
+    from datetime import datetime, timedelta
+
+    issues: List[Dict[str, Any]] = []
+
+    from codewiki.src.config import NOTES_DIR
+    notes_dir = output_dir / NOTES_DIR
+    if not notes_dir.is_dir():
+        return issues
+
+    # Load retrieval stats if available
+    stats_db = output_dir / ".meta" / "retrieval_stats.db"
+    retrieval_map: Dict[str, str] = {}  # file_path -> last_hit date string
+    if stats_db.exists():
+        try:
+            conn = sqlite3.connect(str(stats_db))
+            try:
+                rows = conn.execute(
+                    "SELECT file_path, last_hit FROM retrieval_stats"
+                ).fetchall()
+                for fp, lh in rows:
+                    if lh:
+                        retrieval_map[fp] = lh
+            finally:
+                conn.close()
+        except Exception:
+            pass
+
+    today = datetime.now()
+    stale_threshold = today - timedelta(days=stale_days)
+    retrieval_threshold = today - timedelta(days=retrieval_gap_days)
+
+    for note_file in sorted(notes_dir.glob("*.md")):
+        fm = _parse_note_frontmatter(note_file)
+        if not fm:
+            continue
+
+        # Only check confirmed notes
+        if fm.get("status") != "confirmed":
+            continue
+
+        # Parse note date
+        date_str = fm.get("date", "")
+        try:
+            note_date = datetime.strptime(date_str, "%Y-%m-%d")
+        except (ValueError, TypeError):
+            continue
+
+        # Check age
+        if note_date > stale_threshold:
+            continue  # not old enough
+
+        # Check retrieval recency
+        rel_path = str(note_file.relative_to(output_dir)).replace("\\", "/")
+        # Also try with notes/ prefix variations
+        last_hit_str = retrieval_map.get(rel_path) or retrieval_map.get(f"notes/{note_file.name}")
+        recently_hit = False
+        if last_hit_str:
+            try:
+                last_hit = datetime.strptime(last_hit_str, "%Y-%m-%d")
+                if last_hit > retrieval_threshold:
+                    recently_hit = True
+            except (ValueError, TypeError):
+                pass
+
+        if recently_hit:
+            continue  # still being actively retrieved
+
+        age_days = (today - note_date).days
+        title = fm.get("title", note_file.stem)
+        note_type = fm.get("type", "general")
+
+        issues.append({
+            "check": "stale_notes",
+            "severity": "warning",
+            "message": (
+                f"Confirmed note '{title}' ({note_type}) is {age_days} days old "
+                f"and has not been retrieved in {retrieval_gap_days}+ days"
+            ),
+            "file": rel_path,
+            "suggestion": (
+                f"Review whether this {note_type} note is still accurate. "
+                f"Use confirm_note to re-validate, reject_note to retire, "
+                f"or update the content if the knowledge has evolved."
+            ),
+        })
+
+    return issues
+
+
+def _check_note_clusters(
+    output_dir: Path,
+    cluster_threshold: int = 3,
+) -> List[Dict[str, Any]]:
+    """Flag modules that have 3+ notes of the same type (consolidation candidates).
+
+    When multiple notes of the same type accumulate under one module, they
+    often contain overlapping or contradictory information that should be
+    merged into a single authoritative note.
+    """
+    issues: List[Dict[str, Any]] = []
+
+    from codewiki.src.config import NOTES_DIR
+    notes_dir = output_dir / NOTES_DIR
+    if not notes_dir.is_dir():
+        return issues
+
+    # Group notes by (module, type)
+    clusters: Dict[Tuple[str, str], List[Dict[str, str]]] = defaultdict(list)
+
+    for note_file in sorted(notes_dir.glob("*.md")):
+        fm = _parse_note_frontmatter(note_file)
+        if not fm:
+            continue
+
+        # Skip rejected notes
+        if fm.get("status") == "rejected":
+            continue
+
+        note_type = fm.get("type", "general")
+        modules = fm.get("related_modules", [])
+        if isinstance(modules, str):
+            modules = [modules] if modules else []
+        if not modules:
+            continue
+
+        rel_path = str(note_file.relative_to(output_dir)).replace("\\", "/")
+        entry = {
+            "file": rel_path,
+            "title": fm.get("title", note_file.stem),
+            "date": fm.get("date", ""),
+            "status": fm.get("status", "candidate"),
+        }
+
+        for mod in modules:
+            if isinstance(mod, str) and mod.strip():
+                clusters[(mod.strip(), note_type)].append(entry)
+
+    # Report clusters that exceed the threshold
+    for (module, note_type), notes in sorted(clusters.items()):
+        if len(notes) < cluster_threshold:
+            continue
+
+        titles = ", ".join(f"'{n['title']}'" for n in notes[:5])
+        if len(notes) > 5:
+            titles += f" (+{len(notes) - 5} more)"
+
+        issues.append({
+            "check": "note_clusters",
+            "severity": "info",
+            "message": (
+                f"Module '{module}' has {len(notes)} {note_type} notes "
+                f"that may benefit from consolidation: {titles}"
+            ),
+            "file": notes[0]["file"],
+            "suggestion": (
+                f"Use get_prompt('consolidate') for guidance on merging "
+                f"these {len(notes)} {note_type} notes into a single "
+                f"authoritative note for module '{module}'."
+            ),
+        })
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
 #  Main handler
 # ---------------------------------------------------------------------------
 
@@ -938,6 +1151,12 @@ def handle_lint_wiki(
 
     if "unsupported_claims" in checks and output_dir:
         all_issues.extend(_check_unsupported_claims(output_dir))
+
+    if "stale_notes" in checks and output_dir:
+        all_issues.extend(_check_stale_notes(output_dir))
+
+    if "note_clusters" in checks and output_dir:
+        all_issues.extend(_check_note_clusters(output_dir))
 
     # Deduplicate: if a link is already reported as stale_refs, don't also
     # report it as broken_links (same file + line = same underlying problem).

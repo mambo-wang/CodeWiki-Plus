@@ -415,6 +415,7 @@ _register(
                         "taxonomy_plan",
                         "extraction_scan",
                         "reflection",
+                        "consolidate",
                     ],
                     "description": "Which prompt template to retrieve",
                 },
@@ -593,7 +594,7 @@ _register(
         name="lint_wiki",
         description=(
             "Check documentation-code consistency. Works with or without an active session. "
-            "Runs 13 available checks: stale_refs (docs reference deleted components), "
+            "Runs 15 available checks: stale_refs (docs reference deleted components), "
             "broken_links (markdown links to non-existent pages), "
             "undocumented (high-impact components without docs), "
             "cycles (circular module dependencies), coverage (documentation coverage gaps), "
@@ -602,7 +603,9 @@ _register(
             "superseded_pages (pages marked as superseded), "
             "isolated_components (components with zero dependencies and zero dependents), "
             "overview_stale (overview.md references modules that have changed), "
-            "unsupported_claims (business assertions lacking code evidence). "
+            "unsupported_claims (business assertions lacking code evidence), "
+            "stale_notes (confirmed notes not retrieved in 60+ days and older than 90 days), "
+            "note_clusters (modules with 3+ same-type notes suggesting consolidation). "
             "Run checks=['all'] for a comprehensive audit. "
             "After fixing issues, use flag_issue to track remaining problems. "
             "MANDATORY FINAL STEP: after lint passes (or issues are tracked), you MUST call "
@@ -629,6 +632,7 @@ _register(
                             "cycles", "coverage", "orphan_pages", "no_outlinks",
                             "missing_aliases", "stale_sources", "superseded_pages",
                             "isolated_components", "overview_stale", "unsupported_claims",
+                            "stale_notes", "note_clusters",
                         ],
                     },
                     "description": "Which checks to run (default: [\"all\"])",
