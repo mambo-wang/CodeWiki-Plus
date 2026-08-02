@@ -1050,33 +1050,33 @@ async def handle_edit_doc_file(
     current_content = doc_path.read_text(encoding="utf-8")
 
     if command == "str_replace":
-        old_str = read_param(arguments, "old_str")
-        new_str = read_param(arguments, "new_str") or ""
-        if old_str is None:
-            return json.dumps({"error": "old_str is required for str_replace."})
+        old_string = read_param(arguments, "old_string")
+        new_string = read_param(arguments, "new_string") or ""
+        if old_string is None:
+            return json.dumps({"error": "old_string is required for str_replace."})
 
         # Frontmatter (e.g. the auto-generated ``description:``) may echo a
         # sentence from the body; count occurrences against the body only so
         # editing the body is not blocked by its own frontmatter copy.
         fm, body = _split_frontmatter(current_content)
-        occurrences = body.count(old_str)
+        occurrences = body.count(old_string)
         if occurrences == 0:
             # Fall back to a whole-document search (e.g. editing frontmatter).
-            occurrences = current_content.count(old_str)
+            occurrences = current_content.count(old_string)
             if occurrences == 0:
-                return json.dumps({"error": f"old_str not found in {filename}."})
-            new_content = current_content.replace(old_str, new_str, 1)
+                return json.dumps({"error": f"old_string not found in {filename}."})
+            new_content = current_content.replace(old_string, new_string, 1)
         elif occurrences > 1:
-            return json.dumps({"error": f"old_str appears {occurrences} times in {filename}. Make it unique."})
+            return json.dumps({"error": f"old_string appears {occurrences} times in {filename}. Make it unique."})
         else:
-            new_content = fm + "\n" + body.replace(old_str, new_str, 1)
+            new_content = fm + "\n" + body.replace(old_string, new_string, 1)
         # Calculate edit position BEFORE replacement so snippet shows the
         # actual edit location (find() on new_content may hit a wrong match
-        # or fail entirely for deletions where new_str is empty).
+        # or fail entirely for deletions where new_string is empty).
         if occurrences == 1:
-            edit_line = body.split(old_str)[0].count("\n")
+            edit_line = body.split(old_string)[0].count("\n")
         else:
-            edit_line = current_content.split(old_str)[0].count("\n")
+            edit_line = current_content.split(old_string)[0].count("\n")
         # Save history only for edits that actually happen, so undo never
         # pops a no-op entry left behind by a failed/rejected command.
         _save_history(output_dir, doc_path, current_content)
@@ -1096,14 +1096,14 @@ async def handle_edit_doc_file(
         replacement_line = fm_line_count + edit_line
         lines = new_content.split("\n")
         start = max(0, replacement_line - 4)
-        end = min(len(lines), start + max(new_str.count("\n"), 0) + 9)
+        end = min(len(lines), start + max(new_string.count("\n"), 0) + 9)
         snippet = "\n".join(f"{i + 1:6}\t{lines[i]}" for i in range(start, end))
 
     elif command == "insert":
         insert_line = arguments.get("insert_line", 0)
-        new_str = read_param(arguments, "new_str") or ""
-        if not new_str:
-            return json.dumps({"error": "new_str is required for insert."})
+        new_string = read_param(arguments, "new_string") or ""
+        if not new_string:
+            return json.dumps({"error": "new_string is required for insert."})
 
         lines = current_content.split("\n")
         insert_line = max(0, min(insert_line, len(lines)))
@@ -1121,7 +1121,7 @@ async def handle_edit_doc_file(
                              f"Use insert_line >= {fm_end + 1} to insert into the body."
                 })
 
-        new_str_lines = new_str.split("\n")
+        new_str_lines = new_string.split("\n")
         lines = lines[:insert_line] + new_str_lines + lines[insert_line:]
         new_content = "\n".join(lines)
         _save_history(output_dir, doc_path, current_content)

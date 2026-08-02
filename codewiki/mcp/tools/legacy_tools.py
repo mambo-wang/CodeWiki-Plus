@@ -167,7 +167,7 @@ async def handle_generate_docs(arguments: dict) -> str:
     return json.dumps(result, indent=2)
 
 
-async def handle_get_module_tree(arguments: dict) -> str:
+async def handle_get_module_tree(arguments: dict, store=None) -> str:
     """Legacy get_module_tree."""
     repo_path = Path(arguments["repo_path"]).expanduser().resolve()
     raw_od = Path(arguments.get("output_dir", "repowiki")).expanduser()

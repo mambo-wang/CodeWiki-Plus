@@ -258,9 +258,17 @@ def handle_ingest_note(
     filename = f"{today}-{slug}.md"
     note_path = notes_dir / filename
 
-    # Duplicate check
+    # Duplicate check — compare body content to avoid knowledge-base noise
     if note_path.exists():
-        # Try with a hash suffix
+        # Compare body only (frontmatter varies by date/status)
+        existing_body = note_path.read_text(encoding="utf-8").split("---\n\n", 1)[-1]
+        if existing_body.strip() == content.strip():
+            return json.dumps({
+                "status": "already_exists",
+                "path": str(note_path),
+                "message": f"Identical note already exists: {note_path.name}",
+            }, ensure_ascii=False)
+        # Different content, same slug — append hash suffix to avoid overwrite
         hash_suffix = hashlib.sha1(
             (title + content[:100]).encode()
         ).hexdigest()[:6]
