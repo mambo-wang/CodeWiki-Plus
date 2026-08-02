@@ -315,6 +315,13 @@ _PROMPT_CATALOG: Dict[str, Dict[str, str]] = {
         "description": "Structured reflection template for proactive knowledge extraction from conversations.",
         "usage_hint": "Use when conversation signals indicate knowledge worth persisting (decisions, pitfalls, discoveries). Guides extraction, filtering, routing, and draft formatting.",
     },
+    "consolidate": {
+        "description": "Guidance for merging multiple related notes into a single authoritative note.",
+        "usage_hint": (
+            "Use when lint_wiki reports note_clusters (3+ same-type notes under one module). "
+            "Guides reading, deduplication, conflict resolution, and producing a merged note."
+        ),
+    },
 }
 
 
@@ -1062,6 +1069,37 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "- Use existing page types from the schema routing table\n"
             "- Suggest target_page paths using the wiki/ directory structure\n"
             "- For pitfall items, include severity and root_cause fields"
+        )
+
+    elif prompt_type == "consolidate":
+        module = variables.get("module", "<MODULE_NAME>")
+        note_type = variables.get("note_type", "general")
+        note_list = variables.get("note_list", "<list of note files from lint_wiki note_clusters>")
+        return (
+            "## Note Consolidation Guide\n\n"
+            f"Module: **{module}** | Note type: **{note_type}**\n\n"
+            "### Step 1: Read all candidate notes\n\n"
+            f"Read each note listed below via `view_repo_file`:\n"
+            f"{note_list}\n\n"
+            "### Step 2: Identify overlaps and conflicts\n\n"
+            "For each pair of notes, determine:\n"
+            "- **Duplicate**: same knowledge stated differently → keep the clearer version\n"
+            "- **Superseded**: older note's conclusion was overturned by newer → retire the old\n"
+            "- **Complementary**: different facets of the same topic → merge into sections\n"
+            "- **Contradictory**: conflicting claims → verify against current code, keep the correct one\n\n"
+            "### Step 3: Draft the merged note\n\n"
+            "Produce a single note that:\n"
+            "1. Has a comprehensive title covering all sub-topics\n"
+            "2. Preserves all unique knowledge (no information loss)\n"
+            "3. Organizes content logically (chronological or by sub-topic)\n"
+            "4. Notes which original notes were merged (in a `## Sources` section)\n"
+            "5. Keeps `related_modules` as the union of all originals\n\n"
+            "### Step 4: Execute\n\n"
+            "1. Call `ingest_note` with the merged content (same note_type, status='candidate')\n"
+            "2. Call `reject_note` on each original note with reason='consolidated into <new-title>'\n"
+            "3. Run `lint_wiki(checks=['note_clusters'])` to verify the cluster is resolved\n\n"
+            "**Principle**: The merged note should be the single source of truth. "
+            "A future reader should never need to consult the originals."
         )
 
     return f"Unknown prompt type: {prompt_type}"
