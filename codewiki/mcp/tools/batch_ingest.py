@@ -58,8 +58,14 @@ def handle_batch_ingest(
             if "session_id" not in item:
                 item["session_id"] = session_id
 
-    # Inject output_dir into each item if not already set
+    # Inject output_dir into each item if not already set.
+    # When output_dir is absent, derive it from repo_path (repo_path/repowiki)
+    # to stay consistent with handle_ingest_note / handle_ingest_source.
     top_output_dir = arguments.get("output_dir")
+    if not top_output_dir:
+        rp = arguments.get("repo_path")
+        if rp:
+            top_output_dir = str(Path(rp).expanduser().resolve() / "repowiki")
     if top_output_dir:
         for item in items:
             if "output_dir" not in item and "session_id" not in item:
@@ -104,10 +110,8 @@ def handle_batch_ingest(
     output_dir = None
     if session:
         output_dir = Path(session.output_dir)
-    else:
-        od = arguments.get("output_dir")
-        if od:
-            output_dir = Path(od).expanduser().resolve()
+    elif top_output_dir:
+        output_dir = Path(top_output_dir).expanduser().resolve()
 
     if output_dir:
         output_dir.mkdir(parents=True, exist_ok=True)
