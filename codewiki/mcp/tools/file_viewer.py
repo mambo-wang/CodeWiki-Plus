@@ -31,10 +31,10 @@ def handle_view_repo_file(
             ensure_ascii=False,
         )
 
-    rel_path = arguments.get("path", "")
+    rel_path = arguments.get("file_path", "")
     if not rel_path:
         return json.dumps(
-            {"error": "Argument 'path' is required."},
+            {"error": "Argument 'file_path' is required."},
             ensure_ascii=False,
         )
 

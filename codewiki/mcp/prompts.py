@@ -89,7 +89,7 @@ def _prompt_extract_knowledge(args: dict[str, str]) -> str:
     return f"""请导入外部文档并从中抽取结构化知识。按以下步骤执行：
 
 ## 步骤 1: 导入文档
-调用 ingest_source(output_dir="{output_dir}", source_path="{source_path}")
+调用 ingest_source(output_dir="{output_dir}", source_ref="{source_path}")
 - 文档会被复制到 {output_dir}/raw/sources/ 并注册到 source_registry.json
 - 此步骤直接传入 output_dir，无需 session
 

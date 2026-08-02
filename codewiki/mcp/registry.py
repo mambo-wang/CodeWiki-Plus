@@ -234,11 +234,11 @@ _register(
         name="edit_doc_file",
         description=(
             "Edit an existing documentation file. The command parameter accepts three values: "
-            "'str_replace' (find-and-replace, requires old_str + new_str), "
-            "'insert' (add text at a specific line, requires new_str + insert_line), "
+            "'str_replace' (find-and-replace, requires old_string + new_string), "
+            "'insert' (add text at a specific line, requires new_string + insert_line), "
             "'undo' (revert the last edit). "
             "Automatically validates Mermaid diagrams after editing. "
-            "For large replacements, use old_str_file/new_str_file instead of inline strings. "
+            "For large replacements, use old_string_file/new_string_file instead of inline strings. "
             "IMPORTANT: After write_doc_file injects cross-links, the file content changes — "
             "always use view_repo_file to read the current content before editing."
         ),
@@ -267,21 +267,21 @@ _register(
                     "enum": ["module", "entity", "concept", "source", "comparison", "query"],
                     "description": "LLM Wiki page type for path resolution (default: module)",
                 },
-                "old_str": {
+                "old_string": {
                     "type": "string",
                     "description": "String to find (required for str_replace)",
                 },
-                "new_str": {
+                "new_string": {
                     "type": "string",
                     "description": "Replacement string (for str_replace/insert)",
                 },
-                "old_str_file": {
+                "old_string_file": {
                     "type": "string",
-                    "description": "Alternative to old_str: absolute path to a text file.",
+                    "description": "Alternative to old_string: absolute path to a text file.",
                 },
-                "new_str_file": {
+                "new_string_file": {
                     "type": "string",
-                    "description": "Alternative to new_str: absolute path to a text file.",
+                    "description": "Alternative to new_string: absolute path to a text file.",
                 },
                 "insert_line": {
                     "type": "integer",
@@ -934,7 +934,7 @@ _register(
                     "type": "string",
                     "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
                 },
-                "source_path": {
+                "source_ref": {
                     "type": "string",
                     "description": "Absolute path to the source file to import",
                 },
@@ -960,7 +960,7 @@ _register(
                     "description": "Wiki pages that reference this source",
                 },
             },
-            "required": ["source_path"],
+            "required": ["source_ref"],
         },
     ),
     handler_path="codewiki.mcp.tools.source_ingest:handle_ingest_source",
@@ -1018,7 +1018,7 @@ _register(
             "Bulk-import multiple notes and/or source documents in one call. "
             "Accepts an inline items list or an items_file path (for large batches). "
             "Each item must have a 'kind' field: 'note' or 'source', plus the fields "
-            "for that tool (e.g., kind='note' needs title+content, kind='source' needs source_path). "
+            "for that tool (e.g., kind='note' needs title+content, kind='source' needs source_ref). "
             "Performs a single index rebuild at the end for efficiency. "
             "Use this when importing many documents at once instead of calling "
             "ingest_note/ingest_source repeatedly. "
@@ -1198,10 +1198,10 @@ _register(
             "Read a file or list a directory within the analyzed repository. "
             "Common use cases: "
             "1) Read already-generated .md docs for parent module synthesis "
-            "(e.g., path='repowiki/wiki/modules/auth.md'), "
+            "(e.g., file_path='repowiki/wiki/modules/auth.md'), "
             "2) Browse source files for extra context during documentation, "
             "3) Read imported source documents after ingest_source "
-            "(e.g., path='raw/sources/rfc793.txt'). "
+            "(e.g., file_path='raw/sources/rfc793.txt'). "
             "All paths are relative to repo_path with traversal protection. "
             "Directories return a listing; files return content. "
             "Large files (>50KB) are written to the session workspace."
@@ -1213,7 +1213,7 @@ _register(
                     "type": "string",
                     "description": "Repository path. Auto-loads from SQLite cache if a previous analysis exists.",
                 },
-                "path": {
+                "file_path": {
                     "type": "string",
                     "description": "Relative path from repo root (e.g. 'repowiki/overview.md' or 'backend/src/...')",
                 },
@@ -1222,7 +1222,7 @@ _register(
                     "description": "Optional. Maximum number of lines to return from the file. If the file has more lines, only the first max_lines are returned with truncated=true and total_lines showing the original count. Useful for previewing large files without consuming excessive context.",
                 },
             },
-            "required": ["repo_path", "path"],
+            "required": ["repo_path", "file_path"],
         },
     ),
     handler_path="codewiki.mcp.tools.file_viewer:handle_view_repo_file",
@@ -1358,7 +1358,7 @@ _register(
     ),
     handler_path="codewiki.mcp.tools.legacy_tools:handle_get_module_tree",
     mode="async",
-    takes_store=False,
+    takes_store=True,
 )
 
 

@@ -872,3 +872,9 @@ Paper: [CodeWiki: Evaluating AI's Ability to Generate Holistic Documentation for
 ## License
 
 MIT
+
+---
+
+<p align="center">
+  <img src="img/thankyou.png" alt="Thank You" width="700" />
+</p>

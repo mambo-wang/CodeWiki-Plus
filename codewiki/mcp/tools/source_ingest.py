@@ -150,9 +150,9 @@ def handle_ingest_source(
         return json.dumps({"error": str(e)})
 
     # Validate inputs
-    source_path = arguments.get("source_path")
+    source_path = arguments.get("source_ref")
     if not source_path:
-        return json.dumps({"error": "source_path is required."})
+        return json.dumps({"error": "source_ref is required."})
 
     src = Path(source_path).expanduser().resolve()
     if not src.exists():

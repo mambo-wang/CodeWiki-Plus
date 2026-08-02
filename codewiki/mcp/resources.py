@@ -216,6 +216,11 @@ def register(server):
                     {"name": "incremental-update", "title": "增量更新 Wiki", "description": "检测代码变更并增量更新受影响的模块文档", "arguments": ["repo_path (optional, 默认当前目录)"]},
                     {"name": "workspace-analysis", "title": "多仓库工作区分析（含跨服务拓扑）", "description": "扫描多 git 仓库，生成独立 Wiki 并自动执行 RouteNode 跨服务匹配 + 拓扑图 + 基础设施扫描", "arguments": ["workspace_path (optional, 默认当前目录)"]},
                     {"name": "cross-service-trace", "title": "跨服务调用链追踪", "description": "对指定根服务做跨服务调用链分析：RouteNode 静态匹配 + CBM trace_path 语义穿透", "arguments": ["workspace_path (required)", "filter_value (optional, 追踪起点)"]},
+                    {"name": "code-analysis", "title": "代码结构分析（不生成 Wiki）", "description": "仅解析代码结构、构建调用图、查询依赖和评估影响范围，不生成文档", "arguments": ["repo_path (optional, 默认当前目录)"]},
+                    {"name": "impact-review", "title": "修改影响范围评估", "description": "对指定组件执行传递性影响分析（BFS），评估修改爆炸半径与高风险组件", "arguments": ["repo_path (optional)", "target (optional, 组件 ID 或文件路径)"]},
+                    {"name": "architecture-review", "title": "架构审查与热点分析", "description": "通过依赖图分析识别核心层/服务层/应用层、依赖热点和耦合风险", "arguments": ["repo_path (optional, 默认当前目录)"]},
+                    {"name": "ingest-note", "title": "经验知识归档", "description": "将设计决策、经验教训、架构 rationale 等知识归档到 Wiki 知识库", "arguments": ["output_dir (optional)", "note_type (optional, 默认 general)"]},
+                    {"name": "init-wiki", "title": "初始化 Wiki 工作区", "description": "零配置初始化：创建目录结构、schema.yaml 模板、AGENTS.md 注入", "arguments": ["repo_path (optional, 默认当前目录)", "output_dir (optional)"]},
                 ],
                 "usage": "通过 MCP prompts/get 协议获取完整工作流指引，或调用 get_prompt 工具获取代码生成阶段的 prompt 模板",
             }, ensure_ascii=False, indent=2)
