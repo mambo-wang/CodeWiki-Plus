@@ -352,7 +352,7 @@ def _build_okf_frontmatter(
             import subprocess
             _sha = subprocess.run(
                 ["git", "rev-parse", "--short", "HEAD"],
-                cwd=session.repo_path, capture_output=True, text=True, timeout=5,
+                cwd=session.repo_path, capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=5,
             ).stdout.strip()
             if _sha:
                 _gen_from = _sha

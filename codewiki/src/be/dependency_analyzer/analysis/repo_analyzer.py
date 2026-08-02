@@ -48,6 +48,7 @@ class GitIgnoreFilter:
             root_result = subprocess.run(
                 [git_path, "-C", str(self.repo_dir), "rev-parse", "--show-toplevel"],
                 capture_output=True,
+                stdin=subprocess.DEVNULL,
                 text=True,
                 timeout=10,
             )
@@ -77,6 +78,7 @@ class GitIgnoreFilter:
                 ],
                 check=True,
                 capture_output=True,
+                stdin=subprocess.DEVNULL,
                 timeout=30,
             )
         except (OSError, ValueError, subprocess.SubprocessError) as exc:

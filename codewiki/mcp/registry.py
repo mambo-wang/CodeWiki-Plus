@@ -115,7 +115,7 @@ _register(
         },
     ),
     handler_path="codewiki.mcp.tools.analysis:handle_analyze_repo",
-    mode="main_thread",
+    mode="thread",  # was "main_thread" — blocked event loop, preventing ping responses
 )
 
 _register(
@@ -1146,7 +1146,7 @@ _register(
         },
     ),
     handler_path="codewiki.mcp.tools.workspace_analyzer:handle_analyze_workspace",
-    mode="main_thread",
+    mode="thread",  # was "main_thread" — same ping-blocking issue as analyze_repo
 )
 
 _register(
