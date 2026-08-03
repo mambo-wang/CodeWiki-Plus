@@ -410,13 +410,13 @@ CodeWiki-Plus 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 通过 `ingest_source` 和 `retract_source` 管理第三方文档（API 文档、设计规范、RFC 等）的完整生命周期：
 
 ```json
-// 导入外部文档
-{ "name": "rfc-7519-jwt", "source_type": "rfc", "source_path": "/path/to/rfc7519.txt",
+// 导入外部文档（必填 source_ref：源文件的绝对路径）
+{ "name": "rfc-7519-jwt", "source_type": "rfc", "source_ref": "/path/to/rfc7519.txt",
   "description": "JWT 规范", "related_pages": ["auth-module"] }
 
-// 撤回外部文档（两种模式）
-{ "source_name": "rfc-7519-jwt", "mode": "flag_stale" }    // 标记过期，保留文件
-{ "source_name": "rfc-7519-jwt", "mode": "remove_refs" }   // 删除文件，清理所有引用
+// 撤回外部文档（两种模式，必填 name：ingest_source 注册的标识）
+{ "name": "rfc-7519-jwt", "mode": "flag_stale" }    // 标记过期，保留文件
+{ "name": "rfc-7519-jwt", "mode": "remove_refs" }   // 删除文件，清理所有引用
 ```
 
 #### 文档健康检查
