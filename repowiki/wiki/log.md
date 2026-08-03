@@ -57,3 +57,6 @@
 * **close_session**: 会话关闭
 * **close_session**: 会话关闭
 * **close_session**: 会话关闭
+* **analyze_repo**: 分析仓库 CodeWiki-CN，1248 个组件
+* **ingest_note**: 添加笔记: 检索引擎架构说明
+* **close_session**: 会话关闭

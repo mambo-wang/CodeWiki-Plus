@@ -2,7 +2,7 @@
 okf_version: "0.2"
 ---
 
-<!-- 自动生成于 2026-08-03T13:12:39+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-03T13:39:48+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -59,3 +59,4 @@ okf_version: "0.2"
 
 * [Entity/Concept 提取采用 WeKnora 式两阶段流程（P0：纯 prompt 协议）](../notes/2026-08-03-entityconcept-提取采用-weknora-式两阶段流程p0纯-prompt-协议.md) - decision (decision, 2026-08-03)
 * [MCP 工具 schema 不声明 session_id，handler 隐式读取](../notes/2026-08-03-mcp-工具-schema-不声明-session-idhandler-隐式读取.md) - lesson (lesson, 2026-08-03)
+* [检索引擎架构说明](../notes/2026-08-03-检索引擎架构说明.md) - lesson (lesson, 2026-08-03)

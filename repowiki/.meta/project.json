@@ -1,6 +1,6 @@
 {
-  "repo_path": "/Users/kirito/repos/CodeWiki-CN",
-  "output_dir": "/Users/kirito/repos/CodeWiki-CN/repowiki",
+  "repo_path": "D:\\repos\\CodeWiki-CN",
+  "output_dir": "D:\\repos\\CodeWiki-CN\\repowiki",
   "repo_name": "CodeWiki-CN",
-  "cache_db": "/Users/kirito/repos/CodeWiki-CN/.codewiki/analysis_cache.db"
+  "cache_db": "D:\\repos\\CodeWiki-CN\\.codewiki\\analysis_cache.db"
 }

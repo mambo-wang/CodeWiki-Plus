@@ -1,14 +1,11 @@
-# CodeWiki LLM Wiki — Project Documentation Constitution
-# Auto-generated, can be manually edited. Re-running analyze_repo preserves user customizations.
-# Fields under 'project' are always auto-updated.
 ---
 version: 1
-generated_at: '2026-07-28T13:06:32.663609'
+generated_at: '2026-08-03T13:37:22.991317'
 project:
   name: CodeWiki-CN
   languages:
   - python
-  total_components: 528
+  total_components: 1248
 conventions:
   module_naming: PascalCase
   file_pattern: '*.md'
@@ -19,6 +16,8 @@ conventions:
   auto_crosslink: true
   okf_frontmatter: true
   okf_tags: []
+  okf_version: "0.2"
+  default_stale_days: 90
 required_sections:
 - title: Architecture Overview
   mermaid_diagram: true
@@ -83,3 +82,46 @@ page_types:
     - 决策结论
 extraction_granularity: exhaustive
 wiki_link_syntax: false
+purpose: ""
+doc_types:
+  default: design
+  types:
+    api:
+      module: "Focus on API documentation: endpoints, parameters, return types, and
+        usage examples."
+    architecture:
+      module: "Focus on architecture documentation: system design, component relationships,
+        and data flow."
+      overview: "Focus on system-level architecture: show how modules relate, data
+        flows between components, and the overall layered design. Include a high-level
+        Mermaid architecture diagram."
+    user-guide:
+      module: "Focus on user guide documentation: how to use features, step-by-step
+        tutorials."
+    developer:
+      module: "Focus on developer documentation: code structure, contribution guidelines,
+        and implementation details."
+    business:
+      module: "Focus on business logic documentation: describe business workflows,
+        processing pipelines, state transitions, and domain rules. Emphasize WHAT
+        the system does for users and WHY, trace end-to-end business scenarios through
+        the code, and document domain-specific terminology. De-emphasize infrastructure
+        and deployment details."
+    design:
+      module: "Generate technical design documentation optimized for AI comprehension.
+        For each module, describe in depth: (1) module responsibilities and boundaries,
+        (2) detailed implementation logic and business rules, (3) data flow within
+        and through the module, (4) interface contracts — inputs, outputs, and side
+        effects, (5) internal layered design and component collaboration patterns,
+        (6) relationships and dependencies with other modules, (7) constraints, assumptions,
+        and edge cases. Use precise technical language. Include Mermaid diagrams for
+        complex flows and interactions. Do not limit documentation length — let the
+        content depth match the module's complexity."
+      overview: "Focus on system-level architecture: show how modules relate to each
+        other, data flows between components, overall layered design, and key architectural
+        decisions. Provide a high-level view that helps readers understand the system's
+        structural blueprint. Include Mermaid diagrams for the architecture overview."
+
+# ── 文档规范 ─────────────────────────────────────────────────────────────
+export:
+  html: false
