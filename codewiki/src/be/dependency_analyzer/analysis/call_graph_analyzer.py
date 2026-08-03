@@ -11,6 +11,7 @@ import logging
 import traceback
 import time
 import signal
+import threading
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -39,24 +40,33 @@ class TimeoutError(Exception):
 
 @contextmanager
 def timeout(seconds):
-    """Context manager for timeout on file parsing."""
+    """Context manager for timeout on file parsing.
+
+    Uses SIGALRM, which is only available on the MAIN thread of a Unix
+    process.  When running elsewhere (Windows, or a worker thread such as
+    the MCP registry's mode="thread" dispatch via asyncio.to_thread),
+    signal.signal() raises ValueError, so we skip the timeout protection
+    and parse without it instead of failing every file.
+    """
     def signal_handler(signum, frame):
         raise TimeoutError(f"File parsing exceeded {seconds}s timeout")
-    
-    # Only use signal on Unix systems (not Windows)
-    try:
-        old_handler = signal.signal(signal.SIGALRM, signal_handler)
-        signal.alarm(seconds)
+
+    use_signal = (
+        hasattr(signal, "SIGALRM")
+        and threading.current_thread() is threading.main_thread()
+    )
+    if not use_signal:
+        # Windows / non-main thread: SIGALRM unavailable, skip timeout
         yield
-    except AttributeError:
-        # Windows doesn't support SIGALRM, skip timeout
+        return
+
+    old_handler = signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    try:
         yield
     finally:
-        try:
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, old_handler)
-        except (AttributeError, ValueError):
-            pass
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
 
 
 class CallGraphAnalyzer:
