@@ -24,7 +24,8 @@ def handle_batch_ingest(
 
     Accepts either an inline ``items`` list or an ``items_file`` path
     pointing to a JSON file with the same structure.  Each item must have
-    a ``kind`` field: ``"note"`` or ``"source"``.
+    a ``kind`` field: ``"note"`` or ``"source"`` (``type`` is accepted as
+    an alias for ``kind``).
 
     Returns a summary of succeeded/failed items.
     """
@@ -80,7 +81,15 @@ def handle_batch_ingest(
     from codewiki.mcp.tools.source_ingest import handle_ingest_source
 
     for i, item in enumerate(items):
-        kind = item.pop("kind", "note")
+        kind = item.pop("kind", None)
+        if kind is None:
+            # Tolerate the common alias 'type' (e.g. {"type": "source"}),
+            # otherwise such items would be silently ingested as notes.
+            kind = item.pop("type", None)
+            if kind is not None:
+                logger.info("batch item %d: accepted 'type' as alias for 'kind'", i)
+        if kind is None:
+            kind = "note"
         try:
             if kind == "note":
                 raw = handle_ingest_note(item, store)

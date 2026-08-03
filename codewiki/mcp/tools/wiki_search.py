@@ -141,12 +141,6 @@ def _read_note(fp: Path):
     try: return fp.read_text(encoding="utf-8", errors="replace")
     except OSError: return ""
 
-def _extract_title(ct):
-    for l in ct.splitlines()[:30]:
-        s = l.strip()
-        if s.startswith("# "): return s[2:].strip()
-    return None
-
 def _extract_fm(ct, key):
     if not ct.startswith("---"): return None
     try:
@@ -154,6 +148,17 @@ def _extract_fm(ct, key):
         for l in ct[3:end].splitlines():
             if l.startswith(f"{key}:"): return l[len(key)+1:].strip().strip('"').strip("'")
     except ValueError: pass
+    return None
+
+# Strip markdown links from H1 titles: "[JwtUtil](../src/JwtUtil.java)" -> "JwtUtil"
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+
+def _extract_title(ct):
+    for l in ct.splitlines()[:30]:
+        s = l.strip()
+        if s.startswith("# "):
+            title = _MD_LINK_RE.sub(lambda m: m.group(1), s[2:]).strip()
+            return title or None
     return None
 
 # ---- Public API ----

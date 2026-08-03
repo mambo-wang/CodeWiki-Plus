@@ -1040,7 +1040,8 @@ _register(
         description=(
             "Bulk-import multiple notes and/or source documents in one call. "
             "Accepts an inline items list or an items_file path (for large batches). "
-            "Each item must have a 'kind' field: 'note' or 'source', plus the fields "
+            "Each item must have a 'kind' field: 'note' or 'source' ('type' is accepted "
+            "as an alias for 'kind'), plus the fields "
             "for that tool (e.g., kind='note' needs title+content, kind='source' needs source_ref). "
             "Performs a single index rebuild at the end for efficiency. "
             "Use this when importing many documents at once instead of calling "
