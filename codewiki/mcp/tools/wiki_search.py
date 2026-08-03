@@ -121,6 +121,7 @@ def _load_index(od):
 def _save_index(od, idx):
     p = _index_path(od); tmp = p.with_suffix(".tmp")
     try:
+        p.parent.mkdir(parents=True, exist_ok=True)
         tmp.write_text(json.dumps(idx.to_dict(), ensure_ascii=False), encoding="utf-8")
         os.replace(str(tmp), str(p))
     except Exception as e:

@@ -104,11 +104,19 @@ def _build_schema_constraints(output_dir: Optional[str]) -> str:
     # OKF frontmatter
     if conventions.get("okf_frontmatter", False):
         parts.append(
-            "OKF (Open Knowledge Format) compliance:\n"
+            "OKF (Open Knowledge Format) v0.2 compliance:\n"
             "Every markdown file MUST start with YAML frontmatter between `---` delimiters.\n"
             "Required field:\n"
-            "  - type: one of [Module, Architecture, Index, Log] (required)\n"
-            "Recommended fields:\n"
+            "  - type: one of [Module, Architecture, Entity, Concept, Source, Comparison, Index, Log] (required)\n"
+            "Provenance & lifecycle fields (v0.2):\n"
+            "  - generated: { by: <actor>, at: <ISO-8601 UTC> } — producer identity and creation time.\n"
+            "    Actor convention: '<tool>/<version>' (e.g. codewiki/5.2.0), 'human:<id>' for people,\n"
+            "    'process:<id>' for automated pipelines.\n"
+            "  - status: draft | stable | deprecated — lifecycle stage (draft while unreviewed).\n"
+            "  - stale_after: YYYY-MM-DD — date after which the knowledge should be re-verified.\n"
+            "  - sources: list of {id, resource, title, last_modified} entries for external references.\n"
+            "  - verified: list of {by, at} events recording human/machine review (added by confirm_note).\n"
+            "Other recommended fields:\n"
             "  - title: concise document title\n"
             "  - description: 1-2 sentence semantic summary of the module's purpose and responsibilities\n"
             "  - resource: primary source file path or directory (e.g., src/auth/)\n"
@@ -121,8 +129,14 @@ def _build_schema_constraints(output_dir: Optional[str]) -> str:
             "description: Handles user authentication, JWT token generation, and session management\n"
             "resource: src/auth/\n"
             "tags: [authentication, jwt, session, security]\n"
+            "generated: { by: codewiki/5.2.0, at: 2026-08-03T10:00:00Z }\n"
+            "status: draft\n"
+            "stale_after: 2026-11-01\n"
             "---\n"
-            "```"
+            "```\n"
+            "When citing imported third-party documents in the body, use footnotes like\n"
+            "`[^src-name]` where `src-name` matches the source id in source_registry.json; the\n"
+            "sources frontmatter block is filled in automatically."
         )
 
     if not parts:
@@ -337,8 +351,18 @@ def handle_get_prompt(
     """
     prompt_type = arguments["prompt_type"]
     variables = arguments.get("variables", {})
+    # Bundle locators, most-direct first:
+    #   output_dir  → points straight at the bundle holding schema.yaml
+    #   repo_path   → derives <repo>/repowiki (also enables workspace writes)
+    #   session_id  → resolves via the active session's output_dir
+    output_dir_arg = arguments.get("output_dir")
     repo_path = arguments.get("repo_path")
-    if repo_path:
+    if output_dir_arg:
+        from pathlib import Path
+        output_dir = str(Path(output_dir_arg).expanduser().resolve())
+        # No session/workspace here; large prompts stay inline.
+        session = None
+    elif repo_path:
         from pathlib import Path
         rp = str(Path(repo_path).expanduser().resolve()) if Path(repo_path).is_absolute() else str((Path.cwd() / repo_path).expanduser().resolve())
         output_dir = str(Path(rp) / "repowiki")
@@ -351,6 +375,14 @@ def handle_get_prompt(
     else:
         session = None
         output_dir = None
+        # Session-based call: resolve output_dir so schema constraints
+        # (incl. the OKF v0.2 compliance block) get injected as well.
+        sid = arguments.get("session_id")
+        if sid:
+            active = store.get(sid)
+            if active is not None and getattr(active, "output_dir", None):
+                session = active
+                output_dir = active.output_dir
 
     if prompt_type not in _PROMPT_CATALOG:
         available = list(_PROMPT_CATALOG.keys())
@@ -949,7 +981,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "type: query\n"
             "title: \"<Query Title>\"\n"
             "query_date: <YYYY-MM-DD>\n"
-            "status: <open|resolved|archived>\n"
+            "query_status: <open|resolved|archived>\n"
             "tags: [<semantic tags>]\n"
             "---\n"
             "```\n\n"
@@ -1095,7 +1127,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "4. Notes which original notes were merged (in a `## Sources` section)\n"
             "5. Keeps `related_modules` as the union of all originals\n\n"
             "### Step 4: Execute\n\n"
-            "1. Call `ingest_note` with the merged content (same note_type, status='candidate')\n"
+            "1. Call `ingest_note` with the merged content (same note_type, status='draft')\n"
             "2. Call `reject_note` on each original note with reason='consolidated into <new-title>'\n"
             "3. Run `lint_wiki(checks=['note_clusters'])` to verify the cluster is resolved\n\n"
             "**Principle**: The merged note should be the single source of truth. "

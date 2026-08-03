@@ -317,15 +317,17 @@ CodeWiki-Plus 在 Prompt 层和引擎层做了系统性优化，显著提升生�
 
 ### 知识飞轮
 
-笔记系统引入 candidate → confirmed → rejected 状态流转，确保 LLM 自动沉淀的知识经过研发确认：
+笔记系统遵循 OKF v0.2 的 draft → stable → deprecated 生命周期，确保 LLM 自动沉淀的知识经过研发确认：
 
 ```
 LLM 发现跨功能约束
-  → ingest_note(status=candidate) 写入 notes/
+  → ingest_note(status=draft) 写入 notes/
   → query_wiki 返回时标注 [unconfirmed]
-  → 研发确认：confirm_note → 升级为正式知识
-  → 研发否决：reject_note → 不再被搜索返回（保留记录）
+  → 研发确认：confirm_note → 升级为 stable 并记录 verified 审核事件
+  → 研发否决：reject_note → 标记 deprecated，不再被搜索返回（保留记录）
 ```
+
+旧版词汇（candidate/confirmed/rejected/superseded）在读取端自动归一化，存量笔记无需立即迁移。
 
 ### 渐进式阅读协议
 
@@ -419,7 +421,7 @@ CodeWiki-Plus 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 
 #### 文档健康检查
 
-`lint_wiki` 提供 **11 项检查**，覆盖结构完整性和内容质量：
+`lint_wiki` 提供 **16 项检查**，覆盖结构完整性和内容质量：
 
 | 检查项 | 说明 |
 |--------|------|
@@ -434,8 +436,27 @@ CodeWiki-Plus 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 | `stale_sources` | 引用了已撤回外部文档的页面 |
 | `overview_stale` | overview.md 引用了已变更的模块 |
 | `unsupported_claims` | 业务断言缺少代码证据（>30% 触发警告） |
+| `superseded_pages` | 标记为已取代（superseded/deprecated）的页面 |
+| `isolated_components` | 零依赖零被依赖的孤立组件 |
+| `stale_notes` | 超过 90 天且 60 天内未被检索的已确认笔记 |
+| `note_clusters` | 同模块同类型笔记 ≥3 条，建议合并 |
+| `okf_conformance` | OKF v0.2 合规审计：缺失 type/frontmatter、旧版状态词、verified 格式错误、stale_after 过期、缺 okf_version |
 
 `lint_wiki` 返回 **health_score**（0-100），计算方式为 `100 - Σ(error×10 + warning×3 + info×1)`。
+
+#### OKF v0.2 兼容
+
+生成的 Wiki 遵循谷歌 [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog) v0.2 规范，每个 Markdown 页面携带标准化 frontmatter：
+
+- **type（必填）**：页面类型，如 `Module` / `Entity` / `Concept` / `Source`，由 `write_doc_file` 自动注入
+- **generated**：`{ by: codewiki/5.2.0, at: <ISO-8601> }` 生产者溯源（actor 约定：`<tool>/<version>`、`human:<id>`、`process:<id>`）
+- **status**：生命周期状态 `draft → stable → deprecated`，笔记默认 draft，经 `confirm_note` 确认后升级为 stable
+- **stale_after**：知识保鲜期（默认 90 天，`schema.yaml` 的 `conventions.default_stale_days` 可调），过期由 lint 提示复核
+- **verified**：`confirm_note` 追加 `{by, at}` 审核事件，支撑 machine-confirmed / human-reviewed 信任分级
+- **sources**：引用外部文档时自动从 source_registry.json 生成 `{id, resource, title}` 列表
+- `wiki/index.md` 声明 `okf_version: "0.2"` 并采用 §8 列表格式，`log.md` 采用 §9 按日期分组格式
+
+存量旧版 Wiki 可用一次性迁移脚本升级：`python scripts/migrate_okf.py <repowiki目录>`（幂等、可 `--dry-run` 预览）。
 
 #### 全文搜索
 
@@ -812,14 +833,14 @@ Three layers of incremental optimization:
 
 ### Knowledge Flywheel
 
-Notes follow a candidate → confirmed → rejected lifecycle:
+Notes follow the OKF v0.2 draft → stable → deprecated lifecycle:
 
 ```
 LLM discovers cross-cutting constraint
-  → ingest_note(status=candidate)
+  → ingest_note(status=draft)
   → query_wiki annotates [unconfirmed]
-  → Developer confirms: confirm_note → promoted to verified knowledge
-  → Developer rejects: reject_note → excluded from search (record preserved)
+  → Developer confirms: confirm_note → promoted to stable, records a verified event
+  → Developer rejects: reject_note → marked deprecated, excluded from search (record preserved)
 ```
 
 ### Progressive Reading Protocol

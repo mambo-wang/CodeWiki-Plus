@@ -109,7 +109,7 @@ def handle_batch_ingest(
     # Single index rebuild at the end
     output_dir = None
     if session:
-        output_dir = Path(session.output_dir)
+        output_dir = Path(session.output_dir).expanduser().resolve()
     elif top_output_dir:
         output_dir = Path(top_output_dir).expanduser().resolve()
 

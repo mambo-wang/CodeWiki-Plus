@@ -225,6 +225,154 @@ def _title_from_filename(name: str) -> str:
     return name.replace("_", " ").replace("-", " ").title()
 
 
+# ---------------------------------------------------------------------
+# OKF v0.2 helpers
+# ---------------------------------------------------------------------
+
+# page_type → OKF `type` value (shared by build and patch paths)
+_OKF_TYPE_MAP = {
+    "module": "Module",
+    "entity": "Entity",
+    "concept": "Concept",
+    "source": "Source",
+    "comparison": "Comparison",
+    "query": "Query",
+}
+
+
+def _okf_stale_date(schema: dict | None, ref_date=None) -> str:
+    """Return ``today + default_stale_days`` as ``YYYY-MM-DD`` (OKF §5.5).
+
+    Reads ``conventions.default_stale_days`` from *schema* (default 90,
+    aligned with the lint stale_notes policy).
+    """
+    from datetime import datetime, timedelta, timezone
+    days = 90
+    try:
+        days = int((schema or {}).get("conventions", {}).get("default_stale_days", 90))
+    except (TypeError, ValueError):
+        pass
+    base = ref_date or datetime.now(timezone.utc)
+    return (base + timedelta(days=days)).strftime("%Y-%m-%d")
+
+
+def _okf_generated_line() -> str:
+    """Build the OKF v0.2 §5.2 ``generated: {by, at}`` frontmatter line."""
+    from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        from codewiki.src.config import actor_id
+        actor = actor_id()
+    except Exception:
+        actor = "codewiki"
+    return f"generated: {{ by: {actor}, at: {now_iso} }}"
+
+
+def _okf_patch_defaults(
+    filename: str,
+    page_type: str = "module",
+    user_title: str | None = None,
+    user_description: str | None = None,
+    schema: dict | None = None,
+) -> list:
+    """Ordered ``(key, formatted_line)`` defaults used to patch existing frontmatter.
+
+    Only genuinely missing keys are applied (see _patch_existing_frontmatter).
+    """
+    import json as _json
+    doc_type = _OKF_TYPE_MAP.get(page_type, page_type.capitalize())
+    lines = [("type", f"type: {doc_type}")]
+    title = user_title or _title_from_filename(filename)
+    lines.append(("title", f"title: {_json.dumps(title, ensure_ascii=False)}"))
+    if user_description:
+        lines.append(
+            ("description", f"description: {_json.dumps(user_description, ensure_ascii=False)}")
+        )
+    lines.append(("generated", _okf_generated_line()))
+    lines.append(("stale_after", f"stale_after: {_okf_stale_date(schema)}"))
+    return lines
+
+
+def _patch_existing_frontmatter(
+    content: str,
+    filename: str,
+    page_type: str = "module",
+    user_title: str | None = None,
+    user_description: str | None = None,
+    schema: dict | None = None,
+) -> str:
+    """Patch an existing YAML frontmatter block with missing OKF keys.
+
+    OKF v0.2 §11 requires every concept document to carry parseable
+    frontmatter with a non-empty ``type``.  Agent-provided frontmatter
+    often omits it, so we add missing keys instead of skipping the file.
+
+    Additive only: existing keys are never overridden or reordered, and
+    unparseable frontmatter is returned untouched.
+    """
+    if not content.startswith("---"):
+        return content
+    lines = content.split("\n")
+    end = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end is None:
+        return content  # malformed frontmatter; leave untouched
+
+    fm_text = "\n".join(lines[1:end])
+    try:
+        import yaml
+        data = yaml.safe_load(fm_text)
+        if not isinstance(data, dict):
+            return content
+    except Exception:
+        return content  # unparseable; leave untouched
+
+    additions = [line for key, line in _okf_patch_defaults(
+        filename, page_type, user_title, user_description, schema,
+    ) if key not in data]
+    if not additions:
+        return content
+
+    head = "\n".join(lines[:end]).rstrip("\n")
+    tail = "\n".join(lines[end:])  # starts with the closing '---'
+    return head + "\n" + "\n".join(additions) + "\n" + tail
+
+
+def _okf_sources_block(output_dir, source_refs: list) -> list:
+    """Build OKF v0.2 ``sources:`` frontmatter lines (SPEC §5.1).
+
+    Maps *source_refs* that exist in source_registry.json to
+    ``{id, resource, title, last_modified}`` entries.  Returns [] when
+    nothing matches (the field is optional in OKF).
+    """
+    if not source_refs:
+        return []
+    try:
+        from codewiki.mcp.tools.source_ingest import _load_registry, _okf_source_entry
+        registry = _load_registry(Path(output_dir)).get("sources", {})
+    except Exception:
+        return []
+    entries = []
+    for name in source_refs:
+        info = registry.get(name)
+        if isinstance(info, dict) and info.get("status") != "retracted":
+            entries.append(_okf_source_entry(Path(output_dir), name, info))
+    if not entries:
+        return []
+    import json as _json
+    lines = ["sources:"]
+    for e in entries:
+        lines.append(f"  - id: {e['id']}")
+        for key in ("resource", "title", "last_modified"):
+            if key in e:
+                val = _json.dumps(e[key], ensure_ascii=False) if key == "title" else e[key]
+                lines.append(f"    {key}: {val}")
+    return lines
+
+
 def _build_okf_frontmatter(
     session: SessionState,
     filename: str,
@@ -363,6 +511,20 @@ def _build_okf_frontmatter(
         _gen_from = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     fm_parts.append(f"generated_from: {_gen_from}")
 
+    # OKF v0.2 §5.2: `generated: {by, at}` with actor convention (§7).
+    # Kept alongside the legacy generated_from (sha) extension key.
+    from datetime import datetime as _dt, timezone as _tzc
+    _now_iso = _dt.now(_tzc.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        from codewiki.src.config import actor_id as _actor_id
+        _actor = _actor_id()
+    except Exception:
+        _actor = "codewiki"
+    fm_parts.append(f"generated: {{ by: {_actor}, at: {_now_iso} }}")
+
+    # OKF v0.2 §5.5: absolute staleness date (default_stale_days from schema)
+    fm_parts.append(f"stale_after: {_okf_stale_date(schema)}")
+
     # Merge frontmatter_extra
     extra = frontmatter_extra or {}
     # Default alias keeps the doc discoverable by its slug, so the linter's
@@ -379,14 +541,28 @@ def _build_okf_frontmatter(
             val = extra[key]
             fm_parts.append(f'{key}: "{val}"' if isinstance(val, str) else f"{key}: {val}")
 
-    # Auto-extract source references from body ([^src:name:start-end])
+    # Auto-extract source references from body ([^src:name:start-end] and
+    # OKF v0.2 bare footnotes [^name] keyed to registered source ids)
     source_refs, chunk_refs = _extract_source_refs(content)
+    try:
+        from codewiki.mcp.tools.source_ingest import _load_registry
+        _registry = _load_registry(Path(session.output_dir)).get("sources", {})
+    except Exception:
+        _registry = {}
+    if _registry:
+        _bare_labels = set(re.findall(r"\[\^([A-Za-z0-9_\-\.]+)\]", content))
+        _matched = _bare_labels & set(_registry)
+        if _matched:
+            source_refs = sorted(set(source_refs) | _matched)
     if source_refs:
         refs_str = ", ".join(f'"{r}"' for r in source_refs)
         fm_parts.append(f"source_refs: [{refs_str}]")
     if chunk_refs:
         chunks_str = ", ".join(f'"{c}"' for c in chunk_refs)
         fm_parts.append(f"chunk_refs: [{chunks_str}]")
+
+    # OKF v0.2 §5.1: `sources` frontmatter family from source_registry.json
+    fm_parts.extend(_okf_sources_block(session.output_dir, source_refs))
 
     fm_parts.append("---")
     fm_parts.append("")
@@ -407,6 +583,15 @@ def _inject_frontmatter(
     schema = load_schema(session.output_dir)
     if not schema.get("conventions", {}).get("okf_frontmatter", True):
         return content
+
+    # OKF P0: content already has frontmatter → patch missing OKF keys
+    # (agents often hand-write frontmatter without `type`; OKF §11 requires it).
+    if content.startswith("---"):
+        return _patch_existing_frontmatter(
+            content, filename, page_type=page_type,
+            user_title=user_title, user_description=user_description,
+            schema=schema,
+        )
 
     frontmatter = _build_okf_frontmatter(
         session, filename, content,
@@ -706,8 +891,14 @@ def _inject_lightweight_frontmatter(
     user_tags: list | None = None,
 ) -> str:
     """Inject minimal YAML frontmatter when no session is available."""
+    # OKF P0: existing frontmatter → patch missing OKF keys (schema may be
+    # unavailable in sessionless mode; defaults apply).
     if content.startswith("---"):
-        return content  # Already has frontmatter
+        return _patch_existing_frontmatter(
+            content, filename, page_type=page_type,
+            user_title=user_title, user_description=user_description,
+            schema=None,
+        )
 
     mod_name = _title_from_filename(filename)
     _TYPE_MAP = {
@@ -741,6 +932,10 @@ def _inject_lightweight_frontmatter(
         f"type: {doc_type}",
         f"description: \"{description}\"" if description else f"description: {mod_name}",
     ]
+
+    # OKF v0.2 §5.2/§5.5: trust + lifecycle fields
+    fm_lines.append(_okf_generated_line())
+    fm_lines.append(f"stale_after: {_okf_stale_date(None)}")
 
     # Default alias keeps the doc discoverable by its slug.
     aliases = (frontmatter_extra or {}).get("aliases")

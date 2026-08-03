@@ -197,11 +197,19 @@ def append_log(
     operation: str,
     summary: str,
 ) -> None:
-    """Append one timestamped row to ``wiki/log.md``.
+    """Record one operation in ``wiki/log.md`` (OKF v0.2 §9 format).
 
-    Creates the file with a header on first call.  Uses ``fcntl.flock``
-    for safe concurrent appends.  Silently returns if *output_dir* does
-    not exist.
+    §9: flat list of date-grouped entries, newest first::
+
+        # Directory Update Log
+
+        ## 2026-08-03
+        * **write_doc_file**: Created foo.md
+
+    Entries for the same day are appended to that day's block; a new day
+    section is inserted at the top.  Legacy v5.1.x table logs are kept
+    below the new sections, marked once with an archive comment.
+    Silently returns if *output_dir* does not exist.
     """
     output_dir = Path(output_dir)
     if not output_dir.is_dir():
@@ -214,32 +222,62 @@ def append_log(
     wiki_dir.mkdir(parents=True, exist_ok=True)
     log_path = wiki_dir / LOG_FILENAME
 
-    # Escape pipe characters to prevent table corruption
-    safe_op = operation.replace("|", "\\|")
-    safe_summary = summary.replace("|", "\\|")
+    safe_op = operation.replace("\n", " ").replace("|", "/")
+    safe_summary = summary.replace("\n", " ").replace("|", "/")
+    now = datetime.now(_TZ_CST)
+    date_str = now.strftime("%Y-%m-%d")
+    entry = f"* **{safe_op}**: {safe_summary}"
 
-    now = datetime.now(_TZ_CST).strftime("%Y-%m-%dT%H:%M:%S+08:00")
-    row = f"| {now} | {safe_op} | {safe_summary} |"
+    with _log_create_lock:
+        if not log_path.exists():
+            header = (
+                "# 操作日志\n"
+                "\n"
+                "> 按日期倒序分组的操作记录，由系统自动维护（OKF v0.2 §9 格式）\n"
+                "\n"
+            )
+            try:
+                log_path.write_text(header, encoding="utf-8")
+            except OSError as e:
+                logger.warning("Failed to create log.md: %s", e)
+                return
 
-    # If the file doesn't exist yet, create with header (thread-safe)
-    if not log_path.exists():
-        with _log_create_lock:
-            # Double-check after acquiring lock
-            if not log_path.exists():
-                header = (
-                    "# 操作日志\n\n"
-                    "> 本文件为追加写入的操作记录，由系统自动维护\n\n"
-                    "| 时间 | 操作 | 说明 |\n"
-                    "|------|------|------|\n"
-                )
-                try:
-                    log_path.parent.mkdir(parents=True, exist_ok=True)
-                    log_path.write_text(header, encoding="utf-8")
-                except Exception as e:
-                    logger.warning("Failed to create log.md: %s", e)
-                    return
+        try:
+            content = log_path.read_text(encoding="utf-8")
+        except OSError as e:
+            logger.warning("Failed to read log.md: %s", e)
+            return
 
-    _append_with_lock(log_path, row)
+        lines = content.split("\n")
+        n = len(lines)
+
+        # Anchor: first date heading, or legacy table row (v5.1.x format)
+        idx = 0
+        while idx < n and not lines[idx].startswith("## ") and not lines[idx].startswith("|"):
+            idx += 1
+
+        if idx < n and lines[idx].startswith("|"):
+            # Legacy table log: insert new-format section before the table,
+            # marking the archive boundary once.
+            marker = "<!-- 以下为 v5.1.x 旧格式日志存档 -->"
+            block = [f"## {date_str}", entry, ""]
+            if marker not in content:
+                block.append(marker)
+            lines = lines[:idx] + block + lines[idx:]
+        elif idx < n and lines[idx].strip() == f"## {date_str}":
+            # Same-day section exists: append after its last non-empty line
+            j = idx + 1
+            while j < n and not lines[j].startswith("## "):
+                j += 1
+            k = j
+            while k > idx + 1 and lines[k - 1].strip() == "":
+                k -= 1
+            lines.insert(k, entry)
+        else:
+            # New day section at the top (newest first)
+            lines = lines[:idx] + [f"## {date_str}", entry, ""] + lines[idx:]
+
+        _atomic_write(log_path, "\n".join(lines))
     logger.debug("Appended log entry: %s", safe_op)
 
 
@@ -249,9 +287,21 @@ def append_log(
 
 
 def _extract_doc_title_and_summary(filepath: Path) -> Tuple[str, str]:
-    """Read the first 50 lines of a .md file and extract title + summary."""
-    title: Optional[str] = None
-    summary: Optional[str] = None
+    """Extract title + summary for an index entry.
+
+    OKF v0.2 §8: entries SHOULD carry the concept's frontmatter
+    ``description``.  Prefer ``title``/``description`` from YAML
+    frontmatter, falling back to H1 / first-paragraph scanning.
+    """
+    fm = _parse_note_frontmatter(filepath)  # generic frontmatter parser
+    fm_title = fm.get("title")
+    fm_desc = fm.get("description")
+    if isinstance(fm_title, str) and fm_title.strip() and \
+       isinstance(fm_desc, str) and fm_desc.strip():
+        return fm_title.strip(), fm_desc.strip()[:120]
+
+    title: Optional[str] = fm_title.strip() if isinstance(fm_title, str) and fm_title.strip() else None
+    summary: Optional[str] = fm_desc.strip()[:120] if isinstance(fm_desc, str) and fm_desc.strip() else None
     try:
         with open(filepath, encoding="utf-8", errors="replace") as f:
             for i, line in enumerate(f):
@@ -328,35 +378,49 @@ def _render_index(
     generated_at: str,
     health_score: int = 100,
 ) -> str:
-    """Produce the full index.md markdown string with by-type sections."""
+    """Produce the full index.md markdown string (OKF v0.2 §8 format).
+
+    §8: body sections group concepts as ``* [Title](url) - description``
+    bullets.  §12: the bundle-root index may carry only ``okf_version``
+    frontmatter; generation metadata lives in an HTML comment so the file
+    stays conformant while keeping its self-describing header.
+    """
+    try:
+        from codewiki.src.config import OKF_VERSION
+    except Exception:
+        OKF_VERSION = "0.2"
     parts: List[str] = [
-        "# 项目文档索引\n",
-        f"> 自动生成于 {generated_at} | Health Score: **{health_score}/100** | 本文件由系统自动维护\n",
+        "---",
+        f'okf_version: "{OKF_VERSION}"',
+        "---",
+        "",
+        f"<!-- 自动生成于 {generated_at} | Health Score: {health_score}/100 | 本文件由系统自动维护 -->",
+        "",
+        "# 项目文档索引",
+        "",
     ]
 
-    # Render each page type section
+    # Render each page type section (§8 bullet lists)
     for page_type, label in _PAGE_TYPE_LABELS.items():
         entries = type_entries.get(page_type, [])
         if not entries:
             continue
-        parts.append(f"## {label}\n")
-        parts.append("| 文档 | 说明 |")
-        parts.append("|------|------|")
+        parts.append(f"## {label}")
+        parts.append("")
         for entry in entries:
             parts.append(
-                f"| [{entry['title']}]({entry['relpath']}) | {entry['summary']} |"
+                f"* [{entry['title']}]({entry['relpath']}) - {entry['summary']}"
             )
         parts.append("")
 
     # Notes section
     if note_entries:
-        parts.append("## 知识笔记\n")
-        parts.append("| 标题 | 类型 | 日期 | 文件 |")
-        parts.append("|------|------|------|------|")
+        parts.append("## 知识笔记")
+        parts.append("")
         for entry in note_entries:
+            meta = f" ({entry['type']}, {entry['date']})" if entry.get("date") else ""
             parts.append(
-                f"| {entry['title']} | {entry['type']} | {entry['date']}"
-                f" | [链接]({entry['relpath']}) |"
+                f"* [{entry['title']}]({entry['relpath']}) - {entry['type']}{meta}"
             )
         parts.append("")
 
