@@ -21,6 +21,10 @@ _SCHEMA_TEMPLATE_PKG = Path(__file__).resolve().parents[2] / "templates" / "sche
 _SCHEMA_TEMPLATE_ROOT = Path(__file__).resolve().parents[3] / "schema.yaml"
 _SCHEMA_TEMPLATE = _SCHEMA_TEMPLATE_PKG if _SCHEMA_TEMPLATE_PKG.exists() else _SCHEMA_TEMPLATE_ROOT
 
+# Ontology template: project-level term normalization for search
+_ONTOLOGY_TEMPLATE_PKG = Path(__file__).resolve().parents[2] / "templates" / "ontology.yaml"
+_ONTOLOGY_TEMPLATE = _ONTOLOGY_TEMPLATE_PKG if _ONTOLOGY_TEMPLATE_PKG.exists() else None
+
 # Subdirectories to create under output_dir
 _WIKI_SUBDIRS = [
     "wiki/modules",
@@ -79,6 +83,7 @@ def handle_init_wiki(arguments: dict) -> str:
         "output_dir": str(output_dir_p),
         "created_dirs": [],
         "schema_yaml": None,
+        "ontology_yaml": None,
         "agents_md": None,
     }
 
@@ -106,6 +111,16 @@ def handle_init_wiki(arguments: dict) -> str:
         results["schema_yaml"] = f"WARNING: template not found at {_SCHEMA_TEMPLATE}"
         logger.warning("schema.yaml template not found: %s", _SCHEMA_TEMPLATE)
 
+    # ── Step 2b: Copy ontology.yaml (term normalization for search) ─────
+    if _ONTOLOGY_TEMPLATE and _ONTOLOGY_TEMPLATE.exists():
+        onto_dest = output_dir_p / "ontology.yaml"
+        if not onto_dest.exists():
+            shutil.copy2(str(_ONTOLOGY_TEMPLATE), str(onto_dest))
+            results["ontology_yaml"] = str(onto_dest)
+            logger.info("Copied ontology.yaml template to %s", onto_dest)
+        else:
+            results["ontology_yaml"] = str(onto_dest) + " (already exists, skipped)"
+
     # ── Step 3: Write AGENTS.md ─────────────────────────────────────────
     try:
         from codewiki.mcp.tools.agents_md import write_agents_md
@@ -126,7 +141,8 @@ def handle_init_wiki(arguments: dict) -> str:
     results["next_steps"] = (
         "Wiki workspace initialized. Next: "
         "1) Edit schema.yaml to set 'purpose' and adjust conventions; "
-        "2) Run analyze_repo to parse code and generate docs; "
-        "3) Or use ingest_note/query_wiki for knowledge management."
+        "2) Edit ontology.yaml to define project terms and aliases for search; "
+        "3) Run analyze_repo to parse code and generate docs; "
+        "4) Or use ingest_note/query_wiki for knowledge management."
     )
     return json.dumps(results, ensure_ascii=False, indent=2)

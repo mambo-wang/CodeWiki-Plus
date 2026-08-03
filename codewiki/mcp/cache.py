@@ -138,6 +138,76 @@ def _parse_frontmatter_dict(text: str) -> Dict[str, Any]:
         return result
 
 
+# ------------------------------------------------------------------ Ontology term expansion
+
+_ontology_cache: Dict[str, Tuple[float, Dict[str, List[str]]]] = {}
+
+def _load_ontology(output_dir: Optional[Path]) -> Dict[str, List[str]]:
+    """Load ontology.yaml and build synonym expansion map.
+
+    Returns a dict mapping each term (canonical + aliases) to the full list
+    of all synonyms in its group. Cached by file mtime.
+
+    Example ontology.yaml:
+        terms:
+          搜索索引:
+            aliases: [BM25缓存, retrieval cache, 倒排索引]
+
+    Result: {"搜索索引": ["搜索索引","BM25缓存","retrieval cache","倒排索引"],
+             "bm25缓存": ["搜索索引","BM25缓存","retrieval cache","倒排索引"], ...}
+    """
+    if output_dir is None:
+        return {}
+    onto_path = Path(output_dir) / "ontology.yaml"
+    if not onto_path.exists():
+        return {}
+    try:
+        mtime = onto_path.stat().st_mtime
+        cached = _ontology_cache.get(str(onto_path))
+        if cached and cached[0] == mtime:
+            return cached[1]
+        import yaml
+        with open(onto_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict) or "terms" not in data:
+            return {}
+        # Build expansion map: every member -> all members (lowercased keys)
+        expansion: Dict[str, List[str]] = {}
+        for canonical, info in data["terms"].items():
+            aliases = []
+            if isinstance(info, dict):
+                raw = info.get("aliases", [])
+                if isinstance(raw, list):
+                    aliases = [str(a) for a in raw]
+                elif isinstance(raw, str):
+                    aliases = [raw]
+            members = [str(canonical)] + aliases
+            for m in members:
+                expansion[m.lower()] = members
+        _ontology_cache[str(onto_path)] = (mtime, expansion)
+        return expansion
+    except Exception as e:
+        logger.warning("Failed to load ontology.yaml: %s", e)
+        return {}
+
+
+def _expand_with_ontology(tokens: List[str], ontology: Dict[str, List[str]]) -> List[str]:
+    """Expand token list using ontology synonym map. Preserves order, no duplicates."""
+    if not ontology:
+        return tokens
+    seen = set(tokens)
+    result = list(tokens)
+    for tok in tokens:
+        synonyms = ontology.get(tok.lower())
+        if synonyms:
+            for s in synonyms:
+                s_lower = s.lower()
+                if s_lower not in seen:
+                    seen.add(s_lower)
+                    result.append(s)
+    return result
+
+
 def _build_indexable_text(content: str, page_type: Optional[str] = None) -> str:
     """Build indexable text from content with frontmatter field boosting.
 
@@ -997,6 +1067,10 @@ class AnalysisCache:
                 for tt in _tokenize(t):
                     if tt not in qts:
                         qts.append(tt)
+        # Ontology-based synonym expansion (automatic, no caller action needed)
+        ontology = _load_ontology(output_dir)
+        if ontology:
+            qts = _expand_with_ontology(qts, ontology)
         if not qts:
             return []
         max_results = min(20, max(1, max_results))

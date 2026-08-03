@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from codewiki.mcp.cache import (
     _STOPWORDS, _K1, _B, _build_indexable_text,
     _tokenize, _extract_snippet,
+    _load_ontology, _expand_with_ontology,
 )
 
 logger = logging.getLogger(__name__)
@@ -317,6 +318,9 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
         for t in expand_terms:
             for tt in _tokenize(t):
                 if tt not in qts: qts.append(tt)
+    ontology = _load_ontology(od)
+    if ontology:
+        qts = _expand_with_ontology(qts, ontology)
     if not qts: return []
     idx = _load_index(od)
     if idx.total_docs == 0: return []
