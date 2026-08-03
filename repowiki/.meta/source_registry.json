@@ -25,6 +25,17 @@
       "content_hash": "sha256:160863f50fd600698929ee17f83534d0dbea8bc5a6bd765c76a1b2d9775d4c6f",
       "retracted_at": "2026-07-28T13:10:10.103480",
       "retract_mode": "remove_refs"
+    },
+    "README_CN": {
+      "path": "raw\\sources\\README_CN.md",
+      "original_path": "D:\\repos\\WeKnora\\README_CN.md",
+      "source_type": "md",
+      "description": "WeKnora（腾讯开源企业级知识库平台）中文 README，用于测试两阶段知识提取流程",
+      "version": "",
+      "imported_at": "2026-08-03T12:50:45.699559",
+      "related_pages": [],
+      "status": "active",
+      "content_hash": "sha256:1f50cb5774a7165539cf11adc4b8327b217179a602eb68c5bccb1df3ff1dc30d"
     }
   },
   "version": 1

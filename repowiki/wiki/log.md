@@ -41,3 +41,19 @@
 | 2026-07-28T14:11:33+08:00 | lint_wiki | 检查完成: 1 个问题 |
 * **lint_wiki**: 检查完成: 27 个问题
 * **ingest_note**: 添加笔记: MCP 工具 schema 不声明 session_id，handler 隐式读取
+* **ingest_note**: 添加笔记: Entity/Concept 提取采用 WeKnora 式两阶段流程（P0：纯 prompt 协议）
+* **ingest_source**: 导入外部文档: README_CN (md)
+* **write_doc_file**: 创建 README_CN.md
+* **write_doc_file**: 创建 WeKnora.md
+* **write_doc_file**: 创建 Langfuse.md
+* **write_doc_file**: 创建 微信对话开放平台.md
+* **write_doc_file**: 创建 ClawHubSkill.md
+* **write_doc_file**: 创建 RAG.md
+* **write_doc_file**: 创建 ReActAgent.md
+* **write_doc_file**: 创建 Wiki模式.md
+* **write_doc_file**: 创建 文档知识图谱.md
+* **write_doc_file**: 创建 空间RBAC.md
+* **write_doc_file**: 创建 混合检索策略.md
+* **close_session**: 会话关闭
+* **close_session**: 会话关闭
+* **close_session**: 会话关闭
