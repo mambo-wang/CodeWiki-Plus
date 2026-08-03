@@ -101,8 +101,8 @@ analyze_repo → get_prompt('cluster') → save_module_tree → get_processing_o
 ### 3. 知识库搜索
 query_wiki(query, hop=1) → 查看结果 → query_wiki(query, expand=true) 深度阅读
 
-### 4. 外部文档知识抽取
-ingest_source → get_prompt('extraction_scan') → view_repo_file 阅读原文 → write_doc_file(page_type='entity'/'concept'/'source') → [[wikilink]] 建图
+### 4. 外部文档知识抽取（两阶段）
+ingest_source → get_prompt('extraction_scan') 骨架提取（只识别不撰写）→ query_wiki + get_prompt('extraction_dedup') 去重（create/merge/drop）→ 证据校验（行范围引用必须实质性讨论）→ write_doc_file / edit_doc_file(page_type='entity'/'concept'/'source') → [[wikilink]] 建图
 
 ### 5. 经验归档
 ingest_note(note_type, title, content) → 自动索引 → query_wiki 可检索

@@ -86,47 +86,66 @@ def _prompt_extract_knowledge(args: dict[str, str]) -> str:
     source_name = _Path(source_path).stem
     # output_dir defaults to cwd/repowiki (not next to the source file)
     output_dir = args.get("output_dir", "") or str(_Path(_resolve_path("")) / "repowiki")
-    return f"""请导入外部文档并从中抽取结构化知识。按以下步骤执行：
+    granularity = args.get("granularity", "").strip()
+    gran_call = f', variables={{"granularity": "{granularity}"}}' if granularity else ""
+    gran_default_note = (
+        "" if granularity else
+        "- granularity 未指定时，自动遵循 schema.yaml 的 extraction_granularity 配置\n"
+    )
+    return f"""请导入外部文档并从中抽取结构化知识。采用「骨架提取 → 去重检查 → 证据校验 → 页面撰写」两阶段流程，按以下步骤执行：
 
 ## 步骤 1: 导入文档
 调用 ingest_source(output_dir="{output_dir}", source_ref="{source_path}")
 - 文档会被复制到 {output_dir}/raw/sources/ 并注册到 source_registry.json
 - 此步骤直接传入 output_dir，无需 session
 
-## 步骤 2: 获取抽取方法论
-调用 get_prompt(prompt_type="extraction_scan")
-- 返回实体/概念识别规则和粒度指引
+## 步骤 2: 骨架提取（Pass 0 — 只识别，不撰写）
+1. 通读源文档 "{source_path}"（使用 Read 工具直接读取原始文件，无需 view_repo_file），标记关键实体和抽象概念
+2. 调用 get_prompt(prompt_type="extraction_scan"{gran_call}) 获取识别规则和粒度指引
+{gran_default_note}3. 按模板输出 JSON 骨架：每项只含 title/type/summary/aliases/source_ref/target_page
+- **本阶段禁止撰写页面正文**
+- 每项必须携带 `[^src:{source_name}:<line_range>]` 行范围引用，指向源文档中实质性讨论该项的位置
 
-## 步骤 3: 阅读源文档
-直接读取文件 "{source_path}"（使用 Read 工具或文件系统读取）
-- 通读全文，标记关键实体和抽象概念
-- 注意：不需要调用 view_repo_file，直接读取原始文件即可
+## 步骤 3: 去重检查（语义去重）
+对每个骨架项：
+1. 调用 query_wiki(output_dir="{output_dir}", query="<title 及 aliases>") 搜索已有相似页面
+2. 调用 get_prompt(prompt_type="extraction_dedup") 获取去重判定规则
+3. 按规则将每项三分类：**create**（新建页面）/ **merge**（合并进已有页面）/ **drop**（丢弃）
+- 核心原则：**related ≠ same**——相关不等于相同，拿不准就不合并
 
-## 步骤 4: 识别知识单元
-从文档中提取：
-- **实体**（entity）：具体的人物、系统、服务、组件、API、数据库
-- **概念**（concept）：抽象的模式、算法、协议、架构决策、设计原则
+## 步骤 4: 证据校验
+重读源文档（带行号），逐项校验存活的骨架项：
+- source_ref 行范围内必须**实质性讨论**该项（独立段落、≥2 句或列表要点展开），而非顺带提及
+- 一次性提及按当前 granularity 处理：focused/standard 直接丢弃；exhaustive 可保留但页面中须注明仅为提及
+- 无法给出真实引用的项应丢弃——**无引用不成立**
 
-## 步骤 5: 生成知识页面
-为每个知识单元创建页面（使用 output_dir="{output_dir}"）：
+## 步骤 5: 撰写知识页面（使用 output_dir="{output_dir}"）
 1. 源文档摘要: write_doc_file(output_dir="{output_dir}", filename="{source_name}.md", page_type="source", content=...)
    - 调用 get_prompt(prompt_type="source_summary") 获取模板
-2. 实体页面: write_doc_file(output_dir="{output_dir}", filename="<实体名>.md", page_type="entity", content=...)
-   - 调用 get_prompt(prompt_type="entity_page") 获取模板
-3. 概念页面: write_doc_file(output_dir="{output_dir}", filename="<概念名>.md", page_type="concept", content=...)
-   - 调用 get_prompt(prompt_type="concept_page") 获取模板
+2. 实体页面（action=create）: write_doc_file(output_dir="{output_dir}", filename="<实体名>.md", page_type="entity", content=...)
+   - 调用 get_prompt(prompt_type="entity_page") 获取模板（含编译器写作纪律）
+3. 概念页面（action=create）: write_doc_file(output_dir="{output_dir}", filename="<概念名>.md", page_type="concept", content=...)
+   - 调用 get_prompt(prompt_type="concept_page") 获取模板（含编译器写作纪律）
+4. action=merge 的项: 先用 view_repo_file 读取已有页面，再用 edit_doc_file 追加新事实
+   - 新事实必须附 `[^src:{source_name}:<line_range>]` 引用；补充 aliases；不得覆盖或删除已有内容
 
-## 步骤 6: 构建知识图谱
+## 步骤 6: 构建知识图谱并验证
 - 页面间使用 [[wikilink]] 互相引用（如 [[认证服务]]、[[OAuth2]]）
 - build_search_index 会自动解析 wikilink 为图谱边
+- 调用 query_wiki(output_dir="{output_dir}", query="<实体/概念名>") 验证新页面可被检索
 - 之后可通过 query_wiki(output_dir="{output_dir}", query, hop=1) 进行多跳关联搜索
+
+## 写作纪律（所有页面通用）
+- **编译器模式**：事实性陈述直接引用源文档原句并标注 `[^src:{source_name}:<a-b>]`，可轻排序、去重、连接，但不得为风格改写或扩写
+- **禁止修辞填充**："旨在帮助…"、"该平台致力于…"、"具有重要意义"等套话不得出现，除非源文档原文如此
+- **范围纪律**：页面每个陈述必须关于页面标题本身；与标题不符的材料（即使相关）应拒绝采纳
+- 使用 frontmatter_extra 添加 aliases（搜索加权 3x）和 source_refs
 
 ## 注意事项
 - 整个流程直接使用 output_dir，无需 analyze_repo
 - write_doc_file 直接传 output_dir 参数
 - ingest_source 只负责存储，不会自动生成 entity/concept 页面
-- 每个页面应包含：定义、关键属性、与其他实体的关系、来源引用
-- 使用 frontmatter_extra 添加 aliases（搜索加权 3x）和 source_refs"""
+- 每个页面应包含：定义、关键属性、与其他实体的关系、来源引用"""
 
 
 def _prompt_search_wiki(args: dict[str, str]) -> str:
@@ -716,11 +735,21 @@ def register(server):
             Prompt(
                 name="extract-knowledge",
                 title="外部文档知识抽取",
-                description="导入外部文档并从中抽取实体和概念，生成结构化知识页面并构建 wikilink 图谱。一步完成导入+提取。",
+                description="导入外部文档并从中抽取实体和概念，生成结构化知识页面并构建 wikilink 图谱。两阶段流程：骨架提取→去重检查→证据校验→页面撰写。",
                 arguments=[
                     PromptArgument(
                         name="source_path",
                         description="要导入并提取知识的外部文档的绝对路径（支持 PDF/MD/DOCX/HTML）",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="output_dir",
+                        description="Wiki 输出目录（默认: <cwd>/repowiki）",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="granularity",
+                        description="提取粒度：focused（3-7 核心项）| standard（适中覆盖）| exhaustive（应提尽提）。缺省遵循 schema.yaml 的 extraction_granularity",
                         required=False,
                     ),
                 ],

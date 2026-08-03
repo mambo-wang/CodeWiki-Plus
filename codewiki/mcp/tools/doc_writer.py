@@ -27,8 +27,9 @@ logger = logging.getLogger(__name__)
 # Max edit history entries per file (prevent unbounded memory growth)
 _MAX_HISTORY_PER_FILE = 20
 
-# Pattern for inline source-reference annotations: [^src:<name>:<start>-<end>]
-_SOURCE_REF_PATTERN = re.compile(r"\[\^src:([^:\]]+):(\d+-\d+)\]")
+# Pattern for inline source-reference annotations: [^src:<name>:<start>-<end>].
+# A single line number (e.g. [^src:name:59]) is also accepted as a one-line range.
+_SOURCE_REF_PATTERN = re.compile(r"\[\^src:([^:\]]+):(\d+(?:-\d+)?)\]")
 
 # Pattern for simple wikilinks: [[target]] or [[target|display]]
 _WIKILINK_RE = re.compile(r"\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]")
@@ -889,6 +890,7 @@ def _inject_lightweight_frontmatter(
     user_title: str | None = None,
     user_description: str | None = None,
     user_tags: list | None = None,
+    output_dir: str | None = None,
 ) -> str:
     """Inject minimal YAML frontmatter when no session is available."""
     # OKF P0: existing frontmatter → patch missing OKF keys (schema may be
@@ -958,6 +960,31 @@ def _inject_lightweight_frontmatter(
                 fm_lines.append(f"{key}: \"{value}\"")
             else:
                 fm_lines.append(f"{key}: {value}")
+
+    # Auto-extract source references from body ([^src:name:lines] and OKF
+    # v0.2 bare footnotes [^name] keyed to registered source ids).  Mirrors
+    # the session-based _build_okf_frontmatter path so sessionless writes
+    # keep the provenance pipeline intact.
+    source_refs, chunk_refs = _extract_source_refs(content)
+    if output_dir:
+        try:
+            from codewiki.mcp.tools.source_ingest import _load_registry
+            _registry = _load_registry(Path(output_dir)).get("sources", {})
+        except Exception:
+            _registry = {}
+        if _registry:
+            _bare_labels = set(re.findall(r"\[\^([A-Za-z0-9_\-\.]+)\]", content))
+            _matched = _bare_labels & set(_registry)
+            if _matched:
+                source_refs = sorted(set(source_refs) | _matched)
+    if source_refs:
+        refs_str = ", ".join(f'"{r}"' for r in source_refs)
+        fm_lines.append(f"source_refs: [{refs_str}]")
+    if chunk_refs:
+        chunks_str = ", ".join(f'"{c}"' for c in chunk_refs)
+        fm_lines.append(f"chunk_refs: [{chunks_str}]")
+    if output_dir:
+        fm_lines.extend(_okf_sources_block(str(output_dir), source_refs))
 
     fm_lines.append("---")
     fm_lines.append("")
@@ -1035,6 +1062,7 @@ async def handle_write_doc_file(
             user_title=user_title,
             user_description=user_description,
             user_tags=user_tags,
+            output_dir=str(output_dir) if output_dir else None,
         )
 
     # Auto-fix common Mermaid syntax errors before writing

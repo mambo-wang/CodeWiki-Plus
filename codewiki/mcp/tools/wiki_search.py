@@ -290,7 +290,8 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
         try: return session.cache.search(query, scope=scope or "", include_notes=include_notes,
                                           max_results=max_results, score_threshold=score_threshold,
                                           output_dir=od, type_filter=type_filter,
-                                          hop=hop, decay=decay)
+                                          hop=hop, decay=decay,
+                                          expand_terms=expand_terms)
         except Exception as e: logger.warning("SQLite search failed: %s", e)
 
     # Try standalone SQLite (no active session, DB persisted on disk)
@@ -302,7 +303,8 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
                 results = _standalone.search(query, scope=scope or "", include_notes=include_notes,
                                              max_results=max_results, score_threshold=score_threshold,
                                              output_dir=od, type_filter=type_filter,
-                                             hop=hop, decay=decay)
+                                             hop=hop, decay=decay,
+                                             expand_terms=expand_terms)
                 _standalone.close()
                 return results
             except Exception as e:
