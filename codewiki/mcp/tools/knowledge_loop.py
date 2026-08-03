@@ -17,7 +17,7 @@ import os
 import re
 import sqlite3
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -25,6 +25,52 @@ from codewiki.mcp.session import SessionState, SessionStore
 from codewiki.mcp.cache import _STOPWORDS
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+#  OKF v0.2 lifecycle helpers
+# ---------------------------------------------------------------------------
+
+# Legacy CodeWiki status values → OKF v0.2 lifecycle vocabulary (§5.4)
+_STATUS_LEGACY_MAP = {
+    "candidate": "draft",
+    "confirmed": "stable",
+    "rejected": "deprecated",
+    "superseded": "deprecated",
+}
+
+
+def _norm_status(status: Optional[str]) -> str:
+    """Normalize a status value to OKF vocabulary; unknown values pass through."""
+    if not status:
+        return "draft"
+    return _STATUS_LEGACY_MAP.get(str(status).strip().lower(), str(status).strip().lower())
+
+
+def _okf_actor(by: Optional[str] = None) -> str:
+    """Resolve an OKF actor string (§7); defaults to codewiki/<version>."""
+    if by:
+        return by
+    try:
+        from codewiki.src.config import actor_id
+        return actor_id()
+    except Exception:
+        return "codewiki"
+
+
+def _trust_tier(verified) -> str:
+    """Derive the OKF v0.2 trust tier from a parsed ``verified`` field (§5.3).
+
+    Returns one of: unverified | machine-confirmed | human-reviewed.
+    Accepts a bare mapping or a list of mappings.
+    """
+    if not verified:
+        return "unverified"
+    entries = verified if isinstance(verified, list) else [verified]
+    for entry in entries:
+        if isinstance(entry, dict) and str(entry.get("by", "")).startswith("human:"):
+            return "human-reviewed"
+    return "machine-confirmed"
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +263,7 @@ def handle_ingest_note(
     if od:
         output_dir = Path(od).expanduser().resolve()
     elif session:
-        output_dir = Path(session.output_dir)
+        output_dir = Path(session.output_dir).expanduser().resolve()
     else:
         rp = arguments.get("repo_path")
         if rp:
@@ -244,7 +290,9 @@ def handle_ingest_note(
     source_ref = arguments.get("source_ref")
     aliases = arguments.get("aliases", [])
     # Roadmap 2.2: knowledge flywheel status
-    note_status = arguments.get("status", "candidate")  # candidate | confirmed | rejected
+    # OKF v0.2 §5.4: write the spec vocabulary (draft|stable|deprecated);
+    # legacy values are accepted and normalized for backward compatibility.
+    note_status = _norm_status(arguments.get("status", "draft"))
 
     # Auto-match modules if not provided
     auto_matched: List[str] = []
@@ -296,6 +344,20 @@ def handle_ingest_note(
     if source_ref:
         frontmatter_lines.append(f"source_ref: \"{source_ref}\"")
     frontmatter_lines.append(f"status: {note_status}")
+    # OKF v0.2 §5.2/§5.5: provenance actor + absolute staleness date
+    frontmatter_lines.append(
+        f"generated: {{ by: {_okf_actor(arguments.get('author'))}, at: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')} }}"
+    )
+    try:
+        from datetime import timedelta
+        from codewiki.mcp.tools.page_router import load_schema
+        _schema = load_schema(str(output_dir))
+        _stale_days = int(_schema.get("conventions", {}).get("default_stale_days", 90))
+    except Exception:
+        _stale_days = 90
+    frontmatter_lines.append(
+        f"stale_after: {(datetime.now() + timedelta(days=_stale_days)).strftime('%Y-%m-%d')}"
+    )
     frontmatter_lines.append("---")
     note_content = "\n".join(frontmatter_lines) + "\n\n" + content + "\n"
 
@@ -345,9 +407,9 @@ def handle_ingest_note(
         "related_modules": related_modules,
         "tags": tags,
     }
-    if note_status == "candidate":
+    if note_status == "draft":
         result["hint"] = (
-            "Note saved with status=candidate; query_wiki will show it with an "
+            "Note saved with status=draft; query_wiki will show it with an "
             "[unconfirmed] prefix. Call confirm_note(note_file=...) after review "
             "to promote it to verified knowledge."
         )
@@ -373,9 +435,22 @@ def _resolve_within(output_dir: Path, relative: str) -> Optional[Path]:
 
 
 def _update_note_status(output_dir: Path, note_file: str, new_status: str,
-                        reason: str = "") -> str:
-    """Update the status field in a note's YAML frontmatter."""
+                        reason: str = "", verified_by: str = "",
+                        renew_stale_after: bool = False) -> str:
+    """Update the status field in a note's YAML frontmatter.
+
+    OKF v0.2: when *verified_by* is given, a ``verified`` entry
+    ``{by, at}`` is appended (§5.2); when *renew_stale_after* is set the
+    ``stale_after`` date is reset (re-confirmation re-guarantees freshness,
+    §5.5).  Mutations go through a YAML round-trip so list values stay
+    well-formed.
+    """
     from codewiki.src.config import NOTES_DIR
+
+    # Normalize once: _resolve_within() returns fully-resolved paths, and on
+    # Windows the raw output_dir may use 8.3 short names (e.g. ADMINI~1) or
+    # different casing, which would break relative_to() below.
+    output_dir = Path(output_dir).expanduser().resolve()
 
     note_path = _resolve_within(output_dir, f"{NOTES_DIR}/{note_file}")
     if note_path is None:
@@ -403,21 +478,52 @@ def _update_note_status(output_dir: Path, note_file: str, new_status: str,
     fm_text = text[3:end]
     body = text[end + 3:]
 
-    # Replace or insert status line
-    import re as _re
-    if _re.search(r"^status:", fm_text, _re.MULTILINE):
-        fm_text = _re.sub(r"^status:.*$", f"status: {new_status}", fm_text, flags=_re.MULTILINE)
-    else:
-        fm_text = fm_text.rstrip("\n") + f"\nstatus: {new_status}\n"
-
-    # Add rejection reason if provided
-    if reason and new_status == "rejected":
-        if _re.search(r"^reject_reason:", fm_text, _re.MULTILINE):
-            fm_text = _re.sub(r"^reject_reason:.*$", f'reject_reason: "{reason}"', fm_text, flags=_re.MULTILINE)
+    try:
+        import yaml
+        data = yaml.safe_load(fm_text)
+        if not isinstance(data, dict):
+            raise ValueError("frontmatter is not a mapping")
+    except Exception:
+        # Fallback: legacy regex status replacement only
+        import re as _re
+        if _re.search(r"^status:", fm_text, _re.MULTILINE):
+            fm_text = _re.sub(r"^status:.*$", f"status: {new_status}", fm_text, flags=_re.MULTILINE)
         else:
-            fm_text = fm_text.rstrip("\n") + f'\nreject_reason: "{reason}"\n'
+            fm_text = fm_text.rstrip("\n") + f"\nstatus: {new_status}\n"
+        new_text = f"---{fm_text}---{body}"
+        note_path.write_text(new_text, encoding="utf-8")
+        return json.dumps({
+            "status": new_status,
+            "note_file": str(note_path.relative_to(output_dir)),
+            "message": f"Note marked as {new_status}.",
+        }, indent=2, ensure_ascii=False)
 
-    new_text = f"---{fm_text}---{body}"
+    data["status"] = new_status
+    if reason and new_status == "deprecated":
+        data["reject_reason"] = reason
+    if verified_by:
+        verified = data.get("verified")
+        if isinstance(verified, dict):
+            verified = [verified]  # bare mapping → one-element list (§5.2)
+        if not isinstance(verified, list):
+            verified = []
+        verified.append({
+            "by": verified_by,
+            "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        })
+        data["verified"] = verified
+    if renew_stale_after:
+        try:
+            from codewiki.mcp.tools.page_router import load_schema
+            _schema = load_schema(str(output_dir))
+            _stale_days = int(_schema.get("conventions", {}).get("default_stale_days", 90))
+        except Exception:
+            _stale_days = 90
+        data["stale_after"] = (datetime.now() + timedelta(days=_stale_days)).strftime("%Y-%m-%d")
+
+    import yaml as _yaml
+    new_fm = _yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    new_text = f"---\n{new_fm}---{body}"
     note_path.write_text(new_text, encoding="utf-8")
 
     # Update search index
@@ -427,22 +533,31 @@ def _update_note_status(output_dir: Path, note_file: str, new_status: str,
     except Exception:
         pass
 
+    msg = f"Note marked as {new_status}."
+    if reason:
+        msg += f" Reason: {reason}"
+    if verified_by:
+        msg += f" Verified by {verified_by}."
     return json.dumps({
         "status": new_status,
         "note_file": str(note_path.relative_to(output_dir)),
-        "message": f"Note marked as {new_status}." + (f" Reason: {reason}" if reason else ""),
+        "message": msg,
     }, indent=2, ensure_ascii=False)
 
 
 def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
-    """Confirm a candidate note, promoting it to verified domain knowledge."""
+    """Confirm a draft note, promoting it to stable (verified) domain knowledge.
+
+    OKF v0.2: appends a ``verified`` entry (``human:<id>`` when ``by`` is
+    passed, else ``codewiki/<version>``) and renews ``stale_after``.
+    """
     from codewiki.mcp.tools.workspace_result import resolve_session
     session = resolve_session(arguments, store)
     od = arguments.get("output_dir")
     if od:
         output_dir = Path(od).expanduser().resolve()
     elif session:
-        output_dir = Path(session.output_dir)
+        output_dir = Path(session.output_dir).expanduser().resolve()
     else:
         rp = arguments.get("repo_path")
         if rp:
@@ -454,7 +569,11 @@ def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     if not note_file:
         return json.dumps({"error": "note_file is required (relative path within notes/)."})
 
-    return _update_note_status(output_dir, note_file, "confirmed")
+    return _update_note_status(
+        output_dir, note_file, "stable",
+        verified_by=_okf_actor(arguments.get("by")),
+        renew_stale_after=True,
+    )
 
 
 def handle_reject_note(arguments: Dict[str, Any], store: SessionStore) -> str:
@@ -465,7 +584,7 @@ def handle_reject_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     if od:
         output_dir = Path(od).expanduser().resolve()
     elif session:
-        output_dir = Path(session.output_dir)
+        output_dir = Path(session.output_dir).expanduser().resolve()
     else:
         rp = arguments.get("repo_path")
         if rp:
@@ -478,7 +597,7 @@ def handle_reject_note(arguments: Dict[str, Any], store: SessionStore) -> str:
         return json.dumps({"error": "note_file is required (relative path within notes/)."})
     reason = arguments.get("reason", "")
 
-    return _update_note_status(output_dir, note_file, "rejected", reason)
+    return _update_note_status(output_dir, note_file, "deprecated", reason)
 
 
 # ---------------------------------------------------------------------------
@@ -820,7 +939,7 @@ def handle_query_wiki(
     if od:
         output_dir = Path(od).expanduser().resolve()
     elif session:
-        output_dir = Path(session.output_dir)
+        output_dir = Path(session.output_dir).expanduser().resolve()
     else:
         # Fallback: derive from repo_path if available
         rp = arguments.get("repo_path")
@@ -943,15 +1062,25 @@ def handle_query_wiki(
                     try:
                         nc = note_path.read_text(encoding="utf-8", errors="replace")
                         entry["date"] = _extract_frontmatter(nc, "date") or ""
-                        # Roadmap 2.2: knowledge flywheel status filtering
-                        note_st = _extract_frontmatter(nc, "status") or "confirmed"
-                        if note_st == "rejected":
-                            continue  # skip rejected notes entirely
-                        if note_st == "candidate":
-                            entry["note_status"] = "candidate"
+                        # OKF v0.2: accept legacy + spec status vocabularies
+                        note_st = _norm_status(
+                            _extract_frontmatter(nc, "status") or "stable"
+                        )
+                        if note_st == "deprecated":
+                            continue  # skip deprecated/rejected notes entirely
+                        if note_st == "draft":
+                            entry["note_status"] = "draft"
                             entry["title"] = f"[unconfirmed] {entry['title']}"
                         else:
-                            entry["note_status"] = "confirmed"
+                            entry["note_status"] = "stable"
+                        # OKF v0.2 §5.3: derive trust tier from verified
+                        try:
+                            fm_block = _extract_frontmatter_block(nc)
+                            entry["trust_tier"] = _trust_tier(
+                                fm_block.get("verified") if fm_block else None
+                            )
+                        except Exception:
+                            pass
                     except OSError:
                         entry["date"] = ""
 
@@ -968,9 +1097,12 @@ def handle_query_wiki(
             if file_path.exists():
                 try:
                     fc = file_path.read_text(encoding="utf-8", errors="replace")
-                    if fc.startswith("---") and "superseded" in fc[:500]:
+                    if fc.startswith("---") and ("superseded" in fc[:500] or "deprecated" in fc[:500]):
                         fm_end = fc.find("---", 3)
-                        if fm_end > 0 and "status: superseded" in fc[3:fm_end]:
+                        if fm_end > 0 and (
+                            "status: superseded" in fc[3:fm_end]
+                            or "status: deprecated" in fc[3:fm_end]
+                        ):
                             entry["superseded"] = True
                             entry["relevance_score"] = round(
                                 entry["relevance_score"] * 0.5, 4
@@ -1127,7 +1259,7 @@ def handle_wiki_stats(
     if od:
         output_dir = Path(od).expanduser().resolve()
     elif session:
-        output_dir = Path(session.output_dir)
+        output_dir = Path(session.output_dir).expanduser().resolve()
     else:
         rp = arguments.get("repo_path")
         if rp:

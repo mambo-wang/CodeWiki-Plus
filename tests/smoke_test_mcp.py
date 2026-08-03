@@ -21,7 +21,12 @@ from codewiki.mcp.tools.code_reader import handle_read_code_components
 from codewiki.mcp.tools.doc_writer import handle_write_doc_file, handle_edit_doc_file
 from codewiki.mcp.tools.crosslink import handle_list_dependencies
 from codewiki.mcp.tools.wiki_lint import handle_lint_wiki
-from codewiki.mcp.tools.knowledge_loop import handle_ingest_note, handle_query_wiki
+from codewiki.mcp.tools.knowledge_loop import (
+    handle_confirm_note,
+    handle_ingest_note,
+    handle_query_wiki,
+    handle_reject_note,
+)
 from codewiki.mcp.tools.component_list import handle_list_components
 
 # Use the repo itself as a test target
@@ -201,8 +206,8 @@ def main():
         "session_id": session_id,
         "filename": "test_doc.md",
         "command": "str_replace",
-        "old_str": "# Test",
-        "new_str": "# Test Edited",
+        "old_string": "# Test",
+        "new_string": "# Test Edited",
     }, store)))
     check("edits file", edit_result.get("status") == "edited", str(edit_result))
     edited_content = doc_file.read_text()
@@ -352,6 +357,68 @@ def main():
     check("query works without session",
           "results" in query_nosess,
           str(query_nosess.keys())[:200])
+
+    # -- 13b. OKF v0.2 lifecycle & conformance --
+    print("\n[13b] OKF v0.2 lifecycle & conformance")
+    # write_doc_file injects OKF frontmatter (type/generated/stale_after)
+    okf_doc = doc_file.read_text(encoding="utf-8")
+    check("doc starts with frontmatter", okf_doc.startswith("---"), okf_doc[:80])
+    check("doc frontmatter has type", "type:" in okf_doc, okf_doc[:300])
+    check("doc frontmatter has generated", "generated:" in okf_doc, okf_doc[:300])
+    check("doc frontmatter has stale_after", "stale_after:" in okf_doc, okf_doc[:300])
+
+    # ingest_note defaults to status=draft with OKF provenance fields
+    okf_note_path = Path(note_result.get("note_path", ""))
+    if okf_note_path.exists():
+        okf_note = okf_note_path.read_text(encoding="utf-8")
+        check("note status defaults to draft", "status: draft" in okf_note, okf_note[:400])
+        check("note has generated", "generated:" in okf_note, okf_note[:400])
+        check("note has stale_after", "stale_after:" in okf_note, okf_note[:400])
+
+    # confirm_note promotes draft -> stable and records a verified event
+    confirm_result = json.loads(handle_confirm_note({
+        "session_id": session_id,
+        "note_file": okf_note_path.name,
+        "by": "human:smoke-tester",
+    }, store))
+    check("confirm_note returns stable", confirm_result.get("status") == "stable", str(confirm_result))
+    okf_note2 = okf_note_path.read_text(encoding="utf-8")
+    check("note promoted to stable", "status: stable" in okf_note2, okf_note2[:400])
+    check("note records verified event",
+          "verified:" in okf_note2 and "human:smoke-tester" in okf_note2,
+          okf_note2[:400])
+
+    # reject_note marks the duplicate note as deprecated
+    dup_note_path = Path(note_dup.get("note_path", ""))
+    if dup_note_path.exists():
+        reject_result = json.loads(handle_reject_note({
+            "session_id": session_id,
+            "note_file": dup_note_path.name,
+            "reason": "smoke-test cleanup",
+        }, store))
+        check("reject_note returns deprecated",
+              reject_result.get("status") == "deprecated", str(reject_result))
+        dup_note = dup_note_path.read_text(encoding="utf-8")
+        check("rejected note marked deprecated", "status: deprecated" in dup_note, dup_note[:400])
+
+    # wiki/index.md declares okf_version (§12)
+    okf_index = wiki_index_path.read_text(encoding="utf-8")
+    check("index.md declares okf_version", "okf_version" in okf_index, okf_index[:200])
+
+    # okf_conformance lint check runs standalone without error
+    lint_okf = json.loads(handle_lint_wiki({
+        "output_dir": output_dir,
+        "checks": ["okf_conformance"],
+    }, store))
+    check("okf_conformance check runs", "total_issues" in lint_okf, str(lint_okf.keys())[:200])
+    # The freshly generated docs/notes are conformant: no errors expected
+    okf_errors = 0
+    if "file" in lint_okf:
+        okf_data = json.loads(Path(lint_okf["file"]).read_text(encoding="utf-8"))
+        okf_errors = len([i for i in okf_data.get("issues", []) if i.get("severity") == "error"])
+    else:
+        okf_errors = len([i for i in lint_okf.get("issues", []) if i.get("severity") == "error"])
+    check("no okf_conformance errors on fresh bundle", okf_errors == 0, f"errors={okf_errors}")
 
     # -- 14. close_session with workspace cleanup --
     print("\n[14] close_session with workspace cleanup")

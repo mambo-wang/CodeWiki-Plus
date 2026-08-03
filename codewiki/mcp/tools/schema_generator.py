@@ -29,6 +29,8 @@ _DEFAULT_CONVENTIONS = {
     "max_overview_doc_lines": 300,
     "auto_crosslink": True,
     "okf_frontmatter": True,
+    "okf_version": "0.2",
+    "default_stale_days": 90,
     "okf_tags": [],
 }
 

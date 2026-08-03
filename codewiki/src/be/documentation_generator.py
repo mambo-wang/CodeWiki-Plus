@@ -47,7 +47,7 @@ class DocumentationGenerator:
             "generation_info": {
                 "timestamp": datetime.now().isoformat(),
                 "main_model": self.config.main_model,
-                "generator_version": "5.1.8",
+                "generator_version": "5.2.0",
                 "repo_path": self.config.repo_path,
                 "commit_id": self.commit_id
             },

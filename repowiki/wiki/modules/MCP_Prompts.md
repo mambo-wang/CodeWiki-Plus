@@ -17,6 +17,9 @@ components:
 generated_by: codewiki
 generator_version: "1.0"
 updated_at: 2026-07-28
+type: Module
+generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:39Z }
+stale_after: 2026-10-31
 ---
 
 # MCP_Prompts 模块文档

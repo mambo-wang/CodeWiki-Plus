@@ -227,7 +227,7 @@ def register(server):
 
         elif uri_str == "codewiki://capabilities":
             return json.dumps({
-                "server": "CodeWiki-CN MCP Server v5.1.0",
+                "server": "CodeWiki-CN MCP Server v5.2.0",
                 "tool_count": 26,
                 "tool_categories": {
                     "代码分析": ["analyze_repo", "analyze_workspace", "list_components", "list_dependencies", "analyze_impact", "read_code_components", "view_repo_file"],

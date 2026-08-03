@@ -423,9 +423,13 @@ _register(
                     "type": "object",
                     "description": "Optional template variables to fill in",
                 },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Optional bundle directory (contains schema.yaml) — most direct way to enable schema-constraint injection (incl. the OKF v0.2 block)",
+                },
                 "repo_path": {
                     "type": "string",
-                    "description": "Optional repository path — enables writing large prompts to workspace files",
+                    "description": "Optional repository path — derives <repo>/repowiki and enables writing large prompts to workspace files",
                 },
             },
             "required": ["prompt_type"],
@@ -594,7 +598,7 @@ _register(
         name="lint_wiki",
         description=(
             "Check documentation-code consistency. Works with or without an active session. "
-            "Runs 15 available checks: stale_refs (docs reference deleted components), "
+            "Runs 16 available checks: stale_refs (docs reference deleted components), "
             "broken_links (markdown links to non-existent pages), "
             "undocumented (high-impact components without docs), "
             "cycles (circular module dependencies), coverage (documentation coverage gaps), "
@@ -605,7 +609,9 @@ _register(
             "overview_stale (overview.md references modules that have changed), "
             "unsupported_claims (business assertions lacking code evidence), "
             "stale_notes (confirmed notes not retrieved in 60+ days and older than 90 days), "
-            "note_clusters (modules with 3+ same-type notes suggesting consolidation). "
+            "note_clusters (modules with 3+ same-type notes suggesting consolidation), "
+            "okf_conformance (OKF v0.2 audit: missing type/frontmatter, legacy statuses, "
+            "malformed verified, expired stale_after, missing okf_version). "
             "Run checks=['all'] for a comprehensive audit. "
             "After fixing issues, use flag_issue to track remaining problems. "
             "MANDATORY FINAL STEP: after lint passes (or issues are tracked), you MUST call "
@@ -632,7 +638,7 @@ _register(
                             "cycles", "coverage", "orphan_pages", "no_outlinks",
                             "missing_aliases", "stale_sources", "superseded_pages",
                             "isolated_components", "overview_stale", "unsupported_claims",
-                            "stale_notes", "note_clusters",
+                            "stale_notes", "note_clusters", "okf_conformance",
                         ],
                     },
                     "description": "Which checks to run (default: [\"all\"])",
@@ -718,6 +724,14 @@ _register(
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Alternative names for this note (boosted 3x in search)",
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["draft", "stable"],
+                    "description": (
+                        "Initial lifecycle status (OKF v0.2 vocabulary, default: draft). "
+                        "Use 'stable' only when the knowledge is already human-verified."
+                    ),
                 },
             },
             "required": ["title", "content"],
@@ -840,8 +854,9 @@ _register(
     Tool(
         name="confirm_note",
         description=(
-            "Confirm a candidate note, promoting it to verified domain knowledge. "
-            "Confirmed notes are returned by query_wiki without the [unconfirmed] annotation. "
+            "Confirm a draft note, promoting it to stable domain knowledge (OKF v0.2 lifecycle). "
+            "Records a verified event ({by, at}) in the note's frontmatter and renews its stale_after date. "
+            "Stable notes are returned by query_wiki without the [unconfirmed] annotation. "
             "Use after a developer reviews and validates an LLM-generated note."
         ),
         inputSchema={
@@ -859,6 +874,13 @@ _register(
                     "type": "string",
                     "description": "Note filename relative to notes/ directory (e.g. '2026-07-26-jwt-decision.md')",
                 },
+                "by": {
+                    "type": "string",
+                    "description": (
+                        "OKF actor id recording who verified the note, e.g. 'human:mambo-wang' "
+                        "for a person or 'codewiki/5.2.0' for a tool (default: tool actor id)"
+                    ),
+                },
             },
             "required": ["note_file"],
         },
@@ -871,8 +893,9 @@ _register(
     Tool(
         name="reject_note",
         description=(
-            "Reject a candidate note, excluding it from future query_wiki results. "
-            "The note file is preserved but marked as rejected with an optional reason. "
+            "Reject a draft note, excluding it from future query_wiki results. "
+            "The note file is preserved but marked as deprecated (OKF v0.2 lifecycle) "
+            "with an optional reason. "
             "Use when an LLM-generated note contains incorrect or duplicate information."
         ),
         inputSchema={

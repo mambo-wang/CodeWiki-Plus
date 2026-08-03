@@ -54,9 +54,15 @@ conventions:
   # 是否在 write_doc_file 后自动注入「相关模块」交叉链接章节。
   # 基于模块树的依赖关系计算 "Depends on" / "Used by" 链接
   auto_crosslink: true
-  # 是否强制 OKF（Open Knowledge Format）frontmatter。
-  # true 时每个 .md 文件必须以 YAML frontmatter 开头，包含 type/title/description/tags 字段
+  # 是否强制 OKF（Open Knowledge Format）v0.2 frontmatter。
+  # true 时每个 .md 文件必须以 YAML frontmatter 开头，包含 type/title/description/tags 字段，
+  # 以及 v0.2 溯源/生命周期字段（generated/status/stale_after）
   okf_frontmatter: true
+  # 遵循的 OKF 规范版本，写入 wiki/index.md 的 okf_version 字段（§12）
+  okf_version: "0.2"
+  # 知识保鲜期（天）。write_doc_file / ingest_note 据此计算 stale_after 日期，
+  # 过期后 lint 的 okf_conformance 检查会提示复核（§5.5）
+  default_stale_days: 90
   # 全局默认标签列表，会自动追加到每个文档的 frontmatter tags 中。
   # 例如 [project-x, v2] 会让所有文档带上这些标签，便于跨项目检索
   okf_tags: []

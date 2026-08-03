@@ -27,6 +27,16 @@ _ALL_CHECKS = {
     "orphan_pages", "no_outlinks", "missing_aliases", "stale_sources",
     "superseded_pages", "overview_stale", "unsupported_claims",
     "isolated_components", "stale_notes", "note_clusters",
+    "okf_conformance",
+}
+
+# OKF v0.2 lifecycle vocabulary (see okf/SPEC.md §5)
+_OKF_STATUSES = {"draft", "stable", "deprecated"}
+_LEGACY_STATUS_MAP = {
+    "candidate": "draft",
+    "confirmed": "stable",
+    "rejected": "deprecated",
+    "superseded": "deprecated",
 }
 
 # Regex patterns for markdown links
@@ -142,7 +152,7 @@ def _collect_linked_targets(
 def _get_output_dir(session: Optional[SessionState], arguments: Dict) -> Optional[Path]:
     """Resolve the output directory from session or arguments."""
     if session:
-        return Path(session.output_dir)
+        return Path(session.output_dir).expanduser().resolve()
     output_dir = arguments.get("output_dir")
     if output_dir:
         p = Path(output_dir).expanduser().resolve()
@@ -701,15 +711,18 @@ def _check_superseded_pages(
                 content = md_file.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            # Quick check: only parse frontmatter if 'superseded' appears
-            if "superseded" not in content:
+            # Quick check: only parse frontmatter if relevant status appears
+            if "superseded" not in content and "deprecated" not in content:
                 continue
-            # Check frontmatter for status: superseded
+            # Check frontmatter for status: superseded (legacy) or deprecated (OKF v0.2)
             if content.startswith("---"):
                 end = content.find("---", 3)
                 if end > 0:
                     fm_text = content[3:end]
-                    if re.search(r"^status:\s*superseded", fm_text, re.MULTILINE):
+                    status_m = re.search(
+                        r"^status:\s*(superseded|deprecated)", fm_text, re.MULTILINE
+                    )
+                    if status_m:
                         rel_path = str(md_file.relative_to(output_dir))
                         # Try to extract superseded_by
                         superseded_by = ""
@@ -929,8 +942,9 @@ def _check_stale_notes(
         if not fm:
             continue
 
-        # Only check confirmed notes
-        if fm.get("status") != "confirmed":
+        # Only check confirmed/stable notes (legacy + OKF v0.2 vocabulary)
+        status = str(fm.get("status", "")).lower()
+        if status not in ("confirmed", "stable"):
             continue
 
         # Parse note date
@@ -1007,8 +1021,8 @@ def _check_note_clusters(
         if not fm:
             continue
 
-        # Skip rejected notes
-        if fm.get("status") == "rejected":
+        # Skip rejected/deprecated notes (legacy + OKF v0.2 vocabulary)
+        if str(fm.get("status", "")).lower() in ("rejected", "deprecated"):
             continue
 
         note_type = fm.get("type", "general")
@@ -1053,6 +1067,204 @@ def _check_note_clusters(
                 f"authoritative note for module '{module}'."
             ),
         })
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
+#  OKF v0.2 conformance (§11 / §12)
+# ---------------------------------------------------------------------------
+
+def _check_okf_conformance(
+    output_dir: Path,
+) -> List[Dict[str, Any]]:
+    """Audit the bundle against the OKF v0.2 specification.
+
+    Checks (see okf/SPEC.md):
+      - §11: every non-reserved .md file must have parseable frontmatter
+        carrying a non-empty ``type`` field (error).
+      - §5: ``status`` must use the draft/stable/deprecated vocabulary;
+        legacy candidate/confirmed/rejected/superseded values get a
+        warning suggesting ``scripts/migrate_okf.py``.
+      - §5: ``verified`` must be a mapping or a list of mappings.
+      - §5: ``stale_after`` dates in the past mark potentially rotten
+        knowledge (warning).
+      - §12: wiki/index.md should declare ``okf_version`` (warning).
+
+    Reserved files (index.md, log.md) are exempt from the type rule.
+    """
+    from datetime import date
+
+    from codewiki.src.config import (
+        INDEX_FILENAME,
+        NOTES_DIR,
+        RAW_SOURCES_DIR,
+        WIKI_DIR,
+    )
+
+    issues: List[Dict[str, Any]] = []
+
+    # Collect candidate .md files across the bundle
+    targets: List[Path] = []
+    wiki_dir = output_dir / WIKI_DIR
+    if wiki_dir.is_dir():
+        targets.extend(wiki_dir.rglob("*.md"))
+    notes_dir = output_dir / NOTES_DIR
+    if notes_dir.is_dir():
+        targets.extend(notes_dir.glob("*.md"))
+    raw_dir = output_dir / RAW_SOURCES_DIR
+    if raw_dir.is_dir():
+        targets.extend(raw_dir.glob("*.md"))
+
+    today_str = date.today().isoformat()
+
+    for md_file in sorted(targets):
+        # §4/§11: index.md and log.md are reserved system files
+        if md_file.name in ("index.md", "log.md"):
+            continue
+
+        rel_path = md_file.relative_to(output_dir).as_posix()
+        try:
+            text = md_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        if not text.startswith("---") or text.find("---", 3) < 0:
+            issues.append({
+                "check": "okf_conformance",
+                "severity": "error",
+                "message": "Missing YAML frontmatter (OKF v0.2 §11 requires a 'type' field)",
+                "file": rel_path,
+                "suggestion": (
+                    "Run `python scripts/migrate_okf.py <wiki-dir>` to backfill "
+                    "OKF frontmatter, or regenerate the page."
+                ),
+            })
+            continue
+
+        # Prefer real YAML parsing (needed for nested generated/verified/sources),
+        # but fall back to the permissive line parser (§11: consumers must be
+        # permissive) before declaring the file non-conformant.
+        fm: Optional[Dict[str, Any]] = None
+        try:
+            import yaml
+            end = text.find("---", 3)
+            data = yaml.safe_load(text[3:end])
+            if isinstance(data, dict):
+                fm = data
+        except Exception:
+            fm = None
+        if fm is None:
+            fm = _parse_note_frontmatter(md_file)
+            if not fm:
+                issues.append({
+                    "check": "okf_conformance",
+                    "severity": "error",
+                    "message": "Frontmatter is not parseable YAML (OKF v0.2 §11)",
+                    "file": rel_path,
+                    "suggestion": "Fix the YAML frontmatter block manually or regenerate the page.",
+                })
+                continue
+
+        # §4: type is the only required field
+        page_type = fm.get("type")
+        if not page_type or not str(page_type).strip():
+            issues.append({
+                "check": "okf_conformance",
+                "severity": "error",
+                "message": "Missing required 'type' field in frontmatter (OKF v0.2 §4)",
+                "file": rel_path,
+                "suggestion": (
+                    "Run `python scripts/migrate_okf.py <wiki-dir>` to backfill "
+                    "the type field, or regenerate the page."
+                ),
+            })
+
+        # §5 status vocabulary
+        status_raw = fm.get("status")
+        status = str(status_raw).strip().lower() if status_raw else ""
+        if status and status not in _OKF_STATUSES:
+            mapped = _LEGACY_STATUS_MAP.get(status)
+            if mapped:
+                issues.append({
+                    "check": "okf_conformance",
+                    "severity": "warning",
+                    "message": (
+                        f"Legacy status '{status}' — OKF v0.2 uses '{mapped}'"
+                    ),
+                    "file": rel_path,
+                    "suggestion": (
+                        "Run `python scripts/migrate_okf.py <wiki-dir>` to migrate "
+                        "legacy lifecycle statuses to the OKF v0.2 vocabulary."
+                    ),
+                })
+            else:
+                issues.append({
+                    "check": "okf_conformance",
+                    "severity": "warning",
+                    "message": (
+                        f"Unknown status '{status}' — expected one of "
+                        f"draft/stable/deprecated (OKF v0.2 §5)"
+                    ),
+                    "file": rel_path,
+                    "suggestion": "Set status to draft, stable, or deprecated.",
+                })
+
+        # §5 verified: mapping or list of mappings ({by, at, note?})
+        verified = fm.get("verified")
+        if verified is not None:
+            valid = isinstance(verified, dict) or (
+                isinstance(verified, list)
+                and all(isinstance(v, dict) for v in verified)
+            )
+            if not valid:
+                issues.append({
+                    "check": "okf_conformance",
+                    "severity": "warning",
+                    "message": "'verified' must be a mapping or a list of {by, at} mappings (OKF v0.2 §5)",
+                    "file": rel_path,
+                    "suggestion": "Use confirm_note to record verification events correctly.",
+                })
+
+        # §5 stale_after expiry
+        stale_after = fm.get("stale_after")
+        if stale_after:
+            sa = str(stale_after)[:10]
+            if re.match(r"^\d{4}-\d{2}-\d{2}$", sa) and sa < today_str:
+                issues.append({
+                    "check": "okf_conformance",
+                    "severity": "warning",
+                    "message": f"stale_after ({sa}) has passed — knowledge may be outdated",
+                    "file": rel_path,
+                    "suggestion": (
+                        "Verify the content is still accurate, then regenerate or "
+                        "update the page to renew stale_after."
+                    ),
+                })
+
+    # §12: wiki/index.md should declare okf_version
+    index_path = output_dir / WIKI_DIR / INDEX_FILENAME
+    if index_path.exists():
+        try:
+            idx_text = index_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            idx_text = ""
+        has_version = False
+        if idx_text.startswith("---"):
+            end = idx_text.find("---", 3)
+            if end > 0 and re.search(r"^okf_version:", idx_text[3:end], re.MULTILINE):
+                has_version = True
+        if not has_version:
+            issues.append({
+                "check": "okf_conformance",
+                "severity": "warning",
+                "message": "wiki/index.md does not declare okf_version (OKF v0.2 §12)",
+                "file": "wiki/index.md",
+                "suggestion": (
+                    "Regenerate the index, or run `python scripts/migrate_okf.py "
+                    "<wiki-dir>` to add okf_version."
+                ),
+            })
 
     return issues
 
@@ -1157,6 +1369,9 @@ def handle_lint_wiki(
 
     if "note_clusters" in checks and output_dir:
         all_issues.extend(_check_note_clusters(output_dir))
+
+    if "okf_conformance" in checks and output_dir:
+        all_issues.extend(_check_okf_conformance(output_dir))
 
     # Deduplicate: if a link is already reported as stale_refs, don't also
     # report it as broken_links (same file + line = same underlying problem).
