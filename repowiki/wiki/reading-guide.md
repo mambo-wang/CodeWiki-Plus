@@ -14,7 +14,7 @@
 | 4 | `TreeSitterTSAnalyzer._find_child_by_type` | method | - | 19 | 0.0085 | ...\be\dependency_analyzer\analyzers\typescript.py |
 | 5 | `TreeSitterJSAnalyzer._get_node_text` | method | - | 19 | 0.0073 | ...\be\dependency_analyzer\analyzers\javascript.py |
 | 6 | `CLILogger.error` | method | - | 32 | 0.0063 | codewiki\cli\utils\logging.py |
-| 7 | `NamespaceResolver.resolve` | method | - | 70 | 0.0056 | ...iki\src\be\dependency_analyzer\analyzers\php.py |
+| 7 | `NamespaceResolver.resolve` | method | - | 70 | 0.0055 | ...iki\src\be\dependency_analyzer\analyzers\php.py |
 | 8 | `TreeSitterJSAnalyzer._find_child_by_type` | method | - | 14 | 0.0050 | ...\be\dependency_analyzer\analyzers\javascript.py |
 | 9 | `CallRelationship` | class | - | 19 | 0.0047 | codewiki\src\be\dependency_analyzer\models\core.py |
 | 10 | `Node` | class | - | 19 | 0.0046 | codewiki\src\be\dependency_analyzer\models\core.py |
@@ -23,11 +23,11 @@
 | 13 | `SessionWorkspace.write_text` | method | - | 35 | 0.0039 | codewiki\mcp\workspace.py |
 | 14 | `TreeSitterTSAnalyzer._add_relationship` | method | - | 8 | 0.0039 | ...\be\dependency_analyzer\analyzers\typescript.py |
 | 15 | `TreeSitterJSAnalyzer._get_component_id` | method | - | 8 | 0.0037 | ...\be\dependency_analyzer\analyzers\javascript.py |
-| 16 | `LazyComponentStore.keys` | method | - | 24 | 0.0036 | codewiki\mcp\cache.py |
+| 16 | `LazyComponentStore.keys` | method | - | 24 | 0.0035 | codewiki\mcp\cache.py |
 | 17 | `meta_resolve` | function | - | 24 | 0.0032 | codewiki\src\config.py |
 | 18 | `is_cbm_enabled` | function | - | 6 | 0.0028 | codewiki\mcp\cbm_client.py |
 | 19 | `RouteNode` | class | - | 15 | 0.0027 | ...\be\dependency_analyzer\models\cross_service.py |
 | 20 | `TreeSitterPHPAnalyzer._find_child_by_type` | method | - | 10 | 0.0022 | ...iki\src\be\dependency_analyzer\analyzers\php.py |
 
 ---
-*基于 1246 个组件、2274 条依赖边计算。*
+*基于 1248 个组件、2278 条依赖边计算。*
