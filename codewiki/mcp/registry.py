@@ -377,6 +377,7 @@ _register(
             "overview_module (module overview), overview_repo (repo overview), "
             "overview_workspace (multi-repo workspace architectural overview). "
             "Knowledge extraction: extraction_scan (entity/concept identification rules), "
+            "extraction_dedup (deduplication decision rules: related ≠ same), "
             "entity_page (entity page template), concept_page (concept page template), "
             "source_summary (source document summary template). "
             "Wiki management: wiki_query (search query template), "
@@ -414,6 +415,7 @@ _register(
                         "query_page",
                         "taxonomy_plan",
                         "extraction_scan",
+                        "extraction_dedup",
                         "reflection",
                         "consolidate",
                     ],

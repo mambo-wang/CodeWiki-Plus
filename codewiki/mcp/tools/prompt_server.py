@@ -325,6 +325,13 @@ _PROMPT_CATALOG: Dict[str, Dict[str, str]] = {
         "description": "Template for extraction scanning at configurable granularity (focused/standard/exhaustive).",
         "usage_hint": "Use to extract knowledge items from a source document at the desired granularity.",
     },
+    "extraction_dedup": {
+        "description": "Deduplication decision rules for extracted knowledge items — merge criteria with positive/negative examples (core principle: related ≠ same).",
+        "usage_hint": (
+            "Use during knowledge extraction after query_wiki has surfaced similar existing pages, "
+            "to decide create / merge / drop for each skeleton item."
+        ),
+    },
     "reflection": {
         "description": "Structured reflection template for proactive knowledge extraction from conversations.",
         "usage_hint": "Use when conversation signals indicate knowledge worth persisting (decisions, pitfalls, discoveries). Guides extraction, filtering, routing, and draft formatting.",
@@ -409,6 +416,7 @@ def handle_get_prompt(
         try:
             schema = load_schema(output_dir)
             variables["_doc_types"] = schema.get("doc_types", {})
+            variables["_schema_granularity"] = schema.get("extraction_granularity", "")
         except Exception:
             pass
 
@@ -895,7 +903,18 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "3. **Dependencies** — What it depends on (link to other entities)\n"
             "4. **Usage Patterns** — Common ways to use this entity\n"
             "5. **Cross-References** — Links to related modules and concepts\n\n"
-            "Include Mermaid class diagram if the entity has complex relationships."
+            "Include Mermaid class diagram if the entity has complex relationships.\n\n"
+            "### Writing discipline when extracted from imported sources (compiler mode):\n"
+            "- Compiler, not author: factual statements reuse the source document's own sentences, annotated with\n"
+            "  `[^src:<source_name>:<line_range>]`. Light reordering, deduplication, and joining are fine;\n"
+            "  do NOT rephrase for style or expand short statements into longer ones.\n"
+            "- No rhetorical filler: phrases like \"旨在帮助…\", \"该平台致力于…\", \"具有重要意义\" must NOT appear\n"
+            "  unless literally present in the source.\n"
+            "- Scope discipline: every statement must be about the page title itself. Reject material that clearly\n"
+            "  belongs to a different but related thing.\n"
+            "- Do not over-structure: keep flat source text flat; don't invent heading hierarchies the source doesn't justify.\n"
+            "- No citation, no claim: every factual paragraph carries at least one `[^src:...]` footnote.\n"
+            "  If you cannot cite a real line range, the item lacks evidence and should be dropped."
         )
 
     elif prompt_type == "concept_page":
@@ -919,7 +938,18 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "3. **Implementation** — How it's implemented (link to entities/modules)\n"
             "4. **Trade-offs** — Design decisions and alternatives considered\n"
             "5. **Cross-References** — Links to related concepts and entities\n\n"
-            "Concept pages bridge abstract ideas to concrete implementation."
+            "Concept pages bridge abstract ideas to concrete implementation.\n\n"
+            "### Writing discipline when extracted from imported sources (compiler mode):\n"
+            "- Compiler, not author: factual statements reuse the source document's own sentences, annotated with\n"
+            "  `[^src:<source_name>:<line_range>]`. Light reordering, deduplication, and joining are fine;\n"
+            "  do NOT rephrase for style or expand short statements into longer ones.\n"
+            "- No rhetorical filler: phrases like \"旨在帮助…\", \"该平台致力于…\", \"具有重要意义\" must NOT appear\n"
+            "  unless literally present in the source.\n"
+            "- Scope discipline: every statement must be about the page title itself. Reject material that clearly\n"
+            "  belongs to a different but related concept.\n"
+            "- Do not over-structure: keep flat source text flat; don't invent heading hierarchies the source doesn't justify.\n"
+            "- No citation, no claim: every factual paragraph carries at least one `[^src:...]` footnote.\n"
+            "  If you cannot cite a real line range, the item lacks evidence and should be dropped."
         )
 
     elif prompt_type == "source_summary":
@@ -944,7 +974,16 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "2. **Key Points** — Most important takeaways (bullet list)\n"
             "3. **Relevance** — How this source relates to the project\n"
             "4. **Referenced By** — Which wiki pages use information from this source\n\n"
-            "Use `[^src:<name>:<range>]` annotations when citing specific sections."
+            "Use `[^src:<name>:<range>]` annotations when citing specific sections.\n\n"
+            "### Writing discipline (compiler mode — applies unconditionally to source summaries):\n"
+            "- Ground solely on the document content: key facts and conclusions must come from the source itself,\n"
+            "  each annotated with `[^src:<name>:<line_range>]`. Do NOT invent, synthesize, or infer information\n"
+            "  not explicitly present in the source.\n"
+            "- Stay close to source wording: reuse the source's own sentences; do NOT rephrase for style or pad with\n"
+            "  rhetorical filler (\"旨在帮助…\", \"具有重要意义\" etc.).\n"
+            "- Empty content rule: if the source carries no substantive extractable text, say so explicitly\n"
+            "  (\"No textual content was extractable from this document.\"). Do NOT invent a topic or guess from\n"
+            "  the filename — uploaded files often have uninformative names."
         )
 
     elif prompt_type == "comparison_page":
@@ -1073,14 +1112,28 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
         )
 
     elif prompt_type == "extraction_scan":
-        granularity = variables.get("granularity", "standard")
+        granularity = (
+            variables.get("granularity")
+            or variables.get("_schema_granularity")
+            or "standard"
+        )
         return (
             f"## Extraction Scan Template (granularity: {granularity})\n\n"
-            "Extract knowledge items from a source document.\n\n"
+            "Extract knowledge items from a source document.\n"
+            "This is the SKELETON pass (Pass 0): identify items only — do NOT write full page content here.\n"
+            "A later pass attaches evidence (line-range citations) and writes pages after deduplication.\n\n"
             "### Granularity levels:\n"
-            "- **focused**: 3-7 key items — only the most critical knowledge\n"
-            "- **standard**: moderate coverage — all significant items\n"
-            "- **exhaustive**: comprehensive — every extractable item\n\n"
+            "- **focused**: 3-7 key items — only the document's primary subjects (what the document is fundamentally ABOUT).\n"
+            "  EXCLUDE even if named: technology stacks/libraries mentioned in passing, background organizations,\n"
+            "  generic methodologies merely referenced, anything that would only get a one-sentence description.\n"
+            "  If unsure, LEAVE IT OUT — a clean focused index beats a comprehensive noisy one.\n"
+            "- **standard**: main subjects PLUS substantively discussed items — those with a dedicated paragraph,\n"
+            "  a multi-point list, or at least 2-3 sentences of context. EXCLUDE comma-separated list mentions\n"
+            "  (e.g. \"Tech stack: A, B, C, D\" without individual discussion), one-off mentions, parenthetical references.\n"
+            "  When in doubt about a marginal item, prefer to EXCLUDE it.\n"
+            "- **exhaustive**: every named entity and recognizable concept, including concrete well-known\n"
+            "  technologies/standards/methodologies mentioned even once by name. EXCLUDE only truly generic\n"
+            "  terms (\"server\", \"function\", \"data\") and items appearing only inside URLs or citations.\n\n"
             f"Current granularity: **{granularity}**\n\n"
             "### Extraction format:\n"
             "```json\n"
@@ -1090,6 +1143,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "      \"title\": \"<item title>\",\n"
             "      \"type\": \"<entity|concept|decision|pitfall>\",\n"
             "      \"summary\": \"<1-2 sentence summary>\",\n"
+            "      \"aliases\": [\"<names referring to the EXACT same item>\"],\n"
             "      \"source_ref\": \"[^src:<source_name>:<line_range>]\",\n"
             "      \"target_page\": \"<wiki/<type_dir>/<slug>.md>\"\n"
             "    }\n"
@@ -1097,10 +1151,65 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "}\n"
             "```\n\n"
             "### Rules:\n"
-            "- Each item must reference its source location\n"
+            "- Each item must reference its source location — the line range where the item is SUBSTANTIVELY discussed, not a passing mention\n"
+            "- aliases only include names for the EXACT same item: official abbreviations (\"IBM\" for \"International Business Machines\"),\n"
+            "  full/short name variants (\"腾讯\" for \"腾讯控股\"), translations (\"Apple\" for \"苹果公司\").\n"
+            "  NEVER include parent categories, related products, generic terms, or broader concepts. Use [] if none.\n"
+            "- Type separation: specific named things (people, orgs, products, services, APIs) go to entity;\n"
+            "  abstract ideas (patterns, methodologies, theories, protocols) go to concept.\n"
+            "  Never duplicate an item across both types.\n"
             "- Use existing page types from the schema routing table\n"
             "- Suggest target_page paths using the wiki/ directory structure\n"
-            "- For pitfall items, include severity and root_cause fields"
+            "- For pitfall items, include severity and root_cause fields\n"
+            "- SKELETON ONLY: title/type/summary/aliases/source_ref/target_page — full page bodies are written\n"
+            "  in a later pass after deduplication and evidence verification"
+        )
+
+    elif prompt_type == "extraction_dedup":
+        return (
+            "## Extraction Deduplication Rules\n\n"
+            "You are a strict deduplication system. For each newly extracted skeleton item, compare it against\n"
+            "existing wiki pages surfaced by `query_wiki` and decide an action: **create | merge | drop**.\n\n"
+            "### Merge criteria — ALL must be true:\n"
+            "1. The new item and the existing page refer to the **same real-world thing** (same person, organization, or specific concept).\n"
+            "2. The match is a **name variation**: abbreviation ↔ full name, translation, or minor spelling difference.\n"
+            "3. Types are compatible: entities merge with entities, concepts merge with concepts. **Never merge an entity into a concept or vice versa.**\n\n"
+            "### Examples of CORRECT merges:\n"
+            "- \"Acme Corp\" → \"Acme Corporation\" (same company, abbreviation)\n"
+            "- \"RAG\" → \"Retrieval-Augmented Generation\" (same concept, acronym)\n"
+            "- \"苹果公司\" → \"Apple Inc.\" (same entity, translation)\n\n"
+            "### Examples of INCORRECT merges — do NOT merge these:\n"
+            "- \"混元模型\" ≠ \"通义模型\" (competing products in the same category are DIFFERENT entities)\n"
+            "- \"iPhone 15\" ≠ \"华为 Mate 60\" (different specific products in the same category)\n"
+            "- \"GPT-4\" ≠ \"GPT-3.5\" (different versions of a product are distinct entities)\n"
+            "- \"AI 安全\" ≠ \"内容审核机制\" (related topics, but different concepts)\n"
+            "- \"机器学习\" ≠ \"神经网络\" (neural networks are a subset of ML, not the same concept)\n"
+            "- \"居民身份证\" ≠ \"工作居住证\" (both government-issued documents but completely different credentials)\n"
+            "- \"学位证\" ≠ \"毕业证\" (both educational documents but distinct)\n"
+            "- \"运动员注册\" ≠ \"学历认证\" (both involve verification, but completely different domains)\n\n"
+            "### Key principle: related ≠ same\n"
+            "Two items sharing a few characters in their name, or belonging to the same domain / category / industry,\n"
+            "is NOT a reason to merge. ABSOLUTELY DO NOT merge different products, different companies, different versions,\n"
+            "or different certificates/documents just because they belong to the same category.\n"
+            "**When in doubt, do NOT merge. Two separate pages for the same thing are far better than wrongly merging two different things.**\n\n"
+            "### Actions:\n"
+            "- **create**: no existing page refers to the same thing → write a new page\n"
+            "- **merge**: high confidence it is the same thing → append new facts to the existing page via `edit_doc_file`\n"
+            "  (add missing aliases, cite source line ranges; never overwrite or delete existing content)\n"
+            "- **drop**: the item lacks substantive evidence (evidence check failed) or is already fully covered by an existing page\n\n"
+            "### Decision output format:\n"
+            "```json\n"
+            "{\n"
+            "  \"decisions\": [\n"
+            "    {\n"
+            "      \"title\": \"<item title>\",\n"
+            "      \"action\": \"<create|merge|drop>\",\n"
+            "      \"merge_target\": \"<wiki path of existing page, only when action=merge>\",\n"
+            "      \"reason\": \"<one sentence justification>\"\n"
+            "    }\n"
+            "  ]\n"
+            "}\n"
+            "```"
         )
 
     elif prompt_type == "consolidate":

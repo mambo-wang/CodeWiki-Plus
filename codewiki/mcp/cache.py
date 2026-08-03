@@ -141,10 +141,10 @@ def _parse_frontmatter_dict(text: str) -> Dict[str, Any]:
 def _build_indexable_text(content: str, page_type: Optional[str] = None) -> str:
     """Build indexable text from content with frontmatter field boosting.
 
-    Extracts tags (3x boost), description (2x), title (2x), and aliases (3x)
-    from YAML frontmatter, then prepends them to the body text (without
-    frontmatter delimiters). This ensures these semantic fields participate
-    in BM25 search with higher weight.
+    Extracts tags (3x boost), description (2x), title (2x), aliases (3x),
+    severity (2x), and related_modules (2x) from YAML frontmatter, then
+    prepends them to the body text (without frontmatter delimiters). This
+    ensures these semantic fields participate in BM25 search with higher weight.
 
     Args:
         content: Markdown content with optional YAML frontmatter.
@@ -201,6 +201,18 @@ def _build_indexable_text(content: str, page_type: Optional[str] = None) -> str:
     if isinstance(severity, str) and severity:
         parts.append(severity)
         parts.append(severity)
+
+    # LLM Wiki: related_modules 2x boost (module names for cross-reference discovery)
+    related = fm.get("related_modules", [])
+    if isinstance(related, list):
+        related_text = " ".join(str(r) for r in related)
+    elif isinstance(related, str):
+        related_text = related
+    else:
+        related_text = ""
+    if related_text:
+        parts.append(related_text)
+        parts.append(related_text)
 
     # Body text (frontmatter stripped by _tokenize regex, but we need it here
     # without the delimiters so it doesn't get stripped)
@@ -965,7 +977,8 @@ class AnalysisCache:
                max_results=10, score_threshold=0.1,
                output_dir: Optional[Path] = None,
                type_filter: Optional[str] = None,
-               hop: int = 0, decay: float = 0.5) -> List[Dict[str, Any]]:
+               hop: int = 0, decay: float = 0.5,
+               expand_terms: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         c = self.conn
         r = c.execute(
             "SELECT value FROM search_stats WHERE key='total_docs'"
@@ -979,6 +992,11 @@ class AnalysisCache:
         avg_dl = float(r["value"]) if r else 1.0
 
         qts = _tokenize(query)
+        if expand_terms:
+            for t in expand_terms:
+                for tt in _tokenize(t):
+                    if tt not in qts:
+                        qts.append(tt)
         if not qts:
             return []
         max_results = min(20, max(1, max_results))
