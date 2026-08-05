@@ -28,6 +28,7 @@ from codewiki.mcp.tools.knowledge_loop import (
     handle_reject_note,
 )
 from codewiki.mcp.tools.component_list import handle_list_components
+from codewiki.mcp.tools.capture_conversation import handle_capture_conversation
 
 # Use the repo itself as a test target
 REPO_PATH = str(Path(__file__).resolve().parent.parent)
@@ -461,6 +462,47 @@ def main():
         s = store2.create(f"repo{i}", f"out{i}", {}, [])
         created.append(s.session_id)
     check("max 10 sessions enforced", len(store2._sessions) <= 10, f"got {len(store2._sessions)}")
+
+    # -- 17. capture_conversation (team-memory fusion: ingest half) --
+    print("\n[17] capture_conversation (team-memory fusion)")
+    conv = [
+        {"role": "user", "content": "How do I add a new MCP tool?"},
+        {"role": "assistant", "content": "Register it in registry.py via _register(Tool(...), ...)."},
+        {"role": "user", "content": "Thanks, got it."},
+    ]
+    cap_result = json.loads(handle_capture_conversation({
+        "output_dir": output_dir,
+        "conversation": conv,
+        "link_to": "registry.py",
+    }, store))
+    check("capture_conversation returns captured", cap_result.get("status") == "captured", str(cap_result))
+    check("capture reports turn_count", cap_result.get("turn_count") == 3, str(cap_result))
+    conv_path = Path(output_dir) / cap_result.get("stored_at", "")
+    check("conversation file written to raw/", conv_path.exists(), str(conv_path))
+    if conv_path.exists():
+        conv_text = conv_path.read_text(encoding="utf-8")
+        check("raw file has frontmatter", conv_text.startswith("---"), conv_text[:80])
+        check("raw file records content_hash", "content_hash:" in conv_text, conv_text[:200])
+        check("raw file records link_to", "link_to:" in conv_text, conv_text[:200])
+
+    # Deduplication: capturing the same conversation again yields duplicate
+    cap_dup = json.loads(handle_capture_conversation({
+        "output_dir": output_dir,
+        "conversation": conv,
+        "link_to": "registry.py",
+    }, store))
+    check("duplicate capture detected", cap_dup.get("status") == "duplicate", str(cap_dup))
+    check("only one raw conv file after dedup",
+          len(list((Path(output_dir) / "raw").glob("conv-*.md"))) == 1,
+          "expected exactly 1")
+
+    # query_wiki should NOT surface raw captures (raw/ is excluded from index)
+    q_after = json.loads(handle_query_wiki({
+        "output_dir": output_dir,
+        "query": "add a new MCP tool",
+    }, store))
+    raw_hits = [r for r in q_after.get("results", []) if "raw" in str(r.get("path", ""))]
+    check("query_wiki excludes raw captures", len(raw_hits) == 0, f"raw hits: {len(raw_hits)}")
 
     # -- Summary --
     print(f"\n=== Results: {_passed} passed, {_failed} failed ===")

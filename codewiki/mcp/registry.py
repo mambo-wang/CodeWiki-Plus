@@ -1038,6 +1038,66 @@ _register(
 
 _register(
     Tool(
+        name="capture_conversation",
+        description=(
+            "Store a raw conversation transcript into repowiki/raw/ (team-memory fusion "
+            "ingest half). Accepts a 'conversation' list of turns (each with role+content) "
+            "or an object with a 'turns' key. Optional 'link_to' ties the capture to a wiki "
+            "object, and 'keep_raw' hints that distill_conversation should retain the file. "
+            "This tool is pure persistence: no LLM is invoked, and raw/ is excluded from "
+            "query_wiki. Distillation to notes is a separate async step (T2)."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional active session id (resolves output_dir).",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Wiki output directory (default: <repo_path>/repowiki).",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path used to derive output_dir when output_dir is absent.",
+                },
+                "conversation": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "role": {
+                                "type": "string",
+                                "description": "Speaker role, e.g. user / assistant.",
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Turn text.",
+                            },
+                        },
+                        "required": ["content"],
+                    },
+                    "description": "List of conversation turns. May also be passed as an object with a 'turns' key.",
+                },
+                "link_to": {
+                    "type": "string",
+                    "description": "Optional wiki object id/title this conversation relates to.",
+                },
+                "keep_raw": {
+                    "type": "boolean",
+                    "description": "Hint for distill_conversation to retain the raw file after distillation (default false).",
+                },
+            },
+            "required": ["conversation"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.capture_conversation:handle_capture_conversation",
+    mode="thread",
+)
+
+_register(
+    Tool(
         name="batch_ingest",
         description=(
             "Bulk-import multiple notes and/or source documents in one call. "
