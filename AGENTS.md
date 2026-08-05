@@ -49,3 +49,32 @@
 **注意**：不是每次纠正都需要沉淀。只记录有复用价值的经验——特定于本次任务的临时调整、用户个人偏好等不需要记录。判断标准：如果未来的 Agent 或新同事遇到同样场景时这条经验有用，就值得记录。
 
 <!-- /CodeWiki LLM Wiki -->
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues (uses the `gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+
+## Team memory fusion (conversation → Wiki)
+
+借鉴 Team-Agent-Memory 的"从对话中提取可检索经验"能力,融合进 CodeWiki 知识飞轮的进行中计划。
+
+**入口与索引：**
+- `.scratch/team-memory-fusion/README.md` — 决策地图(可行性结论、spec、triage、published tickets 索引)
+- `.scratch/team-memory-fusion/SPEC-conversation-to-wiki.md` — MVP spec(`ready-for-agent`,复用知识飞轮,新增 `capture_conversation` + `distill_conversation` 两个 MCP 工具)
+- `.scratch/team-memory-fusion/issues/` — 规范化工单(T0–T6,本地 markdown,依赖顺序编号)
+
+**关键设计约束(实现时务必遵守)：**
+- `distill_conversation` 是**无状态**工具,自身不持有 LLM;LLM 由调用方注入(subagent 用 CodeBuddy 模型优先,或 BackgroundWorker 需 `MAIN_MODEL`/`LLM_BASE_URL`)。###蒸馏是 LLM 重活,必须后台异步执行,不阻塞主线程。
+- 自动采集 IDE hook(可选,默认关)**只落 raw,不蒸馏**;蒸馏另走后台 subagent/worker。
+- `repowiki/raw/` 是**暂存区,不进 `query_wiki` 检索**,蒸馏完成后由 `distill_conversation` 删除(除非 `keep_raw`);不膨胀、不影响查询性能。
+- 触发形态(T0):**both** —— 手动命令(主) + IDE hook(可选)。
