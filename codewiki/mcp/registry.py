@@ -1098,6 +1098,65 @@ _register(
 
 _register(
     Tool(
+        name="distill_conversation",
+        description=(
+            "Distill a raw conversation transcript (repowiki/raw/) into draft wiki notes "
+            "(team-memory fusion extract half). Stateless: the LLM is injected by the caller. "
+            "Pass 'llm' (async callable) for inline mode, or 'run_in_background=true' to build "
+            "an OpenAI-compatible LLM from MAIN_MODEL/LLM_BASE_URL/LLM_API_KEY and run async, "
+            "writing progress to repowiki/distill-jobs.json. Produces status='draft' notes that "
+            "must be promoted via confirm_note; the raw file is deleted unless keep_raw."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional active session id (resolves output_dir).",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Wiki output directory (default: <repo_path>/repowiki).",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path used to derive output_dir when output_dir is absent.",
+                },
+                "raw_path": {
+                    "type": "string",
+                    "description": "Path to a specific raw conversation file to distill.",
+                },
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Conversation id (conv-<id>) to distill a single capture.",
+                },
+                "llm": {
+                    "description": "Async callable llm(prompt, system) -> str. Only usable via direct handler invocation (not over MCP JSON).",
+                    "type": "object",
+                },
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": "Build the LLM from MAIN_MODEL env and run distillation in a daemon thread (Mode B).",
+                },
+                "note_type": {
+                    "type": "string",
+                    "description": "Force note_type for all produced notes (decision/lesson/pitfall/architecture/workaround).",
+                },
+                "related_modules": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Force related_modules for all produced notes.",
+                },
+            },
+            "required": [],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.distill_conversation:handle_distill_conversation",
+    mode="thread",
+)
+
+_register(
+    Tool(
         name="batch_ingest",
         description=(
             "Bulk-import multiple notes and/or source documents in one call. "

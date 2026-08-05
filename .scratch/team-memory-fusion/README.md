@@ -32,7 +32,7 @@ SPEC 已切分为 5 个 `ready-for-agent` 子任务 + 1 个 `needs-info` 决策�
 
 - [T0 触发方式](T0-trigger-decision.md) — `resolved`：用户选 **both** —— 手动命令(主) + IDE hook(可选，见 T6)。不阻塞工具实现。
 - [T1 capture_conversation](T1-capture-conversation.md) — `done`：新增 MCP 工具，落盘 raw 对话到 repowiki/raw/（幂等去重 + 不进 query_wiki）。
-- [T2 distill_conversation](T2-distill-conversation.md) — `ready-for-agent`：无状态 LLM 蒸馏 L0→L1 语义原子草稿，LLM 由调用方注入，走现有确认门。
+- [T2 distill_conversation](T2-distill-conversation.md) — `done`：无状态 LLM 蒸馏 L0→L1 语义原子草稿，LLM 由调用方注入（Mode A 直调 / Mode B 后台线程），走现有确认门，草稿含 `origin: conversation` + `source_ref` 可追溯。
 - [T3 去重](T3-dedup.md) — `ready-for-agent`：蒸馏前对 notes/ 近重复检索抑制。
 - [T4 测试](T4-tests.md) — `ready-for-agent`：handler 层 + 端到端 + 提取 golden-set。
 - [T5 检索区分](T5-retrieval-distinction.md) — `ready-for-agent`：query_wiki 暴露 origin 并支持来源过滤。
@@ -46,7 +46,7 @@ SPEC 已切分为 5 个 `ready-for-agent` 子任务 + 1 个 `needs-info` 决策�
 |---|--------|-----------|--------|
 | [01](issues/01-trigger-decision.md) | T0 触发方式(both) | — | resolved |
 | [02](issues/02-capture-conversation.md) | T1 capture_conversation | — | done |
-| [03](issues/03-distill-conversation.md) | T2 distill_conversation | 02 | ready-for-agent |
+| [03](issues/03-distill-conversation.md) | T2 distill_conversation | 02 | done |
 | [04](issues/04-dedup.md) | T3 去重 | 03 | ready-for-agent |
 | [05](issues/05-retrieval-distinction.md) | T5 检索区分 | 03 | ready-for-agent |
 | [06](issues/06-ide-hook.md) | T6 IDE hook 自动采集 | 02 | ready-for-agent |
