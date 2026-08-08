@@ -146,6 +146,12 @@ def _load_event(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
     return None
 
 
+# Only keep genuine dialogue turns for knowledge distillation. Anything else
+# (tool traffic, system prompt, internal thinking) is noise that bloats raw/
+# and dilutes distillation.
+_KEEP_ROLES = frozenset({"user", "assistant"})
+
+
 def _try_expand_codebuddy_index(index_path: Path, messages: list) -> Optional[list]:
     """Expand CodeBuddy index.json format into full message turns.
 
@@ -153,8 +159,10 @@ def _try_expand_codebuddy_index(index_path: Path, messages: list) -> Optional[li
       <session>/index.json          — message metadata (id, role, isComplete)
       <session>/messages/<id>.json  — individual message content
 
-    Returns a list of {role, content} turns, or None if this isn't a
-    CodeBuddy index or no messages could be loaded.
+    Only user/assistant dialogue text is kept; tool calls/results, system
+    prompt, and reasoning/thinking blocks are dropped. Returns a list of
+    {role, content} turns, or None if this isn't a CodeBuddy index or no
+    messages could be loaded.
     """
     if not messages:
         return None
@@ -176,9 +184,6 @@ def _try_expand_codebuddy_index(index_path: Path, messages: list) -> Optional[li
         if not msg_id:
             continue
         role = meta.get("role", "unknown")
-        # Tool messages are tool-call results — noise for knowledge distillation
-        if role == "tool":
-            continue
         msg_file = messages_dir / f"{msg_id}.json"
         if not msg_file.is_file():
             continue
@@ -190,6 +195,9 @@ def _try_expand_codebuddy_index(index_path: Path, messages: list) -> Optional[li
         if not isinstance(msg_data, dict):
             continue
         role = msg_data.get("role") or role
+        # Keep only user/assistant dialogue; drop tool/system/other roles.
+        if role not in _KEEP_ROLES:
+            continue
         text = _extract_codebuddy_message_text(msg_data)
         if text:
             turns.append({"role": str(role), "content": text})
