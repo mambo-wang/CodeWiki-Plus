@@ -122,9 +122,12 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
 - `codewiki/mcp/_ide_hook.py` — IDE hook 采集脚本(默认关,`--enable` 或环境变量开启)
 - `repowiki/team-memory-hook.md` — Hook 接线文档与配置说明
 - `repowiki/ontology.yaml` — 本体论术语表模板(可选,增强检索)
+- MCP prompt `team-memory-hook`（prompts/list）— 启用/关闭采集 hook 的操作指引
+- MCP prompt `distill-conversations`（prompts/list）— 蒸馏工作流指引(prepare → 提取 → submit → 评审)
 
 **关键设计约束(实现时务必遵守)：**
-- `distill_conversation` 是**无状态**工具,自身不持有 LLM;LLM 由调用方注入(subagent 用 CodeBuddy 模型优先,或 BackgroundWorker 需 `MAIN_MODEL`/`LLM_BASE_URL`)。蒸馏是 LLM 重活,必须后台异步执行,不阻塞主线程。
-- 自动采集 IDE hook(可选,默认关)**只落 raw,不蒸馏**;蒸馏另走后台 subagent/worker。
-- `repowiki/raw/` 是**暂存区,不进 `query_wiki` 检索**,蒸馏完成后由 `distill_conversation` 删除(除非 `keep_raw`);不膨胀、不影响查询性能。
+- `distill_conversation` 是**无状态**工具,自身不持有 LLM;LLM 由调用方提供。三种模式:**Mode A**(subagent 注入 `llm` async 回调,内联)、**Mode B**(`run_in_background=true`,从 `MAIN_MODEL`/`LLM_BASE_URL` 环境变量构建)、**Mode C**(IDE Agent 自己当 LLM:`mode="prepare"` 取 transcript+system prompt → Agent 提取 → `mode="submit"` 交回 `distilled` JSON,纯 MCP JSON 可走)。蒸馏是 LLM 重活,必须异步/后台执行,不阻塞主线程。
+- 自动采集 IDE hook(可选,默认关)**只落 raw,不蒸馏**;蒸馏需显式调用 `distill_conversation`,永不自动发生。
+- `repowiki/raw/` 是**暂存区,不进 `query_wiki` 检索**,蒸馏完成后由 `distill_conversation` 删除(除非 `keep_raw`);未蒸馏的 raw 会一直保留(无自动过期);不膨胀、不影响查询性能。
+- 蒸馏产出 `status=draft` 的 note,须 `confirm_note` 确认后才成正式知识。
 - 触发形态:**both** —— 手动命令(主) + IDE hook(可选)。

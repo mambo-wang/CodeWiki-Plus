@@ -197,13 +197,14 @@ def main(argv: Optional[list] = None) -> int:
         return event.get(key)
 
     conversation = event.get("conversation") or _pick("conversation", None)
-    # A SessionEnd event may carry a `session_id` but no turns (the IDE does not
-    # hand over the full transcript inline). In that case, if a transcript path
-    # was not provided either, we cannot synthesize a conversation.
+    # A SessionEnd / PreCompact / Stop event may carry a `session_id` but no
+    # turns (the IDE does not hand over the full transcript inline). In that
+    # case, if a transcript path was not provided either, we cannot synthesize
+    # a conversation.
     if not conversation:
         hook_event = event.get("hook_event_name") or event.get("event")
-        if hook_event in ("SessionEnd", "Stop") and "session_id" in event:
-            print("ide-hook: SessionEnd event has no conversation turns and no "
+        if hook_event in ("SessionEnd", "Stop", "PreCompact") and "session_id" in event:
+            print(f"ide-hook: {hook_event} event has no conversation turns and no "
                   "transcript_path; the IDE does not provide the transcript inline. "
                   "Re-run with --conversation <file> or supply transcript_path.")
             return 0
@@ -215,6 +216,12 @@ def main(argv: Optional[list] = None) -> int:
         "repo_path": _pick("repo_path", args.repo_path),
         "link_to": _pick("link_to", args.link_to) or "",
         "keep_raw": bool(_pick("keep_raw", args.keep_raw)),
+        # IDE-side session id (SessionEnd/PreCompact/Stop events all carry it).
+        # capture_conversation uses it for session-scoped supersede dedup: the
+        # same session re-captured with a longer transcript replaces its
+        # pending raw file instead of piling up incremental copies. Named
+        # source_session_id so it never collides with the MCP session_id.
+        "source_session_id": _pick("session_id", args.session_id) or "",
     }
     if not arguments["repo_path"]:
         print("ide-hook: repo_path is required to resolve repowiki/raw/.", file=sys.stderr)
