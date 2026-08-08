@@ -509,11 +509,15 @@ def _process_llm_output(
             "status": result.get("status", "unknown"),
         })
 
-    # Mark raw as distilled and conditionally delete
+    # Mark raw as distilled and conditionally delete.
+    # A raw file is only kept when explicitly requested (keep_raw) or when
+    # distillation failed to produce a verdict. Conversations that were
+    # distilled but yielded no reusable knowledge (no_knowledge) are noise and
+    # are cleaned up so they don't linger in the transient staging area.
     keep_raw = str(meta.get("keep_raw", "false")).lower() == "true"
     _mark_distilled(raw_path)
     deleted = False
-    if not keep_raw and produced:
+    if not keep_raw and produced is not None:
         try:
             raw_path.unlink()
             deleted = True

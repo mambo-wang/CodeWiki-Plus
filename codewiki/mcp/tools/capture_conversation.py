@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -28,6 +29,56 @@ from typing import Any, Dict, List, Optional
 from codewiki.mcp.session import SessionState, SessionStore
 
 logger = logging.getLogger(__name__)
+
+# --------------------------------------------------------------------------- #
+# Filename slug
+# --------------------------------------------------------------------------- #
+# Built from the first user message so archived files mirror the conversation
+# title shown in the IDE. Windows-reserved + generic filesystem-unsafe chars.
+_UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+# Collapse runs of separators into a single dash.
+_MULTI_DASH = re.compile(r"-{2,}")
+# Max slug length (keeps filenames readable and well under OS limits).
+_MAX_SLUG_LEN = 60
+
+
+def _slugify(text: str) -> str:
+    """Turn arbitrary text into a filesystem-safe, human-readable slug.
+
+    Returns "" when nothing usable remains (caller then falls back to a
+    timestamp-based name).
+    """
+    text = text.strip()
+    if not text:
+        return ""
+    # Replace unsafe chars with a dash separator.
+    slug = _UNSAFE_CHARS.sub("-", text)
+    # Collapse whitespace runs into a single dash.
+    slug = re.sub(r"\s+", "-", slug)
+    slug = _MULTI_DASH.sub("-", slug).strip("-")
+    if not slug:
+        return ""
+    # Truncate (Python str is unicode → slicing at char boundary is safe).
+    if len(slug) > _MAX_SLUG_LEN:
+        slug = slug[:_MAX_SLUG_LEN].rstrip("-")
+    return slug
+
+
+def _first_user_text(turns: List[Dict[str, str]]) -> str:
+    """Extract the first user turn's text content for use as a filename."""
+    for t in turns:
+        if t.get("role") != "user":
+            continue
+        content = t.get("content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = [
+                b.get("text", "") for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            ]
+            return " ".join(p for p in parts if p)
+    return ""
 
 
 # --------------------------------------------------------------------------- #
@@ -199,13 +250,26 @@ def handle_capture_conversation(
     now = datetime.now(timezone.utc)
     stamp = now.strftime("%Y%m%dT%H%M%SZ")
     if dest_path is None:
-        # Build a stable, sortable filename from the timestamp
-        safe_link = "".join(c if c.isalnum() else "-" for c in link_to)[:40]
-        fname = f"conv-{stamp}{('-' + safe_link) if safe_link else ''}.md"
-        dest_path = raw_dir / fname
-        # Collision guard (extremely unlikely given second-resolution stamp)
-        if dest_path.exists():
-            dest_path = raw_dir / f"conv-{stamp}-{int(now.timestamp() * 1000) % 100000}.md"
+        # Filename is derived from the first user message so archived files
+        # read like the conversation title shown in the IDE (e.g.
+        # ``conv-review最近一次提交.md``). Falls back to the timestamp when no
+        # usable user text is present.
+        slug = _slugify(_first_user_text(turns))
+        if slug:
+            base = f"conv-{slug}"
+            dest_path = raw_dir / f"{base}.md"
+            # Collision guard: same opening sentence captured twice or a slug
+            # clashing with an existing file → append an index suffix.
+            n = 2
+            while dest_path.exists():
+                dest_path = raw_dir / f"{base}-{n}.md"
+                n += 1
+        else:
+            safe_link = "".join(c if c.isalnum() else "-" for c in link_to)[:40]
+            fname = f"conv-{stamp}{('-' + safe_link) if safe_link else ''}.md"
+            dest_path = raw_dir / fname
+            if dest_path.exists():
+                dest_path = raw_dir / f"conv-{stamp}-{int(now.timestamp() * 1000) % 100000}.md"
 
     now_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     try:

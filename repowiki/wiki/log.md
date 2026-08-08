@@ -4,6 +4,7 @@
 
 ## 2026-08-08
 * **capture_conversation**: 采集对话: conv-20260808T081955Z.md (2 turns, link_to=-)
+* **ingest_note**: 添加笔记: CodeBuddy IDE transcript_path 指向的 index.json 只存元数据，真实内容在 messages/<id>.json
 
 ## 2026-08-06
 * **capture_conversation**: 采集对话: conv-20260806T013027Z.md (2 turns, link_to=-)
