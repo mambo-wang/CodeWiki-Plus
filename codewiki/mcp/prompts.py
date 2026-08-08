@@ -670,6 +670,29 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
     repo_path = _resolve_path(args.get("repo_path", ""))
     output_dir = args.get("output_dir", "")
     od_note = f'，output_dir="{output_dir}"' if output_dir else ""
+    # T6: 可选启用 IDE hook（team-memory fusion 自动采集对话）
+    enable_hook = args.get("enable_hook", "").strip().lower()
+    if enable_hook in ("1", "true", "yes", "on"):
+        hook_block = f"""## 步骤 2: 启用 IDE 对话自动采集 Hook（可选）
+为支持 team-memory fusion（对话→Wiki 经验沉淀），可启用 IDE hook，使对话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成）。
+
+启用方式（二选一）：
+- **环境变量**（推荐，供 IDE 调用方设置）：
+  ```powershell
+  $env:CODEWIKI_TEAM_MEMORY_HOOK = "1"
+  python -m codewiki.mcp._ide_hook --repo-path="{repo_path or '<repo>'}"
+  ```
+- **命令行 --enable**（单次调用强制开启）：
+  ```powershell
+  python -m codewiki.mcp._ide_hook --enable --repo-path="{repo_path or '<repo>'}"
+  ```
+对话内容可通过 `--conversation <json文件>` 传入（turns 列表或 {{"turns":[...]}}），或从 stdin 管道读取 JSON 事件。
+**默认关闭**：未设置环境变量且未传 --enable 时，hook 仅打印 disabled 并以退出码 0 安全返回，不会采集任何对话。
+> 注意：hook 只负责 capture_conversation（落 raw），真正的蒸馏需另行运行 distill_conversation（异步、LLM 重活）。"""
+        step_shift = 1
+    else:
+        hook_block = ""
+        step_shift = 0
     return f"""请为项目初始化 Wiki 工作区。按以下步骤执行：
 
 ## 步骤 1: 初始化
@@ -677,15 +700,15 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 - 自动创建目录结构：wiki/modules, wiki/entities, wiki/concepts, wiki/sources, wiki/comparisons, wiki/queries, notes/
 - 拷贝带注释的 schema.yaml 模板到输出目录（保留所有注释，方便阅读和自定义）
 - 在仓库根目录写入/更新 AGENTS.md（含使用建议、自我反思协议、知识沉淀规则）
-
-## 步骤 2: 自定义 schema.yaml
+{hook_block}
+## 步骤 {2 + step_shift}: 自定义 schema.yaml
 读取 `{output_dir or repo_path + '/repowiki'}/schema.yaml`，根据项目特点修改：
 - **purpose**（重要）：用一两句话描述项目定位，会注入到所有文档生成 prompt 中
 - **doc_types**：选择适合项目的文档风格（api/architecture/design/business 等）
 - **conventions**：调整命名规范、最小行数、是否需要 Mermaid 图等
 - **page_types**：按需增删页面类型
 
-## 步骤 3: 验证 AGENTS.md
+## 步骤 {3 + step_shift}: 验证 AGENTS.md
 读取仓库根目录的 AGENTS.md，确认包含：
 - CodeWiki LLM Wiki 章节（入口文件链接、使用建议）
 - 纠正识别与经验沉淀（自我反思协议）
@@ -916,6 +939,11 @@ def register(server):
                     PromptArgument(
                         name="output_dir",
                         description="Wiki 输出目录（默认: <repo>/repowiki）",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="enable_hook",
+                        description="是否启用 IDE 对话自动采集 Hook（team-memory fusion）：true/1 会在初始化指引中追加 hook 启用说明；留空或 false 则跳过。Hook 默认关闭，仅采集对话不蒸馏。",
                         required=False,
                     ),
                 ],

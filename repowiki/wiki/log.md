@@ -2,6 +2,18 @@
 
 > 本文件为追加写入的操作记录，由系统自动维护
 
+## 2026-08-08
+* **capture_conversation**: 采集对话: conv-20260808T081955Z.md (2 turns, link_to=-)
+
+## 2026-08-06
+* **capture_conversation**: 采集对话: conv-20260806T013027Z.md (2 turns, link_to=-)
+
+## 2026-08-05
+* **capture_conversation**: 采集对话: conv-20260805T075743Z.md (2 turns, link_to=-)
+* **capture_conversation**: 采集对话: conv-20260805T103603Z.md (2 turns, link_to=-)
+* **capture_conversation**: 采集对话: conv-20260805T104343Z.md (2 turns, link_to=-)
+* **capture_conversation**: 采集对话: conv-20260805T104547Z.md (2 turns, link_to=-)
+
 ## 2026-08-03
 * **lint_wiki**: 检查完成: 27 个问题
 

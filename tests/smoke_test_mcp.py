@@ -29,6 +29,7 @@ from codewiki.mcp.tools.knowledge_loop import (
 )
 from codewiki.mcp.tools.component_list import handle_list_components
 from codewiki.mcp.tools.capture_conversation import handle_capture_conversation
+from codewiki.mcp.tools.distill_conversation import handle_distill_conversation
 
 # Use the repo itself as a test target
 REPO_PATH = str(Path(__file__).resolve().parent.parent)
@@ -503,6 +504,58 @@ def main():
     }, store))
     raw_hits = [r for r in q_after.get("results", []) if "raw" in str(r.get("path", ""))]
     check("query_wiki excludes raw captures", len(raw_hits) == 0, f"raw hits: {len(raw_hits)}")
+
+    # -- 18. distill_conversation (team-memory fusion: extract half) --
+    print("\n[18] distill_conversation (team-memory fusion)")
+
+    _raw_before = list((Path(output_dir) / "raw").glob("conv-*.md"))
+
+    async def _fake_llm(prompt, system):
+        return json.dumps({
+            "notes": [{
+                "title": "Adding an MCP tool requires registry.py registration",
+                "note_type": "decision",
+                "related_modules": ["mcp"],
+                "tags": ["mcp"],
+                "content": "## Background\nUser asked how to add an MCP tool.\n## Decision\nRegister via _register(Tool(...), handler_path=..., mode='thread') in registry.py.",
+            }]
+        })
+
+    dist = json.loads(handle_distill_conversation({
+        "output_dir": output_dir,
+        "llm": _fake_llm,
+    }, store))
+    check("distill returns completed", dist.get("status") == "completed", str(dist))
+    check("distill created >=1 note", dist.get("notes_created", 0) >= 1, str(dist))
+
+    if _raw_before:
+        # raw files captured in [17] should be deleted after distillation
+        _raw_after = list((Path(output_dir) / "raw").glob("conv-*.md"))
+        check("raw captures deleted after distill", len(_raw_after) == 0,
+              f"remaining: {[p.name for p in _raw_after]}")
+
+    # a draft note should now exist and be queryable with [unconfirmed] prefix
+    q_note = json.loads(handle_query_wiki({
+        "output_dir": output_dir,
+        "query": "registry.py registration MCP tool",
+    }, store))
+    draft_hit = [r for r in q_note.get("results", []) if "registry" in str(r.get("title", "")).lower()
+                 or "unconfirmed" in str(r)]
+    check("distilled draft note is queryable", len(draft_hit) >= 1, f"hits: {len(draft_hit)}")
+
+    # golden-set: LLM JSON parser must extract structured notes (anti-hallucination)
+    from codewiki.mcp.tools.distill_conversation import _parse_llm_notes
+    golden = (
+        '```json\n{"notes":[{"title":"Use status=draft","note_type":"decision",'
+        '"related_modules":["notes"],"content":"## Decision\\nX"}]}\n```'
+    )
+    parsed = _parse_llm_notes(golden)
+    check("golden parse yields one note", len(parsed) == 1, str(parsed))
+    if parsed:
+        check("golden note_type preserved", parsed[0].get("note_type") == "decision", str(parsed[0]))
+        check("golden strips markdown fences", parsed[0].get("title") == "Use status=draft", str(parsed[0]))
+    bad = _parse_llm_notes("totally not json")
+    check("non-json yields no notes (no hallucinated draft)", bad == [], str(bad))
 
     # -- Summary --
     print(f"\n=== Results: {_passed} passed, {_failed} failed ===")
