@@ -48,6 +48,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]  # <repo>/.codebuddy/hooks/ -> <repo>
@@ -92,6 +93,26 @@ def _codewiki_launch_env():
     )
 
 
+def _dump_raw_event(raw: str) -> None:
+    """Diagnostic: persist the raw stdin the IDE sent us, so we can inspect
+    what CodeBuddy actually injects into hook events (esp. whether a usable
+    transcript_path / inline turns are present). Never raises.
+
+    Files land in repowiki/raw/.hook-debug/ and are git-ignored along with the
+    rest of raw/. This is a temporary aid to pin down why captures are empty;
+    remove once the real payload shape is confirmed.
+    """
+    try:
+        debug_dir = REPO / "repowiki" / "raw" / ".hook-debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        (debug_dir / f"event-{stamp}.json").write_text(
+            raw, encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+
 def _read_event() -> dict:
     if sys.stdin.isatty():
         return {}
@@ -103,6 +124,9 @@ def _read_event() -> dict:
         raw = raw.lstrip("\ufeff").strip()
     except Exception:
         return {}
+    # Always keep a copy of what the IDE sent, for diagnosis.
+    if raw:
+        _dump_raw_event(raw)
     if not raw:
         return {}
     try:

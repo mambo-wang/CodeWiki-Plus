@@ -98,7 +98,8 @@ python -m codewiki.mcp._ide_hook --enable --repo-path "d:/repos/CodeWiki-CN"
 
 ## 重要约束
 
-- **hook 事件不直接内联对话 turns**，但通过 `transcript_path` 字段提供对话记录文件路径（官方文档确认，三种事件均携带）。wrapper 自动读取并抽取 turns（支持 JSON 数组、`{messages:[]}` / `{conversation:[]}` / `{turns:[]}` 包装、逐行 JSONL）。若 `transcript_path` 缺失或不可读，脚本以退出码 0 安全返回，不误采集。
+- **对话 turns 来源**：优先读 `transcript_path` 指向的文件（支持 JSON 数组、`{messages:[]}` / `{conversation:[]}` / `{turns:[]}` 包装、逐行 JSONL）；若 IDE 直接把对话**内联**在事件 JSON 里（`conversation` / `messages` / `turns` / `transcript_turns` / `chat` 任一非空数组），则直接采用内联 turns，无需 transcript 文件。若两者都缺失/不可读，脚本不再静默跳过，而是把**事件信封本身**作为最小记录落盘（frontmatter 完整 + 一条 system 说明），以便确认 hook 确实触发、并能在 `repowiki/raw/.hook-debug/` 看到 IDE 真实注入的 payload 形状。
+- **诊断留痕**：每次触发都会把 IDE 传入的原始 stdin 原样写入 `repowiki/raw/.hook-debug/event-<ts>.json`（不进 `query_wiki`），用于确认 CodeBuddy 实际注入的字段。定位"为何没抓到对话"时先查这里。
 - **默认关闭**：未设置环境变量且未传 `--enable` 时，脚本打印 `disabled` 并以退出码 0 返回，不写任何文件。
 - **失败不崩溃 IDE**：捕获/导入异常仅打印到 stderr，不中断 IDE。
 - `--repo-path`（或 JSON 里的 `repo_path`）必填，用于解析 `repowiki/raw/`；缺失则退出码 2。
