@@ -1,8 +1,26 @@
-# Ontology — project-level term normalization for search
+# Ontology — project-level term normalization AND relationship graph for reasoning
 #
-# Define canonical terms and their aliases. When a user (or Agent) searches
-# for any alias, the search engine automatically expands the query to include
-# all synonyms in the group, improving recall for vocabulary mismatch.
+# 本文件已从「别名表」升级为真正的本体声明。升级依据：
+# 《本体实践》系列第 7 篇《我为什么要用本体做文档知识库管理》
+# （见 docs/本体知识库文章-对CodeWiki-CN的借鉴分析.md）
+#
+# 核心理念：知识库应为「模型推理」设计，而非「人工检索」设计。
+# 文档行为与本体的天然同构：
+#   建文件夹   → 定义概念类型(types)
+#   写文档     → 创建对象实例(instances)
+#   正文引用   → 声明关系(relations)
+#   汇总文档   → 视图(从关系查询渲染)
+#
+# 三层机制：
+#   1. 管结构  —— types + relations 声明 + 反向链接自动推导(仿 import)
+#   2. 管推理  —— 类型层规则 + 实例层事实，构成可多跳行走的关系图谱
+#   3. 管生长  —— 引用未定义概念时建占位节点(TODO)，标记过期提示
+#
+# ----------------------------------------------------------------------------
+# 节 1: terms（保留，向后兼容现有检索扩展机制 wiki_search._expand_with_ontology）
+#
+# 定义规范词及其别名。当用户/Agent 搜索某别名时，检索引擎自动扩展查询以
+# 包含同组所有同义词，缓解词汇不一致导致的召回损失。
 #
 # Format:
 #   terms:
@@ -17,3 +35,53 @@
 #       aliases: [auth, permission check]
 
 terms: {}
+
+# ----------------------------------------------------------------------------
+# 节 2: types（管结构 —— 概念类型定义，对应文章「建文件夹=定义类型」）
+#
+# 每个类型声明一组统一字段，作为 AI 读取时的稳定 schema（对应文章「内容模板」）。
+# init_wiki 可从 modules/concepts/entities 页面自动抽取类型，无需全部手写。
+#
+# Format:
+#   types:
+#     <type_name>:
+#       description: 一句话说明该类型含义
+#       fields: [field1, field2, ...]   # 该类型实例应包含的规范字段
+#       aliases: [alias1, ...]          # 类型同义词（跨词汇映射，如 视图→Tool）
+#
+# Example:
+#   types:
+#     module:
+#       description: 代码模块，自动从 AST 解析生成
+#       fields: [responsibility, dependencies, public_api]
+#     capability:
+#       description: 对外能力/产品特性
+#       fields: [owner, supported_by, status]
+
+types: {}
+
+# ----------------------------------------------------------------------------
+# 节 3: relations（管推理 —— 关系声明，构成可多跳行走的图谱）
+#
+# 声明类型/实例之间的关系；支持反向链接自动推导（仿代码 import 推导依赖）。
+# query_wiki 的 hop 多跳机制可直接消费此图。
+#
+# Format:
+#   relations:
+#     - from: <type_or_instance>
+#       type: <relation_name>          # 如 depends_on / supports / implemented_by
+#       to: <type_or_instance>
+#       bidirectional: false           # 可选，true 表示对称关系，自动生成反向边
+#       todo: false                    # 可选，true 表示占位节点（引用了未定义的概念）
+#
+# Example:
+#   relations:
+#     - from: WeKnora
+#       type: implemented_by
+#       to: MCP_Server
+#     - from: 退款能力
+#       type: supported_by
+#       to: OrderService
+#       todo: true                     # OrderService 尚未建文档，先占位待补
+
+relations: {}
