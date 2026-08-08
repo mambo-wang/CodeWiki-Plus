@@ -18,6 +18,14 @@ Two invocation modes:
       MAIN_MODEL / LLM_BASE_URL / LLM_API_KEY environment variables and records
       progress in ``repowiki/distill-jobs.json``.
 
+  Mode C (agent-driven, recommended for IDE agents over MCP JSON):
+      the host agent itself is the LLM. First call ``mode='prepare'`` to receive
+      the pending transcripts plus the distillation system prompt; the agent
+      extracts knowledge with its own model, then calls ``mode='submit'`` with
+      ``distilled={conversation_id: <notes JSON>}`` so the tool performs the
+      deterministic half (parse, dedup, ingest drafts, raw cleanup, index
+      rebuild). Works over plain MCP JSON where a callable cannot be injected.
+
 After distillation the produced note(s) are written via handle_ingest_note with
 status=draft, awaiting human/agent confirm_note. The raw transcript is then
 deleted unless its frontmatter carried keep_raw: true.
@@ -400,23 +408,18 @@ def _parse_llm_notes(raw_llm_output: str) -> List[Dict[str, Any]]:
     return notes
 
 
-async def _distill_one(
-    raw_path: Path,
-    llm: Callable[[str, str], Awaitable[str]],
-    output_dir: Path,
-    store: Any,
-    note_type_override: Optional[str] = None,
-    related_modules_override: Optional[List[str]] = None,
-    dedup: str = "suppress",
-) -> Dict[str, Any]:
-    """Distill a single raw conversation file into draft note(s)."""
-    from codewiki.mcp.tools.knowledge_loop import handle_ingest_note
+def _build_distill_input(raw_path: Path) -> Optional[Dict[str, Any]]:
+    """Build the LLM input for one raw conversation file.
 
+    Returns ``{"meta", "transcript", "prompt"}`` or ``None`` when the
+    transcript body is empty (caller should skip the file). Shared by the
+    LLM-injected modes (A/B) and the agent-driven mode (C, ``mode=prepare``).
+    """
     meta = _parse_frontmatter(raw_path)
     text = raw_path.read_text(encoding="utf-8")
     transcript = _extract_turns(text)
     if not transcript:
-        return {"raw_path": str(raw_path), "status": "skipped", "reason": "empty transcript"}
+        return None
 
     link_to = meta.get("link_to", "")
     prompt = (
@@ -425,12 +428,29 @@ async def _distill_one(
         f"{_NOTE_TYPE_HINT}\n"
         "Extract durable knowledge as JSON."
     )
+    return {"meta": meta, "transcript": transcript, "prompt": prompt}
 
-    try:
-        llm_output = await llm(prompt, _DISTILL_SYSTEM)
-    except Exception as e:  # LLM failure must not crash caller
-        logger.exception("distill_conversation LLM call failed for %s", raw_path)
-        return {"raw_path": str(raw_path), "status": "llm_error", "error": str(e)}
+
+def _process_llm_output(
+    raw_path: Path,
+    llm_output: str,
+    output_dir: Path,
+    store: Any,
+    note_type_override: Optional[str] = None,
+    related_modules_override: Optional[List[str]] = None,
+    dedup: str = "suppress",
+) -> Dict[str, Any]:
+    """Deterministic half of distillation.
+
+    Takes the already-produced LLM JSON (from an injected LLM in modes A/B, or
+    from the host agent itself in mode C ``submit``) and runs: parse → dedup
+    against notes/ → ingest draft notes → mark/delete the raw file → rebuild
+    the search index.
+    """
+    from codewiki.mcp.tools.knowledge_loop import handle_ingest_note
+
+    meta = _parse_frontmatter(raw_path)
+    link_to = meta.get("link_to", "")
 
     notes = _parse_llm_notes(llm_output)
     produced: List[Dict[str, Any]] = []
@@ -519,6 +539,32 @@ async def _distill_one(
         "deleted_raw": deleted,
         "keep_raw": keep_raw,
     }
+
+
+async def _distill_one(
+    raw_path: Path,
+    llm: Callable[[str, str], Awaitable[str]],
+    output_dir: Path,
+    store: Any,
+    note_type_override: Optional[str] = None,
+    related_modules_override: Optional[List[str]] = None,
+    dedup: str = "suppress",
+) -> Dict[str, Any]:
+    """Distill a single raw conversation file into draft note(s) (modes A/B)."""
+    built = _build_distill_input(raw_path)
+    if built is None:
+        return {"raw_path": str(raw_path), "status": "skipped", "reason": "empty transcript"}
+
+    try:
+        llm_output = await llm(built["prompt"], _DISTILL_SYSTEM)
+    except Exception as e:  # LLM failure must not crash caller
+        logger.exception("distill_conversation LLM call failed for %s", raw_path)
+        return {"raw_path": str(raw_path), "status": "llm_error", "error": str(e)}
+
+    return _process_llm_output(
+        raw_path, llm_output, output_dir, store,
+        note_type_override, related_modules_override, dedup,
+    )
 
 
 def _mark_distilled(raw_path: Path) -> None:
@@ -657,6 +703,84 @@ def handle_distill_conversation(
             "message": "No pending raw conversations to distill.",
             "distilled": [],
         })
+
+    # Mode C (agent-driven): the host agent IS the LLM. Over MCP JSON the
+    # caller cannot inject a callable (Mode A) and usually has no MAIN_MODEL
+    # env (Mode B), so prepare hands out transcripts + system prompt and
+    # submit runs the deterministic half on the agent's extraction results.
+    mode = str(arguments.get("mode") or "auto").lower()
+    if mode not in ("auto", "prepare", "submit"):
+        return json.dumps({"error": f"Invalid mode '{mode}'. Expected one of: auto, prepare, submit."})
+
+    if mode == "prepare":
+        captures: List[Dict[str, Any]] = []
+        for p in targets:
+            built = _build_distill_input(p)
+            if built is None:
+                continue
+            meta = built["meta"]
+            captures.append({
+                "conversation_id": p.stem,
+                "path": str(p.relative_to(output_dir)) if _safe_rel(p, output_dir) else str(p),
+                "captured_at": meta.get("captured_at", ""),
+                "turn_count": meta.get("turn_count", ""),
+                "link_to": meta.get("link_to", ""),
+                "transcript": built["transcript"],
+            })
+        if not captures:
+            return json.dumps({
+                "status": "noop",
+                "message": "No readable pending conversations.",
+                "captures": [],
+            })
+        return json.dumps({
+            "status": "prepared",
+            "mode": "prepare",
+            "system_prompt": _DISTILL_SYSTEM,
+            "captures": captures,
+            "next": (
+                "Act as the LLM: apply system_prompt to each capture's transcript and "
+                'produce one JSON object shaped {"notes": [{title, note_type, '
+                "related_modules, tags, content}]} per capture. Then call "
+                "distill_conversation again with mode='submit' and distilled="
+                "{conversation_id: <that JSON>}."
+            ),
+        }, indent=2, ensure_ascii=False)
+
+    if mode == "submit":
+        distilled_map = arguments.get("distilled")
+        if not isinstance(distilled_map, dict) or not distilled_map:
+            return json.dumps({
+                "error": (
+                    "mode='submit' requires 'distilled': a mapping of conversation_id "
+                    '(e.g. "conv-20260808T113515Z") to the extraction JSON shaped '
+                    '{"notes": [...]}.'
+                ),
+            })
+        results: List[Dict[str, Any]] = []
+        for p in targets:
+            key = p.stem  # e.g. "conv-20260808T113515Z"
+            bare = key[len("conv-"):] if key.startswith("conv-") else key
+            llm_output = distilled_map.get(key)
+            if llm_output is None:
+                llm_output = distilled_map.get(bare)
+            if llm_output is None:
+                # No extraction result for this capture: leave the raw file untouched.
+                results.append({"raw_path": str(p), "conversation_id": key, "status": "missing_result"})
+                continue
+            if not isinstance(llm_output, str):
+                llm_output = json.dumps(llm_output, ensure_ascii=False)
+            res = _process_llm_output(p, llm_output, output_dir, store, note_type_ov, related_ov)
+            res["conversation_id"] = key
+            results.append(res)
+        n_notes = sum(len(r.get("notes", [])) for r in results)
+        return json.dumps({
+            "status": "completed",
+            "mode": "submit",
+            "distilled": results,
+            "raw_processed": len(results),
+            "notes_created": n_notes,
+        }, indent=2, ensure_ascii=False)
 
     # Mode B: background
     if arguments.get("run_in_background") and not arguments.get("llm"):

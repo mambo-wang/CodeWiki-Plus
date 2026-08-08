@@ -1101,11 +1101,16 @@ _register(
         name="distill_conversation",
         description=(
             "Distill a raw conversation transcript (repowiki/raw/) into draft wiki notes "
-            "(team-memory fusion extract half). Stateless: the LLM is injected by the caller. "
-            "Pass 'llm' (async callable) for inline mode, or 'run_in_background=true' to build "
-            "an OpenAI-compatible LLM from MAIN_MODEL/LLM_BASE_URL/LLM_API_KEY and run async, "
-            "writing progress to repowiki/distill-jobs.json. Produces status='draft' notes that "
-            "must be promoted via confirm_note; the raw file is deleted unless keep_raw."
+            "(team-memory fusion extract half). Stateless: the LLM is supplied by the caller. "
+            "Three modes: (A) pass 'llm' (async callable, direct handler invocation only); "
+            "(B) 'run_in_background=true' builds an OpenAI-compatible LLM from "
+            "MAIN_MODEL/LLM_BASE_URL/LLM_API_KEY and runs async (progress in "
+            "repowiki/distill-jobs.json); (C) agent-driven over MCP JSON: "
+            "mode='prepare' returns pending transcripts + the distillation system prompt, "
+            "the host agent extracts knowledge with its own model, then mode='submit' with "
+            "distilled={conversation_id: <notes JSON>} runs the deterministic half. "
+            "Produces status='draft' notes that must be promoted via confirm_note; "
+            "the raw file is deleted unless keep_raw."
         ),
         inputSchema={
             "type": "object",
@@ -1129,6 +1134,23 @@ _register(
                 "conversation_id": {
                     "type": "string",
                     "description": "Conversation id (conv-<id>) to distill a single capture.",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["auto", "prepare", "submit"],
+                    "description": (
+                        "auto (default): Mode A/B below. prepare: return pending transcripts + "
+                        "system prompt without any LLM (host agent will do the extraction). "
+                        "submit: run the deterministic half on agent-produced results in 'distilled'."
+                    ),
+                },
+                "distilled": {
+                    "type": "object",
+                    "description": (
+                        "Mode submit only: mapping of conversation_id (e.g. 'conv-20260808T113515Z') "
+                        'to the extraction JSON shaped {"notes": [{title, note_type, related_modules, '
+                        "tags, content}]}. Values may be JSON strings or objects."
+                    ),
                 },
                 "llm": {
                     "description": "Async callable llm(prompt, system) -> str. Only usable via direct handler invocation (not over MCP JSON).",

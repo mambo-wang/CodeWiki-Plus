@@ -122,6 +122,8 @@ ingest_note(note_type, title, content) → 自动索引 → query_wiki 可检索
 4. 知识归档: 调用 Prompt "ingest-note" 归档设计决策和经验教训
 5. 搜索知识库: 调用 Prompt "search-wiki" 获取搜索策略
 6. 质量检查: lint_wiki(checks=["all"]) → flag_issue 记录问题
+7. 对话采集: 调用 Prompt "team-memory-hook" 启用/关闭 IDE 对话自动采集（可选）
+8. 对话蒸馏: 调用 Prompt "distill-conversations" 从已采集对话中提取经验笔记
 """
 
 server = Server(

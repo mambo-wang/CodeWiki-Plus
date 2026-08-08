@@ -4,7 +4,8 @@ MCP Prompt Templates for CodeWiki.
 This module contains all workflow prompt templates that guide agents through
 CodeWiki operations: Wiki generation, knowledge extraction, search strategies,
 quality checks, incremental updates, cross-service tracing, workspace analysis,
-code analysis, impact review, note ingestion, and architecture review.
+code analysis, impact review, note ingestion, architecture review, and
+team-memory fusion (conversation capture hook toggle, conversation distillation).
 
 Usage:
     from codewiki.mcp.prompts import register
@@ -726,6 +727,108 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 - schema.yaml 只在首次拷贝；后续 analyze_repo 会增量合并（保留用户自定义值）"""
 
 
+def _prompt_team_memory_hook(args: dict[str, str]) -> str:
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    action = (args.get("action") or "").strip().lower()
+    if action == "enable":
+        action_hint = "用户请求：**启用**采集 Hook。执行步骤 1 确认现状后直接进入步骤 2A。"
+    elif action == "disable":
+        action_hint = "用户请求：**关闭**采集 Hook。执行步骤 1 确认现状后直接进入步骤 2B。"
+    else:
+        action_hint = ("用户未指定动作：先执行步骤 1 检查当前状态并向用户报告，"
+                       "再按其意愿选择步骤 2A（启用）或步骤 2B（关闭）。")
+    return f"""管理 team-memory fusion 的对话自动采集 Hook（CodeBuddy hooks）。
+
+{action_hint}
+
+采集 Hook 只负责把对话捕获到 `repowiki/raw/`（仅采集、不蒸馏）；蒸馏是独立的显式步骤，见 distill-conversations prompt。
+
+## 步骤 1: 检查当前状态
+读取 `{repo_path}/.codebuddy/settings.json`：
+- **已启用**：存在 hooks.SessionEnd、hooks.PreCompact、hooks.Stop 三个条目，且均执行 `python "$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py"`
+- **未启用**：文件不存在，或没有上述条目
+
+## 步骤 2A: 启用
+1. 确认 `{repo_path}/.codebuddy/hooks/capture_session_end.py` 存在（随 CodeWiki 源码提供；若缺失，从 CodeWiki 源码仓库复制，不要凭记忆重写）
+2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下三个 hook 注册（保留文件中已有的无关配置）：
+
+```json
+{{
+  "hooks": {{
+    "SessionEnd": [
+      {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
+    ],
+    "PreCompact": [
+      {{ "matcher": "*", "hooks": [ {{ "type": "command", "command": "python \\"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
+    ],
+    "Stop": [
+      {{ "hooks": [ {{ "type": "command", "command": "python \\"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
+    ]
+  }}
+}}
+```
+
+3. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）
+4. 用模拟事件验证（先准备一个小的 transcript 文件，如 `[{{"role":"user","content":"测试"}}]` 存为 d:/tmp/conv.json；期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
+
+```powershell
+'{{"session_id":"verify-1","transcript_path":"d:/tmp/conv.json","cwd":"{repo_path}","hook_event_name":"SessionEnd","reason":"other"}}' | python "{repo_path}/.codebuddy/hooks/capture_session_end.py"
+```
+
+5. 验证完成后删除测试产物：`{repo_path}/repowiki/raw/` 下 verify-1 会话生成的 conv-*.md 文件
+
+## 步骤 2B: 关闭
+1. 从 `{repo_path}/.codebuddy/settings.json` 移除 SessionEnd、PreCompact、Stop 三个条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
+2. 已采集的 raw 文件保留在 `repowiki/raw/`，之后仍可蒸馏；关闭采集不会删除它们
+
+## 注意事项
+- Hook 是 CodeBuddy 专属机制。其他运行时（Trae、CLI agent 等）请改用 `capture_conversation` MCP 工具手动采集
+- Stop 事件每轮都会触发；会话级 supersede 去重保证每个会话在 raw/ 中始终只保留最新一份完整 transcript，不会膨胀
+- Hook 永不蒸馏、永不写 wiki 页面、永不使 IDE 失败（异常仅输出到 stderr，退出码保持 0）"""
+
+
+def _prompt_distill_conversations(args: dict[str, str]) -> str:
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    return f"""把已采集的对话（repowiki/raw/）蒸馏为 Wiki 经验笔记。当用户说"从最近的对话中提取经验""distill my conversations"等时使用本流程。
+
+**分工**：你（宿主 Agent）就是本流程的 LLM——你负责思考与知识提取；CodeWiki MCP 负责确定性工作（解析、去重、入库、评审流水线）。全程本地闭环，数据不出机器。
+
+## 步骤 1: 收集待蒸馏的捕获
+调用 distill_conversation(mode="prepare", repo_path="{repo_path}")
+- 返回 `status="noop"` → 还没有任何捕获。给用户两个选择：启用自动采集（见 team-memory-hook prompt），或用 `capture_conversation` 立即采集当前对话。到此为止
+- 返回 `status="prepared"` → 你得到 `system_prompt` 和 `captures[]`（每项含 `conversation_id` 与 `transcript`）
+
+## 步骤 2: 提取知识（你就是 LLM）
+对每条 capture，将 `system_prompt` 应用于其 transcript，产出一个 JSON 对象：
+
+```json
+{{
+  "notes": [
+    {{
+      "title": "简短的陈述句标题",
+      "note_type": "decision | lesson | pitfall | architecture | workaround",
+      "related_modules": ["module_slug"],
+      "tags": ["可选", "关键词"],
+      "content": "## 背景 ... ## 正确做法/决策 ... ## 根因 ..."
+    }}
+  ]
+}}
+```
+
+质量门槛：只提取**持久有效**、未来的 Agent 或队友能直接受益的知识（带 rationale 的决策、被纠正的假设、踩坑点、不明显的架构事实、含恢复条件的临时方案）。跳过闲聊、问候和临时任务状态。没有合格内容就返回 `{{"notes": []}}`——绝不凑数。
+
+## 步骤 3: 提交确定性处理
+调用 distill_conversation(mode="submit", repo_path="{repo_path}", distilled={{"<conversation_id>": <步骤2产出的JSON>, ...}})
+
+工具会与已有笔记去重、经 ingest_note 写入草稿（status=draft）、标记/删除已处理的 raw 文件并重建检索索引。结果按 capture 报告：新建笔记数 / 去重抑制数 / 合并数。
+
+## 步骤 4: 与用户评审（必须）
+逐条展示产出的草稿（标题 + 一句话摘要），询问用户保留哪些。对接受的调用 `confirm_note`，对拒绝的调用 `reject_note`。**绝不静默确认**——草稿评审是知识飞轮的质量闸门。
+
+## 备选：后台 worker（Mode B）
+仅当 MCP server 进程配置了 MAIN_MODEL / LLM_BASE_URL / LLM_API_KEY 环境变量时，可改用 distill_conversation(run_in_background=true)，轮询 `repowiki/distill-jobs.json` 直到 status=completed，再执行步骤 4。IDE Agent 优先使用上面的 prepare/submit 流程。"""
+
+
 # ===================================================================
 #  Registration
 # ===================================================================
@@ -948,6 +1051,43 @@ def register(server):
                     ),
                 ],
             ),
+            Prompt(
+                name="team-memory-hook",
+                title="启用/关闭对话自动采集 Hook",
+                description=(
+                    "管理 team-memory fusion 的 CodeBuddy 对话采集 Hook：检查现状、"
+                    "启用（注册 SessionEnd/PreCompact/Stop 三个事件）或关闭。"
+                    "Hook 只采集对话到 repowiki/raw/，不蒸馏。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="action",
+                        description="要执行的动作：enable（启用）| disable（关闭）；留空则先检查现状再按用户意愿选择",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="repo_path",
+                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                ],
+            ),
+            Prompt(
+                name="distill-conversations",
+                title="蒸馏对话提取经验",
+                description=(
+                    "把 repowiki/raw/ 中已采集的对话蒸馏为经验笔记：宿主 Agent 充当 LLM，"
+                    "distill_conversation(mode=prepare) 取 transcript → Agent 提取知识 → "
+                    "mode=submit 交回做去重/草稿入库/评审。全程本地闭环，蒸馏产出须 confirm_note 确认。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="repo_path",
+                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                ],
+            ),
         ]
 
     @server.get_prompt()
@@ -969,6 +1109,8 @@ def register(server):
             "architecture-review": _prompt_architecture_review,
             "ingest-note": _prompt_ingest_note,
             "init-wiki": _prompt_init_wiki,
+            "team-memory-hook": _prompt_team_memory_hook,
+            "distill-conversations": _prompt_distill_conversations,
         }
 
         handler = prompts_map.get(name)

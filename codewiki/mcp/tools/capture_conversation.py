@@ -119,6 +119,11 @@ def handle_capture_conversation(
       - output_dir / repo_path (optional): repowiki resolution fallback.
       - conversation (required): list of turns or {"turns": [...]} object.
       - link_to (optional): wiki object id/title this conversation relates to.
+      - source_session_id (optional): the IDE-side session id (e.g. CodeBuddy's
+        session_id carried by SessionEnd / PreCompact / Stop hook events).
+        Distinct from session_id (the active MCP session). Re-capturing the
+        same source session replaces its pending raw file instead of piling
+        up incremental transcripts.
       - keep_raw (optional, bool, default False): hint for distill_conversation
         to retain the raw file after distillation. Stored as metadata only.
 
@@ -149,6 +154,8 @@ def handle_capture_conversation(
 
     keep_raw = bool(arguments.get("keep_raw", False))
 
+    source_session_id = str(arguments.get("source_session_id") or "")
+
     content_hash = _content_hash(turns, link_to)
 
     # Ensure repowiki/raw/ exists
@@ -170,15 +177,35 @@ def handle_capture_conversation(
                 "message": "Identical conversation already captured; skipped.",
             }, indent=2, ensure_ascii=False)
 
-    # Build a stable, sortable filename from the timestamp
+    # Session-scoped supersede: Stop fires every turn and PreCompact can fire
+    # mid-session, so the same IDE session is captured repeatedly with a
+    # growing transcript. Each capture is a superset of the previous one —
+    # replace that session's still-pending raw file instead of accumulating
+    # incremental copies. Distilled / keep_raw files are left untouched.
+    superseded = False
+    dest_path: Optional[Path] = None
+    if source_session_id:
+        for existing in sorted(raw_dir.glob("conv-*.md")):
+            try:
+                text = existing.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if f"source_session: {json.dumps(source_session_id, ensure_ascii=False)}" in text \
+                    and "status: pending" in text:
+                dest_path = existing
+                superseded = True
+                break
+
     now = datetime.now(timezone.utc)
     stamp = now.strftime("%Y%m%dT%H%M%SZ")
-    safe_link = "".join(c if c.isalnum() else "-" for c in link_to)[:40]
-    fname = f"conv-{stamp}{('-' + safe_link) if safe_link else ''}.md"
-    dest_path = raw_dir / fname
-    # Collision guard (extremely unlikely given second-resolution stamp)
-    if dest_path.exists():
-        dest_path = raw_dir / f"conv-{stamp}-{int(now.timestamp() * 1000) % 100000}.md"
+    if dest_path is None:
+        # Build a stable, sortable filename from the timestamp
+        safe_link = "".join(c if c.isalnum() else "-" for c in link_to)[:40]
+        fname = f"conv-{stamp}{('-' + safe_link) if safe_link else ''}.md"
+        dest_path = raw_dir / fname
+        # Collision guard (extremely unlikely given second-resolution stamp)
+        if dest_path.exists():
+            dest_path = raw_dir / f"conv-{stamp}-{int(now.timestamp() * 1000) % 100000}.md"
 
     now_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
@@ -193,6 +220,7 @@ def handle_capture_conversation(
         "content_hash": content_hash,
         "turn_count": len(turns),
         "link_to": link_to,
+        "source_session": source_session_id,
         "keep_raw": keep_raw,
         "status": "pending",  # pending → distilled (T2) → deleted
     }
@@ -204,6 +232,7 @@ def handle_capture_conversation(
         f"content_hash: {content_hash}\n"
         f"turn_count: {len(turns)}\n"
         f"link_to: {json.dumps(link_to, ensure_ascii=False)}\n"
+        f"source_session: {json.dumps(source_session_id, ensure_ascii=False)}\n"
         f"keep_raw: {str(keep_raw).lower()}\n"
         "status: pending\n"
         f"generated: {{ by: {actor}, at: {now_iso} }}\n"
@@ -216,18 +245,16 @@ def handle_capture_conversation(
     except OSError as e:
         return json.dumps({"error": f"Failed to write conversation file: {e}"})
 
-    # LLM Wiki: update log (non-fatal)
-    try:
-        from codewiki.mcp.tools.wiki_index import append_log
-        append_log(
-            str(output_dir),
-            "capture_conversation",
-            f"采集对话: {fname} ({len(turns)} turns, link_to={link_to or '-'})",
-        )
-    except Exception:
-        pass
+    # NOTE: deliberately no append_log() here. Raw capture is transient (the
+    # file is deleted after distillation), and the hook fires on every session
+    # end — logging each capture would leave permanent log.md entries pointing
+    # at files that no longer exist. Note creation is logged by ingest_note
+    # during distillation instead.
 
-    logger.info("Captured conversation to %s (%d turns)", dest_path, len(turns))
+    logger.info(
+        "%s conversation at %s (%d turns)",
+        "Superseded" if superseded else "Captured", dest_path, len(turns),
+    )
 
     return json.dumps({
         "status": "captured",
@@ -236,5 +263,7 @@ def handle_capture_conversation(
         "turn_count": len(turns),
         "content_hash": content_hash[:24] + "...",
         "link_to": link_to,
+        "source_session": source_session_id,
+        "superseded": superseded,
         "keep_raw": keep_raw,
     }, indent=2, ensure_ascii=False)
