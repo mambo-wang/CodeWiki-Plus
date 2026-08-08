@@ -62,6 +62,21 @@ def _enabled(explicit: bool) -> bool:
     return os.environ.get("CODEWIKI_TEAM_MEMORY_HOOK", "").strip() == "1"
 
 
+def _extract_inline_turns(data: Dict[str, Any]) -> Optional[list]:
+    """Extract inline conversation turns from common IDE payload keys.
+
+    Some IDEs inline the conversation directly under one of several common keys
+    instead of pointing at a transcript file. Returns the turns list if found,
+    otherwise None.
+    """
+    for key in ("conversation", "messages", "turns",
+                "transcript_turns", "chat"):
+        val = data.get(key)
+        if isinstance(val, list) and val:
+            return val
+    return None
+
+
 def _load_event(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
     """Resolve the conversation event payload from --conversation file or stdin."""
     if args.conversation:
@@ -86,13 +101,10 @@ def _load_event(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
                 return data
             # Some IDEs inline the conversation directly under one of several
             # common keys instead of pointing at a transcript file. Accept those.
-            for key in ("conversation", "messages", "turns",
-                        "transcript_turns", "chat"):
-                val = data.get(key)
-                if isinstance(val, list) and val:
-                    data = dict(data)
-                    data["conversation"] = val
-                    break
+            turns = _extract_inline_turns(data)
+            if turns is not None:
+                data = dict(data)
+                data["conversation"] = turns
             return data
         print("ide-hook: conversation file must be a JSON list or object", file=sys.stderr)
         return None
@@ -124,25 +136,125 @@ def _load_event(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
                 # common keys instead of pointing at a transcript file. Accept
                 # those so a SessionEnd/Stop/PreCompact event with inline turns
                 # still gets captured (rather than silently skipped).
-                for key in ("conversation", "messages", "turns",
-                            "transcript_turns", "chat"):
-                    val = data.get(key)
-                    if isinstance(val, list) and val:
-                        data = dict(data)
-                        data["conversation"] = val
-                        break
+                turns = _extract_inline_turns(data)
+                if turns is not None:
+                    data = dict(data)
+                    data["conversation"] = turns
                 return data
             print("ide-hook: stdin payload must be a JSON list or object", file=sys.stderr)
             return None
     return None
 
 
+def _try_expand_codebuddy_index(index_path: Path, messages: list) -> Optional[list]:
+    """Expand CodeBuddy index.json format into full message turns.
+
+    CodeBuddy IDE stores conversation transcripts as:
+      <session>/index.json          — message metadata (id, role, isComplete)
+      <session>/messages/<id>.json  — individual message content
+
+    Returns a list of {role, content} turns, or None if this isn't a
+    CodeBuddy index or no messages could be loaded.
+    """
+    if not messages:
+        return None
+    first = messages[0] if isinstance(messages[0], dict) else None
+    if first is None or "id" not in first:
+        return None
+    # Already has inline content — not an index
+    if any(k in first for k in ("content", "message", "text")):
+        return None
+    messages_dir = index_path.parent / "messages"
+    if not messages_dir.is_dir():
+        return None
+
+    turns: list = []
+    for meta in messages:
+        if not isinstance(meta, dict):
+            continue
+        msg_id = meta.get("id")
+        if not msg_id:
+            continue
+        role = meta.get("role", "unknown")
+        # Tool messages are tool-call results — noise for knowledge distillation
+        if role == "tool":
+            continue
+        msg_file = messages_dir / f"{msg_id}.json"
+        if not msg_file.is_file():
+            continue
+        try:
+            raw = msg_file.read_text(encoding="utf-8-sig", errors="replace")
+            msg_data = json.loads(raw)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(msg_data, dict):
+            continue
+        role = msg_data.get("role") or role
+        text = _extract_codebuddy_message_text(msg_data)
+        if text:
+            turns.append({"role": str(role), "content": text})
+
+    return turns or None
+
+
+def _extract_codebuddy_message_text(msg_data: dict) -> str:
+    """Extract readable text from a CodeBuddy message file.
+
+    The ``message`` field is typically a JSON string:
+      {"role": ..., "content": [{"type": "text", "text": "..."}, ...]}
+    Extracts text from content blocks, skipping tool-call/tool-result noise.
+    """
+    message_raw = msg_data.get("message")
+    content = None
+
+    if isinstance(message_raw, str) and message_raw.strip():
+        try:
+            parsed = json.loads(message_raw)
+            if isinstance(parsed, dict):
+                content = parsed.get("content")
+        except json.JSONDecodeError:
+            return message_raw.strip()
+    elif isinstance(message_raw, dict):
+        content = message_raw.get("content")
+
+    if content is None:
+        content = msg_data.get("content")
+
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        return _text_from_content_blocks(content)
+    return ""
+
+
+_NOISE_BLOCK_TYPES = frozenset({
+    "tool-call", "tool_call", "tool-result", "tool_result",
+    "reasoning", "thinking",
+})
+
+
+def _text_from_content_blocks(blocks: list) -> str:
+    """Join text from content blocks, skipping tool-call/tool-result/reasoning noise."""
+    parts: list = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type", "")
+        if btype in _NOISE_BLOCK_TYPES:
+            continue
+        text = block.get("text")
+        if isinstance(text, str) and text.strip():
+            parts.append(text.strip())
+    return "\n\n".join(parts)
+
+
 def _load_transcript(path: Optional[str]) -> Optional[list]:
     """Best-effort extraction of {role, content} turns from a transcript file.
 
     Supports a JSON list of turns, a JSON object with a ``messages``/``conversation``
-    key, or a line-delimited JSON log (one JSON object per line). Returns None when
-    the path is unusable so the caller can fall back gracefully.
+    key, or a line-delimited JSON log (one JSON object per line). Also handles
+    the CodeBuddy IDE transcript format (index.json + messages/ directory).
+    Returns None when the path is unusable so the caller can fall back gracefully.
     """
     if not path:
         return None
@@ -177,10 +289,17 @@ def _load_transcript(path: Optional[str]) -> Optional[list]:
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
-        for key in ("conversation", "messages", "turns"):
-            val = data.get(key)
-            if isinstance(val, list):
-                return val
+        # CodeBuddy IDE format: index.json holds message metadata, content lives
+        # in sibling messages/<id>.json files. Try expanding first, before the
+        # generic inline-turns fallback (which would return metadata-only items).
+        messages = data.get("messages") or data.get("conversation")
+        if isinstance(messages, list):
+            expanded = _try_expand_codebuddy_index(p, messages)
+            if expanded:
+                return expanded
+        turns = _extract_inline_turns(data)
+        if turns is not None:
+            return turns
     return None
 
 
@@ -217,13 +336,14 @@ def main(argv: Optional[list] = None) -> int:
             return cli_val
         return event.get(key)
 
-    conversation = event.get("conversation") or _pick("conversation", None)
+    conversation = event.get("conversation")
     # A SessionEnd / PreCompact / Stop event may carry a `session_id` but no
     # turns (the IDE does not hand over the full transcript inline). In that
     # case, if a transcript path was not provided either, we cannot synthesize
     # a conversation — but we still persist the event itself as a minimal
     # record (so the hook firing is observable and the real payload shape can
     # be inspected) instead of silently dropping it.
+    is_envelope = False
     if not conversation:
         hook_event = event.get("hook_event_name") or event.get("event")
         if hook_event in ("SessionEnd", "Stop", "PreCompact") and "session_id" in event:
@@ -231,6 +351,7 @@ def main(argv: Optional[list] = None) -> int:
                   "usable transcript_path; capturing the event envelope only "
                   "(the IDE did not provide an inline transcript).")
             # Fall through: capture the event envelope as a minimal record.
+            is_envelope = True
             conversation = [{
                 "role": "system",
                 "content": (f"[team-memory] {hook_event} hook fired but the IDE "
@@ -253,7 +374,16 @@ def main(argv: Optional[list] = None) -> int:
         # same session re-captured with a longer transcript replaces its
         # pending raw file instead of piling up incremental copies. Named
         # source_session_id so it never collides with the MCP session_id.
-        "source_session_id": _pick("session_id", args.session_id) or "",
+        #
+        # IMPORTANT: envelope records (no real transcript) must NOT carry
+        # source_session_id. capture_conversation supersede-replaces pending
+        # captures sharing the same source_session_id; if the envelope carried
+        # it, a later SessionEnd without transcript would overwrite a
+        # previously captured full transcript (data loss).
+        "source_session_id": (
+            "" if is_envelope
+            else (_pick("session_id", args.session_id) or "")
+        ),
     }
     if not arguments["repo_path"]:
         print("ide-hook: repo_path is required to resolve repowiki/raw/.", file=sys.stderr)
