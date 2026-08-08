@@ -1152,6 +1152,13 @@ class AnalysisCache:
                 score += idf * (tfr["tf"] * (_K1 + 1)) / (
                     tfr["tf"] + _K1 * (1 - _B + _B * dl / avg_dl)
                 )
+            # Developer notes are short; BM25 scores are naturally low and would
+            # be filtered by the generic threshold even when the title matches
+            # the query. Treat any title-token match on a note as relevant.
+            if doc_row["source"] == "note":
+                title_tokens = set(_tokenize(doc_row["title"] or ""))
+                if title_tokens & set(qts) and score > 0:
+                    score = max(score, score_threshold)
             if score >= score_threshold:
                 scored.append((score, dk))
 

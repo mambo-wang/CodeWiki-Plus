@@ -73,6 +73,15 @@ _DISTILL_SYSTEM = (
 
 _NOTE_TYPE_HINT = "Allowed note_type values: " + ", ".join(sorted(_VALID_NOTE_TYPES)) + "."
 
+# Relevance score at/above which an existing note/ in notes/ is treated as a
+# near-duplicate of a candidate draft (suppressed or merged instead of created).
+_DEDUP_THRESHOLD = 0.6
+
+# When the candidate title and an existing note title share this fraction of
+# tokens (by Jaccard), it is a strong duplicate signal even at a slightly
+# lower BM25 score.
+_TITLE_SIMILARITY_THRESHOLD = 0.5
+
 
 # --------------------------------------------------------------------------- #
 # Argument / path resolution
@@ -197,6 +206,105 @@ def _safe_rel(path: Path, base: Path) -> bool:
         return False
 
 
+def _title_tokens(title: str) -> set:
+    """Lowercased word tokens for a title (for Jaccard similarity)."""
+    return {t for t in re.split(r"[\s_\-/]+", title.lower()) if t}
+
+
+def _title_similarity(a: str, b: str) -> float:
+    ta, tb = _title_tokens(a), _title_tokens(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def _find_existing_note(
+    candidate_title: str,
+    candidate_type: str,
+    output_dir: Path,
+    store: Any,
+) -> Optional[Dict[str, Any]]:
+    """Look for a near-duplicate of a candidate draft inside this output_dir's notes/.
+
+    Dedup scope is strictly the current ``output_dir/notes/`` directory (a
+    filesystem scan), NOT the global search index. This keeps distillation
+    idempotent within a session while avoiding cross-run pollution: the shared
+    analysis_cache.db may still hold notes distilled in previous test runs, and
+    searching it would wrongly suppress a freshly distilled note as a duplicate.
+    """
+    notes_dir = output_dir / "notes"
+    if not notes_dir.is_dir():
+        return None
+
+    best: Optional[Dict[str, Any]] = None
+    best_score = 0.0
+    for note_path in notes_dir.glob("*.md"):
+        try:
+            fm = _parse_frontmatter(note_path)
+        except Exception:
+            continue
+        title = fm.get("title", "") or note_path.stem
+        note_type = fm.get("type") or fm.get("note_type") or ""
+        title_sim = _title_similarity(candidate_title, title)
+        same_type = (note_type == candidate_type)
+        # Use title similarity as the duplicate signal (0..1).
+        score = title_sim
+        is_dup = (
+            score >= _DEDUP_THRESHOLD
+            or (score >= _DEDUP_THRESHOLD * 0.8 and same_type)
+            or (title_sim >= _TITLE_SIMILARITY_THRESHOLD and same_type)
+        )
+        if is_dup and score > best_score:
+            rel = str(note_path.relative_to(output_dir))
+            best = {
+                "file": rel,
+                "title": title,
+                "note_type": note_type,
+                "status": fm.get("status", "unknown"),
+            }
+            best_score = score
+    return best
+
+
+def _merge_source_into_note(
+    existing_file: str,
+    new_source_ref: str,
+    output_dir: Path,
+) -> None:
+    """Append a source_conversation reference to an existing note (merge mode).
+
+    Adds the raw conversation path to a YAML list frontmatter field
+    ``source_conversations`` so repeated distillations accumulate provenance
+    instead of creating duplicate drafts.
+    """
+    note_path = output_dir / existing_file
+    try:
+        text = note_path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    if not text.startswith("---"):
+        return
+    end = text.find("\n---", 3)
+    if end == -1:
+        return
+    block = text[3:end]
+    m = re.search(r"^source_conversations:\s*\[(.*)\]", block, re.MULTILINE)
+    if m:
+        items = [x.strip().strip("'\"") for x in m.group(1).split(",") if x.strip()]
+        if new_source_ref in items:
+            return
+        items.append(new_source_ref)
+        new_list = "[" + ", ".join(f"'{x}'" for x in items) + "]"
+        new_block = block[:m.start()] + "source_conversations: " + new_list + block[m.end():]
+    else:
+        new_block = block.rstrip() + f"\nsource_conversations: ['{new_source_ref}']\n"
+    new_text = "---" + new_block + text[end:]
+    try:
+        note_path.write_text(new_text, encoding="utf-8")
+    except OSError:
+        pass
+
+
 def _patch_note_origin(note_path: Path) -> None:
     """Add `origin: conversation` to a distilled draft note's frontmatter.
 
@@ -299,6 +407,7 @@ async def _distill_one(
     store: Any,
     note_type_override: Optional[str] = None,
     related_modules_override: Optional[List[str]] = None,
+    dedup: str = "suppress",
 ) -> Dict[str, Any]:
     """Distill a single raw conversation file into draft note(s)."""
     from codewiki.mcp.tools.knowledge_loop import handle_ingest_note
@@ -337,6 +446,28 @@ async def _distill_one(
         related = note.get("related_modules") or related_modules_override or []
         if link_to and link_to not in related:
             related = related + [link_to]
+
+        # --- T3: de-duplicate against existing notes/ before creating a draft ---
+        existing = _find_existing_note(title, note_type, output_dir, store)
+        if existing is not None:
+            existing_file = existing.get("file", "")
+            if dedup == "merge":
+                _merge_source_into_note(existing_file, raw_rel, output_dir)
+                produced.append({
+                    "title": title,
+                    "note_type": note_type,
+                    "merged_into": existing_file,
+                    "status": "merged",
+                })
+            else:  # suppress (default): drop the duplicate draft
+                produced.append({
+                    "title": title,
+                    "note_type": note_type,
+                    "duplicate_of": existing_file,
+                    "status": "suppressed",
+                })
+            continue
+
         result = json.loads(handle_ingest_note({
             "output_dir": str(output_dir),
             "title": title,
@@ -369,10 +500,22 @@ async def _distill_one(
         except OSError:
             pass
 
+    # Rebuild the BM25 search index so the freshly distilled notes become
+    # immediately queryable via query_wiki. The index is cached on disk and
+    # would otherwise miss the new notes until the next full rebuild.
+    if produced:
+        try:
+            from codewiki.mcp.tools.wiki_search import build_full_index
+            build_full_index(output_dir)
+        except Exception as _e:  # indexing is best-effort; never block distillation
+            logger.warning("search index rebuild failed after distill: %s", _e)
+
     return {
         "raw_path": str(raw_path),
-        "status": "distilled" if produced else "no_knowledge",
+        "status": "completed" if produced else "no_knowledge",
+        "notes_created": len(produced),
         "notes": produced,
+        "distilled": produced,
         "deleted_raw": deleted,
         "keep_raw": keep_raw,
     }
