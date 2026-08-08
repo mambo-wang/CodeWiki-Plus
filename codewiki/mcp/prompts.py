@@ -745,7 +745,7 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 
 ## 步骤 1: 检查当前状态
 读取 `{repo_path}/.codebuddy/settings.json`：
-- **已启用**：存在 hooks.SessionEnd、hooks.PreCompact、hooks.Stop 三个条目，且均执行 `python "$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py"`
+- **已启用**：存在 hooks.SessionEnd、hooks.PreCompact、hooks.Stop 三个条目，且均执行 `python "{repo_path}/.codebuddy/hooks/capture_session_end.py"`（注意：CodeBuddy hooks 不展开环境变量，命令中必须写脚本的绝对路径，不能用 `$CODEBUDDY_PROJECT_DIR`）
 - **未启用**：文件不存在，或没有上述条目
 
 ## 步骤 2A: 启用
@@ -756,13 +756,13 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 {{
   "hooks": {{
     "SessionEnd": [
-      {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
+      {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
     ],
     "PreCompact": [
-      {{ "matcher": "*", "hooks": [ {{ "type": "command", "command": "python \\"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
+      {{ "matcher": "*", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
     ],
     "Stop": [
-      {{ "hooks": [ {{ "type": "command", "command": "python \\"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
+      {{ "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
     ]
   }}
 }}

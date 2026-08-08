@@ -6,19 +6,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py\"",
+            "command": "python \"d:/repos/CodeWiki-CN/.codebuddy/hooks/capture_session_end.py\"",
             "timeout": 30
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
+            }
+            ]
+            }
+            ],
+            "PreCompact": [
       {
         "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py\"",
+            "command": "python \"d:/repos/CodeWiki-CN/.codebuddy/hooks/capture_session_end.py\"",
             "timeout": 30
           }
         ]
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py\"",
+            "command": "python \"d:/repos/CodeWiki-CN/.codebuddy/hooks/capture_session_end.py\"",
             "timeout": 30
           }
         ]

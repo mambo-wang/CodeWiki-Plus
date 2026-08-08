@@ -34,7 +34,7 @@ wrapper 通过 `python -m codewiki.mcp._ide_hook` 调起采集脚本，因此要
       {
         "matcher": "other",
         "hooks": [
-          { "type": "command", "command": "python \"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py\"", "timeout": 30 }
+          { "type": "command", "command": "python \"d:/repos/CodeWiki-CN/.codebuddy/hooks/capture_session_end.py\"", "timeout": 30 }
         ]
       }
     ],
@@ -42,14 +42,14 @@ wrapper 通过 `python -m codewiki.mcp._ide_hook` 调起采集脚本，因此要
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": "python \"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py\"", "timeout": 30 }
+          { "type": "command", "command": "python \"d:/repos/CodeWiki-CN/.codebuddy/hooks/capture_session_end.py\"", "timeout": 30 }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "python \"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py\"", "timeout": 30 }
+          { "type": "command", "command": "python \"d:/repos/CodeWiki-CN/.codebuddy/hooks/capture_session_end.py\"", "timeout": 30 }
         ]
       }
     ]
@@ -77,7 +77,7 @@ wrapper 通过 `python -m codewiki.mcp._ide_hook` 调起采集脚本，因此要
 }
 ```
 
-wrapper 据此解析 `repo_path`（`cwd` → `$CODEBUDDY_PROJECT_DIR` 回退）与对话来源 `transcript_path`，调用采集脚本完成落盘。无需额外环境变量——此路径已用 `--enable` 强制开启。
+wrapper 据此解析 `repo_path`（优先取事件 JSON 的 `cwd` 字段作为仓库绝对路径）与对话来源 `transcript_path`，调用采集脚本完成落盘。注意：CodeBuddy 的 hook 命令**不会展开** `$CODEBUDDY_PROJECT_DIR` 之类的环境变量，因此 `.codebuddy/settings.json` 里注册命令时必须直接写脚本的**绝对路径**（如 `d:/repos/CodeWiki-CN/.codebuddy/hooks/capture_session_end.py`），否则会被当成字面路径拼接导致 `can't open file`。无需额外环境变量——采集已用 `--enable` 强制开启。
 
 ### 备选：手动调用采集脚本（不走 IDE 钩子）
 
