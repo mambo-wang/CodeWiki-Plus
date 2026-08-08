@@ -83,6 +83,16 @@ def _load_event(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
                 data = dict(data)
                 if loaded is not None:
                     data["conversation"] = loaded
+                return data
+            # Some IDEs inline the conversation directly under one of several
+            # common keys instead of pointing at a transcript file. Accept those.
+            for key in ("conversation", "messages", "turns",
+                        "transcript_turns", "chat"):
+                val = data.get(key)
+                if isinstance(val, list) and val:
+                    data = dict(data)
+                    data["conversation"] = val
+                    break
             return data
         print("ide-hook: conversation file must be a JSON list or object", file=sys.stderr)
         return None
@@ -110,6 +120,17 @@ def _load_event(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
                     if loaded is not None:
                         data["conversation"] = loaded
                     return data
+                # Some IDEs inline the conversation directly under one of several
+                # common keys instead of pointing at a transcript file. Accept
+                # those so a SessionEnd/Stop/PreCompact event with inline turns
+                # still gets captured (rather than silently skipped).
+                for key in ("conversation", "messages", "turns",
+                            "transcript_turns", "chat"):
+                    val = data.get(key)
+                    if isinstance(val, list) and val:
+                        data = dict(data)
+                        data["conversation"] = val
+                        break
                 return data
             print("ide-hook: stdin payload must be a JSON list or object", file=sys.stderr)
             return None
@@ -200,16 +221,27 @@ def main(argv: Optional[list] = None) -> int:
     # A SessionEnd / PreCompact / Stop event may carry a `session_id` but no
     # turns (the IDE does not hand over the full transcript inline). In that
     # case, if a transcript path was not provided either, we cannot synthesize
-    # a conversation.
+    # a conversation — but we still persist the event itself as a minimal
+    # record (so the hook firing is observable and the real payload shape can
+    # be inspected) instead of silently dropping it.
     if not conversation:
         hook_event = event.get("hook_event_name") or event.get("event")
         if hook_event in ("SessionEnd", "Stop", "PreCompact") and "session_id" in event:
             print(f"ide-hook: {hook_event} event has no conversation turns and no "
-                  "transcript_path; the IDE does not provide the transcript inline. "
-                  "Re-run with --conversation <file> or supply transcript_path.")
+                  "usable transcript_path; capturing the event envelope only "
+                  "(the IDE did not provide an inline transcript).")
+            # Fall through: capture the event envelope as a minimal record.
+            conversation = [{
+                "role": "system",
+                "content": (f"[team-memory] {hook_event} hook fired but the IDE "
+                            "provided no inline transcript and no readable "
+                            "transcript_path. Raw event envelope preserved for "
+                            "diagnosis. Event keys: "
+                            + ", ".join(sorted(event.keys())) + "."),
+            }]
+        else:
+            print("ide-hook: payload has no 'conversation' turns; nothing to capture.")
             return 0
-        print("ide-hook: payload has no 'conversation' turns; nothing to capture.")
-        return 0
 
     arguments: Dict[str, Any] = {
         "conversation": conversation,
