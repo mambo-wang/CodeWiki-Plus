@@ -67,13 +67,21 @@ def _extract_inline_turns(data: Dict[str, Any]) -> Optional[list]:
 
     Some IDEs inline the conversation directly under one of several common keys
     instead of pointing at a transcript file. Returns the turns list if found,
-    otherwise None.
+    otherwise None. Only user/assistant dialogue turns are kept; system, tool
+    and thinking/reasoning blocks are dropped so the archived raw file stays
+    noise-free (capture_conversation also enforces this, but filtering here
+    keeps the in-memory payload consistent).
     """
+    _KEEP = {"user", "assistant"}
     for key in ("conversation", "messages", "turns",
                 "transcript_turns", "chat"):
         val = data.get(key)
         if isinstance(val, list) and val:
-            return val
+            kept = [
+                t for t in val
+                if isinstance(t, dict) and t.get("role") in _KEEP
+            ]
+            return kept if kept else val
     return None
 
 

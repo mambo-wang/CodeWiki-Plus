@@ -111,6 +111,47 @@ def _resolve_output_dir(
 # --------------------------------------------------------------------------- #
 # Transcript extraction
 # --------------------------------------------------------------------------- #
+# Only user/assistant turns are archived. Everything else (system prompts,
+# tool_use/tool_result, thinking/reasoning blocks) is dropped so the raw file
+# captures the human–AI dialogue only.
+_KEEP_ROLES = {"user", "assistant"}
+
+# Content-block types that carry internal monologue / tool plumbing rather than
+# user-facing assistant text. Skipped even when nested inside a content array.
+_NOISE_BLOCK_TYPES = {
+    "thinking", "reasoning", "thought",
+    "tool_use", "tool_result", "tool_call", "function_call", "function_result",
+    "system", "system_prompt", "context",
+}
+
+
+def _content_blocks_text(content: Any) -> Any:
+    """If ``content`` is a list of content blocks (Claude/CodeBuddy format),
+    flatten to the concatenated text of user/assistant-facing blocks only,
+    dropping thinking/tool/system blocks. Otherwise return it unchanged.
+    """
+    if not isinstance(content, list):
+        return content
+    texts: List[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            if isinstance(block, str):
+                texts.append(block)
+            continue
+        btype = block.get("type")
+        if btype in _NOISE_BLOCK_TYPES:
+            continue
+        if btype == "text":
+            text = block.get("text")
+            if isinstance(text, str):
+                texts.append(text)
+        elif btype is None:
+            text = block.get("text") or block.get("content")
+            if isinstance(text, str):
+                texts.append(text)
+    return "\n".join(t for t in texts if t).strip() or content
+
+
 def _extract_transcript(conversation: Any) -> List[Dict[str, str]]:
     """Normalize the conversation argument into a flat list of turns.
 
@@ -120,10 +161,13 @@ def _extract_transcript(conversation: Any) -> List[Dict[str, str]]:
 
     Returns a list of {"role": str, "content": str}. Missing/invalid items
     are skipped rather than raising, so a partial capture still persists.
+
+    Only user/assistant dialogue is kept; system, tool and thinking/reasoning
+    blocks are dropped so the archived raw file stays noise-free.
     """
     raw_turns: Any = conversation
     if isinstance(conversation, dict):
-        raw_turns = conversation.get("turns", [])
+        raw_turns = conversation.get("turns", conversation.get("conversation", []))
     if not isinstance(raw_turns, list):
         return []
 
@@ -131,9 +175,13 @@ def _extract_transcript(conversation: Any) -> List[Dict[str, str]]:
     for item in raw_turns:
         if not isinstance(item, dict):
             continue
-        role = item.get("role") or item.get("speaker") or "unknown"
-        content = item.get("content") or item.get("message") or item.get("text")
-        if content is None:
+        role = item.get("role") or item.get("speaker")
+        if role not in _KEEP_ROLES:
+            continue
+        content = _content_blocks_text(
+            item.get("content") or item.get("message") or item.get("text")
+        )
+        if content is None or content == "":
             continue
         turns.append({"role": str(role), "content": str(content)})
     return turns
