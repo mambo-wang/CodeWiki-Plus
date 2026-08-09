@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +30,79 @@ from typing import Any, Dict, List, Optional
 from codewiki.mcp.session import SessionState, SessionStore
 
 logger = logging.getLogger(__name__)
+
+# 顶层系统注入标签：IDE 会把整个系统上下文（user_info / rules / git_status /
+# project_context / additional_data 等）作为 user message 的 content 传入。
+# 这些块对知识蒸馏无价值，应在落盘前剥离。
+_SYSTEM_INJECTION_TAGS = frozenset({
+    "user_info",
+    "rules",
+    "memories",
+    "git_status",
+    "project_context",
+    "project_guidance",
+    "project_layout",
+    "additional_data",
+    "content_policy",
+    "communication",
+    "tool_calling",
+    "maximize_context_understanding",
+    "maximize_parallel_tool_calls",
+    "automations",
+    "inline_line_numbers",
+    "agent_skills",
+    "response_language",
+})
+# 形如 <tag> ... </tag> 的成对块（含可能跨行的多行内容）。
+# 注意：不锚定行首——IDE 常把块包在 "user: <user_info> ... </user_info>"
+# 之类的行内，行首并非 '<'。
+_BLOCK_RE = re.compile(
+    r"<(?P<name>[A-Za-z_][\w-]*)>(?P<inner>(?:(?!</(?P=name)>).)*)</(?P=name)>",
+    re.DOTALL,
+)
+# 形如 <tag .../> 或 <tag ...> 的单行自闭合/起始标签（无配对闭合块时按行剥离）
+_SELF_RE = re.compile(
+    r"^[ \t]*<(?P<name>[A-Za-z_][\w-]*)(?:\s[^>\n]*)?/?>[ \t]*$",
+    re.MULTILINE,
+)
+# 捕获块内部纯文本（去壳），用于 <user_query> 这类应保留的对话内容
+_INNER_RE = re.compile(r"<(?P<name>[A-Za-z_][\w-]*)>(?P<inner>(?:(?!</(?P=name)>).)*)</(?P=name)>")
+
+
+def _strip_system_injection(text: str) -> str:
+    """剥离 IDE 注入到 user message 中的系统上下文噪声块。
+
+    - 已知的系统注入标签（``<user_info>``、``<rules>``、``<git_status>``、
+      ``<project_context>``、``<additional_data>`` 等）整体删除。
+    - ``<user_query>`` 是真正的用户对话，去掉外壳标签、保留内部文本。
+    - 多行残留的孤立起始/自闭合标签（无配对闭合块时）也按行清除。
+    - 清理 ``user: `` 这类因块被删而留下的空角色前缀行。
+    """
+    if not text:
+        return text
+
+    def _remove_block(m: "re.Match[str]") -> str:
+        name = m.group("name").lower()
+        if name in _SYSTEM_INJECTION_TAGS:
+            return ""
+        if name == "user_query":
+            # 保留真实用户文本，仅去壳
+            return m.group("inner").strip()
+        return m.group(0)
+
+    cleaned = _BLOCK_RE.sub(_remove_block, text)
+
+    def _remove_self(m: "re.Match[str]") -> str:
+        return "" if m.group("name").lower() in _SYSTEM_INJECTION_TAGS else m.group(0)
+
+    cleaned = _SELF_RE.sub(_remove_self, cleaned)
+
+    # 删除 "user: " 后跟空白/换行的空角色行（块被删后残留）
+    cleaned = re.sub(r"^\s*user:\s*$\n?", "", cleaned, flags=re.MULTILINE)
+    # 压缩因剥离产生的连续空行（>1 个空行 → 1 个空行），并去除首尾空白
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
 
 # --------------------------------------------------------------------------- #
 # Filename slug
@@ -183,7 +257,15 @@ def _extract_transcript(conversation: Any) -> List[Dict[str, str]]:
         )
         if content is None or content == "":
             continue
-        turns.append({"role": str(role), "content": str(content)})
+        content = str(content)
+        # User turns may carry IDE-injected system context (<user_info>, <rules>,
+        # <git_status>, <project_context>, <additional_data>, ...). Strip those
+        # blocks so the archived transcript holds the human–AI dialogue only.
+        if role == "user":
+            content = _strip_system_injection(content)
+            if content == "":
+                continue
+        turns.append({"role": str(role), "content": content})
     return turns
 
 
@@ -202,6 +284,80 @@ def _content_hash(turns: List[Dict[str, str]], linked: str) -> str:
         sort_keys=True,
     )
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+# --------------------------------------------------------------------------- #
+# Raw-dir index (avoids scanning every conv-*.md on every capture)
+# --------------------------------------------------------------------------- #
+# repowiki/raw/ can accumulate many pending files when the hook is enabled but
+# distillation is never run. The previous dedup/supersede logic read EVERY
+# conv-*.md (full file text) on each capture, so capture time grew linearly
+# with the backlog. We instead keep a small sidecar index of metadata so
+# capture stays O(1) regardless of backlog size. The index is a best-effort
+# cache: if it is missing or stale we fall back to scanning (and rebuild it).
+_INDEX_NAME = ".index.json"
+
+
+def _read_index(raw_dir: Path) -> Optional[Dict[str, Any]]:
+    """Load the raw-dir index, or None if absent/corrupt."""
+    idx = raw_dir / _INDEX_NAME
+    if not idx.is_file():
+        return None
+    try:
+        return json.loads(idx.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _write_index(raw_dir: Path, index: Dict[str, Any]) -> None:
+    """Atomically rewrite the index (temp file + rename) so a crash mid-write
+    cannot leave a truncated index behind."""
+    idx = raw_dir / _INDEX_NAME
+    tmp = raw_dir / (".index.tmp." + str(os.getpid()))
+    try:
+        tmp.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, idx)
+    except OSError:
+        # Best-effort: a failed index update must never break the capture.
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+
+
+def _rebuild_index(raw_dir: Path) -> Dict[str, Any]:
+    """Scan existing conv-*.md files and rebuild the index from their frontmatter.
+    Used when the index is missing (e.g. raw files created before this feature)
+    or when a lookup misses and we suspect it is stale."""
+    files: List[Dict[str, str]] = []
+    for existing in sorted(raw_dir.glob("conv-*.md")):
+        try:
+            text = existing.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        ch = _peek_frontmatter(text, "content_hash")
+        ss = _peek_frontmatter(text, "source_session")
+        st = _peek_frontmatter(text, "status") or "pending"
+        if not ch:
+            continue
+        files.append({
+            "relpath": existing.name,
+            "content_hash": ch,
+            "source_session": ss,
+            "status": st,
+        })
+    return {"files": files}
+
+
+def _peek_frontmatter(text: str, key: str) -> str:
+    """Extract a `key: value` line from a markdown frontmatter block (cheap,
+    single-pass, no regex over the whole body)."""
+    marker = f"{key}:"
+    for line in text.splitlines():
+        if line.startswith(marker):
+            return line[len(marker):].strip()
+    return ""
 
 
 # --------------------------------------------------------------------------- #
@@ -262,19 +418,46 @@ def handle_capture_conversation(
     raw_dir = output_dir / RAW_DIR
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    # Deduplicate: skip if a file with the same content hash already exists
-    for existing in sorted(raw_dir.glob("conv-*.md")):
-        try:
-            text = existing.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        if f"content_hash: {content_hash}" in text:
-            return json.dumps({
-                "status": "duplicate",
-                "content_hash": content_hash[:24] + "...",
-                "stored_at": str(existing.relative_to(output_dir)),
-                "message": "Identical conversation already captured; skipped.",
-            }, indent=2, ensure_ascii=False)
+    # Deduplicate / session-supersede using the raw-dir index (O(1) lookup)
+    # instead of scanning and reading every conv-*.md. Falls back to a full
+    # scan + index rebuild if the index is missing or a lookup misses (keeps
+    # behaviour correct for raw files created before this feature existed).
+    index = _read_index(raw_dir)
+    if index is None:
+        # Backwards-compat: existing raw dir without an index → rebuild once.
+        index = _rebuild_index(raw_dir)
+
+    def _find_in_index(find_hash: str, find_session: str):
+        """Return (duplicate_relpath, supersede_relpath) from the index."""
+        dup = None
+        sup = None
+        for entry in index.get("files", []):
+            if entry.get("content_hash") == find_hash:
+                dup = entry.get("relpath")
+                break
+            if (find_session
+                    and entry.get("source_session") == find_session
+                    and entry.get("status") == "pending"):
+                sup = entry.get("relpath")
+        return dup, sup
+
+    dup_rel, sup_rel = _find_in_index(content_hash, source_session_id)
+    # If the index missed a content_hash match we *know* should exist (e.g. it
+    # is stale), rebuild from disk and re-check once before giving up.
+    if dup_rel is None and sup_rel is None:
+        rebuilt = _rebuild_index(raw_dir)
+        if len(rebuilt.get("files", [])) != len(index.get("files", [])):
+            index = rebuilt
+            dup_rel, sup_rel = _find_in_index(content_hash, source_session_id)
+
+    if dup_rel is not None:
+        existing = raw_dir / dup_rel
+        return json.dumps({
+            "status": "duplicate",
+            "content_hash": content_hash[:24] + "...",
+            "stored_at": str(existing.relative_to(output_dir)),
+            "message": "Identical conversation already captured; skipped.",
+        }, indent=2, ensure_ascii=False)
 
     # Session-scoped supersede: Stop fires every turn and PreCompact can fire
     # mid-session, so the same IDE session is captured repeatedly with a
@@ -283,17 +466,9 @@ def handle_capture_conversation(
     # incremental copies. Distilled / keep_raw files are left untouched.
     superseded = False
     dest_path: Optional[Path] = None
-    if source_session_id:
-        for existing in sorted(raw_dir.glob("conv-*.md")):
-            try:
-                text = existing.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            if f"source_session: {json.dumps(source_session_id, ensure_ascii=False)}" in text \
-                    and "status: pending" in text:
-                dest_path = existing
-                superseded = True
-                break
+    if sup_rel is not None:
+        dest_path = raw_dir / sup_rel
+        superseded = True
 
     now = datetime.now(timezone.utc)
     stamp = now.strftime("%Y%m%dT%H%M%SZ")
@@ -356,6 +531,24 @@ def handle_capture_conversation(
         dest_path.write_text(content, encoding="utf-8")
     except OSError as e:
         return json.dumps({"error": f"Failed to write conversation file: {e}"})
+
+    # Maintain the raw-dir index so future captures stay O(1). On a supersede
+    # we update the existing entry (same relpath) rather than appending.
+    entries = list(index.get("files", []))
+    new_entry = {
+        "relpath": dest_path.name,
+        "content_hash": content_hash,
+        "source_session": source_session_id,
+        "status": "pending",
+    }
+    if superseded:
+        for i, e in enumerate(entries):
+            if e.get("relpath") == dest_path.name:
+                entries[i] = new_entry
+                break
+    else:
+        entries.append(new_entry)
+    _write_index(raw_dir, {"files": entries})
 
     # NOTE: deliberately no append_log() here. Raw capture is transient (the
     # file is deleted after distillation), and the hook fires on every session

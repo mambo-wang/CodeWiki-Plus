@@ -41,6 +41,15 @@ checkout, or ``$CODEWIKI_HOME`` points at one. Otherwise the wrapper returns
 an actionable systemMessage and skips capture (it never blocks the IDE).
 
 It deliberately does NOT distill — distillation is a separate background job.
+
+Async / fire-and-forget: the wrapper launches ``codewiki.mcp._ide_hook`` as a
+**detached background process** and returns immediately. The IDE never waits
+for capture to finish (capture is cheap, but a very long transcript plus a
+large ``repowiki/raw/`` backlog could otherwise approach the old 60s cap). The
+child process owns cleanup of the temp event file (via the
+``CODEWIKI_HOOK_EVENT_FILE`` env var) and still has its own internal try/except
+so a failure never surfaces to the IDE.
+
 Stdout is emitted in the CodeBuddy-expected ``{continue, systemMessage}`` shape.
 """
 from __future__ import annotations
@@ -147,50 +156,52 @@ def main() -> int:
 
     # Forward the full event (it carries transcript_path) to _ide_hook as a
     # temporary --conversation file so _ide_hook can load the transcript.
+    # We hand the temp file's path to the child via CODEWIKI_HOOK_EVENT_FILE so
+    # the *child* deletes it after it has finished reading (we return before the
+    # child does, so we must NOT delete it here).
     tmp = None
-    extra = []
     if event:
         fd, tmp = tempfile.mkstemp(suffix=".json", prefix="tm-hook-")
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(event, fh)
-        extra = ["--conversation", tmp]
 
     cmd = [
         sys.executable, "-m", "codewiki.mcp._ide_hook",
         "--enable",
         "--repo-path", repo_path,
-        *extra,
     ]
+    if tmp:
+        cmd += ["--conversation", tmp]
+
+    # Fire-and-forget: launch the capture as a detached background process so
+    # the IDE never blocks on it. A very long transcript (plus a large
+    # repowiki/raw/ backlog) could otherwise approach the old 60s cap; detaching
+    # removes that ceiling entirely — the IDE session ends immediately.
+    # Windows: DETACHED_PROCESS keeps the child alive after this process exits
+    # and without a console window. POSIX: start_new_session severs it from our
+    # process group. The child still has its own try/except + timeout guard, so
+    # a capture failure stays invisible to the IDE (non-blocking by design).
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(REPO),
-            capture_output=True,
-            text=True,
-            timeout=60,
-            env=env,
-        )
-        out = (proc.stdout or "").strip()
-        err = (proc.stderr or "").strip()
-        system_message = out or err or "team-memory capture finished"
-        # Never block the IDE: a non-zero exit from the inner script is treated
-        # as a non-blocking warning here.
-        print(json.dumps({"continue": True, "systemMessage": system_message}))
-        return 0
-    except subprocess.TimeoutExpired:
-        print(json.dumps({"continue": True,
-                          "systemMessage": "team-memory capture timed out"}))
-        return 0
+        child_env = dict(env)
+        if tmp:
+            child_env["CODEWIKI_HOOK_EVENT_FILE"] = tmp
+        kwargs: dict = {"cwd": str(REPO), "env": child_env, "stdout": subprocess.DEVNULL,
+                        "stderr": subprocess.DEVNULL}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = getattr(subprocess, "DETACHED_PROCESS", 0)
+        else:
+            kwargs["start_new_session"] = True
+        subprocess.Popen(cmd, **kwargs)
     except Exception as e:  # noqa: BLE001 - never crash the IDE hook
+        # If we cannot even spawn the child, surface a non-blocking hint but
+        # still let the session end cleanly.
         print(json.dumps({"continue": True,
-                          "systemMessage": f"team-memory hook error: {e}"}))
+                          "systemMessage": f"team-memory capture not started: {e}"}))
         return 0
-    finally:
-        if tmp and os.path.exists(tmp):
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
+
+    print(json.dumps({"continue": True,
+                      "systemMessage": "team-memory capture started in background"}))
+    return 0
 
 
 if __name__ == "__main__":

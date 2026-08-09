@@ -2,10 +2,10 @@
 MCP Prompt Templates for CodeWiki.
 
 This module contains all workflow prompt templates that guide agents through
-CodeWiki operations: Wiki generation, knowledge extraction, search strategies,
-quality checks, incremental updates, cross-service tracing, workspace analysis,
-code analysis, impact review, note ingestion, architecture review, and
-team-memory fusion (conversation capture hook toggle, conversation distillation).
+CodeWiki operations. Prompts are defined in the order a user typically uses
+them: initialize the workspace first, then generate/maintain Wiki docs, then
+analysis and knowledge-management, and finally team-memory fusion (conversation
+capture hook toggle, conversation distillation).
 
 Usage:
     from codewiki.mcp.prompts import register
@@ -27,6 +27,93 @@ def _resolve_path(raw: str) -> str:
     if os.path.isabs(p):
         return os.path.normpath(p)
     return os.path.normpath(os.path.join(os.getcwd(), p))
+
+
+def _prompt_init_wiki(args: dict[str, str]) -> str:
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    output_dir = args.get("output_dir", "")
+    od_note = f'，output_dir="{output_dir}"' if output_dir else ""
+    # T6: 可选启用 IDE hook（team-memory fusion 自动采集对话）
+    enable_hook = args.get("enable_hook", "").strip().lower()
+    if enable_hook in ("1", "true", "yes", "on"):
+        hook_block = f"""## 步骤 2: 启用 IDE 对话自动采集 Hook（team-memory fusion）
+为支持 team-memory fusion（对话→Wiki 经验沉淀），启用 CodeBuddy 的 SessionEnd hook，使会话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成）。
+
+**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。
+
+1. **确保采集脚本就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它。用以下命令解析 CodeWiki 自带的源脚本路径，并**强制复制**到目标目录（务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
+
+   ```powershell
+   # 源脚本随 codewiki 包发布，位于 codewiki/hooks/capture_session_end.py
+   $src = python -c "import codewiki, os; print(os.path.join(os.path.dirname(codewiki.__file__),'hooks','capture_session_end.py').replace('\\\\','/'))"
+   $dest = Join-Path '{repo_path}' '.codebuddy/hooks/capture_session_end.py'
+   New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+   Copy-Item $src $dest -Force
+   python -c "import ast; ast.parse(open(r'$dest', encoding='utf-8').read()); print('hook script copied OK')"
+   ```
+
+   若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从 `CODEWIKI_HOME` 环境变量指向的 checkout 取 `$env:CODEWIKI_HOME/codewiki/hooks/capture_session_end.py`，同样 Copy-Item 到 `$dest`。兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
+
+2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置）：
+
+```json
+{{
+  "hooks": {{
+    "SessionEnd": [
+      {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
+    ]
+  }}
+}}
+```
+
+   只注册 `SessionEnd`：它是唯一可靠携带 `transcript_path` 的事件，能抓到完整正文。`PreCompact`/`Stop` 不带 transcript，只会落空信封被去重跳过，故不注册。
+
+3. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）。
+
+4. 用模拟事件验证（期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
+
+```powershell
+'{{"session_id":"verify-1","transcript_path":"d:/tmp/conv.json","cwd":"{repo_path}","hook_event_name":"SessionEnd","reason":"other"}}' | python "{repo_path}/.codebuddy/hooks/capture_session_end.py"
+```
+
+5. 验证完成后删除测试产物：`{repo_path}/repowiki/raw/` 下 verify-1 会话生成的 conv-*.md 文件
+
+> 注意：hook 只负责 capture_conversation（落 raw），真正的蒸馏需另行运行 distill_conversation（异步、LLM 重活）。"""
+        step_shift = 1
+    else:
+        hook_block = ""
+        step_shift = 0
+    return f"""请为项目初始化 Wiki 工作区。按以下步骤执行：
+
+## 步骤 1: 初始化
+调用 init_wiki(repo_path="{repo_path}"{od_note})
+- 自动创建目录结构：wiki/modules, wiki/entities, wiki/concepts, wiki/sources, wiki/comparisons, wiki/queries, notes/
+- 拷贝带注释的 schema.yaml 模板到输出目录（保留所有注释，方便阅读和自定义）
+- 在仓库根目录写入/更新 AGENTS.md（含使用建议、自我反思协议、知识沉淀规则）
+{hook_block}
+## 步骤 {2 + step_shift}: 自定义 schema.yaml
+读取 `{output_dir or repo_path + '/repowiki'}/schema.yaml`，根据项目特点修改：
+- **purpose**（重要）：用一两句话描述项目定位，会注入到所有文档生成 prompt 中
+- **doc_types**：选择适合项目的文档风格（api/architecture/design/business 等）
+- **conventions**：调整命名规范、最小行数、是否需要 Mermaid 图等
+- **page_types**：按需增删页面类型
+
+## 步骤 {3 + step_shift}: 验证 AGENTS.md
+读取仓库根目录的 AGENTS.md，确认包含：
+- CodeWiki LLM Wiki 章节（入口文件链接、使用建议）
+- 纠正识别与经验沉淀（自我反思协议）
+- 主动知识沉淀（触发信号、四问过滤、路由表）
+
+## 后续工作流
+初始化完成后，可以：
+- **生成 Wiki**：使用 generate-wiki prompt 执行完整的文档生成流水线
+- **知识管理**：直接使用 ingest_note / query_wiki 进行知识归档和检索
+- **代码分析**：使用 code-analysis prompt 仅做结构分析不生成文档
+
+## 注意事项
+- init_wiki 是幂等的：重复执行不会破坏已有内容
+- AGENTS.md 使用 HTML 注释标记隔离 CodeWiki 段落，用户自有内容不受影响
+- schema.yaml 只在首次拷贝；后续 analyze_repo 会增量合并（保留用户自定义值）"""
 
 
 def _prompt_generate_wiki(args: dict[str, str]) -> str:
@@ -74,6 +161,39 @@ def _prompt_generate_wiki(args: dict[str, str]) -> str:
 - 使用 [模块名](模块名.md) 交叉引用
 - 节点 ID 仅用字母和数字，标签用方括号
 - 文档语言默认中文"""
+
+
+def _prompt_incremental_update(args: dict[str, str]) -> str:
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    return f"""请增量更新代码仓库的 Wiki 文档。按以下步骤执行：
+
+## 步骤 1: 检测变更
+调用 analyze_repo(repo_path="{repo_path}")
+- 如果 output_dir 已有 .meta/metadata.json，返回 changes 字段
+- changes 包含: added_files, modified_files, deleted_files, affected_modules
+
+## 步骤 2: 评估影响范围
+- 阅读 changes.affected_modules 确定需要更新的模块
+- 如果变更较小（<3 个模块），直接更新
+- 如果变更较大，考虑重新聚类（save_module_tree）
+
+## 步骤 3: 更新受影响模块
+对每个 affected_module：
+1. read_code_components 读取最新源码
+2. view_repo_file 读取现有文档
+3. edit_doc_file(str_replace) 更新变更部分
+4. 或 write_doc_file 重写整个模块文档
+
+## 步骤 4: 处理删除的文件
+- 如果组件被删除，更新引用它的文档
+- lint_wiki(checks=["stale_refs"]) 检查过时引用
+
+## 步骤 5: 重建索引
+调用 close_session(repo_path="{repo_path}") 触发索引重建
+
+## 注意事项
+- 增量更新只修改受影响的模块，不重写整个 Wiki
+- 如果 metadata.json 不存在，会执行全量分析"""
 
 
 def _prompt_extract_knowledge(args: dict[str, str]) -> str:
@@ -216,197 +336,6 @@ def _prompt_quality_check(args: dict[str, str]) -> str:
 再次调用 lint_wiki 确认问题已解决"""
 
 
-def _prompt_incremental_update(args: dict[str, str]) -> str:
-    repo_path = _resolve_path(args.get("repo_path", ""))
-    return f"""请增量更新代码仓库的 Wiki 文档。按以下步骤执行：
-
-## 步骤 1: 检测变更
-调用 analyze_repo(repo_path="{repo_path}")
-- 如果 output_dir 已有 .meta/metadata.json，返回 changes 字段
-- changes 包含: added_files, modified_files, deleted_files, affected_modules
-
-## 步骤 2: 评估影响范围
-- 阅读 changes.affected_modules 确定需要更新的模块
-- 如果变更较小（<3 个模块），直接更新
-- 如果变更较大，考虑重新聚类（save_module_tree）
-
-## 步骤 3: 更新受影响模块
-对每个 affected_module：
-1. read_code_components 读取最新源码
-2. view_repo_file 读取现有文档
-3. edit_doc_file(str_replace) 更新变更部分
-4. 或 write_doc_file 重写整个模块文档
-
-## 步骤 4: 处理删除的文件
-- 如果组件被删除，更新引用它的文档
-- lint_wiki(checks=["stale_refs"]) 检查过时引用
-
-## 步骤 5: 重建索引
-调用 close_session(repo_path="{repo_path}") 触发索引重建
-
-## 注意事项
-- 增量更新只修改受影响的模块，不重写整个 Wiki
-- 如果 metadata.json 不存在，会执行全量分析"""
-
-
-def _prompt_cross_service_trace(args: dict[str, str]) -> str:
-    workspace_path = _resolve_path(args.get("workspace_path", ""))
-    root_service = args.get("root_service", "")
-    filter_value = args.get("filter_value", "") or root_service or "<目标服务>"
-    return f"""请对工作区 `{workspace_path}` 执行跨服务调用分析（Cross-Service Trace）。
-本流程综合使用 CodeWiki 的 RouteNode 静态匹配和 codebase-memory-mcp（如可用）的语义追踪，
-产出完整的跨服务调用拓扑。
-
-## 步骤 0：前置检查
-- 确认已执行 `analyze_workspace`。如未执行，先调用：
-  ```
-  analyze_workspace(workspace_path="{workspace_path}")
-  ```
-- 记录返回的 `workspace_session_id` 和 `overview_path`
-- 检查 MCP 工具列表中是否有 `trace_path`（codebase-memory-mcp），有则步骤 4 可用
-
-## 步骤 1：读取基线拓扑
-读取 `{workspace_path}/workspace-wiki/overview.md`，定位：
-- Mermaid 服务流程图（识别核心枢纽服务）
-- 已匹配路由表（已发现的跨服务调用）
-- 未匹配路由表（潜在的盲点）
-
-## 步骤 2：从根服务出发追踪调用链
-调用 query_cross_service：
-```json
-{{
-  "workspace_path": "{workspace_path}",
-  "filter_type": "trace",
-  "filter_value": "{filter_value}"
-}}
-```
-- 返回从 `{filter_value}` 出发的所有下游调用链（深度不限）
-- 每条链包含：源服务 → 客户端组件 → 协议/方法/路径 → 目标服务 → 服务端组件
-
-## 步骤 3：多维度切片分析
-针对步骤 2 的结果，从不同维度切片：
-- **协议分布**：`filter_type="by_method", filter_value="POST"` 查看所有写操作链路
-- **路径前缀**：`filter_type="by_path", filter_value="/api/v1/orders"` 聚焦订单域调用
-- **单服务画像**：`filter_type="by_service", filter_value="<服务名>"` 看某服务的完整入向+出向
-
-## 步骤 4：🧠 语义深度追踪（CBM 增强，可选）
-对步骤 2 中的关键链路，用 codebase-memory-mcp 的 `trace_path` 做语义穿透：
-```json
-{{
-  "project": "<CBM 项目名>",
-  "function_name": "<客户端函数名>",
-  "mode": "cross_service",
-  "depth": 3
-}}
-```
-- 从客户端函数入口一路追踪到服务端处理函数的内部实现
-- 揭示 RouteNode 匹配不到的深层依赖：中间件调用、数据库查询、异步任务派发
-
-## 步骤 5：架构诊断
-根据收集到的调用链，输出以下诊断：
-- **循环依赖**：A→B→A 的调用环（架构坏味道）
-- **扇入热点**：被 ≥3 个服务调用的"上帝服务"
-- **单向依赖缺失**：某服务的所有调用都是出向（可能是纯客户端/worker）
-- **未匹配路由**：客户端 URL 无法与服务端路由对应（可能是外部系统调用）
-
-## 步骤 6：归档发现
-调用 ingest_note 归档到 workspace 级别知识库（workspace_session_id）：
-```json
-{{
-  "note_type": "architecture",
-  "title": "跨服务调用拓扑（{filter_value} 视角）",
-  "content": "Mermaid 调用链图 + 诊断结果 + 优化建议",
-  "related_modules": ["<涉及的服务名>"],
-  "aliases": ["cross-service", "topology", "{filter_value}"]
-}}
-```
-
-## 步骤 7：输出交付物
-最终产出两份文档：
-1. **拓扑报告**（Markdown）：Mermaid 图 + 调用链明细 + 架构诊断
-2. **优化建议**：基于诊断的架构改进建议（拆分热点服务、消除循环依赖、
-   显式化外部调用）"""
-
-
-def _prompt_workspace_analysis(args: dict[str, str]) -> str:
-    workspace_path = _resolve_path(args.get("workspace_path", ""))
-    return f"""请分析多仓库工作区并生成跨服务文档。按以下步骤执行：
-
-## 步骤 0：环境检测
-- 检查 MCP 工具列表：
-  - 是否有 `query_cross_service`？有则启用 🌐 跨服务分析
-  - 是否有 `index_repository`？有则启用 🧠 codebase-memory 深度增强
-  - 是否有 `codegraph_status`？有则启用 🔗 CodeGraph 调用图增强
-
-## 步骤 1：扫描工作区（自动执行跨服务分析）
-调用 analyze_workspace(workspace_path="{workspace_path}")
-- 自动发现所有 git 仓库（一个 .git = 一个 repowiki）
-- 为每个子仓库独立执行 analyze_repo
-- 🌐 **自动执行 RouteNode 跨服务匹配**（HTTP 路由 + MQ 生产者/消费者）
-- **自动扫描** docker-compose.yml / .env / application.yml 发现服务名和端口
-- **自动生成** workspace-wiki/overview.md，内含 Mermaid 服务拓扑图 + 路由表
-- 返回 `workspace_session_id`、`overview_path`、各仓库分析结果
-
-## 步骤 2：审阅跨服务拓扑
-读取返回的 `overview_path`（通常是 `{workspace_path}/workspace-wiki/overview.md`）：
-- 查看 Mermaid 服务流程图：识别核心枢纽服务、单向依赖、循环依赖
-- 查看匹配的路由表：理解服务间的 API 契约
-- 查看未匹配路由：发现潜在的客户端调用盲点（例如硬编码 URL、动态路径）
-
-## 步骤 3：深入查询跨服务调用
-调用 query_cross_service(workspace_path="{workspace_path}") 进行多角度查询：
-- `filter_type="all"`：全量跨服务链接
-- `filter_type="by_service", filter_value="<服务名>"`：某服务的入向/出向调用
-- `filter_type="by_method", filter_value="POST"`：所有写操作
-- `filter_type="by_path", filter_value="/api/v1/"`：某 API 前缀下的调用
-- `filter_type="trace", filter_value="<根服务>"`：从某服务出发的调用链
-
-## 步骤 4：🧠 深度追踪（如 codebase-memory-mcp 可用）
-对步骤 3 发现的关键调用链，用 CBM 的 `trace_path(mode="cross_service", depth=3)` 做
-多跳语义追踪：从客户端函数一路追踪到服务端处理函数的内部调用链（包括中间件、
-数据库访问、异步任务派发），揭示 RouteNode 匹配不到的深层依赖。
-
-## 步骤 5：逐仓库生成 Wiki
-对每个子仓库执行标准 Wiki 生成流程：
-- 各仓库使用自己的 repo_path 执行 Wiki 生成流程
-- analyze_repo → 聚类 → 逐模块撰写 → close_session
-- 每个仓库的 Wiki 位于 <repo>/repowiki/
-- 🔗 CodeGraph 增强模式可补充单仓内的调用图细节
-
-## 步骤 6：归档跨服务架构决策
-用 workspace_session_id 调用 ingest_note(note_type="architecture") 记录：
-- 跨服务 API 契约（URL、方法、参数、返回结构）
-- 消息协议约定（topic、payload schema、消费语义）
-- 共享数据模型和 schema 约定
-- 跨服务熔断/限流/重试策略
-
-## 步骤 7：工作区总览（LLM 生成架构叙述）
-overview.md 当前是程序化骨架（服务表 + Mermaid 拓扑 + 聚合摘要）。
-用 LLM 将其升级为有架构叙事的文档：
-
-1. 读取 `{workspace_path}/workspace-wiki/overview.md` 中的 Services 表格和
-   Cross-Service Summary 部分
-2. 调用 get_prompt(prompt_type="overview_workspace", variables={{
-     "workspace_name": "<工作区名>",
-     "services_summary": "<Services 表格内容>",
-     "cross_service_data": "<Service Topology + Cross-Service Summary 内容>"
-   }})
-3. 根据返回的模板撰写完整 overview（80-150 行），重点包含：
-   - 2-3 段架构叙述（系统目的、服务协作方式、数据流、架构模式）
-   - Mermaid 服务拓扑图（可用 subgraph 分组）
-   - 聚合跨服务摘要（每对服务一行：调用数 + 代表性端点 + 交互性质）
-   - 服务目录表（链接各仓库 wiki）
-4. 用 write_doc_file 写入 `{workspace_path}/workspace-wiki/overview.md`
-   （替换骨架中的 AGENT_ENRICH 注释占位符）
-
-## 注意事项
-- 每个子仓库独立管理自己的 Wiki
-- workspace 级别只存放跨服务关注点
-- 使用 query_wiki 在 workspace 级别搜索跨服务知识
-- 未匹配的客户端调用（在 overview.md 路由表中标记）需人工确认：可能是外部系统调用、
-  硬编码 URL、或客户端使用了 RouteNode 匹配不到的协议（如 gRPC）"""
-
-
 def _prompt_code_analysis(args: dict[str, str]) -> str:
     repo_path = _resolve_path(args.get("repo_path", ""))
     return f"""请对代码仓库执行纯结构分析（不生成 Wiki 文档）。按以下步骤执行：
@@ -520,6 +449,222 @@ read_code_components(repo_path="{repo_path}", component_ids=['<high_risk_id>'])
 使用 get_prompt(prompt_type="impact_review") 获取更详细的解读指南。"""
 
 
+def _prompt_architecture_review(args: dict[str, str]) -> str:
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    return f"""请通过依赖图分析代码库的高层架构。按以下步骤执行：
+
+## 步骤 1: 分析仓库
+调用 analyze_repo(repo_path="{repo_path}")
+- 记录 total_components、languages、leaf_nodes_preview
+- leaf_nodes 是入口点（无依赖者的顶层消费者）
+
+## 步骤 2: 识别架构层次
+```
+# 高影响组件（被多人依赖）= 基础设施/核心层
+list_dependencies(repo_path='{repo_path}', direction='depended_by')
+# → 查看 high_impact_components
+
+# 叶节点 = 应用/API 层（消费他人，无人消费）
+# 已在 analyze_repo 返回的 leaf_nodes 中
+```
+- 高 depended_by_count 的组件 = 核心/基础设施层
+- leaf_nodes = 应用边界（API、CLI、Handler）
+
+## 步骤 3: 映射模块边界
+```
+list_dependencies(repo_path='{repo_path}', module_level=true)
+```
+关注：
+- **枢纽模块**：高 depends_on + 高 depended_by（编排者）
+- **叶模块**：仅 depends_on（应用层）
+- **核心模块**：仅 depended_by（共享库）
+- **循环依赖**：相互依赖的模块（耦合臭味）
+
+## 步骤 4: 追踪关键路径
+```
+# 选一个入口点，追踪它依赖什么
+analyze_impact(repo_path="{repo_path}", component_ids=['<leaf_node>'],
+               direction='depends_on', include_paths=true)
+
+# 选一个核心组件，看谁使用它
+analyze_impact(repo_path="{repo_path}", component_ids=['<core_component>'],
+               direction='depended_by', include_paths=true)
+```
+
+## 步骤 5: 识别热点和风险
+- depended_by_count >= 10：变更抗性热点
+- 循环依赖模块：重构候选
+- 深依赖链（depth 5+）：紧耦合指标
+
+## 输出模板
+总结发现：
+1. **层次图**：核心 → 服务 → 应用（Mermaid graph TD）
+2. **模块地图**：枢纽/叶/核心分类 + 依赖箭头
+3. **热点**：Top 5 最被依赖组件及其风险等级
+4. **入口点**：按类型分组的叶节点（API、CLI、事件处理器）
+5. **耦合关注点**：循环依赖、深链、上帝模块
+
+使用 get_prompt(prompt_type="architecture_review") 获取更详细的分析指南。"""
+
+
+def _prompt_workspace_analysis(args: dict[str, str]) -> str:
+    workspace_path = _resolve_path(args.get("workspace_path", ""))
+    return f"""请分析多仓库工作区并生成跨服务文档。按以下步骤执行：
+
+## 步骤 0：环境检测
+- 检查 MCP 工具列表：
+  - 是否有 `query_cross_service`？有则启用 🌐 跨服务分析
+  - 是否有 `index_repository`？有则启用 🧠 codebase-memory 深度增强
+  - 是否有 `codegraph_status`？有则启用 🔗 CodeGraph 调用图增强
+
+## 步骤 1：扫描工作区（自动执行跨服务分析）
+调用 analyze_workspace(workspace_path="{workspace_path}")
+- 自动发现所有 git 仓库（一个 .git = 一个 repowiki）
+- 为每个子仓库独立执行 analyze_repo
+- 🌐 **自动执行 RouteNode 跨服务匹配**（HTTP 路由 + MQ 生产者/消费者）
+- **自动扫描** docker-compose.yml / .env / application.yml 发现服务名和端口
+- **自动生成** workspace-wiki/overview.md，内含 Mermaid 服务拓扑图 + 路由表
+- 返回 `workspace_session_id`、`overview_path`、各仓库分析结果
+
+## 步骤 2：审阅跨服务拓扑
+读取返回的 `overview_path`（通常是 `{workspace_path}/workspace-wiki/overview.md`）：
+- 查看 Mermaid 服务流程图：识别核心枢纽服务、单向依赖、循环依赖
+- 查看匹配的路由表：理解服务间的 API 契约
+- 查看未匹配路由：发现潜在的客户端调用盲点（例如硬编码 URL、动态路径）
+
+## 步骤 3：深入查询跨服务调用
+调用 query_cross_service(workspace_path="{workspace_path}") 进行多角度查询：
+- `filter_type="all"`：全量跨服务链接
+- `filter_type="by_service", filter_value="<服务名>"`：某服务的入向/出向调用
+- `filter_type="by_method", filter_value="POST"`：所有写操作
+- `filter_type="by_path", filter_value="/api/v1/"`：某 API 前缀下的调用
+- `filter_type="trace", filter_value="<根服务>"`：从某服务出发的调用链
+
+## 步骤 4：🧠 深度追踪（如 codebase-memory-mcp 可用）
+对步骤 3 发现的关键调用链，用 CBM 的 `trace_path(mode="cross_service", depth=3)` 做
+多跳语义追踪：从客户端函数一路追踪到服务端处理函数的内部调用链（包括中间件、
+数据库访问、异步任务派发），揭示 RouteNode 匹配不到的深层依赖。
+
+## 步骤 5：逐仓库生成 Wiki
+对每个子仓库执行标准 Wiki 生成流程：
+- 各仓库使用自己的 repo_path 执行 Wiki 生成流程
+- analyze_repo → 聚类 → 逐模块撰写 → close_session
+- 每个仓库的 Wiki 位于 <repo>/repowiki/
+- 🔗 CodeGraph 增强模式可补充单仓内的调用图细节
+
+## 步骤 6：归档跨服务架构决策
+用 workspace_session_id 调用 ingest_note(note_type="architecture") 记录：
+- 跨服务 API 契约（URL、方法、参数、返回结构）
+- 消息协议约定（topic、payload schema、消费语义）
+- 共享数据模型和 schema 约定
+- 跨服务熔断/限流/重试策略
+
+## 步骤 7：工作区总览（LLM 生成架构叙述）
+overview.md 当前是程序化骨架（服务表 + Mermaid 拓扑 + 聚合摘要）。
+用 LLM 将其升级为有架构叙事的文档：
+
+1. 读取 `{workspace_path}/workspace-wiki/overview.md` 中的 Services 表格和
+   Cross-Service Summary 部分
+2. 调用 get_prompt(prompt_type="overview_workspace", variables={{
+     "workspace_name": "<工作区名>",
+     "services_summary": "<Services 表格内容>",
+     "cross_service_data": "<Service Topology + Cross-Service Summary 内容>"
+   }})
+3. 根据返回的模板撰写完整 overview（80-150 行），重点包含：
+   - 2-3 段架构叙述（系统目的、服务协作方式、数据流、架构模式）
+   - Mermaid 服务拓扑图（可用 subgraph 分组）
+   - 聚合跨服务摘要（每对服务一行：调用数 + 代表性端点 + 交互性质）
+   - 服务目录表（链接各仓库 wiki）
+4. 用 write_doc_file 写入 `{workspace_path}/workspace-wiki/overview.md`
+   （替换骨架中的 AGENT_ENRICH 注释占位符）
+
+## 注意事项
+- 每个子仓库独立管理自己的 Wiki
+- workspace 级别只存放跨服务关注点
+- 使用 query_wiki 在 workspace 级别搜索跨服务知识
+- 未匹配的客户端调用（在 overview.md 路由表中标记）需人工确认：可能是外部系统调用、
+  硬编码 URL、或客户端使用了 RouteNode 匹配不到的协议（如 gRPC）"""
+
+
+def _prompt_cross_service_trace(args: dict[str, str]) -> str:
+    workspace_path = _resolve_path(args.get("workspace_path", ""))
+    root_service = args.get("root_service", "")
+    filter_value = args.get("filter_value", "") or root_service or "<目标服务>"
+    return f"""请对工作区 `{workspace_path}` 执行跨服务调用分析（Cross-Service Trace）。
+本流程综合使用 CodeWiki 的 RouteNode 静态匹配和 codebase-memory-mcp（如可用）的语义追踪，
+产出完整的跨服务调用拓扑。
+
+## 步骤 0：前置检查
+- 确认已执行 `analyze_workspace`。如未执行，先调用：
+  ```
+  analyze_workspace(workspace_path="{workspace_path}")
+  ```
+- 记录返回的 `workspace_session_id` 和 `overview_path`
+- 检查 MCP 工具列表中是否有 `trace_path`（codebase-memory-mcp），有则步骤 4 可用
+
+## 步骤 1：读取基线拓扑
+读取 `{workspace_path}/workspace-wiki/overview.md`，定位：
+- Mermaid 服务流程图（识别核心枢纽服务）
+- 已匹配路由表（已发现的跨服务调用）
+- 未匹配路由表（潜在的盲点）
+
+## 步骤 2：从根服务出发追踪调用链
+调用 query_cross_service：
+```json
+{{
+  "workspace_path": "{workspace_path}",
+  "filter_type": "trace",
+  "filter_value": "{filter_value}"
+}}
+```
+- 返回从 `{filter_value}` 出发的所有下游调用链（深度不限）
+- 每条链包含：源服务 → 客户端组件 → 协议/方法/路径 → 目标服务 → 服务端组件
+
+## 步骤 3：多维度切片分析
+针对步骤 2 的结果，从不同维度切片：
+- **协议分布**：`filter_type="by_method", filter_value="POST"` 查看所有写操作链路
+- **路径前缀**：`filter_type="by_path", filter_value="/api/v1/orders"` 聚焦订单域调用
+- **单服务画像**：`filter_type="by_service", filter_value="<服务名>"` 看某服务的完整入向+出向
+
+## 步骤 4：🧠 语义深度追踪（CBM 增强，可选）
+对步骤 2 中的关键链路，用 codebase-memory-mcp 的 `trace_path` 做语义穿透：
+```json
+{{
+  "project": "<CBM 项目名>",
+  "function_name": "<客户端函数名>",
+  "mode": "cross_service",
+  "depth": 3
+}}
+```
+- 从客户端函数入口一路追踪到服务端处理函数的内部实现
+- 揭示 RouteNode 匹配不到的深层依赖：中间件调用、数据库查询、异步任务派发
+
+## 步骤 5：架构诊断
+根据收集到的调用链，输出以下诊断：
+- **循环依赖**：A→B→A 的调用环（架构坏味道）
+- **扇入热点**：被 ≥3 个服务调用的"上帝服务"
+- **单向依赖缺失**：某服务的所有调用都是出向（可能是纯客户端/worker）
+- **未匹配路由**：客户端 URL 无法与服务端路由对应（可能是外部系统调用）
+
+## 步骤 6：归档发现
+调用 ingest_note 归档到 workspace 级别知识库（workspace_session_id）：
+```json
+{{
+  "note_type": "architecture",
+  "title": "跨服务调用拓扑（{filter_value} 视角）",
+  "content": "Mermaid 调用链图 + 诊断结果 + 优化建议",
+  "related_modules": ["<涉及的服务名>"],
+  "aliases": ["cross-service", "topology", "{filter_value}"]
+}}
+```
+
+## 步骤 7：输出交付物
+最终产出两份文档：
+1. **拓扑报告**（Markdown）：Mermaid 图 + 调用链明细 + 架构诊断
+2. **优化建议**：基于诊断的架构改进建议（拆分热点服务、消除循环依赖、
+   显式化外部调用）"""
+
+
 def _prompt_ingest_note(args: dict[str, str]) -> str:
     output_dir = args.get("output_dir", "")
     note_type = args.get("note_type", "general")
@@ -607,151 +752,6 @@ query_wiki(output_dir="{output_dir or '<repo>/repowiki'}", query="<笔记标题�
 - 如果未来的 Agent 或新同事遇到同样场景时有用，就值得记录
 - 个人偏好、临时调整等不需要记录
 - 笔记存储在 `notes/` 目录，可通过 query_wiki 全文检索"""
-
-
-def _prompt_architecture_review(args: dict[str, str]) -> str:
-    repo_path = _resolve_path(args.get("repo_path", ""))
-    return f"""请通过依赖图分析代码库的高层架构。按以下步骤执行：
-
-## 步骤 1: 分析仓库
-调用 analyze_repo(repo_path="{repo_path}")
-- 记录 total_components、languages、leaf_nodes_preview
-- leaf_nodes 是入口点（无依赖者的顶层消费者）
-
-## 步骤 2: 识别架构层次
-```
-# 高影响组件（被多人依赖）= 基础设施/核心层
-list_dependencies(repo_path='{repo_path}', direction='depended_by')
-# → 查看 high_impact_components
-
-# 叶节点 = 应用/API 层（消费他人，无人消费）
-# 已在 analyze_repo 返回的 leaf_nodes 中
-```
-- 高 depended_by_count 的组件 = 核心/基础设施层
-- leaf_nodes = 应用边界（API、CLI、Handler）
-
-## 步骤 3: 映射模块边界
-```
-list_dependencies(repo_path="{repo_path}", module_level=true)
-```
-关注：
-- **枢纽模块**：高 depends_on + 高 depended_by（编排者）
-- **叶模块**：仅 depends_on（应用层）
-- **核心模块**：仅 depended_by（共享库）
-- **循环依赖**：相互依赖的模块（耦合臭味）
-
-## 步骤 4: 追踪关键路径
-```
-# 选一个入口点，追踪它依赖什么
-analyze_impact(repo_path="{repo_path}", component_ids=['<leaf_node>'],
-               direction='depends_on', include_paths=true)
-
-# 选一个核心组件，看谁使用它
-analyze_impact(repo_path="{repo_path}", component_ids=['<core_component>'],
-               direction='depended_by', include_paths=true)
-```
-
-## 步骤 5: 识别热点和风险
-- depended_by_count >= 10：变更抗性热点
-- 循环依赖模块：重构候选
-- 深依赖链（depth 5+）：紧耦合指标
-
-## 输出模板
-总结发现：
-1. **层次图**：核心 → 服务 → 应用（Mermaid graph TD）
-2. **模块地图**：枢纽/叶/核心分类 + 依赖箭头
-3. **热点**：Top 5 最被依赖组件及其风险等级
-4. **入口点**：按类型分组的叶节点（API、CLI、事件处理器）
-5. **耦合关注点**：循环依赖、深链、上帝模块
-
-使用 get_prompt(prompt_type="architecture_review") 获取更详细的分析指南。"""
-
-
-def _prompt_init_wiki(args: dict[str, str]) -> str:
-    repo_path = _resolve_path(args.get("repo_path", ""))
-    output_dir = args.get("output_dir", "")
-    od_note = f'，output_dir="{output_dir}"' if output_dir else ""
-    # T6: 可选启用 IDE hook（team-memory fusion 自动采集对话）
-    enable_hook = args.get("enable_hook", "").strip().lower()
-    if enable_hook in ("1", "true", "yes", "on"):
-        hook_block = f"""## 步骤 2: 启用 IDE 对话自动采集 Hook（team-memory fusion）
-为支持 team-memory fusion（对话→Wiki 经验沉淀），启用 CodeBuddy 的 SessionEnd hook，使会话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成）。
-
-**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。
-
-1. **确保采集脚本就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它。用以下命令解析 CodeWiki 自带的源脚本路径，并**强制复制**到目标目录（务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
-
-   ```powershell
-   # 源脚本随 codewiki 包发布，位于 codewiki/hooks/capture_session_end.py
-   $src = python -c "import codewiki, os; print(os.path.join(os.path.dirname(codewiki.__file__),'hooks','capture_session_end.py').replace('\\\\','/'))"
-   $dest = Join-Path '{repo_path}' '.codebuddy/hooks/capture_session_end.py'
-   New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
-   Copy-Item $src $dest -Force
-   python -c "import ast; ast.parse(open(r'$dest', encoding='utf-8').read()); print('hook script copied OK')"
-   ```
-
-   若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从 `CODEWIKI_HOME` 环境变量指向的 checkout 取 `$env:CODEWIKI_HOME/codewiki/hooks/capture_session_end.py`，同样 Copy-Item 到 `$dest`。兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
-
-2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置）：
-
-```json
-{{
-  "hooks": {{
-    "SessionEnd": [
-      {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
-    ]
-  }}
-}}
-```
-
-   只注册 `SessionEnd`：它是唯一可靠携带 `transcript_path` 的事件，能抓到完整正文。`PreCompact`/`Stop` 不带 transcript，只会落空信封被去重跳过，故不注册。
-
-3. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）。
-
-4. 用模拟事件验证（期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
-
-```powershell
-'{{"session_id":"verify-1","transcript_path":"d:/tmp/conv.json","cwd":"{repo_path}","hook_event_name":"SessionEnd","reason":"other"}}' | python "{repo_path}/.codebuddy/hooks/capture_session_end.py"
-```
-
-5. 验证完成后删除测试产物：`{repo_path}/repowiki/raw/` 下 verify-1 会话生成的 conv-*.md 文件
-
-> 注意：hook 只负责 capture_conversation（落 raw），真正的蒸馏需另行运行 distill_conversation（异步、LLM 重活）。"""
-        step_shift = 1
-    else:
-        hook_block = ""
-        step_shift = 0
-    return f"""请为项目初始化 Wiki 工作区。按以下步骤执行：
-
-## 步骤 1: 初始化
-调用 init_wiki(repo_path="{repo_path}"{od_note})
-- 自动创建目录结构：wiki/modules, wiki/entities, wiki/concepts, wiki/sources, wiki/comparisons, wiki/queries, notes/
-- 拷贝带注释的 schema.yaml 模板到输出目录（保留所有注释，方便阅读和自定义）
-- 在仓库根目录写入/更新 AGENTS.md（含使用建议、自我反思协议、知识沉淀规则）
-{hook_block}
-## 步骤 {2 + step_shift}: 自定义 schema.yaml
-读取 `{output_dir or repo_path + '/repowiki'}/schema.yaml`，根据项目特点修改：
-- **purpose**（重要）：用一两句话描述项目定位，会注入到所有文档生成 prompt 中
-- **doc_types**：选择适合项目的文档风格（api/architecture/design/business 等）
-- **conventions**：调整命名规范、最小行数、是否需要 Mermaid 图等
-- **page_types**：按需增删页面类型
-
-## 步骤 {3 + step_shift}: 验证 AGENTS.md
-读取仓库根目录的 AGENTS.md，确认包含：
-- CodeWiki LLM Wiki 章节（入口文件链接、使用建议）
-- 纠正识别与经验沉淀（自我反思协议）
-- 主动知识沉淀（触发信号、四问过滤、路由表）
-
-## 后续工作流
-初始化完成后，可以：
-- **生成 Wiki**：使用 generate-wiki prompt 执行完整的文档生成流水线
-- **知识管理**：直接使用 ingest_note / query_wiki 进行知识归档和检索
-- **代码分析**：使用 code-analysis prompt 仅做结构分析不生成文档
-
-## 注意事项
-- init_wiki 是幂等的：重复执行不会破坏已有内容
-- AGENTS.md 使用 HTML 注释标记隔离 CodeWiki 段落，用户自有内容不受影响
-- schema.yaml 只在首次拷贝；后续 analyze_repo 会增量合并（保留用户自定义值）"""
 
 
 def _prompt_team_memory_hook(args: dict[str, str]) -> str:
@@ -885,6 +885,32 @@ def register(server):
         """List available workflow prompt templates."""
         return [
             Prompt(
+                name="init-wiki",
+                title="初始化 Wiki 工作区",
+                description=(
+                    "零配置初始化：创建目录结构、拷贝带注释的 schema.yaml 模板、"
+                    "写入 AGENTS.md（含使用建议和自我反思协议）。"
+                    "在开始任何 Wiki 生成或知识管理之前执行一次。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="repo_path",
+                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="output_dir",
+                        description="Wiki 输出目录（默认: <repo>/repowiki）",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="enable_hook",
+                        description="是否启用 IDE 对话自动采集 Hook（team-memory fusion）：true/1 会在初始化指引中追加 hook 启用说明；留空或 false 则跳过。Hook 默认关闭，仅采集对话不蒸馏。",
+                        required=False,
+                    ),
+                ],
+            ),
+            Prompt(
                 name="generate-wiki",
                 title="生成代码 Wiki",
                 description="完整的代码仓库 Wiki 生成流水线：分析→聚类→逐模块撰写→总览→质检→关闭会话",
@@ -897,6 +923,18 @@ def register(server):
                     PromptArgument(
                         name="output_dir",
                         description="Wiki 输出目录（默认: <repo>/repowiki）",
+                        required=False,
+                    ),
+                ],
+            ),
+            Prompt(
+                name="incremental-update",
+                title="增量更新 Wiki",
+                description="检测代码变更并增量更新受影响的 Wiki 模块文档",
+                arguments=[
+                    PromptArgument(
+                        name="repo_path",
+                        description="代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
                         required=False,
                     ),
                 ],
@@ -943,56 +981,6 @@ def register(server):
                     PromptArgument(
                         name="output_dir",
                         description="Wiki 输出目录",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="incremental-update",
-                title="增量更新 Wiki",
-                description="检测代码变更并增量更新受影响的 Wiki 模块文档",
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="workspace-analysis",
-                title="多仓库工作区分析（含跨服务拓扑）",
-                description=(
-                    "扫描父目录下的多个 git 仓库，为每个生成独立 Wiki 并自动执行跨服务分析："
-                    "RouteNode 匹配（HTTP+MQ，覆盖 Py/Java/JS/TS/Go）、Mermaid 服务拓扑图、"
-                    "基础设施扫描（docker-compose/.env/application.yml）。可搭配 codebase-memory-mcp "
-                    "做语义级深度追踪。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="workspace_path",
-                        description="包含多个 git 仓库的父目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="cross-service-trace",
-                title="跨服务调用链追踪",
-                description=(
-                    "对指定根服务执行跨服务调用链分析：先走 CodeWiki RouteNode 静态匹配（HTTP 路由 + "
-                    "MQ 生产者/消费者），再用 codebase-memory-mcp trace_path(mode='cross_service') "
-                    "做多跳语义追踪，产出调用链图 + 架构诊断（循环依赖/扇入热点/未匹配路由）。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="workspace_path",
-                        description="包含多个 git 仓库的工作区根目录（相对路径基于当前工作目录，默认当前目录；须已执行过 analyze_workspace）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="filter_value",
-                        description="追踪起点：服务名 / HTTP 方法 / URL 子串 / 路径前缀（可在对话中补充）",
                         required=False,
                     ),
                 ],
@@ -1049,6 +1037,44 @@ def register(server):
                 ],
             ),
             Prompt(
+                name="workspace-analysis",
+                title="多仓库工作区分析（含跨服务拓扑）",
+                description=(
+                    "扫描父目录下的多个 git 仓库，为每个生成独立 Wiki 并自动执行跨服务分析："
+                    "RouteNode 匹配（HTTP+MQ，覆盖 Py/Java/JS/TS/Go）、Mermaid 服务拓扑图、"
+                    "基础设施扫描（docker-compose/.env/application.yml）。可搭配 codebase-memory-mcp "
+                    "做语义级深度追踪。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="workspace_path",
+                        description="包含多个 git 仓库的父目录路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                ],
+            ),
+            Prompt(
+                name="cross-service-trace",
+                title="跨服务调用链追踪",
+                description=(
+                    "对指定根服务执行跨服务调用链分析：先走 CodeWiki RouteNode 静态匹配（HTTP 路由 + "
+                    "MQ 生产者/消费者），再用 codebase-memory-mcp trace_path(mode='cross_service') "
+                    "做多跳语义追踪，产出调用链图 + 架构诊断（循环依赖/扇入热点/未匹配路由）。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="workspace_path",
+                        description="包含多个 git 仓库的工作区根目录（相对路径基于当前工作目录，默认当前目录；须已执行过 analyze_workspace）",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="filter_value",
+                        description="追踪起点：服务名 / HTTP 方法 / URL 子串 / 路径前缀（可在对话中补充）",
+                        required=False,
+                    ),
+                ],
+            ),
+            Prompt(
                 name="ingest-note",
                 title="经验知识归档",
                 description=(
@@ -1064,32 +1090,6 @@ def register(server):
                     PromptArgument(
                         name="note_type",
                         description="笔记类型：decision | lesson | architecture | bug_fix | pitfall | known_issue | workaround | general（默认 general）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="init-wiki",
-                title="初始化 Wiki 工作区",
-                description=(
-                    "零配置初始化：创建目录结构、拷贝带注释的 schema.yaml 模板、"
-                    "写入 AGENTS.md（含使用建议和自我反思协议）。"
-                    "在开始任何 Wiki 生成或知识管理之前执行一次。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="output_dir",
-                        description="Wiki 输出目录（默认: <repo>/repowiki）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="enable_hook",
-                        description="是否启用 IDE 对话自动采集 Hook（team-memory fusion）：true/1 会在初始化指引中追加 hook 启用说明；留空或 false 则跳过。Hook 默认关闭，仅采集对话不蒸馏。",
                         required=False,
                     ),
                 ],
@@ -1140,18 +1140,18 @@ def register(server):
         args = arguments or {}
 
         prompts_map = {
+            "init-wiki": _prompt_init_wiki,
             "generate-wiki": _prompt_generate_wiki,
+            "incremental-update": _prompt_incremental_update,
             "extract-knowledge": _prompt_extract_knowledge,
             "search-wiki": _prompt_search_wiki,
             "quality-check": _prompt_quality_check,
-            "incremental-update": _prompt_incremental_update,
-            "workspace-analysis": _prompt_workspace_analysis,
-            "cross-service-trace": _prompt_cross_service_trace,
             "code-analysis": _prompt_code_analysis,
             "impact-review": _prompt_impact_review,
             "architecture-review": _prompt_architecture_review,
+            "workspace-analysis": _prompt_workspace_analysis,
+            "cross-service-trace": _prompt_cross_service_trace,
             "ingest-note": _prompt_ingest_note,
-            "init-wiki": _prompt_init_wiki,
             "team-memory-hook": _prompt_team_memory_hook,
             "distill-conversations": _prompt_distill_conversations,
         }

@@ -335,6 +335,21 @@ def _load_transcript(path: Optional[str]) -> Optional[list]:
     return None
 
 
+def _cleanup_event_file(path: Optional[str]) -> None:
+    """Remove the temporary event file the IDE wrapper created for us.
+
+    The wrapper launches this script as a detached, fire-and-forget background
+    process (so the IDE never blocks on capture). It cannot delete the temp
+    file itself — it must stay on disk until we've read it. We own cleanup.
+    """
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(
         description="IDE hook: capture a conversation into repowiki/raw/ (no distillation)."
@@ -352,14 +367,21 @@ def main(argv: Optional[list] = None) -> int:
                         help="Hint distill_conversation to retain the raw file.")
     args = parser.parse_args(argv)
 
+    # The wrapper passes the temp event file path via this env var so we can
+    # clean it up after detaching (see _cleanup_event_file). --conversation and
+    # CODEWIKI_HOOK_EVENT_FILE point at the same file; either may be present.
+    event_file_to_clean = os.environ.get("CODEWIKI_HOOK_EVENT_FILE") or args.conversation
+
     # Opt-in gate: never capture unless explicitly enabled.
     if not _enabled(args.enable):
         print("ide-hook: disabled (set CODEWIKI_TEAM_MEMORY_HOOK=1 or pass --enable).")
+        _cleanup_event_file(event_file_to_clean)
         return 0
 
     event = _load_event(args)
     if event is None:
         print("ide-hook: no conversation payload provided; nothing to capture.")
+        _cleanup_event_file(event_file_to_clean)
         return 0
 
     # Merge CLI args over the payload file/stdin.
@@ -431,6 +453,10 @@ def main(argv: Optional[list] = None) -> int:
     except Exception as e:  # never crash the IDE on a hook failure
         print(f"ide-hook: capture failed: {e}", file=sys.stderr)
         return 0
+    finally:
+        # We were launched as a detached background process; the temp event
+        # file the wrapper created is our responsibility to remove.
+        _cleanup_event_file(event_file_to_clean)
 
     # Print the result even when it contains non-ASCII (CJK titles from the
     # first user message). On Windows the default console encoding may mangle

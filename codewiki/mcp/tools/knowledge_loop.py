@@ -554,16 +554,18 @@ def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     from codewiki.mcp.tools.workspace_result import resolve_session
     session = resolve_session(arguments, store)
     od = arguments.get("output_dir")
+    rp = arguments.get("repo_path")
     if od:
         output_dir = Path(od).expanduser().resolve()
+    elif rp:
+        # Prefer repo_path derivation over the restored session's cached
+        # output_dir: find_or_restore() may return a stale/incorrect path that
+        # does not match where notes were actually written.
+        output_dir = (Path(rp).expanduser().resolve() / "repowiki")
     elif session:
         output_dir = Path(session.output_dir).expanduser().resolve()
     else:
-        rp = arguments.get("repo_path")
-        if rp:
-            output_dir = (Path(rp).expanduser().resolve() / "repowiki")
-        else:
-            return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
+        return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
 
     note_file = arguments.get("note_file", "")
     if not note_file:
@@ -581,16 +583,18 @@ def handle_reject_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     from codewiki.mcp.tools.workspace_result import resolve_session
     session = resolve_session(arguments, store)
     od = arguments.get("output_dir")
+    rp = arguments.get("repo_path")
     if od:
         output_dir = Path(od).expanduser().resolve()
+    elif rp:
+        # Prefer repo_path derivation over the restored session's cached
+        # output_dir: find_or_restore() may return a stale/incorrect path that
+        # does not match where notes were actually written.
+        output_dir = (Path(rp).expanduser().resolve() / "repowiki")
     elif session:
         output_dir = Path(session.output_dir).expanduser().resolve()
     else:
-        rp = arguments.get("repo_path")
-        if rp:
-            output_dir = (Path(rp).expanduser().resolve() / "repowiki")
-        else:
-            return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
+        return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
 
     note_file = arguments.get("note_file", "")
     if not note_file:

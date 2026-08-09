@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
 from datetime import datetime, timezone
@@ -203,6 +204,12 @@ def _extract_turns(text: str) -> str:
     # Drop a leading "# Conversation Transcript" heading line if present
     if body.startswith("# Conversation Transcript"):
         body = body.split("\n", 1)[1].strip() if "\n" in body else ""
+    # Defensive: strip any residual IDE-injected system context blocks
+    # (<user_info>, <rules>, <git_status>, ...) so the LLM only sees the
+    # human–AI dialogue. (capture_conversation should already have removed
+    # these on ingest; this is a second safety net for older raw files.)
+    from .capture_conversation import _strip_system_injection
+    body = _strip_system_injection(body)
     return body
 
 
@@ -523,6 +530,12 @@ def _process_llm_output(
             deleted = True
         except OSError:
             pass
+    # Keep the raw-dir index (used by capture_conversation) in sync so it does
+    # not reference deleted files or match distilled ones for pending supersede.
+    try:
+        _sync_raw_index_on_distill(raw_dir, raw_path, deleted)
+    except Exception:  # best-effort; never block distillation
+        pass
 
     # Rebuild the BM25 search index so the freshly distilled notes become
     # immediately queryable via query_wiki. The index is cached on disk and
@@ -582,6 +595,44 @@ def _mark_distilled(raw_path: Path) -> None:
         raw_path.write_text(new_text, encoding="utf-8")
     except OSError:
         pass
+
+
+def _sync_raw_index_on_distill(raw_dir: Path, raw_path: Path, deleted: bool) -> None:
+    """Keep repowiki/raw/.index.json consistent after distillation.
+
+    capture_conversation maintains this index so that dedup/supersede stay O(1)
+    regardless of how many pending raw files accumulate. When distillation
+    finishes we must remove the entry (deleted) or flip it to status=distilled
+    (kept via keep_raw), otherwise the index would keep pointing at files that
+    no longer exist / no longer match pending supersede. Best-effort: a failed
+    index update must never block or fail distillation.
+    """
+    idx = raw_dir / ".index.json"
+    if not idx.is_file():
+        return
+    try:
+        data = json.loads(idx.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    name = raw_path.name
+    files = data.get("files", [])
+    if deleted:
+        files = [e for e in files if e.get("relpath") != name]
+    else:
+        for e in files:
+            if e.get("relpath") == name:
+                e["status"] = "distilled"
+                break
+    tmp = raw_dir / (".index.tmp." + str(os.getpid()))
+    try:
+        tmp.write_text(json.dumps({"files": files}, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, idx)
+    except OSError:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
 
 
 # --------------------------------------------------------------------------- #
