@@ -1,19 +1,14 @@
-# Ontology — project-level term normalization for search
+# Ontology — project-level term normalization AND relationship graph for reasoning
 #
-# Define canonical terms and their aliases. When a user (or Agent) searches
-# for any alias, the search engine automatically expands the query to include
-# all synonyms in the group, improving recall for vocabulary mismatch.
+# 本文件已从「别名表」升级为真正的本体声明。升级依据：
+# 《本体实践》系列第 7 篇《我为什么要用本体做文档知识库管理》
+# （见 docs/本体知识库文章-对CodeWiki-CN的借鉴分析.md）
 #
-# Format:
-#   terms:
-#     <canonical_term>:
-#       aliases: [alias1, alias2, ...]
+# 三层机制：管结构(types) / 管推理(relations) / 管生长(todo 占位节点)。
+# 文档行为↔本体映射：建文件夹=定义类型 / 写文档=创建实例 / 引用=声明关系 / 汇总=视图。
 #
-# Example:
-#   terms:
-#     search_index:
-#       aliases: [BM25 cache, retrieval cache, inverted index]
-#     authentication:
-#       aliases: [auth, permission check]
+# 详情与示例见运行时生成的 repowiki/ontology.yaml（此处仅提供空骨架模板）。
 
 terms: {}
+types: {}
+relations: {}

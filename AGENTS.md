@@ -2,13 +2,13 @@
 
 ## CodeWiki LLM Wiki
 
-本项目已使用 [CodeWiki](https://github.com/mambo-wang/CodeWiki-CN) 生成 LLM Wiki 文档，位于 `repowiki/` 目录。
+本项目已使用 [CodeWiki](https://github.com/mambo-wang/CodeWiki-Plus) 生成 LLM Wiki 文档，位于 `repowiki/` 目录。
 
 **入口文件：**
 
 - [`repowiki/wiki/overview.md`](repowiki/wiki/overview.md) — 仓库级架构总览（含 Mermaid 架构图）
 - [`repowiki/wiki/index.md`](repowiki/wiki/index.md) — 文档目录与知识笔记索引
-- [`repowiki/wiki/schema.yaml`](repowiki/wiki/schema.yaml) — 项目文档约定（命名规范、必填章节等）
+- [`repowiki/schema.yaml`](repowiki/schema.yaml) — 项目文档约定（命名规范、必填章节等）
 
 ### 使用建议
 
@@ -48,4 +48,86 @@
 
 **注意**：不是每次纠正都需要沉淀。只记录有复用价值的经验——特定于本次任务的临时调整、用户个人偏好等不需要记录。判断标准：如果未来的 Agent 或新同事遇到同样场景时这条经验有用，就值得记录。
 
+### 主动知识沉淀
+
+不要等用户纠正才记录。当对话中出现以下信号时，主动执行反思并提取知识：
+
+**触发信号（满足任一即激活反思）：**
+
+- 完成一个多步骤调试/排查后定位到根因（尤其是走了弯路的情况）
+- 讨论了两个及以上方案并做出了选择
+- 发现代码实际行为与文档/命名/注释不一致
+- 用户补充了隐性项目知识（约定、历史原因、"我们一直这么做"）
+- 一次探索性调研收敛到明确结论
+- 发现了可复用的模式、工具链用法或环境配置技巧
+
+**四问过滤（全部通过才值得记录）：**
+
+1. 下一次对话（无本次上下文）还能用到吗？
+2. 另一个 Agent 或新同事遇到同样场景能直接受益吗？
+3. `query_wiki` 确认现有文档未覆盖？
+4. 属于"事实/决策/模式/教训"而非"本次任务临时状态"？
+
+**路由表：**
+
+| 知识类型 | 写入方式 |
+|---------|---------|
+| 做了技术选型/方案取舍 | `ingest_note(note_type="decision")` |
+| 踩坑/易错点 | `ingest_note(note_type="pitfall")` |
+| 经验教训（调试过程、认知修正） | `ingest_note(note_type="lesson")` |
+| 架构层面的事实发现 | `ingest_note(note_type="architecture")` |
+| 临时绕过方案（含恢复条件） | `ingest_note(note_type="workaround")` |
+| 多方案横向对比（含表格） | `write_doc_file(page_type="comparison")` |
+| 调研结论存档 | `write_doc_file(page_type="query")` |
+
+**执行流程：**
+
+1. 识别到触发信号后，回顾相关对话片段，提取候选知识项
+2. 对每个候选项执行四问过滤，丢弃未通过的
+3. 用 `query_wiki` 检查是否已有覆盖（避免重复）
+4. 按路由表确定写入方式，起草结构化内容（背景→结论→根因→适用范围）
+5. 向用户展示草稿并征求确认——**必须确认后才写入**
+6. 一次对话中可积累多个候选项，在自然停顿点（任务完成、话题切换）统一呈现，避免频繁打断
+
+**不要记录的内容：**
+
+- 仅与本次任务相关的临时变量、路径、参数
+- 用户个人偏好（这属于 Agent 记忆，不属于项目 Wiki）
+- 已在代码注释或 README 中明确写明的信息
+- 未经验证的猜测或"可能""也许"级别的推断
+
 <!-- /CodeWiki LLM Wiki -->
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues (uses the `gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+
+## Team memory fusion (conversation → Wiki)
+
+借鉴 Team-Agent-Memory 的"从对话中提取可检索经验"能力,融合进 CodeWiki 知识飞轮。
+
+**实现入口：**
+- `codewiki/mcp/tools/knowledge_loop.py` — `capture_conversation` 工具(采集对话到 `repowiki/raw/`)
+- `codewiki/mcp/tools/distill_conversation.py` — `distill_conversation` 工具(蒸馏 raw → 结构化知识)
+- `codewiki/mcp/_ide_hook.py` — IDE hook 采集脚本(默认关,`--enable` 或环境变量开启)
+- `repowiki/team-memory-hook.md` — Hook 接线文档与配置说明
+- `repowiki/ontology.yaml` — 本体论术语表模板(可选,增强检索)
+- MCP prompt `team-memory-hook`（prompts/list）— 启用/关闭采集 hook 的操作指引
+- MCP prompt `distill-conversations`（prompts/list）— 蒸馏工作流指引(prepare → 提取 → submit → 评审)
+
+**关键设计约束(实现时务必遵守)：**
+- `distill_conversation` 是**无状态**工具,自身不持有 LLM;LLM 由调用方提供。三种模式:**Mode A**(subagent 注入 `llm` async 回调,内联)、**Mode B**(`run_in_background=true`,从 `MAIN_MODEL`/`LLM_BASE_URL` 环境变量构建)、**Mode C**(IDE Agent 自己当 LLM:`mode="prepare"` 取 transcript+system prompt → Agent 提取 → `mode="submit"` 交回 `distilled` JSON,纯 MCP JSON 可走)。蒸馏是 LLM 重活,必须异步/后台执行,不阻塞主线程。
+- 自动采集 IDE hook(可选,默认关)**只落 raw,不蒸馏**;蒸馏需显式调用 `distill_conversation`,永不自动发生。
+- `repowiki/raw/` 是**暂存区,不进 `query_wiki` 检索**,蒸馏完成后由 `distill_conversation` 删除(除非 `keep_raw`);未蒸馏的 raw 会一直保留(无自动过期);不膨胀、不影响查询性能。
+- 蒸馏产出 `status=draft` 的 note,须 `confirm_note` 确认后才成正式知识。
+- 触发形态:**both** —— 手动命令(主) + IDE hook(可选)。

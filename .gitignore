@@ -51,6 +51,9 @@ src/output/
 repo_data/
 docs/.cache/
 repowiki/.meta/retrieval_stats.db
+# team-memory fusion: raw/ is a transient staging area for captured
+# conversations (deleted after distillation) — never commit it.
+repowiki/raw/
 
 # Environment variables
 .env*
