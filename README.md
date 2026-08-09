@@ -36,7 +36,7 @@ CodeWiki-Plus 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/Code
 
 实际上，CodeWiki 的核心工具链——AST 解析、依赖图、Mermaid 校验——完全不需要 LLM。真正需要 LLM 智能的 4 个环节（模块聚类、文档撰写、子模块递归、总览合成），恰好是 AI IDE 的 Agent 最擅长做的事情。
 
-因此，我们将 CodeWiki 的 MCP Server 从"黑盒式一键生成"拆分为**26 个细粒度工具**，让它退化为纯工具链服务器。AI IDE 的 Agent 通过 MCP 协议调用这些工具，用自己的推理能力完成全部文档生成工作：
+因此，我们将 CodeWiki 的 MCP Server 从"黑盒式一键生成"拆分为**28 个细粒度工具**，让它退化为纯工具链服务器。AI IDE 的 Agent 通过 MCP 协议调用这些工具，用自己的推理能力完成全部文档生成工作：
 
 ```
 改造前：
@@ -52,7 +52,7 @@ CodeWiki-Plus 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/Code
 | 能力维度 | 原版 CodeWiki | CodeWiki-Plus |
 |----------|--------------|---------------|
 | LLM 配置 | 必须自行配置 API Key | 零配置，IDE 自身模型驱动 |
-| 生成模式 | 黑盒一键生成 | 26 个细粒度工具，Agent 全程可控 |
+| 生成模式 | 黑盒一键生成 | 28 个细粒度工具，Agent 全程可控 |
 | 文档质量 | 通用描述 | Evidence-Based 断言（代码引用 + 置信度） |
 | 生成效率 | 所有组件同等处理 | 代码路由分类，boilerplate 仅保留签名 |
 | 上下文精度 | 模块内组件 | BFS 1-hop 调用图扩展 + 约束索引表 |
@@ -60,7 +60,7 @@ CodeWiki-Plus 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/Code
 | 知识管理 | 无 | 结构化 Wiki + 笔记飞轮 + 外部文档管理 |
 | 搜索能力 | 无 | BM25 + wikilink 图谱多跳 + 渐进式阅读 |
 | 跨服务分析 | 无 | Monorepo 子服务检测 + 跨服务调用追踪 |
-| 质量保障 | 无 | 11 项 lint 检查 + health score + 问题追踪 |
+| 质量保障 | 无 | 16 项 lint 检查 + health score + 问题追踪 |
 
 ### 前置条件
 
@@ -108,7 +108,7 @@ codewiki --version
 }
 ```
 
-配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 26 个工具。
+配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 28 个工具。
 
 **第 3 步：在 Agent 模式中输入提示词**
 
@@ -177,7 +177,7 @@ repowiki/
 
 ### MCP 工具速查
 
-所有工具均不需要 LLM 配置，由 IDE Agent 通过 MCP 协议调用。MCP Server 内置 **instructions**（能力概览与工作流指南）、**12 个工作流 Prompt**（覆盖初始化、生成、增量、搜索、质检、跨服务等全流程）和 **6 个 Resource**（wiki-catalog / module-tree / index-status 等）。
+所有工具均不需要 LLM 配置，由 IDE Agent 通过 MCP 协议调用。MCP Server 内置 **instructions**（能力概览与工作流指南）、**14 个工作流 Prompt**（覆盖初始化、生成、增量、搜索、质检、跨服务、团队记忆融合等全流程）和 **6 个 Resource**（wiki-catalog / module-tree / index-status 等）。
 
 **代码分析（6 个）：**
 
@@ -217,7 +217,7 @@ repowiki/
 
 | 工具 | 用途 |
 |------|------|
-| `lint_wiki` | 文档-代码一致性检查：**11 项检查**（含 unsupported_claims 无证据断言检测） |
+| `lint_wiki` | 文档-代码一致性检查：**16 项检查**（含 unsupported_claims 无证据断言检测） |
 | `flag_issue` | 标记 Wiki 质量问题，驱动 health score 计算 |
 
 **跨服务分析（1 个）：**
@@ -225,6 +225,13 @@ repowiki/
 | 工具 | 用途 |
 |------|------|
 | `query_cross_service` | 查询跨服务调用关系（HTTP + MQ），支持 by_service / by_method / by_path / trace 过滤 |
+
+**团队记忆融合（2 个）：**
+
+| 工具 | 用途 |
+|------|------|
+| `capture_conversation` | 采集对话转录到 repowiki/raw/，仅落盘不蒸馏，支持 session 覆盖去重 |
+| `distill_conversation` | 蒸馏 raw 对话为 Wiki 笔记：Mode C prepare → Agent 提取 → submit 入库（status=draft），需 confirm_note 确认 |
 
 > 另有 2 个遗留工具（`generate_docs`、`get_module_tree`）保留向后兼容，需先通过 `codewiki config set` 配置 LLM API。
 
@@ -328,6 +335,21 @@ LLM 发现跨功能约束
 ```
 
 旧版词汇（candidate/confirmed/rejected/superseded）在读取端自动归一化，存量笔记无需立即迁移。
+
+### 团队记忆融合（Team Memory Fusion）
+
+借鉴 Team-Agent-Memory 的"从对话中提取可检索经验"能力，融合进知识飞轮，让 Agent 与研发的日常对话也能沉淀为可检索的实践经验。
+
+**核心工具：**
+
+- `capture_conversation`：将对话转录采集到 `repowiki/raw/`（仅落盘、不蒸馏），支持 session 覆盖去重。可由 IDE 的 SessionEnd 事件自动触发（默认关闭，通过 `team-memory-hook` Prompt 启用）。
+- `distill_conversation`：将 raw 对话蒸馏为结构化 Wiki 笔记（标题/类型/关联模块）。采用 Mode C 协议——`prepare` 取出 transcript+system prompt → Agent 自行提取 → `submit` 交回 `distilled` JSON，全程无状态、不自动发生。产出入库为 `status=draft`，需 `confirm_note` 确认才成正式知识。
+
+**关键约束：**
+
+- 自动采集 Hook 只落 raw，永不自动蒸馏；蒸馏须显式调用 `distill_conversation`。
+- `repowiki/raw/` 是暂存区，不进 `query_wiki` 检索；蒸馏完成后由工具自动清理（除非 `keep_raw`）。
+- 触发形态为 **both**：手动命令（主）+ IDE Hook（可选）。
 
 ### 渐进式阅读协议
 
@@ -490,7 +512,7 @@ CodeWiki-Plus 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 
 #### 工作流 Prompt
 
-MCP Server 内置 **12 个工作流 Prompt**，在 AI IDE 中通过 Prompt 面板直接触发，Agent 自动编排多工具调用：
+MCP Server 内置 **14 个工作流 Prompt**，在 AI IDE 中通过 Prompt 面板直接触发，Agent 自动编排多工具调用：
 
 | Prompt 名称 | 面向场景 | 核心步骤 |
 |-------------|----------|----------|
@@ -504,8 +526,10 @@ MCP Server 内置 **12 个工作流 Prompt**，在 AI IDE 中通过 Prompt 面�
 | `architecture-review` | 架构审查与热点分析 | 依赖图分析 → 核心层/服务层/应用层识别 → Top 5 热点 → 耦合风险 → 入口点 |
 | `extract-knowledge` | 外部文档知识提取 | ingest_source 导入 → extraction_scan 候选提取 → 实体/概念页面生成 → wikilink 图谱 |
 | `search-wiki` | 知识库搜索策略指引 | query_wiki（BM25）→ 图谱多跳扩展 → 渐进式阅读（overview → directory → detail） |
-| `quality-check` | Wiki 质量全面检查 | lint_wiki（11 项检查）→ health_score → flag_issue 标记 → 修复建议 |
+| `quality-check` | Wiki 质量全面检查 | lint_wiki（16 项检查）→ health_score → flag_issue 标记 → 修复建议 |
 | `ingest-note` | 经验知识归档 | ingest_note（8 种类型）→ candidate 状态 → confirm/reject 流转 → BM25 索引 |
+| `team-memory-hook` | 对话自动采集管理 | 检查状态 → 启用（注册 SessionEnd 事件）/ 关闭 → 验证 |
+| `distill-conversations` | 对话蒸馏提取经验 | prepare 取 transcript → Agent 提取知识 → submit 去重入库 → confirm/reject 评审 |
 
 ### 使用场景示例
 
@@ -559,7 +583,7 @@ Agent 调用 `confirm_note(note_file="pitfall-redis-connection-pool.md")`，升�
 检查一下 Wiki 文档的健康状况。
 ```
 
-Agent 调用 `lint_wiki`，返回 11 项诊断报告和 health_score。
+Agent 调用 `lint_wiki`，返回 16 项诊断报告和 health_score。
 
 **场景 8：跨服务调用分析**
 
@@ -609,7 +633,7 @@ Python、Java、JavaScript、TypeScript、C、C++、C#、Kotlin、Go、PHP
 - [Tencent/WeKnora](https://github.com/Tencent/WeKnora) — 外部文档管理、文档健康检查、自适应分块思路
 - [CodingHub](https://github.com/mambo-wang/CodingHub) — MCP Server 最佳实践（instructions / prompts / resources）
 
-我们在上游基础上将 MCP Server 从黑盒模式拆分为 **26 个细粒度工具**，并新增结构化 Wiki、Evidence-Based 断言、代码路由分类、知识飞轮、渐进式阅读、方法级增量检测、monorepo 跨服务分析等能力。
+我们在上游基础上将 MCP Server 从黑盒模式拆分为 **28 个细粒度工具**，并新增结构化 Wiki、Evidence-Based 断言、代码路由分类、知识飞轮、渐进式阅读、方法级增量检测、monorepo 跨服务分析、团队记忆融合等能力。
 
 上游论文：[CodeWiki: Evaluating AI's Ability to Generate Holistic Documentation for Large-Scale Codebases](https://arxiv.org/abs/2510.24428)
 
@@ -641,7 +665,7 @@ The original CodeWiki is an excellent repository-level documentation framework. 
 
 In practice, CodeWiki's core toolchain—Tree-sitter AST parsing, dependency graph construction, topological sorting, and Mermaid validation—does not need an LLM at all. The 4 stages that do require LLM intelligence (module clustering, document writing, sub-module recursion, and overview synthesis) are exactly what AI IDE Agents excel at.
 
-We refactored CodeWiki's MCP Server from a "one-click black box" into **26 fine-grained tools**, turning it into a pure toolchain server. The AI IDE's Agent calls these tools via MCP and uses its own reasoning to complete all documentation work:
+We refactored CodeWiki's MCP Server from a "one-click black box" into **28 fine-grained tools**, turning it into a pure toolchain server. The AI IDE's Agent calls these tools via MCP and uses its own reasoning to complete all documentation work:
 
 ```
 Before:
@@ -657,7 +681,7 @@ After:
 | Dimension | Upstream CodeWiki | CodeWiki-Plus |
 |-----------|------------------|---------------|
 | LLM config | Must configure API key | Zero-config, IDE model driven |
-| Generation mode | Black-box one-click | 26 fine-grained tools, full Agent control |
+| Generation mode | Black-box one-click | 28 fine-grained tools, full Agent control |
 | Doc quality | Generic descriptions | Evidence-Based assertions (code quotes + confidence) |
 | Generation efficiency | All components equal | Code routing: boilerplate gets signature-only |
 | Context precision | Intra-module components | BFS 1-hop call graph + constraint index table |
@@ -665,7 +689,7 @@ After:
 | Knowledge management | None | Structured Wiki + note flywheel + external docs |
 | Search | None | BM25 + wikilink graph multi-hop + progressive reading |
 | Cross-service | None | Monorepo sub-service detection + call tracing |
-| Quality assurance | None | 11 lint checks + health score + issue tracking |
+| Quality assurance | None | 16 lint checks + health score + issue tracking |
 
 ### Prerequisites
 
@@ -736,7 +760,7 @@ Stage 5: Call close_session to free resources, build search index
 
 ### MCP Tools
 
-All tools require zero LLM config. The IDE Agent invokes them via MCP. The server includes built-in **instructions**, **12 Workflow Prompts** (covering init, generation, incremental update, search, quality check, cross-service analysis), and **6 Resources**.
+All tools require zero LLM config. The IDE Agent invokes them via MCP. The server includes built-in **instructions**, **14 Workflow Prompts** (covering init, generation, incremental update, search, quality check, cross-service analysis, team memory fusion), and **6 Resources**.
 
 **Code Analysis (6):**
 
@@ -757,7 +781,7 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP. The serve
 | `edit_doc_file` | Edit docs (str_replace / insert / undo) |
 | `save_module_tree` | Persist module clustering results |
 | `get_processing_order` | Get leaf-first documentation order |
-| `get_prompt` | Retrieve prompt templates (16 prompt_types) |
+| `get_prompt` | Retrieve prompt templates (23 prompt_types) |
 | `close_session` | Close session, build BM25 index + wikilink graph, write metadata |
 
 **Knowledge Management (7):**
@@ -776,7 +800,7 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP. The serve
 
 | Tool | Purpose |
 |------|---------|
-| `lint_wiki` | Doc-code consistency: **11 checks** (incl. unsupported_claims evidence detection) |
+| `lint_wiki` | Doc-code consistency: **16 checks** (incl. unsupported_claims evidence detection) |
 | `flag_issue` | Flag quality issues, drives health score |
 
 **Cross-Service Analysis (1):**
@@ -784,6 +808,13 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP. The serve
 | Tool | Purpose |
 |------|---------|
 | `query_cross_service` | Query cross-service calls (HTTP + MQ), filter by service/method/path/trace |
+
+**Team Memory Fusion (2):**
+
+| Tool | Purpose |
+|------|---------|
+| `capture_conversation` | Capture conversation transcripts to repowiki/raw/ (persistence only, no distillation); session-level supersede dedup |
+| `distill_conversation` | Distill raw conversations into Wiki notes: Mode C prepare → Agent extracts → submit (status=draft); requires confirm_note |
 
 > 2 legacy tools (`generate_docs`, `get_module_tree`) retained for backward compatibility.
 
@@ -843,6 +874,21 @@ LLM discovers cross-cutting constraint
   → Developer rejects: reject_note → marked deprecated, excluded from search (record preserved)
 ```
 
+### Team Memory Fusion
+
+Inspired by Team-Agent-Memory's "extract retrievable experience from conversations", this capability is fused into the Knowledge Flywheel so day-to-day dialog between the Agent and developers also becomes retrievable practical knowledge.
+
+**Core tools:**
+
+- `capture_conversation`: Capture conversation transcripts into `repowiki/raw/` (persistence only, no distillation); supports session-level supersede dedup. Can be triggered automatically by the IDE's SessionEnd event (off by default; enable via the `team-memory-hook` prompt).
+- `distill_conversation`: Distill raw conversations into structured Wiki notes (title/type/related modules). Uses Mode C protocol — `prepare` returns transcript + system prompt → Agent extracts → `submit` returns the `distilled` JSON. Fully stateless, never runs automatically. Output is ingested as `status=draft` and requires `confirm_note` to become live knowledge.
+
+**Key constraints:**
+
+- The automatic capture hook only writes raw; it never distills. Distillation must be invoked explicitly via `distill_conversation`.
+- `repowiki/raw/` is a staging area excluded from `query_wiki`; it is cleaned up after distillation automatically (unless `keep_raw`).
+- Trigger form is **both**: manual command (primary) + IDE hook (optional).
+
 ### Progressive Reading Protocol
 
 `query_wiki` supports three consumption modes:
@@ -856,7 +902,7 @@ LLM discovers cross-cutting constraint
 
 ### Workflow Prompts
 
-The MCP server includes **12 built-in workflow prompts** that can be triggered from the AI IDE's prompt panel. The Agent automatically orchestrates multi-tool calls:
+The MCP server includes **14 built-in workflow prompts** that can be triggered from the AI IDE's prompt panel. The Agent automatically orchestrates multi-tool calls:
 
 | Prompt | Scenario | Core Steps |
 |--------|----------|------------|
@@ -870,8 +916,10 @@ The MCP server includes **12 built-in workflow prompts** that can be triggered f
 | `architecture-review` | Architecture review & hotspot analysis | Dependency graph → layer identification → Top 5 hotspots → coupling risks → entry points |
 | `extract-knowledge` | External document knowledge extraction | ingest_source → extraction_scan → entity/concept pages → wikilink graph |
 | `search-wiki` | Knowledge base search strategy | query_wiki (BM25) → graph multi-hop expansion → progressive reading |
-| `quality-check` | Comprehensive Wiki quality check | lint_wiki (11 checks) → health_score → flag_issue → fix suggestions |
+| `quality-check` | Comprehensive Wiki quality check | lint_wiki (16 checks) → health_score → flag_issue → fix suggestions |
 | `ingest-note` | Experience knowledge archiving | ingest_note (8 types) → candidate status → confirm/reject → BM25 index |
+| `team-memory-hook` | Conversation capture hook management | Check status → enable (register SessionEnd event) / disable → verify |
+| `distill-conversations` | Conversation distillation | prepare fetch transcripts → Agent extracts → submit ingest → confirm/reject review |
 
 ### Supported Languages
 
