@@ -745,28 +745,43 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 
 ## 步骤 1: 检查当前状态
 读取 `{repo_path}/.codebuddy/settings.json`：
-- **已启用**：存在 hooks.SessionEnd、hooks.PreCompact、hooks.Stop 三个条目，且均执行 `python "{repo_path}/.codebuddy/hooks/capture_session_end.py"`（注意：CodeBuddy hooks 不展开环境变量，命令中必须写脚本的绝对路径，不能用 `$CODEBUDDY_PROJECT_DIR`）
-- **未启用**：文件不存在，或没有上述条目
+- **已启用**：存在 hooks.SessionEnd 条目，且执行 `python "{repo_path}/.codebuddy/hooks/capture_session_end.py"`，且该脚本文件物理存在（注意：CodeBuddy hooks 不展开环境变量，命令中必须写脚本的绝对路径，不能用 `$CODEBUDDY_PROJECT_DIR`）
+- **未启用**：文件不存在，或没有 SessionEnd 条目，或脚本文件缺失
 
 ## 步骤 2A: 启用
-1. 确认 `{repo_path}/.codebuddy/hooks/capture_session_end.py` 存在（随 CodeWiki 源码提供；若缺失，从 CodeWiki 源码仓库复制，不要凭记忆重写）
-2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下三个 hook 注册（保留文件中已有的无关配置）：
+1. **确保采集脚本就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它。
+   **不论目标是否已存在该文件，每次启用都要从 CodeWiki 自带的源脚本重新复制覆盖**，
+   以保证与目标 `codewiki` 包版本一致（不要因为"已存在"就跳过，否则升级包后会残留旧脚本）：
+   用以下命令解析 CodeWiki 自带的源脚本路径，并**强制复制**到目标目录
+   （务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
+
+     ```powershell
+     # 源脚本随 codewiki 包发布，位于 codewiki/hooks/capture_session_end.py
+     $src = python -c "import codewiki, os; print(os.path.join(os.path.dirname(codewiki.__file__),'hooks','capture_session_end.py').replace('\\\\','/'))"
+     $dest = Join-Path '{repo_path}' '.codebuddy/hooks/capture_session_end.py'
+     New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+     Copy-Item $src $dest -Force
+     python -c "import ast; ast.parse(open(r'$dest', encoding='utf-8').read()); print('hook script copied OK')"
+     ```
+
+     若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从
+     `CODEWIKI_HOME` 环境变量指向的 checkout 取
+     `$env:CODEWIKI_HOME/codewiki/hooks/capture_session_end.py`，同样 Copy-Item 到 `$dest`。
+     兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
+2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置）：
 
 ```json
 {{
   "hooks": {{
     "SessionEnd": [
       {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
-    ],
-    "PreCompact": [
-      {{ "matcher": "*", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
-    ],
-    "Stop": [
-      {{ "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
     ]
   }}
 }}
 ```
+
+   只注册 `SessionEnd`：它是唯一可靠携带 `transcript_path` 的事件，能抓到完整正文。
+   `PreCompact`/`Stop` 不带 transcript，只会落空信封被去重跳过，故不注册。
 
 3. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）
 4. 用模拟事件验证（先准备一个小的 transcript 文件，如 `[{{"role":"user","content":"测试"}}]` 存为 d:/tmp/conv.json；期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
@@ -778,12 +793,13 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 5. 验证完成后删除测试产物：`{repo_path}/repowiki/raw/` 下 verify-1 会话生成的 conv-*.md 文件
 
 ## 步骤 2B: 关闭
-1. 从 `{repo_path}/.codebuddy/settings.json` 移除 SessionEnd、PreCompact、Stop 三个条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
+1. 从 `{repo_path}/.codebuddy/settings.json` 移除 SessionEnd 条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
 2. 已采集的 raw 文件保留在 `repowiki/raw/`，之后仍可蒸馏；关闭采集不会删除它们
+3. 采集脚本 `{repo_path}/.codebuddy/hooks/capture_session_end.py` 可保留也可删除；重新启用时步骤 2A 会自动补回
 
 ## 注意事项
 - Hook 是 CodeBuddy 专属机制。其他运行时（Trae、CLI agent 等）请改用 `capture_conversation` MCP 工具手动采集
-- Stop 事件每轮都会触发；会话级 supersede 去重保证每个会话在 raw/ 中始终只保留最新一份完整 transcript，不会膨胀
+- 仅在会话结束时（SessionEnd）采集一次，落到 repowiki/raw/conv-*.md；会话级 supersede 去重保证每个会话只保留最新一份完整 transcript，不会膨胀
 - Hook 永不蒸馏、永不写 wiki 页面、永不使 IDE 失败（异常仅输出到 stderr，退出码保持 0）"""
 
 
@@ -1056,7 +1072,7 @@ def register(server):
                 title="启用/关闭对话自动采集 Hook",
                 description=(
                     "管理 team-memory fusion 的 CodeBuddy 对话采集 Hook：检查现状、"
-                    "启用（注册 SessionEnd/PreCompact/Stop 三个事件）或关闭。"
+                    "启用（注册 SessionEnd事件）或关闭。"
                     "Hook 只采集对话到 repowiki/raw/，不蒸馏。"
                 ),
                 arguments=[

@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """CodeBuddy session hook wrapper for team-memory fusion (T6).
 
+This is the **source** copy of the hook wrapper, shipped inside the ``codewiki``
+package. When a user enables the team-memory capture hook in their own project,
+the ``team-memory-hook`` MCP prompt copies this file into that project's
+``.codebuddy/hooks/capture_session_end.py``. It is NOT invoked from inside the
+package — CodeBuddy runs the *copied* file, which lives at
+``<repo>/.codebuddy/hooks/capture_session_end.py``.
+
 Registered in ``.codebuddy/settings.json`` for the ``SessionEnd`` event, which
-points at this script:
+points at the copied script:
 
   - ``SessionEnd``  (matcher "other", the only reason currently supported):
     the session is over — final, complete transcript. This is the only event
@@ -10,8 +17,8 @@ points at this script:
     trigger. PreCompact/Stop do not provide a transcript and only produced
     duplicate no-op envelopes, so they were removed.
 
-CodeBuddy invokes this script (absolute path) and passes the event as JSON on
-**stdin**, e.g. for SessionEnd:
+CodeBuddy invokes the copied script (absolute path) and passes the event as
+JSON on **stdin**, e.g. for SessionEnd:
 
     {
       "session_id": "...",
@@ -24,12 +31,12 @@ CodeBuddy invokes this script (absolute path) and passes the event as JSON on
 SessionEnd carries ``session_id`` + ``transcript_path``, which is all the
 capture path needs.
 
-This wrapper resolves the repo path and the conversation transcript, then
+The copied wrapper resolves the repo path and the conversation transcript, then
 delegates to ``codewiki.mcp._ide_hook`` (the capture-only sink) via a
 subprocess so the codewiki package is imported with the repo on sys.path.
 
-Requirements: the ``codewiki`` package must be importable by this hook's
-python — either pip-installed, or this hook lives inside a CodeWiki source
+Requirements: the ``codewiki`` package must be importable by the copied hook's
+python — either pip-installed, the hook lives inside a CodeWiki source
 checkout, or ``$CODEWIKI_HOME`` points at one. Otherwise the wrapper returns
 an actionable systemMessage and skips capture (it never blocks the IDE).
 
