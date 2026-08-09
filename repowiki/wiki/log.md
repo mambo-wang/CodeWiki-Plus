@@ -2,6 +2,27 @@
 
 > 本文件为追加写入的操作记录，由系统自动维护
 
+## 2026-08-09
+* **ingest_note**: 添加笔记: CodeBuddy index.json transcript 是裸 JSON 数组，_load_transcript 必须支持 list 顶层展开
+* **ingest_note**: 添加笔记: Windows 下 hook 按 sys.stdin.read() 读取中文事件会崩溃，必须按字节读 + 显式 UTF-8 解码
+* **ingest_note**: 添加笔记: 同一会话的 PreCompact/Stop 不带 transcript_path，落空信封会被 duplicate 去重，应视为 no-op
+* **ingest_note**: 添加笔记: hook 事件信封合成时须置空 source_session_id，否则 supersede 会覆盖真实 transcript（数据丢失）
+* **ingest_note**: 添加笔记: 归档对话文件名用用户首句 slug，且与 conversation_id 必须一致（蒸馏链路依赖此约束）
+* **ingest_note**: 添加笔记: 无知识的 raw 对话蒸馏后也应清理，删除条件要用 produced is not None 而非 truthy
+
+## 2026-08-08
+* **capture_conversation**: 采集对话: conv-20260808T081955Z.md (2 turns, link_to=-)
+* **ingest_note**: 添加笔记: CodeBuddy IDE transcript_path 指向的 index.json 只存元数据，真实内容在 messages/<id>.json
+
+## 2026-08-06
+* **capture_conversation**: 采集对话: conv-20260806T013027Z.md (2 turns, link_to=-)
+
+## 2026-08-05
+* **capture_conversation**: 采集对话: conv-20260805T075743Z.md (2 turns, link_to=-)
+* **capture_conversation**: 采集对话: conv-20260805T103603Z.md (2 turns, link_to=-)
+* **capture_conversation**: 采集对话: conv-20260805T104343Z.md (2 turns, link_to=-)
+* **capture_conversation**: 采集对话: conv-20260805T104547Z.md (2 turns, link_to=-)
+
 ## 2026-08-03
 * **lint_wiki**: 检查完成: 27 个问题
 

@@ -554,16 +554,18 @@ def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     from codewiki.mcp.tools.workspace_result import resolve_session
     session = resolve_session(arguments, store)
     od = arguments.get("output_dir")
+    rp = arguments.get("repo_path")
     if od:
         output_dir = Path(od).expanduser().resolve()
+    elif rp:
+        # Prefer repo_path derivation over the restored session's cached
+        # output_dir: find_or_restore() may return a stale/incorrect path that
+        # does not match where notes were actually written.
+        output_dir = (Path(rp).expanduser().resolve() / "repowiki")
     elif session:
         output_dir = Path(session.output_dir).expanduser().resolve()
     else:
-        rp = arguments.get("repo_path")
-        if rp:
-            output_dir = (Path(rp).expanduser().resolve() / "repowiki")
-        else:
-            return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
+        return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
 
     note_file = arguments.get("note_file", "")
     if not note_file:
@@ -581,16 +583,18 @@ def handle_reject_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     from codewiki.mcp.tools.workspace_result import resolve_session
     session = resolve_session(arguments, store)
     od = arguments.get("output_dir")
+    rp = arguments.get("repo_path")
     if od:
         output_dir = Path(od).expanduser().resolve()
+    elif rp:
+        # Prefer repo_path derivation over the restored session's cached
+        # output_dir: find_or_restore() may return a stale/incorrect path that
+        # does not match where notes were actually written.
+        output_dir = (Path(rp).expanduser().resolve() / "repowiki")
     elif session:
         output_dir = Path(session.output_dir).expanduser().resolve()
     else:
-        rp = arguments.get("repo_path")
-        if rp:
-            output_dir = (Path(rp).expanduser().resolve() / "repowiki")
-        else:
-            return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
+        return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
 
     note_file = arguments.get("note_file", "")
     if not note_file:
@@ -962,6 +966,8 @@ def handle_query_wiki(
     hop = min(3, max(0, arguments.get("hop", 0)))  # graph expansion hops (0-3)
     expand = arguments.get("expand", False)  # return full content instead of snippet
     mode = arguments.get("mode")  # progressive reading: overview | directory | detail
+    # T5: team-memory fusion — distinguish distilled notes from LLM-generated ones
+    origin_filter = arguments.get("origin_filter")  # optional: "conversation" | "generated" | "any"
 
     # --- Progressive reading modes (early return) ---
     if mode == "overview":
@@ -1081,6 +1087,9 @@ def handle_query_wiki(
                             )
                         except Exception:
                             pass
+                        # T5: tag distilled notes so callers can tell them apart
+                        # from LLM-generated notes. Defaults to "generated".
+                        entry["origin"] = _extract_frontmatter(nc, "origin") or "generated"
                     except OSError:
                         entry["date"] = ""
 
@@ -1128,6 +1137,27 @@ def handle_query_wiki(
             include_code_refs, max_results, module_tree,
             type_filter=type_filter, include_sources=include_sources,
         )
+
+    # T5: team-memory fusion — ensure every note carries an `origin` so callers
+    # can tell distilled notes apart from LLM-generated ones, and optionally
+    # restrict results to a single origin.
+    for _r in results:
+        if _r.get("source") == "note" and "origin" not in _r:
+            _np = output_dir / _r.get("file", "")
+            if _np.exists():
+                try:
+                    _nc = _np.read_text(encoding="utf-8", errors="replace")
+                    _r["origin"] = _extract_frontmatter(_nc, "origin") or "generated"
+                except OSError:
+                    _r["origin"] = "generated"
+            else:
+                _r["origin"] = "generated"
+    if origin_filter:
+        wanted = origin_filter.lower()
+        results = [
+            r for r in results
+            if r.get("source") != "note" or r.get("origin", "generated") == wanted
+        ]
 
     # Build context_package summary
     doc_count = sum(1 for r in results if r["source"] == "doc")

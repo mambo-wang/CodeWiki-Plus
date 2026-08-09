@@ -341,6 +341,14 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
             tf = tfm[qt]; df = idx.doc_freq.get(qt,1)
             idf = max(0.0, math.log((n - df + 0.5)/(df + 0.5) + 1.0))
             s += idf * (tf * (_K1 + 1)) / (tf + _K1 * (1 - _B + _B * dl / avg_dl))
+        # Developer notes are short; BM25 scores are naturally low and would be
+        # filtered out by the generic threshold even when the title matches the
+        # query. Treat any title-token match on a note as relevant so distilled
+        # notes stay discoverable via query_wiki.
+        if di.get("source") == "note":
+            title_tokens = set(_tokenize(di.get("title", "")))
+            if title_tokens & set(qts) and s > 0:
+                s = max(s, score_threshold)
         if s >= score_threshold: scored.append((s, fk))
     scored.sort(key=lambda x: x[0], reverse=True); scored = scored[:max_results]
     return [{"file": fk, "title": idx.docs.get(fk,{}).get("title",fk),

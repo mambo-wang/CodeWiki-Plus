@@ -28,6 +28,8 @@ from codewiki.mcp.tools.knowledge_loop import (
     handle_reject_note,
 )
 from codewiki.mcp.tools.component_list import handle_list_components
+from codewiki.mcp.tools.capture_conversation import handle_capture_conversation
+from codewiki.mcp.tools.distill_conversation import handle_distill_conversation
 
 # Use the repo itself as a test target
 REPO_PATH = str(Path(__file__).resolve().parent.parent)
@@ -461,6 +463,234 @@ def main():
         s = store2.create(f"repo{i}", f"out{i}", {}, [])
         created.append(s.session_id)
     check("max 10 sessions enforced", len(store2._sessions) <= 10, f"got {len(store2._sessions)}")
+
+    # -- 17. capture_conversation (team-memory fusion: ingest half) --
+    print("\n[17] capture_conversation (team-memory fusion)")
+    conv = [
+        {"role": "user", "content": "How do I add a new MCP tool?"},
+        {"role": "assistant", "content": "Register it in registry.py via _register(Tool(...), ...)."},
+        {"role": "user", "content": "Thanks, got it."},
+    ]
+    cap_result = json.loads(handle_capture_conversation({
+        "output_dir": output_dir,
+        "conversation": conv,
+        "link_to": "registry.py",
+    }, store))
+    check("capture_conversation returns captured", cap_result.get("status") == "captured", str(cap_result))
+    check("capture reports turn_count", cap_result.get("turn_count") == 3, str(cap_result))
+    conv_path = Path(output_dir) / cap_result.get("stored_at", "")
+    check("conversation file written to raw/", conv_path.exists(), str(conv_path))
+    if conv_path.exists():
+        conv_text = conv_path.read_text(encoding="utf-8")
+        check("raw file has frontmatter", conv_text.startswith("---"), conv_text[:80])
+        check("raw file records content_hash", "content_hash:" in conv_text, conv_text[:200])
+        check("raw file records link_to", "link_to:" in conv_text, conv_text[:200])
+
+    # Deduplication: capturing the same conversation again yields duplicate
+    cap_dup = json.loads(handle_capture_conversation({
+        "output_dir": output_dir,
+        "conversation": conv,
+        "link_to": "registry.py",
+    }, store))
+    check("duplicate capture detected", cap_dup.get("status") == "duplicate", str(cap_dup))
+    check("only one raw conv file after dedup",
+          len(list((Path(output_dir) / "raw").glob("conv-*.md"))) == 1,
+          "expected exactly 1")
+
+    # Session-scoped supersede: Stop / PreCompact re-fire the same IDE session
+    # with a growing transcript. Re-capturing the same source_session_id must
+    # replace the session's pending raw file instead of adding incremental
+    # copies (see team-memory-hook.md "同会话覆盖式去重").
+    conv_s1 = [
+        {"role": "user", "content": "supersede check turn 1"},
+        {"role": "assistant", "content": "answer 1"},
+    ]
+    cap_s1 = json.loads(handle_capture_conversation({
+        "output_dir": output_dir,
+        "conversation": conv_s1,
+        "source_session_id": "ide-sess-supersede",
+    }, store))
+    check("first session capture ok",
+          cap_s1.get("status") == "captured" and not cap_s1.get("superseded"), str(cap_s1))
+    _n_after_s1 = len(list((Path(output_dir) / "raw").glob("conv-*.md")))
+
+    cap_s2 = json.loads(handle_capture_conversation({
+        "output_dir": output_dir,
+        "conversation": conv_s1 + [{"role": "user", "content": "supersede check turn 2"}],
+        "source_session_id": "ide-sess-supersede",
+    }, store))
+    check("same-session recapture supersedes", cap_s2.get("superseded") is True, str(cap_s2))
+    check("supersede keeps a single raw file",
+          len(list((Path(output_dir) / "raw").glob("conv-*.md"))) == _n_after_s1,
+          f"expected {_n_after_s1}")
+    _sup_path = Path(output_dir) / cap_s2.get("stored_at", "")
+    if _sup_path.exists():
+        check("superseded file has the longer transcript",
+              "turn_count: 3" in _sup_path.read_text(encoding="utf-8"),
+              str(cap_s2))
+
+    # Identical re-capture of the superseded content still hits hash dedup
+    cap_s3 = json.loads(handle_capture_conversation({
+        "output_dir": output_dir,
+        "conversation": conv_s1 + [{"role": "user", "content": "supersede check turn 2"}],
+        "source_session_id": "ide-sess-supersede",
+    }, store))
+    check("identical recapture is a duplicate", cap_s3.get("status") == "duplicate", str(cap_s3))
+
+    # query_wiki should NOT surface raw captures (raw/ is excluded from index)
+    q_after = json.loads(handle_query_wiki({
+        "output_dir": output_dir,
+        "query": "add a new MCP tool",
+    }, store))
+    raw_hits = [r for r in q_after.get("results", []) if "raw" in str(r.get("path", ""))]
+    check("query_wiki excludes raw captures", len(raw_hits) == 0, f"raw hits: {len(raw_hits)}")
+
+    # -- 18. distill_conversation (team-memory fusion: extract half) --
+    print("\n[18] distill_conversation (team-memory fusion)")
+
+    _raw_before = list((Path(output_dir) / "raw").glob("conv-*.md"))
+
+    async def _fake_llm(prompt, system):
+        return json.dumps({
+            "notes": [{
+                "title": "Adding an MCP tool requires registry.py registration",
+                "note_type": "decision",
+                "related_modules": ["mcp"],
+                "tags": ["mcp"],
+                "content": "## Background\nUser asked how to add an MCP tool.\n## Decision\nRegister via _register(Tool(...), handler_path=..., mode='thread') in registry.py.",
+            }]
+        })
+
+    dist = json.loads(handle_distill_conversation({
+        "output_dir": output_dir,
+        "llm": _fake_llm,
+    }, store))
+    check("distill returns completed", dist.get("status") == "completed", str(dist))
+    check("distill created >=1 note", dist.get("notes_created", 0) >= 1, str(dist))
+
+    if _raw_before:
+        # raw files captured in [17] should be deleted after distillation
+        _raw_after = list((Path(output_dir) / "raw").glob("conv-*.md"))
+        check("raw captures deleted after distill", len(_raw_after) == 0,
+              f"remaining: {[p.name for p in _raw_after]}")
+
+    # a draft note should now exist and be queryable with [unconfirmed] prefix
+    q_note = json.loads(handle_query_wiki({
+        "output_dir": output_dir,
+        "query": "registry.py registration MCP tool",
+    }, store))
+    draft_hit = [r for r in q_note.get("results", []) if "registry" in str(r.get("title", "")).lower()
+                 or "unconfirmed" in str(r)]
+    check("distilled draft note is queryable", len(draft_hit) >= 1, f"hits: {len(draft_hit)}")
+
+    # golden-set: LLM JSON parser must extract structured notes (anti-hallucination)
+    from codewiki.mcp.tools.distill_conversation import _parse_llm_notes
+    golden = (
+        '```json\n{"notes":[{"title":"Use status=draft","note_type":"decision",'
+        '"related_modules":["notes"],"content":"## Decision\\nX"}]}\n```'
+    )
+    parsed = _parse_llm_notes(golden)
+    check("golden parse yields one note", len(parsed) == 1, str(parsed))
+    if parsed:
+        check("golden note_type preserved", parsed[0].get("note_type") == "decision", str(parsed[0]))
+        check("golden strips markdown fences", parsed[0].get("title") == "Use status=draft", str(parsed[0]))
+    bad = _parse_llm_notes("totally not json")
+    check("non-json yields no notes (no hallucinated draft)", bad == [], str(bad))
+
+    # -- 19. distill_conversation Mode C (agent-driven prepare/submit) --
+    print("\n[19] distill_conversation Mode C (agent-driven prepare/submit)")
+
+    conv_c1 = [
+        {"role": "user", "content": "Why does analyze_repo hang inside MCP?"},
+        {"role": "assistant", "content": "git subprocess inherited the MCP stdin pipe; pass stdin=DEVNULL."},
+    ]
+    conv_c2 = [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi, how can I help?"},
+    ]
+    cap_c1 = json.loads(handle_capture_conversation({
+        "output_dir": output_dir, "conversation": conv_c1,
+        "source_session_id": "mode-c-sess-1",
+    }, store))
+    cap_c2 = json.loads(handle_capture_conversation({
+        "output_dir": output_dir, "conversation": conv_c2,
+        "source_session_id": "mode-c-sess-2",
+    }, store))
+    cid1 = cap_c1.get("conversation_id")
+    cid2 = cap_c2.get("conversation_id")
+    check("mode-C captures ready",
+          cap_c1.get("status") == "captured" and cap_c2.get("status") == "captured",
+          f"{cap_c1} / {cap_c2}")
+
+    prep = json.loads(handle_distill_conversation({"output_dir": output_dir, "mode": "prepare"}, store))
+    check("prepare returns prepared", prep.get("status") == "prepared", str(prep)[:200])
+    check("prepare exposes system prompt",
+          "knowledge distillation engine" in prep.get("system_prompt", ""), "")
+    ids = {c.get("conversation_id") for c in prep.get("captures", [])}
+    check("prepare lists both captures", {cid1, cid2} <= ids, str(ids))
+    check("prepare carries transcripts",
+          any("stdin=DEVNULL" in c.get("transcript", "") for c in prep.get("captures", [])), "")
+
+    # The test plays the host agent: one real note for c1, nothing for c2
+    submit = json.loads(handle_distill_conversation({
+        "output_dir": output_dir,
+        "mode": "submit",
+        "distilled": {
+            cid1: {"notes": [{
+                "title": "MCP subprocesses must set stdin=DEVNULL",
+                "note_type": "pitfall",
+                "related_modules": ["mcp"],
+                "tags": ["mcp", "subprocess"],
+                "content": ("## Background\nanalyze_repo hung inside MCP.\n"
+                            "## Root cause\ngit inherited the MCP stdin pipe.\n"
+                            "## Fix\nPass stdin=subprocess.DEVNULL to every subprocess call."),
+            }]},
+            cid2: {"notes": []},
+        },
+    }, store))
+    check("submit returns completed", submit.get("status") == "completed", str(submit)[:200])
+    check("submit created exactly 1 note", submit.get("notes_created") == 1, str(submit)[:200])
+    by_cid = {r.get("conversation_id"): r for r in submit.get("distilled", [])}
+    check("c1 distilled", by_cid.get(cid1, {}).get("status") == "completed", str(by_cid.get(cid1)))
+    check("c2 no_knowledge", by_cid.get(cid2, {}).get("status") == "no_knowledge", str(by_cid.get(cid2)))
+    check("c1 raw deleted", not (Path(output_dir) / "raw" / f"{cid1}.md").exists(), str(cid1))
+    _c2_path = Path(output_dir) / "raw" / f"{cid2}.md"
+    check("c2 raw kept but marked distilled",
+          _c2_path.exists() and "status: distilled" in _c2_path.read_text(encoding="utf-8"),
+          str(_c2_path))
+
+    # Missing extraction result leaves the raw file untouched (still pending)
+    cap_c3 = json.loads(handle_capture_conversation({
+        "output_dir": output_dir,
+        "conversation": [{"role": "user", "content": "pending leftover"}],
+        "source_session_id": "mode-c-sess-3",
+    }, store))
+    cid3 = cap_c3.get("conversation_id")
+    sub2 = json.loads(handle_distill_conversation({
+        "output_dir": output_dir, "mode": "submit",
+        "distilled": {"conv-nonexistent": {"notes": []}},
+    }, store))
+    by_cid2 = {r.get("conversation_id"): r for r in sub2.get("distilled", [])}
+    check("missing result reported",
+          by_cid2.get(cid3, {}).get("status") == "missing_result", str(sub2)[:200])
+    _c3_path = Path(output_dir) / "raw" / f"{cid3}.md"
+    check("raw untouched on missing result",
+          _c3_path.exists() and "status: pending" in _c3_path.read_text(encoding="utf-8"),
+          str(_c3_path))
+
+    # Error paths
+    bad_mode = json.loads(handle_distill_conversation({"output_dir": output_dir, "mode": "bogus"}, store))
+    check("invalid mode rejected", "error" in bad_mode, str(bad_mode))
+    no_map = json.loads(handle_distill_conversation({"output_dir": output_dir, "mode": "submit"}, store))
+    check("submit without distilled rejected", "error" in no_map, str(no_map))
+
+    # The Mode-C draft note should be queryable like any other draft
+    q_c = json.loads(handle_query_wiki({
+        "output_dir": output_dir, "query": "stdin DEVNULL MCP subprocess",
+    }, store))
+    hit_c = [r for r in q_c.get("results", [])
+             if "DEVNULL" in str(r.get("title", "")) or "stdin" in str(r)]
+    check("mode-C draft note queryable", len(hit_c) >= 1, f"hits: {len(hit_c)}")
 
     # -- Summary --
     print(f"\n=== Results: {_passed} passed, {_failed} failed ===")

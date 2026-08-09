@@ -1038,6 +1038,147 @@ _register(
 
 _register(
     Tool(
+        name="capture_conversation",
+        description=(
+            "Store a raw conversation transcript into repowiki/raw/ (team-memory fusion "
+            "ingest half). Accepts a 'conversation' list of turns (each with role+content) "
+            "or an object with a 'turns' key. Optional 'link_to' ties the capture to a wiki "
+            "object, and 'keep_raw' hints that distill_conversation should retain the file. "
+            "This tool is pure persistence: no LLM is invoked, and raw/ is excluded from "
+            "query_wiki. Distillation to notes is a separate async step (T2)."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional active session id (resolves output_dir).",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Wiki output directory (default: <repo_path>/repowiki).",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path used to derive output_dir when output_dir is absent.",
+                },
+                "conversation": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "role": {
+                                "type": "string",
+                                "description": "Speaker role, e.g. user / assistant.",
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Turn text.",
+                            },
+                        },
+                        "required": ["content"],
+                    },
+                    "description": "List of conversation turns. May also be passed as an object with a 'turns' key.",
+                },
+                "link_to": {
+                    "type": "string",
+                    "description": "Optional wiki object id/title this conversation relates to.",
+                },
+                "keep_raw": {
+                    "type": "boolean",
+                    "description": "Hint for distill_conversation to retain the raw file after distillation (default false).",
+                },
+            },
+            "required": ["conversation"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.capture_conversation:handle_capture_conversation",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="distill_conversation",
+        description=(
+            "Distill a raw conversation transcript (repowiki/raw/) into draft wiki notes "
+            "(team-memory fusion extract half). Stateless: the LLM is supplied by the caller. "
+            "Three modes: (A) pass 'llm' (async callable, direct handler invocation only); "
+            "(B) 'run_in_background=true' builds an OpenAI-compatible LLM from "
+            "MAIN_MODEL/LLM_BASE_URL/LLM_API_KEY and runs async (progress in "
+            "repowiki/distill-jobs.json); (C) agent-driven over MCP JSON: "
+            "mode='prepare' returns pending transcripts + the distillation system prompt, "
+            "the host agent extracts knowledge with its own model, then mode='submit' with "
+            "distilled={conversation_id: <notes JSON>} runs the deterministic half. "
+            "Produces status='draft' notes that must be promoted via confirm_note; "
+            "the raw file is deleted unless keep_raw."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional active session id (resolves output_dir).",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Wiki output directory (default: <repo_path>/repowiki).",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path used to derive output_dir when output_dir is absent.",
+                },
+                "raw_path": {
+                    "type": "string",
+                    "description": "Path to a specific raw conversation file to distill.",
+                },
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Conversation id (conv-<id>) to distill a single capture.",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["auto", "prepare", "submit"],
+                    "description": (
+                        "auto (default): Mode A/B below. prepare: return pending transcripts + "
+                        "system prompt without any LLM (host agent will do the extraction). "
+                        "submit: run the deterministic half on agent-produced results in 'distilled'."
+                    ),
+                },
+                "distilled": {
+                    "type": "object",
+                    "description": (
+                        "Mode submit only: mapping of conversation_id (e.g. 'conv-20260808T113515Z') "
+                        'to the extraction JSON shaped {"notes": [{title, note_type, related_modules, '
+                        "tags, content}]}. Values may be JSON strings or objects."
+                    ),
+                },
+                "llm": {
+                    "description": "Async callable llm(prompt, system) -> str. Only usable via direct handler invocation (not over MCP JSON).",
+                    "type": "object",
+                },
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": "Build the LLM from MAIN_MODEL env and run distillation in a daemon thread (Mode B).",
+                },
+                "note_type": {
+                    "type": "string",
+                    "description": "Force note_type for all produced notes (decision/lesson/pitfall/architecture/workaround).",
+                },
+                "related_modules": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Force related_modules for all produced notes.",
+                },
+            },
+            "required": [],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.distill_conversation:handle_distill_conversation",
+    mode="thread",
+)
+
+_register(
+    Tool(
         name="batch_ingest",
         description=(
             "Bulk-import multiple notes and/or source documents in one call. "
