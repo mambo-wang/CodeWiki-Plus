@@ -674,21 +674,48 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
     # T6: 可选启用 IDE hook（team-memory fusion 自动采集对话）
     enable_hook = args.get("enable_hook", "").strip().lower()
     if enable_hook in ("1", "true", "yes", "on"):
-        hook_block = f"""## 步骤 2: 启用 IDE 对话自动采集 Hook（可选）
-为支持 team-memory fusion（对话→Wiki 经验沉淀），可启用 IDE hook，使对话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成）。
+        hook_block = f"""## 步骤 2: 启用 IDE 对话自动采集 Hook（team-memory fusion）
+为支持 team-memory fusion（对话→Wiki 经验沉淀），启用 CodeBuddy 的 SessionEnd hook，使会话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成）。
 
-启用方式（二选一）：
-- **环境变量**（推荐，供 IDE 调用方设置）：
-  ```powershell
-  $env:CODEWIKI_TEAM_MEMORY_HOOK = "1"
-  python -m codewiki.mcp._ide_hook --repo-path="{repo_path or '<repo>'}"
-  ```
-- **命令行 --enable**（单次调用强制开启）：
-  ```powershell
-  python -m codewiki.mcp._ide_hook --enable --repo-path="{repo_path or '<repo>'}"
-  ```
-对话内容可通过 `--conversation <json文件>` 传入（turns 列表或 {{"turns":[...]}}），或从 stdin 管道读取 JSON 事件。
-**默认关闭**：未设置环境变量且未传 --enable 时，hook 仅打印 disabled 并以退出码 0 安全返回，不会采集任何对话。
+**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。
+
+1. **确保采集脚本就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它。用以下命令解析 CodeWiki 自带的源脚本路径，并**强制复制**到目标目录（务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
+
+   ```powershell
+   # 源脚本随 codewiki 包发布，位于 codewiki/hooks/capture_session_end.py
+   $src = python -c "import codewiki, os; print(os.path.join(os.path.dirname(codewiki.__file__),'hooks','capture_session_end.py').replace('\\\\','/'))"
+   $dest = Join-Path '{repo_path}' '.codebuddy/hooks/capture_session_end.py'
+   New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+   Copy-Item $src $dest -Force
+   python -c "import ast; ast.parse(open(r'$dest', encoding='utf-8').read()); print('hook script copied OK')"
+   ```
+
+   若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从 `CODEWIKI_HOME` 环境变量指向的 checkout 取 `$env:CODEWIKI_HOME/codewiki/hooks/capture_session_end.py`，同样 Copy-Item 到 `$dest`。兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
+
+2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置）：
+
+```json
+{{
+  "hooks": {{
+    "SessionEnd": [
+      {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
+    ]
+  }}
+}}
+```
+
+   只注册 `SessionEnd`：它是唯一可靠携带 `transcript_path` 的事件，能抓到完整正文。`PreCompact`/`Stop` 不带 transcript，只会落空信封被去重跳过，故不注册。
+
+3. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）。
+
+4. 用模拟事件验证（期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
+
+```powershell
+'{{"session_id":"verify-1","transcript_path":"d:/tmp/conv.json","cwd":"{repo_path}","hook_event_name":"SessionEnd","reason":"other"}}' | python "{repo_path}/.codebuddy/hooks/capture_session_end.py"
+```
+
+5. 验证完成后删除测试产物：`{repo_path}/repowiki/raw/` 下 verify-1 会话生成的 conv-*.md 文件
+
 > 注意：hook 只负责 capture_conversation（落 raw），真正的蒸馏需另行运行 distill_conversation（异步、LLM 重活）。"""
         step_shift = 1
     else:
