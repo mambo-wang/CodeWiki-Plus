@@ -111,7 +111,15 @@ def _load_event(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
 
     # Fall back to stdin (only when it is not a TTY)
     if not sys.stdin.isatty():
-        raw = sys.stdin.read().strip()
+        # Read stdin as raw bytes and decode explicitly as UTF-8. Relying on
+        # ``sys.stdin.read()`` would use the platform locale codec (e.g. cp936
+        # on Chinese Windows), which turns non-ASCII bytes into lone surrogates
+        # and later breaks ``write_text(encoding="utf-8")`` for CJK content.
+        try:
+            stdin_bytes = sys.stdin.buffer.read()
+        except AttributeError:  # pragma: no cover - non-buffered stdin
+            stdin_bytes = sys.stdin.read().encode("utf-8", "replace")
+        raw = stdin_bytes.decode("utf-8", "replace").strip()
         if raw:
             try:
                 data = json.loads(raw)
@@ -295,6 +303,14 @@ def _load_transcript(path: Optional[str]) -> Optional[list]:
                 turns.append(obj)
         return turns or None
     if isinstance(data, list):
+        # A bare top-level JSON array is the actual CodeBuddy IDE transcript
+        # format (index.json lists message metadata; real content lives in
+        # sibling messages/<id>.json files). Try expanding it first; only fall
+        # back to returning the array verbatim when it isn't a CodeBuddy index
+        # (e.g. a plain list of {role, content} turns).
+        expanded = _try_expand_codebuddy_index(p, data)
+        if expanded:
+            return expanded
         return data
     if isinstance(data, dict):
         # CodeBuddy IDE format: index.json holds message metadata, content lives
@@ -408,6 +424,13 @@ def main(argv: Optional[list] = None) -> int:
         print(f"ide-hook: capture failed: {e}", file=sys.stderr)
         return 0
 
+    # Print the result even when it contains non-ASCII (CJK titles from the
+    # first user message). On Windows the default console encoding may mangle
+    # such output, so reconfigure stdout to UTF-8 when possible.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError, OSError):
+        pass
     print(result)
     return 0
 
