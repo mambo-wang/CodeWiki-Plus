@@ -26,6 +26,15 @@
 
 ## 中文
 
+### 专栏文章
+
+「迎风追日 / WanderingBug」公众号发布的本项目系列技术专栏，欢迎阅读：
+
+- [专栏开篇词：从代码文档到 AI 知识引擎](https://mp.weixin.qq.com/s/WpjiDAs62_81mytBWUsDQw)（2026-07-26）
+- [第 2 篇：双层 Prompt 架构同时服务人和模型](https://mp.weixin.qq.com/s/1lNjR_SsrU5Fw2NKnkxnMA)（2026-08-01）
+- [第 3 篇：零依赖检索设计](https://mp.weixin.qq.com/s/T7r-ojyWC-YOpM_U5BNbEw)（2026-08-06）
+- [第 4 篇：知识写入方式全景](https://mp.weixin.qq.com/s/V90mghqB5wttKd25eXA-Pw)（2026-08-09）
+
 ### 这个项目是什么？
 
 CodeWiki-Plus 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) 的增强分支，核心改动是**让 CodeWiki 无需配置任何大模型 API，直接由 AI IDE（CodeBuddy、Cursor、Claude Desktop 等）自身的模型驱动 Wiki 文档生成**，并在此基础上构建了完整的知识管理引擎。
