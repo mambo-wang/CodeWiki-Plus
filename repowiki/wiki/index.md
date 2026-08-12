@@ -2,7 +2,7 @@
 okf_version: "0.2"
 ---
 
-<!-- 自动生成于 2026-08-09T16:44:55+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-12T19:59:16+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -66,3 +66,12 @@ okf_version: "0.2"
 * [2026-08-09-同一会话的-precompactstop-不带-transcript-path落空信封会被-duplicate-去重应视](../notes/2026-08-09-同一会话的-precompactstop-不带-transcript-path落空信封会被-duplicate-去重应视.md) - note
 * [2026-08-09-归档对话文件名用用户首句-slug且与-conversation-id-必须一致蒸馏链路依赖此约束](../notes/2026-08-09-归档对话文件名用用户首句-slug且与-conversation-id-必须一致蒸馏链路依赖此约束.md) - note
 * [2026-08-09-无知识的-raw-对话蒸馏后也应清理删除条件要用-produced-is-not-none-而非-truthy](../notes/2026-08-09-无知识的-raw-对话蒸馏后也应清理删除条件要用-produced-is-not-none-而非-truthy.md) - note
+* [2026-08-12-codebuddy-ide-把系统上下文注入-user-消息采集时必须剥离系统标签块](../notes/2026-08-12-codebuddy-ide-把系统上下文注入-user-消息采集时必须剥离系统标签块.md) - note
+* [2026-08-12-confirm-notereject-note-的-output-dir-解析顺序改为-output-dir-repo](../notes/2026-08-12-confirm-notereject-note-的-output-dir-解析顺序改为-output-dir-repo.md) - note
+* [2026-08-12-ide-hook-采用同步采集-异步蒸馏两段式执行模型](../notes/2026-08-12-ide-hook-采用同步采集-异步蒸馏两段式执行模型.md) - note
+* [2026-08-12-mcp-工具无法自动探测当前项目路径需显式传-repo-path](../notes/2026-08-12-mcp-工具无法自动探测当前项目路径需显式传-repo-path.md) - note
+* [2026-08-12-query-wiki-的-output-dir-非必填解析顺序为-output-dir-session-repo-pat](../notes/2026-08-12-query-wiki-的-output-dir-非必填解析顺序为-output-dir-session-repo-pat.md) - note
+* [2026-08-12-repowikiraw-目录堆积会使同步捕获线性变慢逼近-60s-超时](../notes/2026-08-12-repowikiraw-目录堆积会使同步捕获线性变慢逼近-60s-超时.md) - note
+* [2026-08-12-resolve-session-恢复的-sessionoutput-dir-会覆盖-repo-path-推断导致-not](../notes/2026-08-12-resolve-session-恢复的-sessionoutput-dir-会覆盖-repo-path-推断导致-not.md) - note
+* [2026-08-12-tencentdb-agent-memory-四层记忆金字塔逐层蒸馏-触发式调度](../notes/2026-08-12-tencentdb-agent-memory-四层记忆金字塔逐层蒸馏-触发式调度.md) - note
+* [2026-08-12-块剥离正则不要用-行首锚点系统块前可能有-user-前缀](../notes/2026-08-12-块剥离正则不要用-行首锚点系统块前可能有-user-前缀.md) - note
