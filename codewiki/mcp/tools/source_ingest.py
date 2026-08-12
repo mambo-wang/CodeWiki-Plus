@@ -113,12 +113,15 @@ def _merge_okf_sources_entry(page_path: Path, entry: Dict[str, Any]) -> None:
         logger.debug("OKF sources merge skipped for %s: %s", page_path, e)
 
 
-def _ensure_source_frontmatter(dest_path: Path, name: str, description: str) -> None:
+def _ensure_source_frontmatter(dest_path: Path, name: str, description: str, output_dir: Optional[Path] = None) -> None:
     """Ensure an ingested raw/sources markdown file carries OKF frontmatter.
 
     OKF v0.2 §11 conformance applies to every non-reserved .md in the
     bundle, including raw/sources/.  Only .md files are affected; binary
     formats are outside the spec's scope.
+
+    ``stale_after`` / ``tags`` fall back to the bundle's schema.yaml
+    conventions when *output_dir* is provided.
     """
     if dest_path.suffix.lower() != ".md":
         return
@@ -128,24 +131,17 @@ def _ensure_source_frontmatter(dest_path: Path, name: str, description: str) -> 
         return
     if content.startswith("---"):
         return  # keep whatever the source document already declares
-    try:
-        from codewiki.src.config import actor_id
-        actor = actor_id()
-    except Exception:
-        actor = "codewiki"
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    import json as _json
-    fm = (
-        "---\n"
-        "type: Source\n"
-        f"title: {_json.dumps(name, ensure_ascii=False)}\n"
-        f"description: {_json.dumps(description or name, ensure_ascii=False)}\n"
-        "status: stable\n"
-        f"generated: {{ by: {actor}, at: {now_iso} }}\n"
-        "---\n\n"
+    from codewiki.src.frontmatter import inject_okf_frontmatter
+    fm = inject_okf_frontmatter(
+        content,
+        type_="Source",
+        title=name,
+        output_dir=output_dir,
+        description=description or name,
+        status="stable",
     )
     try:
-        dest_path.write_text(fm + content, encoding="utf-8")
+        dest_path.write_text(fm, encoding="utf-8")
     except OSError as e:
         logger.warning("Failed to add OKF frontmatter to %s: %s", dest_path, e)
 
@@ -306,7 +302,7 @@ def handle_ingest_source(
         return json.dumps({"error": f"Failed to copy source file: {e}"})
 
     # OKF v0.2 §11: raw/sources/*.md are part of the bundle — ensure frontmatter
-    _ensure_source_frontmatter(dest_path, name, description)
+    _ensure_source_frontmatter(dest_path, name, description, output_dir)
 
     # Register in source_registry.json
     registry = _load_registry(output_dir)

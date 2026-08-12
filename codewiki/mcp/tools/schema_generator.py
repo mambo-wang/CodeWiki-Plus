@@ -31,7 +31,9 @@ _DEFAULT_CONVENTIONS = {
     "okf_frontmatter": True,
     "okf_version": "0.2",
     "default_stale_days": 90,
-    "okf_tags": [],
+    # 默认 tags 不再为空：schema.yaml 里 okf_tags 为 [] 时，
+    # frontmatter 注入 helper 会回落到此默认值。
+    "okf_tags": ["codewiki", "auto-generated"],
 }
 
 _DEFAULT_REQUIRED_SECTIONS = [

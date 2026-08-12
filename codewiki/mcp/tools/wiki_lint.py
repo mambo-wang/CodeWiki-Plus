@@ -39,6 +39,25 @@ _LEGACY_STATUS_MAP = {
     "superseded": "deprecated",
 }
 
+# OKF v0.2 §4/§5/§7 standard top-level fields (P2).  Producer-private
+# extensions must live under ``metadata``; anything else at the top level
+# triggers an okf_conformance warning so new docs don't leak private keys.
+_OKF_TOP_LEVEL_KEYS = frozenset({
+    "type", "title", "description", "aliases",
+    "status", "verified", "stale_after", "generated",
+    "tags", "metadata",
+})
+# Top-level extensions kept for backward compatibility — runtime consumers
+# read these with line-based parsing (cache.py boost, knowledge_loop origin
+# filter, wiki_index note date, lint itself, distill raw fields) so they
+# cannot be folded yet.
+_OKF_LEGACY_TOP_LEVEL_KEYS = frozenset({
+    "severity", "origin", "root_cause",
+    "sources", "source_refs", "chunk_refs",
+    "related_modules", "related_components", "source_ref",
+    "summary", "keywords", "date",
+})
+
 # Regex patterns for markdown links
 _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]\(([^\)]+\.md)\)")
 _MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+\.md)\)")
@@ -1097,24 +1116,22 @@ def _check_okf_conformance(
 
     from codewiki.src.config import (
         INDEX_FILENAME,
-        NOTES_DIR,
-        RAW_SOURCES_DIR,
+        META_DIR,
         WIKI_DIR,
     )
 
     issues: List[Dict[str, Any]] = []
 
-    # Collect candidate .md files across the bundle
+    # Collect candidate .md files across the bundle.  P3: the original scan
+    # only covered wiki/, notes/ and raw/sources/, silently missing root-level
+    # runbooks such as team-memory-hook.md.  Scan the whole bundle and skip
+    # scratch/staging directories (.meta/, .trash/, .hook-debug/) instead.
+    _scratch_dirs = {META_DIR, ".trash", ".hook-debug"}
     targets: List[Path] = []
-    wiki_dir = output_dir / WIKI_DIR
-    if wiki_dir.is_dir():
-        targets.extend(wiki_dir.rglob("*.md"))
-    notes_dir = output_dir / NOTES_DIR
-    if notes_dir.is_dir():
-        targets.extend(notes_dir.glob("*.md"))
-    raw_dir = output_dir / RAW_SOURCES_DIR
-    if raw_dir.is_dir():
-        targets.extend(raw_dir.glob("*.md"))
+    for _md in output_dir.rglob("*.md"):
+        if any(_part in _scratch_dirs for _part in _md.parts):
+            continue
+        targets.append(_md)
 
     today_str = date.today().isoformat()
 
@@ -1177,6 +1194,28 @@ def _check_okf_conformance(
                 "suggestion": (
                     "Run `python scripts/migrate_okf.py <wiki-dir>` to backfill "
                     "the type field, or regenerate the page."
+                ),
+            })
+
+        # P2: producer-private keys must not leak at the top level.  OKF §4/§5
+        # standard fields plus the backward-compat legacy set are allowed; any
+        # other key should be folded under `metadata:`.
+        _unknown_top = sorted(
+            set(fm) - _OKF_TOP_LEVEL_KEYS - _OKF_LEGACY_TOP_LEVEL_KEYS
+        )
+        if _unknown_top:
+            issues.append({
+                "check": "okf_conformance",
+                "severity": "warning",
+                "message": (
+                    "Non-OKF top-level frontmatter key(s): "
+                    + ", ".join(_unknown_top)
+                    + " (OKF v0.2 §4/§5 — producer-private fields belong under `metadata:`)"
+                ),
+                "file": rel_path,
+                "suggestion": (
+                    "Fold these keys under a `metadata:` node, or regenerate "
+                    "the page with the OKF frontmatter helper."
                 ),
             })
 
