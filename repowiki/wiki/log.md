@@ -2,6 +2,17 @@
 
 > 本文件为追加写入的操作记录，由系统自动维护
 
+## 2026-08-12
+* **ingest_note**: 添加笔记: IDE hook 采用「同步采集 + 异步蒸馏」两段式执行模型
+* **ingest_note**: 添加笔记: repowiki/raw/ 目录堆积会使同步捕获线性变慢，逼近 60s 超时
+* **ingest_note**: 添加笔记: TencentDB-Agent-Memory 四层记忆金字塔：逐层蒸馏 + 触发式调度
+* **ingest_note**: 添加笔记: query_wiki 的 output_dir 非必填，解析顺序为 output_dir → session → repo_path
+* **ingest_note**: 添加笔记: MCP 工具无法自动探测当前项目路径，需显式传 repo_path
+* **ingest_note**: 添加笔记: resolve_session 恢复的 session.output_dir 会覆盖 repo_path 推断，导致 Note not found
+* **ingest_note**: 添加笔记: confirm_note/reject_note 的 output_dir 解析顺序改为 output_dir → repo_path → session
+* **ingest_note**: 添加笔记: CodeBuddy IDE 把系统上下文注入 user 消息，采集时必须剥离系统标签块
+* **ingest_note**: 添加笔记: 块剥离正则不要用 ^ 行首锚点：系统块前可能有 user: 前缀
+
 ## 2026-08-09
 * **ingest_note**: 添加笔记: CodeBuddy index.json transcript 是裸 JSON 数组，_load_transcript 必须支持 list 顶层展开
 * **ingest_note**: 添加笔记: Windows 下 hook 按 sys.stdin.read() 读取中文事件会崩溃，必须按字节读 + 显式 UTF-8 解码

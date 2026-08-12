@@ -82,6 +82,43 @@ _DISTILL_SYSTEM = (
 
 _NOTE_TYPE_HINT = "Allowed note_type values: " + ", ".join(sorted(_VALID_NOTE_TYPES)) + "."
 
+# --------------------------------------------------------------------------- #
+# 严格门（对齐 TAM shouldExtractL1）：L0 采集门之外的确定性质量过滤。
+# 在 transcript 喂给 LLM 之前按行拦截，避免纯符号/纯问号等噪声进入蒸馏。
+# --------------------------------------------------------------------------- #
+_CJK_RANGES = r"\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af"
+
+
+def _should_extract_l1(line: str) -> bool:
+    """严格门：长度/纯符号/纯问号过滤。不做 prompt-injection 校验（按需裁剪）。"""
+    t = line.strip()
+    if not t:
+        return False
+    # 纯符号/标点（1-5 字符，无字母数字与 CJK），如 "????"、"!!!"、"。。"
+    if re.fullmatch(r"[^\w\s" + _CJK_RANGES + r"]{1,5}", t):
+        return False
+    # 纯问号（单个或多个，含全角/半角）
+    if re.fullmatch(r"[?？]+", t):
+        return False
+    return True
+
+
+def _filter_transcript_lines(transcript: str) -> str:
+    """按行应用严格门。行格式为 ``role: content`` 或纯 content 片段，
+    只在冒号后的内容段上做判断，保留 role 前缀。
+    """
+    kept: List[str] = []
+    for line in transcript.splitlines():
+        if ": " in line:
+            role, content = line.split(": ", 1)
+            if _should_extract_l1(content):
+                kept.append(line)
+        else:
+            if _should_extract_l1(line):
+                kept.append(line)
+    return "\n".join(kept)
+
+
 # Relevance score at/above which an existing note/ in notes/ is treated as a
 # near-duplicate of a candidate draft (suppressed or merged instead of created).
 _DEDUP_THRESHOLD = 0.6
@@ -427,6 +464,12 @@ def _build_distill_input(raw_path: Path) -> Optional[Dict[str, Any]]:
     transcript = _extract_turns(text)
     if not transcript:
         return None
+    # 严格门：喂 LLM 前滤掉纯符号/纯问号噪声行，提升蒸馏信噪比
+    # （对齐 TAM shouldExtractL1 —— 门控做在 LLM 调用之前）。
+    filtered = _filter_transcript_lines(transcript)
+    if not filtered:
+        return None
+    transcript = filtered
 
     link_to = meta.get("link_to", "")
     prompt = (

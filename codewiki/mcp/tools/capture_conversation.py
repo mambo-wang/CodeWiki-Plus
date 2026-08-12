@@ -52,6 +52,10 @@ _SYSTEM_INJECTION_TAGS = frozenset({
     "inline_line_numbers",
     "agent_skills",
     "response_language",
+    # IDE 每次 user 消息注入的"避免循环"提醒块，纯系统提示，无知识价值
+    "system_reminder",
+    # AskUserQuestion 结构化问答序列化（应用 UI 交互记录，非用户知识）
+    "question_answer", "questions", "question_item",
 })
 # 形如 <tag> ... </tag> 的成对块（含可能跨行的多行内容）。
 # 注意：不锚定行首——IDE 常把块包在 "user: <user_info> ... </user_info>"
@@ -190,6 +194,29 @@ def _resolve_output_dir(
 # captures the human–AI dialogue only.
 _KEEP_ROLES = {"user", "assistant"}
 
+# 框架级结构噪声（宽松门 _should_capture_l0 用）：这些消息不携带对话内容，
+# 只是 session/工具链自己产生的占位文本。落盘前滤掉，避免污染 raw 与 content_hash。
+_FRAMEWORK_NOISE = frozenset({
+    "(session bootstrap)",
+    "NO_REPLY",
+})
+_FRAMEWORK_NOISE_PREFIXES = (
+    "A new session was started via",
+    "Pre-compaction memory flush",
+)
+
+
+def _should_capture_l0(content: str) -> bool:
+    """宽松门：只滤结构噪声，保证据链完整。质量门（长度/符号）留给蒸馏侧。"""
+    t = content.strip()
+    if not t:
+        return False
+    if t in _FRAMEWORK_NOISE:
+        return False
+    if t.startswith(_FRAMEWORK_NOISE_PREFIXES):
+        return False
+    return True
+
 # Content-block types that carry internal monologue / tool plumbing rather than
 # user-facing assistant text. Skipped even when nested inside a content array.
 _NOISE_BLOCK_TYPES = {
@@ -265,6 +292,10 @@ def _extract_transcript(conversation: Any) -> List[Dict[str, str]]:
             content = _strip_system_injection(content)
             if content == "":
                 continue
+        # 宽松门（对齐 TAM shouldCaptureL0）：只滤框架级结构噪声，
+        # 保证据链完整；更严格的质量过滤由蒸馏侧 should_extract_l1 承担。
+        if not _should_capture_l0(content):
+            continue
         turns.append({"role": str(role), "content": content})
     return turns
 
