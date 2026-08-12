@@ -509,23 +509,21 @@ def handle_capture_conversation(
         "link_to": link_to,
         "source_session": source_session_id,
         "keep_raw": keep_raw,
-        "status": "pending",  # pending → distilled (T2) → deleted
     }
-    fm = (
-        "---\n"
-        "type: Conversation\n"
-        f"title: {json.dumps('conversation ' + stamp, ensure_ascii=False)}\n"
-        f"captured_at: {now_iso}\n"
-        f"content_hash: {content_hash}\n"
-        f"turn_count: {len(turns)}\n"
-        f"link_to: {json.dumps(link_to, ensure_ascii=False)}\n"
-        f"source_session: {json.dumps(source_session_id, ensure_ascii=False)}\n"
-        f"keep_raw: {str(keep_raw).lower()}\n"
-        "status: pending\n"
-        f"generated: {{ by: {actor}, at: {now_iso} }}\n"
-        "---\n\n"
+    from codewiki.src.frontmatter import inject_okf_frontmatter
+    content = inject_okf_frontmatter(
+        "# Conversation Transcript\n\n" + body + "\n",
+        type_="Conversation",
+        title="conversation " + stamp,
+        output_dir=output_dir,
+        status="pending",
+        stale_days=90,  # raw/ 暂存文件 90 天足够长，蒸馏必然在此之前消费
+        # 蒸馏流程用简单行解析读取这些字段（_parse_frontmatter / ^status:），
+        # 必须保持顶层，折叠进 metadata 会破坏蒸馏。
+        top_level_extra=meta,
+        actor=actor,
+        now_iso=now_iso,
     )
-    content = fm + "# Conversation Transcript\n\n" + body + "\n"
 
     try:
         dest_path.write_text(content, encoding="utf-8")

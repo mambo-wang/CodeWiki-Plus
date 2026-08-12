@@ -490,11 +490,12 @@ def _build_okf_frontmatter(
         f"type: {doc_type}",
         f"title: {mod_name}",
         f'description: "{description}"' if description else f"description: {mod_name}",
-        f"resource: {resource}",
         f"tags: [{', '.join(tags)}]",
     ]
 
     # Roadmap 1.4: record code version for freshness tracking
+    # OKF P2: `resource` / `generated_from` are producer-private extensions —
+    # folded under `metadata:` to keep the top level OKF-standard-only.
     _gen_from = ""
     if session.repo_path:
         try:
@@ -510,10 +511,8 @@ def _build_okf_frontmatter(
     if not _gen_from:
         from datetime import datetime, timezone
         _gen_from = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    fm_parts.append(f"generated_from: {_gen_from}")
 
     # OKF v0.2 §5.2: `generated: {by, at}` with actor convention (§7).
-    # Kept alongside the legacy generated_from (sha) extension key.
     from datetime import datetime as _dt, timezone as _tzc
     _now_iso = _dt.now(_tzc.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
@@ -535,12 +534,29 @@ def _build_okf_frontmatter(
         aliases = [filename.replace(".md", "")]
     aliases_str = ", ".join(f'"{a}"' for a in aliases)
     fm_parts.append(f"aliases: [{aliases_str}]")
-    # Type-specific fields from extra
-    for key in ("category", "domain", "origin", "version", "format",
-                "decision", "status", "decided_at", "severity", "root_cause"):
+    # Type-specific fields from extra:
+    #  - Keep at top level (runtime consumers depend on them):
+    #      severity (cache boost), origin (knowledge_loop line-parser),
+    #      root_cause (prompts/docs), status (lifecycle).
+    #  - Fold the rest under `metadata:` (OKF P2: top level must stay
+    #    standard-only: resource/generated_from/category/domain/version/
+    #    format/decision/decided_at).
+    _private_extra = {}
+    for key in ("severity", "origin", "root_cause", "status"):
         if key in extra and extra[key]:
             val = extra[key]
             fm_parts.append(f'{key}: "{val}"' if isinstance(val, str) else f"{key}: {val}")
+    for key in ("category", "domain", "version", "format",
+                "decision", "decided_at"):
+        if key in extra and extra[key]:
+            _private_extra[key] = extra[key]
+    _private_extra["resource"] = resource
+    _private_extra["generated_from"] = _gen_from
+    if _private_extra:
+        fm_parts.append("metadata:")
+        for _k in sorted(_private_extra):
+            _v = _private_extra[_k]
+            fm_parts.append(f'  {_k}: "{_v}"' if isinstance(_v, str) else f"  {_k}: {_v}")
 
     # Auto-extract source references from body ([^src:name:start-end] and
     # OKF v0.2 bare footnotes [^name] keyed to registered source ids)
