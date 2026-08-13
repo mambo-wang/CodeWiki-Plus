@@ -12,6 +12,7 @@
 * **ingest_note**: 添加笔记: confirm_note/reject_note 的 output_dir 解析顺序改为 output_dir → repo_path → session
 * **ingest_note**: 添加笔记: CodeBuddy IDE 把系统上下文注入 user 消息，采集时必须剥离系统标签块
 * **ingest_note**: 添加笔记: 块剥离正则不要用 ^ 行首锚点：系统块前可能有 user: 前缀
+* **analyze_repo**: 分析仓库 CodeWiki-CN，1311 个组件
 
 ## 2026-08-09
 * **ingest_note**: 添加笔记: CodeBuddy index.json transcript 是裸 JSON 数组，_load_transcript 必须支持 list 顶层展开
