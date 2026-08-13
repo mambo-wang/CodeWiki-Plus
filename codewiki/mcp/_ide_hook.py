@@ -405,9 +405,14 @@ def main(argv: Optional[list] = None) -> int:
                   "usable transcript_path; capturing the event envelope only "
                   "(the IDE did not provide an inline transcript).")
             # Fall through: capture the event envelope as a minimal record.
+            # NOTE: role must be "user" (not "system") -- capture_conversation
+            # drops every role outside {user, assistant} in _extract_transcript,
+            # so a system-role envelope would be silently discarded (see
+            # test_envelope_does_not_supersede_full_transcript). The envelope
+            # body carries no system-injection tags, so stripping is a no-op.
             is_envelope = True
             conversation = [{
-                "role": "system",
+                "role": "user",
                 "content": (f"[team-memory] {hook_event} hook fired but the IDE "
                             "provided no inline transcript and no readable "
                             "transcript_path. Raw event envelope preserved for "

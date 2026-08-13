@@ -290,10 +290,9 @@ def _extract_transcript(conversation: Any) -> List[Dict[str, str]]:
         # blocks so the archived transcript holds the human–AI dialogue only.
         if role == "user":
             content = _strip_system_injection(content)
-            if content == "":
-                continue
-        # 宽松门（对齐 TAM shouldCaptureL0）：只滤框架级结构噪声，
-        # 保证据链完整；更严格的质量过滤由蒸馏侧 should_extract_l1 承担。
+        # 宽松门（对齐 TAM shouldCaptureL0）：统一处理空内容（剥离系统注入后
+        # 可能变空）与框架级结构噪声，保证据链完整；更严格的质量过滤由
+        # 蒸馏侧 should_extract_l1 承担。
         if not _should_capture_l0(content):
             continue
         turns.append({"role": str(role), "content": content})

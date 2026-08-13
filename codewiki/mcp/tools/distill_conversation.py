@@ -86,7 +86,9 @@ _NOTE_TYPE_HINT = "Allowed note_type values: " + ", ".join(sorted(_VALID_NOTE_TY
 # 严格门（对齐 TAM shouldExtractL1）：L0 采集门之外的确定性质量过滤。
 # 在 transcript 喂给 LLM 之前按行拦截，避免纯符号/纯问号等噪声进入蒸馏。
 # --------------------------------------------------------------------------- #
-_CJK_RANGES = r"\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af"
+# 已知角色前缀（_filter_transcript_lines 只剥前缀做判断，避免 content 内
+# 含 ": " 时误切 role，如中文 "注意：xxx"）。
+_ROLE_PREFIXES = ("user: ", "assistant: ")
 
 
 def _should_extract_l1(line: str) -> bool:
@@ -94,28 +96,31 @@ def _should_extract_l1(line: str) -> bool:
     t = line.strip()
     if not t:
         return False
-    # 纯符号/标点（1-5 字符，无字母数字与 CJK），如 "????"、"!!!"、"。。"
-    if re.fullmatch(r"[^\w\s" + _CJK_RANGES + r"]{1,5}", t):
+    # 纯符号/标点（1-5 字符，无字母/数字/CJK）。注：Python3 的 \w 默认
+    # Unicode-aware，已匹配中文等 CJK 字符，故无需显式列出 CJK 码位范围。
+    if re.fullmatch(r"[^\w\s]{1,5}", t):
         return False
-    # 纯问号（单个或多个，含全角/半角）
+    # 兜底：6+ 个纯问号（含全角/半角）不在上面 {1,5} 覆盖范围内。
     if re.fullmatch(r"[?？]+", t):
         return False
     return True
 
 
 def _filter_transcript_lines(transcript: str) -> str:
-    """按行应用严格门。行格式为 ``role: content`` 或纯 content 片段，
-    只在冒号后的内容段上做判断，保留 role 前缀。
+    """按行应用严格门。行格式为 ``role: content`` 或纯 content 片段。
+
+    只剥离已知 role 前缀（``user: ``/``assistant: ``）后再判断内容段，
+    避免 content 本身含 ``": "``（如 "注意：xxx"）时误切；保留原行原样。
     """
     kept: List[str] = []
     for line in transcript.splitlines():
-        if ": " in line:
-            role, content = line.split(": ", 1)
-            if _should_extract_l1(content):
-                kept.append(line)
-        else:
-            if _should_extract_l1(line):
-                kept.append(line)
+        content = line
+        for prefix in _ROLE_PREFIXES:
+            if line.startswith(prefix):
+                content = line[len(prefix):]
+                break
+        if _should_extract_l1(content):
+            kept.append(line)
     return "\n".join(kept)
 
 
