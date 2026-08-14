@@ -1,16 +1,17 @@
 ---
 type: pitfall
 title: "MCP 工具无法自动探测当前项目路径，需显式传 repo_path"
-date: 2026-08-12
-related_modules: ["mcp", "\"\""]
-related_components: []
 tags: ["codebuddy", "pitfall"]
-source_ref: "raw\conv-system_reminder-请注意，当你在遇到无法解决的问题时，往往会出现重复行为，导致陷入循环——例如重复输出相同-9.md"
 status: deprecated
 generated: { by: codewiki/5.2.2, at: 2026-08-12T11:59:00Z }
 stale_after: 2026-11-10
-origin: conversation
 
+metadata:
+  date: "2026-08-12"
+  origin: "conversation"
+  related_components: []
+  related_modules: ["mcp", "\"\""]
+  source_ref: "raw\\conv-system_reminder-请注意，当你在遇到无法解决的问题时，往往会出现重复行为，导致陷入循环——例如重复输出相同-9.md"
 ---
 
 ## 背景

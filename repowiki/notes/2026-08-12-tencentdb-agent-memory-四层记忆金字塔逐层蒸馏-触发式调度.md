@@ -1,16 +1,17 @@
 ---
 type: architecture
 title: "TencentDB-Agent-Memory 四层记忆金字塔：逐层蒸馏 + 触发式调度"
-date: 2026-08-12
-related_modules: ["\"\""]
-related_components: []
 tags: ["architecture", "codewiki", "memorycore", "personatrigger"]
-source_ref: "raw\conv-system_reminder-请注意，当你在遇到无法解决的问题时，往往会出现重复行为，导致陷入循环——例如重复输出相同-8.md"
 status: stable
 generated: { by: codewiki/5.2.2, at: 2026-08-12T11:58:57Z }
 stale_after: 2026-11-10
-origin: conversation
 
+metadata:
+  date: "2026-08-12"
+  origin: "conversation"
+  related_components: []
+  related_modules: ["\"\""]
+  source_ref: "raw\\conv-system_reminder-请注意，当你在遇到无法解决的问题时，往往会出现重复行为，导致陷入循环——例如重复输出相同-8.md"
 ---
 
 ## 背景

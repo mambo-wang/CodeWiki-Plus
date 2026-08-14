@@ -1,16 +1,17 @@
 ---
 type: lesson
 title: "CodeBuddy IDE 把系统上下文注入 user 消息，采集时必须剥离系统标签块"
-date: 2026-08-12
-related_modules: ["mcp", "capture", "\"\""]
-related_components: []
 tags: ["codebuddy", "lesson"]
-source_ref: "raw\conv-user_query-@d-repos-CodeWiki-CN-repowiki-raw-conv-user_info.md"
 status: deprecated
 generated: { by: codewiki/5.2.2, at: 2026-08-12T11:59:15Z }
 stale_after: 2026-11-10
-origin: conversation
 
+metadata:
+  date: "2026-08-12"
+  origin: "conversation"
+  related_components: []
+  related_modules: ["mcp", "capture", "\"\""]
+  source_ref: "raw\\conv-user_query-@d-repos-CodeWiki-CN-repowiki-raw-conv-user_info.md"
 ---
 
 ## 背景
