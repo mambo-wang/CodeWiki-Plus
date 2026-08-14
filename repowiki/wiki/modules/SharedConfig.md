@@ -1,21 +1,18 @@
 ---
 title: SharedConfig
-depth: 1
-module_type: leaf
-component_count: 6
-components:
-  - codewiki/src/config.py::Config
-  - codewiki/src/config.py::ConfigError
-  - codewiki/src/config.py::from_cli
-  - codewiki/src/config.py::from_cli_args
-  - codewiki/src/config.py::meta_resolve
-  - codewiki/src/utils.py::file_manager
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
 type: Module
-generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:39Z }
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
 stale_after: 2026-10-31
+metadata:
+  depth: 1
+  module_type: leaf
+  component_count: 6
+  components: ['codewiki/src/config.py::Config', 'codewiki/src/config.py::ConfigError',
+    'codewiki/src/config.py::from_cli', 'codewiki/src/config.py::from_cli_args', 'codewiki/src/config.py::meta_resolve',
+    'codewiki/src/utils.py::file_manager']
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
 ---
 
 # SharedConfig 模块文档

@@ -1,25 +1,21 @@
 ---
 title: AnalyzerModels
-depth: 2
-module_type: leaf
-component_count: 10
-components:
-  - codewiki/src/be/dependency_analyzer/models/analysis.py::AnalysisResult
-  - codewiki/src/be/dependency_analyzer/models/analysis.py::NodeSelection
-  - codewiki/src/be/dependency_analyzer/models/core.py::CallRelationship
-  - codewiki/src/be/dependency_analyzer/models/core.py::Node
-  - codewiki/src/be/dependency_analyzer/models/core.py::Repository
-  - codewiki/src/be/dependency_analyzer/models/cross_service.py::CrossServiceLink
-  - codewiki/src/be/dependency_analyzer/models/cross_service.py::RouteNode
-  - codewiki/src/be/dependency_analyzer/models/cross_service.py::RouteProtocol
-  - codewiki/src/be/dependency_analyzer/models/cross_service.py::RouteRole
-  - codewiki/src/be/dependency_analyzer/models/cross_service.py::WorkspaceTopology
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
 type: Module
-generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:38Z }
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:38+00:00'}
 stale_after: 2026-10-31
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 10
+  components: ['codewiki/src/be/dependency_analyzer/models/analysis.py::AnalysisResult',
+    'codewiki/src/be/dependency_analyzer/models/analysis.py::NodeSelection', 'codewiki/src/be/dependency_analyzer/models/core.py::CallRelationship',
+    'codewiki/src/be/dependency_analyzer/models/core.py::Node', 'codewiki/src/be/dependency_analyzer/models/core.py::Repository',
+    'codewiki/src/be/dependency_analyzer/models/cross_service.py::CrossServiceLink',
+    'codewiki/src/be/dependency_analyzer/models/cross_service.py::RouteNode', 'codewiki/src/be/dependency_analyzer/models/cross_service.py::RouteProtocol',
+    'codewiki/src/be/dependency_analyzer/models/cross_service.py::RouteRole', 'codewiki/src/be/dependency_analyzer/models/cross_service.py::WorkspaceTopology']
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
 ---
 
 # AnalyzerModels 模块文档

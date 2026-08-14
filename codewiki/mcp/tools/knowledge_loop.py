@@ -328,21 +328,28 @@ def handle_ingest_note(
     frontmatter_lines = [
         "---",
         f"type: {note_type}",
-        f"title: \"{title}\"",
-        f"date: {today}",
-        f"related_modules: {json.dumps(related_modules, ensure_ascii=False)}",
-        f"related_components: {json.dumps(related_components, ensure_ascii=False)}",
+        f"title: {json.dumps(title, ensure_ascii=False)}",
         f"tags: {json.dumps(tags, ensure_ascii=False)}",
     ]
-    # LLM Wiki: add optional fields
+    # LLM Wiki: optional standard fields
     if aliases:
         frontmatter_lines.append(f"aliases: {json.dumps(aliases, ensure_ascii=False)}")
+    # OKF §4/§5: producer-private fields fold under ``metadata:`` so the top
+    # level only carries OKF-standard keys.  Line-based consumers (wiki_index
+    # note date, lint note_clusters) still read them via the indented rows.
+    metadata_lines = [f"  date: {today}"]
+    if related_modules:
+        metadata_lines.append(f"  related_modules: {json.dumps(related_modules, ensure_ascii=False)}")
+    if related_components:
+        metadata_lines.append(f"  related_components: {json.dumps(related_components, ensure_ascii=False)}")
     if severity:
-        frontmatter_lines.append(f"severity: {severity}")
+        metadata_lines.append(f"  severity: {severity}")
     if root_cause:
-        frontmatter_lines.append(f"root_cause: \"{root_cause}\"")
+        metadata_lines.append(f"  root_cause: {json.dumps(root_cause, ensure_ascii=False)}")
     if source_ref:
-        frontmatter_lines.append(f"source_ref: \"{source_ref}\"")
+        metadata_lines.append(f"  source_ref: {json.dumps(source_ref, ensure_ascii=False)}")
+    frontmatter_lines.append("metadata:")
+    frontmatter_lines.extend(metadata_lines)
     frontmatter_lines.append(f"status: {note_status}")
     # OKF v0.2 §5.2/§5.5: provenance actor + absolute staleness date
     frontmatter_lines.append(
@@ -1538,13 +1545,30 @@ def _legacy_keyword_search(
 
 
 def _extract_frontmatter(content: str, key: str) -> Optional[str]:
-    """Extract a value from YAML frontmatter."""
+    """Extract a value from YAML frontmatter.
+
+    Matches the top level first, then falls back to a value folded under the
+    ``metadata:`` node (OKF v0.2 producer-private fields are emitted there as
+    two-space-indented ``key: value`` rows, e.g. ``origin``/``date``).
+    """
     if not content.startswith("---"):
         return None
     try:
         end = content.index("---", 3)
         fm = content[3:end]
+        in_metadata = False
         for line in fm.splitlines():
+            if line.rstrip() == "metadata:":
+                in_metadata = True
+                continue
+            if in_metadata:
+                if line.startswith(("  ", "\t")):
+                    stripped = line.lstrip()
+                    if stripped.startswith(f"{key}:"):
+                        val = stripped[len(key) + 1:].strip().strip('"').strip("'")
+                        return val
+                    continue
+                in_metadata = False  # left the metadata block
             if line.startswith(f"{key}:"):
                 val = line[len(key) + 1:].strip().strip('"').strip("'")
                 return val

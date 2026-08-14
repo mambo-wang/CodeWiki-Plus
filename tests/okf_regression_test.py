@@ -17,6 +17,8 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import yaml as _yaml
+
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
@@ -30,12 +32,15 @@ from codewiki.mcp.session import SessionStore  # noqa: E402
 from codewiki.mcp.tools.doc_writer import (  # noqa: E402
     handle_edit_doc_file,
     handle_write_doc_file,
+    _inject_lightweight_frontmatter,
+    _resync_source_refs,
 )
 from codewiki.mcp.tools.knowledge_loop import (  # noqa: E402
     handle_confirm_note,
     handle_ingest_note,
     handle_query_wiki,
     handle_reject_note,
+    _extract_frontmatter,
 )
 from codewiki.mcp.tools.source_ingest import (  # noqa: E402
     handle_ingest_source,
@@ -46,6 +51,7 @@ from codewiki.mcp.tools.wiki_lint import handle_lint_wiki  # noqa: E402
 from codewiki.mcp.tools.init_wiki import handle_init_wiki  # noqa: E402
 from codewiki.mcp.tools.prompt_server import handle_get_prompt  # noqa: E402
 from codewiki.mcp.tools.close_session import handle_close_session  # noqa: E402
+from scripts.migrate_okf import migrate_file  # noqa: E402
 
 _passed = 0
 _failed = 0
@@ -105,7 +111,7 @@ def main():
     if doc1.exists():
         fm1 = read_fm(doc1)
         check("write_doc_file", "注入 type", "type:" in fm1, fm1[:200])
-        check("write_doc_file", "注入 generated", "generated:" in fm1 and "codewiki/5.2.0" in fm1, fm1[:300])
+        check("write_doc_file", "注入 generated", "generated:" in fm1 and "agent:codewiki/" in fm1, fm1[:300])
         check("write_doc_file", "注入 stale_after(90d)", "stale_after:" in fm1, fm1[:300])
 
     # Agent-written frontmatter without type → patched (P0 fix)
@@ -141,6 +147,159 @@ def main():
     if doc1.exists():
         check("edit_doc_file", "frontmatter未被破坏", doc1.read_text(encoding="utf-8").startswith("---"), "")
         check("edit_doc_file", "正文已更新", "# 新文档V2" in doc1.read_text(encoding="utf-8"), "")
+
+    # ================================================================
+    print("\n[2b] doc_writer — frontmatter_extra 私有字段折叠 metadata")
+    # session 模式：OKF 标准键留顶层，私有键(components/related_modules/date/severity/...)折叠
+    r = json.loads(asyncio.run(handle_write_doc_file({
+        "session_id": sid, "filename": "okf_fold.md",
+        "content": "# 折叠测试\n\n正文内容。\n",
+        "frontmatter_extra": {
+            "components": ["AuthService", "OrderService"],
+            "related_modules": ["auth", "order"],
+            "date": "2026-08-01",
+            "severity": "high",
+            "status": "stable",
+            "category": "backend",
+        },
+    }, store)))
+    fold_doc = Path(r.get("path", ""))
+    if fold_doc.exists():
+        fmf = read_fm(fold_doc)
+        try:
+            fold_y = _yaml.safe_load(fmf)
+        except Exception as e:
+            fold_y = {}
+            print("  (fold yaml err:", e, ")")
+        meta = fold_y.get("metadata") or {}
+        check("doc_writer", "标准键status留在顶层", fold_y.get("status") == "stable", fmf[:400])
+        check("doc_writer", "components折叠进metadata",
+              meta.get("components") == ["AuthService", "OrderService"], fmf[:600])
+        check("doc_writer", "related_modules折叠进metadata",
+              meta.get("related_modules") == ["auth", "order"], fmf[:600])
+        check("doc_writer", "date折叠进metadata", meta.get("date") == "2026-08-01", fmf[:600])
+        check("doc_writer", "severity折叠进metadata", meta.get("severity") == "high", fmf[:600])
+        check("doc_writer", "category折叠进metadata", meta.get("category") == "backend", fmf[:600])
+        check("doc_writer", "顶层无components",
+              "components:" not in fmf.split("\nmetadata:")[0], fmf[:400])
+
+    # body 提取的 source_refs/chunk_refs 折叠进 metadata
+    r = json.loads(asyncio.run(handle_write_doc_file({
+        "session_id": sid, "filename": "okf_srcfold.md",
+        "content": "# 来源折叠\n\n正文引用[^src:alpha:1-5]内容。\n",
+    }, store)))
+    src_doc = Path(r.get("path", ""))
+    if src_doc.exists():
+        fms = read_fm(src_doc)
+        try:
+            src_y = _yaml.safe_load(fms)
+        except Exception as e:
+            src_y = {}
+            print("  (src yaml err:", e, ")")
+        src_meta = src_y.get("metadata") or {}
+        check("doc_writer", "source_refs折叠进metadata",
+              "alpha" in (src_meta.get("source_refs") or []), fms[:600])
+        check("doc_writer", "chunk_refs折叠进metadata",
+              "alpha:1-5" in (src_meta.get("chunk_refs") or []), fms[:600])
+        check("doc_writer", "顶层无source_refs",
+              not any(ln.startswith("source_refs:") for ln in fms.splitlines()), fms[:400])
+
+    # edit 后 _resync_source_refs 保持折叠
+    r = json.loads(asyncio.run(handle_edit_doc_file({
+        "session_id": sid, "filename": "okf_srcfold.md",
+        "command": "str_replace", "old_string": "# 来源折叠", "new_string": "# 来源折叠V2",
+    }, store)))
+    if src_doc.exists():
+        fme = read_fm(src_doc)
+        check("doc_writer", "edit后source_refs仍折叠(缩进)",
+              any(ln.lstrip().startswith("source_refs:") and ln.startswith("  ")
+                  for ln in fme.splitlines()), fme[:500])
+        check("doc_writer", "edit后顶层无source_refs",
+              not any(ln.strip().startswith("source_refs:") for ln in fme.splitlines()
+                      if not ln.startswith("  ")), fme[:400])
+
+    # sessionless 模式 _inject_lightweight_frontmatter 同样折叠
+    light = _inject_lightweight_frontmatter(
+        "okf_light.md", "# 轻量\n\n正文。\n",
+        page_type="module",
+        frontmatter_extra={"components": ["X"], "status": "stable", "severity": "low"},
+    )
+    light_fm = light.split("---", 2)[1] if light.startswith("---") else ""
+    try:
+        light_y = _yaml.safe_load(light_fm)
+    except Exception as e:
+        light_y = {}
+        print("  (light yaml err:", e, ")")
+    check("doc_writer", "sessionless标准键status顶层", light_y.get("status") == "stable", light_fm[:400])
+    light_meta = light_y.get("metadata") or {}
+    check("doc_writer", "sessionless components折叠", light_meta.get("components") == ["X"], light_fm[:500])
+    check("doc_writer", "sessionless severity折叠", light_meta.get("severity") == "low", light_fm[:500])
+
+    # knowledge_loop._extract_frontmatter 支持 metadata 回退
+    _fm_folded = ("---\ntype: note\ntitle: X\nmetadata:\n"
+                  "  origin: human\n  date: \"2026-08-01\"\n---\n\n正文。\n")
+    check("doc_writer", "_extract_frontmatter读折叠origin",
+          _extract_frontmatter(_fm_folded, "origin") == "human",
+          _extract_frontmatter(_fm_folded, "origin") or "")
+    check("doc_writer", "_extract_frontmatter读折叠date",
+          _extract_frontmatter(_fm_folded, "date") == "2026-08-01",
+          _extract_frontmatter(_fm_folded, "date") or "")
+    check("doc_writer", "_extract_frontmatter顶层优先",
+          _extract_frontmatter("---\ntitle: Y\norigin: top\n---\n\n正文。\n", "origin") == "top", "")
+
+    # ================================================================
+    print("\n[2c] migrate_okf --fold-private — 行手术折叠且不churn未动键")
+    mig_dir = base / "migrate_okf"
+    mig_src = mig_dir / "wiki" / "modules"
+    mig_src.mkdir(parents=True)
+    mig_file = mig_src / "Legacy.md"
+    mig_file.write_text(
+        '---\n'
+        'type: Module\n'
+        'title: "Legacy"\n'
+        'status: candidate\n'
+        "generated: { by: human:alice, at: '2026-08-01T00:00:00Z' }\n"
+        'related_modules:\n'
+        '  - auth\n'
+        '  - order\n'
+        'severity: high\n'
+        'date: 2026-08-01\n'
+        'category: backend\n'
+        'source_refs: ["README_CN"]\n'
+        '---\n'
+        '\n'
+        '# Legacy\n\n正文。\n',
+        encoding="utf-8",
+    )
+    mig_changes = migrate_file(mig_file, mig_dir, 90, False, True)
+    mig_fm = read_fm(mig_file)
+    check("migrate_okf", "私有键已折叠", "folded metadata:" in " ".join(mig_changes), str(mig_changes))
+    check("migrate_okf", "顶层无私有键",
+          not any(ln.startswith(k + ":") for ln in mig_fm.splitlines()
+                  for k in ("related_modules", "severity", "date", "category", "source_refs")),
+          mig_fm[:400])
+    try:
+        mig_y = _yaml.safe_load(mig_fm)
+    except Exception as e:
+        mig_y = {}
+        print("  (migrate yaml err:", e, ")")
+    mig_meta = mig_y.get("metadata") or {}
+    check("migrate_okf", "metadata含related_modules",
+          mig_meta.get("related_modules") == ["auth", "order"], mig_fm[:600])
+    check("migrate_okf", "metadata含severity", mig_meta.get("severity") == "high", mig_fm[:600])
+    check("migrate_okf", "metadata含date", mig_meta.get("date") == "2026-08-01", mig_fm[:600])
+    check("migrate_okf", "metadata含source_refs",
+          mig_meta.get("source_refs") == ["README_CN"], mig_fm[:600])
+    check("migrate_okf", "未动键格式保持(title引号)", 'title: "Legacy"' in mig_fm, mig_fm[:300])
+    check("migrate_okf", "未动键格式保持(generated flow映射)",
+          "generated: { by: human:alice" in mig_fm, mig_fm[:300])
+    check("migrate_okf", "status映射candidate→draft",
+          mig_y.get("status") == "draft", mig_fm[:300])
+    check("migrate_okf", "折叠值为单行JSON(行式读取兼容)",
+          any(ln.startswith("  source_refs: [") for ln in mig_fm.splitlines()), mig_fm[:400])
+    check("migrate_okf", "补丁键stale_after已补齐", "stale_after" in mig_fm, mig_fm[:300])
+    mig_changes2 = migrate_file(mig_file, mig_dir, 90, False, True)
+    check("migrate_okf", "幂等-二次运行无改动", not mig_changes2, str(mig_changes2))
 
     # ================================================================
     print("\n[3] ingest_note — 生命周期默认值与归一化")
@@ -190,7 +349,7 @@ def main():
     # Default actor when by is omitted
     r = json.loads(handle_confirm_note({"session_id": sid, "note_file": note3.name}, store))
     fm = read_fm(note3)
-    check("confirm_note", "默认actor=codewiki/5.2.0", "codewiki/5.2.0" in fm, fm[:500])
+    check("confirm_note", "默认actor=agent:codewiki", "agent:codewiki/" in fm, fm[:500])
 
     # Legacy note: status confirmed + bare-mapping verified
     notes_dir = output_dir / "notes"
@@ -202,12 +361,11 @@ def main():
     r = json.loads(handle_confirm_note({"session_id": sid, "note_file": legacy.name}, store))
     fm = read_fm(legacy)
     check("confirm_note", "legacy confirmed→stable", r.get("status") == "stable", str(r)[:200])
-    import yaml as _yaml
     try:
         data = _yaml.safe_load(fm)
         vlist = data.get("verified")
         ok = isinstance(vlist, list) and len(vlist) == 2 and \
-            vlist[0].get("by") == "human:old-reviewer" and "codewiki/" in str(vlist[1].get("by", ""))
+            vlist[0].get("by") == "human:old-reviewer" and "agent:codewiki/" in str(vlist[1].get("by", ""))
     except Exception as e:
         ok, data = False, str(e)
     check("confirm_note", "bare verified映射转列表并追加", ok, str(data)[:300])

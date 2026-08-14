@@ -1,39 +1,27 @@
 ---
 title: MCP_Tools_Analysis
-depth: 2
-module_type: leaf
-component_count: 24
-components:
-  - codewiki/mcp/tools/analysis.py::_build_no_change_response
-  - codewiki/mcp/tools/analysis.py::_build_symbol_map
-  - codewiki/mcp/tools/analysis.py::_check_overview_stale
-  - codewiki/mcp/tools/analysis.py::_detect_doc_changes
-  - codewiki/mcp/tools/analysis.py::_detect_git_from_meta
-  - codewiki/mcp/tools/analysis.py::_detect_mtime_from_meta
-  - codewiki/mcp/tools/analysis.py::_extract_overview_refs
-  - codewiki/mcp/tools/analysis.py::_find_affected_modules
-  - codewiki/mcp/tools/analysis.py::_load_overview_refs
-  - codewiki/mcp/tools/analysis.py::_n
-  - codewiki/mcp/tools/analysis.py::_read_source_from_disk
-  - codewiki/mcp/tools/analysis.py::_retag_routes_by_service
-  - codewiki/mcp/tools/analysis.py::_run_monorepo_cross_service
-  - codewiki/mcp/tools/analysis.py::_save_overview_refs
-  - codewiki/mcp/tools/analysis.py::_walk
-  - codewiki/mcp/tools/analysis.py::_walk_graph
-  - codewiki/mcp/tools/analysis.py::add
-  - codewiki/mcp/tools/analysis.py::handle_analyze_repo
-  - codewiki/mcp/tools/workspace_analyzer.py::_generate_overview
-  - codewiki/mcp/tools/workspace_analyzer.py::_run_cross_service_analysis
-  - codewiki/mcp/tools/workspace_analyzer.py::_scan_git_repos
-  - codewiki/mcp/tools/workspace_analyzer.py::handle_analyze_workspace
-  - codewiki/mcp/tools/workspace_result.py::resolve_session
-  - codewiki/mcp/tools/workspace_result.py::write_result
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
 type: Module
-generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:39Z }
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
 stale_after: 2026-10-31
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 24
+  components: ['codewiki/mcp/tools/analysis.py::_build_no_change_response', 'codewiki/mcp/tools/analysis.py::_build_symbol_map',
+    'codewiki/mcp/tools/analysis.py::_check_overview_stale', 'codewiki/mcp/tools/analysis.py::_detect_doc_changes',
+    'codewiki/mcp/tools/analysis.py::_detect_git_from_meta', 'codewiki/mcp/tools/analysis.py::_detect_mtime_from_meta',
+    'codewiki/mcp/tools/analysis.py::_extract_overview_refs', 'codewiki/mcp/tools/analysis.py::_find_affected_modules',
+    'codewiki/mcp/tools/analysis.py::_load_overview_refs', 'codewiki/mcp/tools/analysis.py::_n',
+    'codewiki/mcp/tools/analysis.py::_read_source_from_disk', 'codewiki/mcp/tools/analysis.py::_retag_routes_by_service',
+    'codewiki/mcp/tools/analysis.py::_run_monorepo_cross_service', 'codewiki/mcp/tools/analysis.py::_save_overview_refs',
+    'codewiki/mcp/tools/analysis.py::_walk', 'codewiki/mcp/tools/analysis.py::_walk_graph',
+    'codewiki/mcp/tools/analysis.py::add', 'codewiki/mcp/tools/analysis.py::handle_analyze_repo',
+    'codewiki/mcp/tools/workspace_analyzer.py::_generate_overview', 'codewiki/mcp/tools/workspace_analyzer.py::_run_cross_service_analysis',
+    'codewiki/mcp/tools/workspace_analyzer.py::_scan_git_repos', 'codewiki/mcp/tools/workspace_analyzer.py::handle_analyze_workspace',
+    'codewiki/mcp/tools/workspace_result.py::resolve_session', 'codewiki/mcp/tools/workspace_result.py::write_result']
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
 ---
 
 # MCP_Tools_Analysis 模块文档

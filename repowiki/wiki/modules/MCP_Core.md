@@ -1,52 +1,32 @@
 ---
 title: MCP_Core
-depth: 2
-module_type: leaf
-component_count: 38
-components:
-  - codewiki/mcp/server.py::_fine_grained_tools
-  - codewiki/mcp/server.py::_legacy_generate_docs
-  - codewiki/mcp/server.py::_legacy_get_module_tree
-  - codewiki/mcp/server.py::_legacy_tools
-  - codewiki/mcp/server.py::_load_config
-  - codewiki/mcp/server.py::_read_wiki_resource
-  - codewiki/mcp/server.py::_resolve_path
-  - codewiki/mcp/server.py::_summarize
-  - codewiki/mcp/server.py::_summarize_tree
-  - codewiki/mcp/server.py::_text
-  - codewiki/mcp/server.py::_wiki_catalog
-  - codewiki/mcp/server.py::_wiki_index_status
-  - codewiki/mcp/server.py::_wiki_module_tree
-  - codewiki/mcp/server.py::call_tool
-  - codewiki/mcp/server.py::get_prompt
-  - codewiki/mcp/server.py::list_prompts
-  - codewiki/mcp/server.py::list_resource_templates
-  - codewiki/mcp/server.py::list_resources
-  - codewiki/mcp/server.py::list_tools
-  - codewiki/mcp/server.py::main
-  - codewiki/mcp/server.py::read_resource
-  - codewiki/mcp/server.py::_write_generation_metadata_from_disk
-  - codewiki/mcp/server.py::_write_metadata_json
-  - codewiki/mcp/server.py::_prompt_architecture_review
-  - codewiki/mcp/server.py::_prompt_code_analysis
-  - codewiki/mcp/server.py::_prompt_cross_service_trace
-  - codewiki/mcp/server.py::_prompt_extract_knowledge
-  - codewiki/mcp/server.py::_prompt_generate_wiki
-  - codewiki/mcp/server.py::_prompt_impact_review
-  - codewiki/mcp/server.py::_prompt_incremental_update
-  - codewiki/mcp/server.py::_prompt_quality_check
-  - codewiki/mcp/server.py::_prompt_search_wiki
-  - codewiki/mcp/server.py::_prompt_workspace_analysis
-  - codewiki/mcp/session.py::SessionState
-  - codewiki/mcp/session.py::SessionStore
-  - codewiki/mcp/workspace.py::SessionWorkspace
-  - codewiki/mcp/workspace.py::_safe_filename
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
 type: Module
-generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:39Z }
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
 stale_after: 2026-10-31
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 38
+  components: ['codewiki/mcp/server.py::_fine_grained_tools', 'codewiki/mcp/server.py::_legacy_generate_docs',
+    'codewiki/mcp/server.py::_legacy_get_module_tree', 'codewiki/mcp/server.py::_legacy_tools',
+    'codewiki/mcp/server.py::_load_config', 'codewiki/mcp/server.py::_read_wiki_resource',
+    'codewiki/mcp/server.py::_resolve_path', 'codewiki/mcp/server.py::_summarize',
+    'codewiki/mcp/server.py::_summarize_tree', 'codewiki/mcp/server.py::_text', 'codewiki/mcp/server.py::_wiki_catalog',
+    'codewiki/mcp/server.py::_wiki_index_status', 'codewiki/mcp/server.py::_wiki_module_tree',
+    'codewiki/mcp/server.py::call_tool', 'codewiki/mcp/server.py::get_prompt', 'codewiki/mcp/server.py::list_prompts',
+    'codewiki/mcp/server.py::list_resource_templates', 'codewiki/mcp/server.py::list_resources',
+    'codewiki/mcp/server.py::list_tools', 'codewiki/mcp/server.py::main', 'codewiki/mcp/server.py::read_resource',
+    'codewiki/mcp/server.py::_write_generation_metadata_from_disk', 'codewiki/mcp/server.py::_write_metadata_json',
+    'codewiki/mcp/server.py::_prompt_architecture_review', 'codewiki/mcp/server.py::_prompt_code_analysis',
+    'codewiki/mcp/server.py::_prompt_cross_service_trace', 'codewiki/mcp/server.py::_prompt_extract_knowledge',
+    'codewiki/mcp/server.py::_prompt_generate_wiki', 'codewiki/mcp/server.py::_prompt_impact_review',
+    'codewiki/mcp/server.py::_prompt_incremental_update', 'codewiki/mcp/server.py::_prompt_quality_check',
+    'codewiki/mcp/server.py::_prompt_search_wiki', 'codewiki/mcp/server.py::_prompt_workspace_analysis',
+    'codewiki/mcp/session.py::SessionState', 'codewiki/mcp/session.py::SessionStore',
+    'codewiki/mcp/workspace.py::SessionWorkspace', 'codewiki/mcp/workspace.py::_safe_filename']
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
 ---
 
 # MCP_Core 模块文档

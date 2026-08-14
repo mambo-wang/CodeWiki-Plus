@@ -118,7 +118,7 @@ def rebuild_index(output_dir: str | Path) -> None:
                     {
                         "title": fm.get("title", note_file.stem),
                         "type": fm.get("type", "note"),
-                        "date": str(fm.get("date", "")),
+                        "date": str(fm.get("date", "") or (fm.get("metadata") or {}).get("date", "")),
                         "relpath": f"../{NOTES_DIR}/{note_file.name}",
                     }
                 )

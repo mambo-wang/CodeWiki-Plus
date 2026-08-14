@@ -1,17 +1,17 @@
 ---
-title: "空间Rbac"
+title: 空间Rbac
 type: Concept
-description: "WeKnora 多空间权限控制：四级角色矩阵 + 资源归属 + 空间审计日志"
-generated: { by: codewiki/5.2.0, at: 2026-08-03T04:55:42Z }
+description: WeKnora 多空间权限控制：四级角色矩阵 + 资源归属 + 空间审计日志
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-03 04:55:42+00:00'}
 stale_after: 2026-11-01
 aliases: [空间 RBAC, RBAC, 多空间权限]
-source_refs: ["README_CN"]
-chunk_refs: ["README_CN:71", "README_CN:159", "README_CN:159", "README_CN:159", "README_CN:159", "README_CN:150", "README_CN:67"]
 sources:
-  - id: README_CN
-    resource: raw/sources/README_CN.md
-    title: "WeKnora（腾讯开源企业级知识库平台）中文 README，用于测试两阶段知识提取流程"
-    last_modified: 2026-08-03
+- {id: README_CN, resource: raw/sources/README_CN.md, title: WeKnora（腾讯开源企业级知识库平台）中文
+    README，用于测试两阶段知识提取流程, last_modified: 2026-08-03}
+metadata:
+  source_refs: [README_CN]
+  chunk_refs: ['README_CN:71', 'README_CN:159', 'README_CN:159', 'README_CN:159',
+    'README_CN:159', 'README_CN:150', 'README_CN:67']
 ---
 # 空间RBAC
 

@@ -15,6 +15,7 @@ from typing import Any, Dict
 
 from codewiki.mcp.session import SessionState, SessionStore
 from codewiki.mcp.tools.file_param import read_param
+from codewiki.src.frontmatter import is_okf_standard_key
 from codewiki.mcp.tools.page_router import (
     resolve_doc_path,
     compute_link_path,
@@ -113,9 +114,11 @@ def _extract_source_refs(content: str) -> tuple[list[str], list[str]]:
 def _resync_source_refs(content: str) -> str:
     """Re-parse ``[^src:...]`` refs from body and sync frontmatter fields.
 
-    Rewrites (or inserts) the ``source_refs`` and ``chunk_refs`` lines inside
+    Rewrites (or inserts) the ``source_refs`` and ``chunk_refs`` rows inside
     an existing YAML frontmatter block so they always reflect the current
-    body.  Returns *content* unchanged when there is no frontmatter block.
+    body.  The rows are folded under ``metadata:`` (OKF v0.2 producer-private
+    convention), so an edit can never resurrect top-level private keys.
+    Returns *content* unchanged when there is no frontmatter block.
     """
     if not content.startswith("---"):
         return content
@@ -132,17 +135,34 @@ def _resync_source_refs(content: str) -> str:
     body = "\n".join(lines[close_idx + 1:])
     source_refs, chunk_refs = _extract_source_refs(body)
 
-    # Drop any existing source_refs/chunk_refs lines within the frontmatter
+    # Drop any existing source_refs/chunk_refs rows, whether they sit at the
+    # top level (legacy files) or folded under metadata: (OKF v0.2).  They are
+    # always re-emitted folded so an edit cannot resurrect top-level private
+    # keys during a later regeneration.
     fm_lines = [
         ln for ln in lines[1:close_idx]
-        if not ln.startswith("source_refs:") and not ln.startswith("chunk_refs:")
+        if not ln.lstrip().startswith("source_refs:")
+        and not ln.lstrip().startswith("chunk_refs:")
     ]
+    ref_rows: list[str] = []
     if source_refs:
-        refs_str = ", ".join(f'"{r}"' for r in source_refs)
-        fm_lines.append(f"source_refs: [{refs_str}]")
+        ref_rows.append(f"  source_refs: {json.dumps(source_refs, ensure_ascii=False)}")
     if chunk_refs:
-        chunks_str = ", ".join(f'"{c}"' for c in chunk_refs)
-        fm_lines.append(f"chunk_refs: [{chunks_str}]")
+        ref_rows.append(f"  chunk_refs: {json.dumps(chunk_refs, ensure_ascii=False)}")
+    if ref_rows:
+        meta_idx = None
+        for _i, _ln in enumerate(fm_lines):
+            if _ln.rstrip() == "metadata:":
+                meta_idx = _i
+                break
+        if meta_idx is not None:
+            insert = meta_idx + 1
+            while insert < len(fm_lines) and fm_lines[insert].startswith(("  ", "\t")):
+                insert += 1
+            fm_lines = fm_lines[:insert] + ref_rows + fm_lines[insert:]
+        else:
+            fm_lines.append("metadata:")
+            fm_lines.extend(ref_rows)
 
     rebuilt = ["---"] + fm_lines + ["---"] + lines[close_idx + 1:]
     return "\n".join(rebuilt)
@@ -535,28 +555,23 @@ def _build_okf_frontmatter(
     aliases_str = ", ".join(f'"{a}"' for a in aliases)
     fm_parts.append(f"aliases: [{aliases_str}]")
     # Type-specific fields from extra:
-    #  - Keep at top level (runtime consumers depend on them):
-    #      severity (cache boost), origin (knowledge_loop line-parser),
-    #      root_cause (prompts/docs), status (lifecycle).
-    #  - Fold the rest under `metadata:` (OKF P2: top level must stay
-    #    standard-only: resource/generated_from/category/domain/version/
-    #    format/decision/decided_at).
+    #  - OKF v0.2 standard keys (status/tags/description/...) stay at the
+    #    top level — the only fields the spec allows there.
+    #  - Everything else is producer-private (components, related_modules,
+    #    severity, origin, category, ...) and folds under `metadata:` so a
+    #    later full regeneration cannot resurrect it at the top level.
     _private_extra = {}
-    for key in ("severity", "origin", "root_cause", "status"):
-        if key in extra and extra[key]:
-            val = extra[key]
-            fm_parts.append(f'{key}: "{val}"' if isinstance(val, str) else f"{key}: {val}")
-    for key in ("category", "domain", "version", "format",
-                "decision", "decided_at"):
-        if key in extra and extra[key]:
-            _private_extra[key] = extra[key]
+    for key, val in extra.items():
+        # description/tags/aliases are produced from dedicated parameters
+        # above — skip so no duplicate top-level rows are emitted.
+        if not val or key in ("aliases", "description", "tags"):
+            continue
+        if is_okf_standard_key(key):
+            fm_parts.append(f"{key}: {json.dumps(val, ensure_ascii=False)}")
+        else:
+            _private_extra[key] = val
     _private_extra["resource"] = resource
     _private_extra["generated_from"] = _gen_from
-    if _private_extra:
-        fm_parts.append("metadata:")
-        for _k in sorted(_private_extra):
-            _v = _private_extra[_k]
-            fm_parts.append(f'  {_k}: "{_v}"' if isinstance(_v, str) else f"  {_k}: {_v}")
 
     # Auto-extract source references from body ([^src:name:start-end] and
     # OKF v0.2 bare footnotes [^name] keyed to registered source ids)
@@ -572,11 +587,13 @@ def _build_okf_frontmatter(
         if _matched:
             source_refs = sorted(set(source_refs) | _matched)
     if source_refs:
-        refs_str = ", ".join(f'"{r}"' for r in source_refs)
-        fm_parts.append(f"source_refs: [{refs_str}]")
+        _private_extra["source_refs"] = source_refs
     if chunk_refs:
-        chunks_str = ", ".join(f'"{c}"' for c in chunk_refs)
-        fm_parts.append(f"chunk_refs: [{chunks_str}]")
+        _private_extra["chunk_refs"] = chunk_refs
+    if _private_extra:
+        fm_parts.append("metadata:")
+        for _k in sorted(_private_extra):
+            fm_parts.append(f"  {_k}: {json.dumps(_private_extra[_k], ensure_ascii=False)}")
 
     # OKF v0.2 §5.1: `sources` frontmatter family from source_registry.json
     fm_parts.extend(_okf_sources_block(session.output_dir, source_refs))
@@ -965,17 +982,21 @@ def _inject_lightweight_frontmatter(
     if user_tags:
         fm_lines.append(f"tags: [{', '.join(str(t) for t in user_tags)}]")
 
-    # Merge frontmatter_extra
+    # Merge frontmatter_extra: OKF v0.2 standard keys stay at the top level;
+    # everything else is producer-private (components, related_modules,
+    # category, severity, ...) and folds under `metadata:` so a later full
+    # regeneration cannot resurrect it at the top level.
+    _metadata_lines: list[str] = []
     if frontmatter_extra:
         for key, value in frontmatter_extra.items():
-            if key == "aliases":
+            # description/tags/aliases are produced from dedicated parameters
+            # above — skip so no duplicate top-level rows are emitted.
+            if key in ("aliases", "description", "tags") or value is None:
                 continue
-            if isinstance(value, list):
-                fm_lines.append(f"{key}: [{', '.join(str(v) for v in value)}]")
-            elif isinstance(value, str):
-                fm_lines.append(f"{key}: \"{value}\"")
+            if is_okf_standard_key(key):
+                fm_lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
             else:
-                fm_lines.append(f"{key}: {value}")
+                _metadata_lines.append(f"  {key}: {json.dumps(value, ensure_ascii=False)}")
 
     # Auto-extract source references from body ([^src:name:lines] and OKF
     # v0.2 bare footnotes [^name] keyed to registered source ids).  Mirrors
@@ -994,11 +1015,12 @@ def _inject_lightweight_frontmatter(
             if _matched:
                 source_refs = sorted(set(source_refs) | _matched)
     if source_refs:
-        refs_str = ", ".join(f'"{r}"' for r in source_refs)
-        fm_lines.append(f"source_refs: [{refs_str}]")
+        _metadata_lines.append(f"  source_refs: {json.dumps(source_refs, ensure_ascii=False)}")
     if chunk_refs:
-        chunks_str = ", ".join(f'"{c}"' for c in chunk_refs)
-        fm_lines.append(f"chunk_refs: [{chunks_str}]")
+        _metadata_lines.append(f"  chunk_refs: {json.dumps(chunk_refs, ensure_ascii=False)}")
+    if _metadata_lines:
+        fm_lines.append("metadata:")
+        fm_lines.extend(_metadata_lines)
     if output_dir:
         fm_lines.extend(_okf_sources_block(str(output_dir), source_refs))
 

@@ -12,9 +12,12 @@ directory into OKF v0.2 conformance (SPEC §11):
    candidate→draft, confirmed→stable, rejected/superseded→deprecated.
 4. The bundle-root ``wiki/index.md`` gets ``okf_version: "0.2"`` (the only
    frontmatter permitted on an index file, SPEC §12).
+5. With ``--fold-private``, producer-private top-level keys (related_modules,
+   severity, date, source_ref(s), …) are folded under a ``metadata`` node so
+   the top level only carries OKF-standard keys (§4/§5).
 
 Usage:
-    python scripts/migrate_okf.py <output_dir> [--dry-run] [--stale-days 90]
+    python scripts/migrate_okf.py <output_dir> [--dry-run] [--stale-days 90] [--fold-private]
 
 ``<output_dir>`` is the repowiki output directory (the one containing
 ``wiki/`` and ``schema.yaml``), e.g. ``./repowiki``.
@@ -23,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from datetime import datetime, timedelta, timezone
@@ -76,7 +80,7 @@ def actor_id() -> str:
         from codewiki.src.config import actor_id as _aid
         return _aid()
     except Exception:
-        return "codewiki"
+        return "agent:codewiki"
 
 
 def infer_type(path: Path, output_dir: Path) -> str:
@@ -99,7 +103,8 @@ def title_of(body_lines, fallback: str) -> str:
     return fallback
 
 
-def migrate_file(path: Path, output_dir: Path, stale_days: int, dry_run: bool) -> list:
+def migrate_file(path: Path, output_dir: Path, stale_days: int, dry_run: bool,
+                 fold_private: bool = False) -> list:
     """Migrate one markdown file. Returns list of change descriptions."""
     changes = []
     content = path.read_text(encoding="utf-8")
@@ -110,6 +115,68 @@ def migrate_file(path: Path, output_dir: Path, stale_days: int, dry_run: bool) -
     actor = actor_id()
 
     additions = []
+
+    # OKF §4/§5: fold producer-private top-level keys under ``metadata`` so the
+    # top level only carries OKF-standard keys.  Uses targeted line surgery
+    # instead of a full YAML re-dump: untouched keys keep their exact original
+    # formatting, and folded values are emitted as single-line JSON rows —
+    # byte-identical to what the doc_writer generators write.  Line-based
+    # consumers (wiki_index note date, lint note_clusters, cache.py boost)
+    # and later full regenerations therefore keep reading them unchanged.
+    if fold_private and isinstance(data, dict):
+        _OKF_STANDARD = {
+            "type", "title", "aliases", "description",
+            "status", "verified", "stale_after", "generated",
+            "tags", "sources",
+        }
+        meta = dict(data.get("metadata") or {})
+        folded = [k for k in data if k not in _OKF_STANDARD and k != "metadata"]
+        if folded:
+            for k in folded:
+                meta[k] = data.pop(k)
+            remove = set(folded) | {"metadata"}
+            kept: list[str] = []
+            i = 0
+            while i < len(fm_lines):
+                line = fm_lines[i]
+                m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):", line)
+                if m and m.group(1) in remove:
+                    i += 1
+                    # absorb indented child rows (block-style values)
+                    while i < len(fm_lines) and fm_lines[i].startswith((" ", "\t")):
+                        i += 1
+                    continue
+                kept.append(line)
+                i += 1
+            # OKF §11: patch missing additive keys so one --fold-private run
+            # yields a fully conformant file (kept order: standard keys first,
+            # then metadata).
+            if not data.get("type"):
+                kept.append(f"type: {infer_type(path, output_dir)}")
+                changes.append(f"patched type: {infer_type(path, output_dir)}")
+            if "generated" not in data:
+                kept.append(f"generated: {{ by: {actor}, at: {now_iso} }}")
+                changes.append("patched generated")
+            if "stale_after" not in data:
+                kept.append(f"stale_after: {stale_date}")
+                changes.append("patched stale_after")
+            kept.append("metadata:")
+            for k in sorted(meta):
+                kept.append(
+                    "  {}: {}".format(k, json.dumps(meta[k], ensure_ascii=False, default=str))
+                )
+            # Legacy status vocabulary → OKF lifecycle (same as the patch path)
+            for j, line in enumerate(kept):
+                m = re.match(r"^status:\s*(\S+)", line)
+                if m and m.group(1) in STATUS_MAP:
+                    kept[j] = "status: " + STATUS_MAP[m.group(1)]
+                    changes.append(f"status: {m.group(1)} → {STATUS_MAP[m.group(1)]}")
+                    break
+            new_content = "\n".join(["---"] + kept + ["---"] + body_lines)
+            changes.append("folded metadata: " + ", ".join(sorted(folded)))
+            if not dry_run:
+                path.write_text(new_content, encoding="utf-8")
+            return changes
 
     if data is None and end_idx is None and not content.startswith("---"):
         # No frontmatter at all → create a minimal block
@@ -205,6 +272,8 @@ def main() -> int:
     ap.add_argument("output_dir", help="repowiki output directory (contains wiki/ and schema.yaml)")
     ap.add_argument("--dry-run", action="store_true", help="report changes without writing")
     ap.add_argument("--stale-days", type=int, default=90, help="days until stale_after (default 90)")
+    ap.add_argument("--fold-private", action="store_true",
+                    help="fold producer-private top-level keys under metadata (OKF §4/§5)")
     args = ap.parse_args()
 
     output_dir = Path(args.output_dir).expanduser().resolve()
@@ -226,7 +295,7 @@ def main() -> int:
 
     changed = 0
     for path in targets:
-        changes = migrate_file(path, output_dir, args.stale_days, args.dry_run)
+        changes = migrate_file(path, output_dir, args.stale_days, args.dry_run, args.fold_private)
         if changes:
             changed += 1
             rel = path.relative_to(output_dir)
