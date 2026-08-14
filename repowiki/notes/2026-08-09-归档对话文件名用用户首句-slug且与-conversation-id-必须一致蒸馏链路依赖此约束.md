@@ -1,16 +1,17 @@
 ---
 type: decision
 title: "归档对话文件名用用户首句 slug，且与 conversation_id 必须一致（蒸馏链路依赖此约束）"
-date: 2026-08-09
-related_modules: ["team-memory", "mcp", "\"\""]
-related_components: []
 tags: ["decision"]
-source_ref: "raw\conv-20260808T152648Z.md"
 status: deprecated
 generated: { by: codewiki/5.2.1, at: 2026-08-09T08:44:53Z }
 stale_after: 2026-11-07
-origin: conversation
 
+metadata:
+  date: "2026-08-09"
+  origin: "conversation"
+  related_components: []
+  related_modules: ["team-memory", "mcp", "\"\""]
+  source_ref: "raw\\conv-20260808T152648Z.md"
 ---
 
 ## 背景

@@ -1,16 +1,17 @@
 ---
 type: lesson
 title: "无知识的 raw 对话蒸馏后也应清理，删除条件要用 produced is not None 而非 truthy"
-date: 2026-08-09
-related_modules: ["team-memory", "mcp", "\"\""]
-related_components: []
 tags: ["lesson"]
-source_ref: "raw\conv-20260808T152648Z.md"
 status: deprecated
 generated: { by: codewiki/5.2.1, at: 2026-08-09T08:44:54Z }
 stale_after: 2026-11-07
-origin: conversation
 
+metadata:
+  date: "2026-08-09"
+  origin: "conversation"
+  related_components: []
+  related_modules: ["team-memory", "mcp", "\"\""]
+  source_ref: "raw\\conv-20260808T152648Z.md"
 ---
 
 ## 背景

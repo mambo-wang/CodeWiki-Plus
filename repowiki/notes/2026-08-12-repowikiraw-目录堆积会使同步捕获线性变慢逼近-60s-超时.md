@@ -1,16 +1,17 @@
 ---
 type: pitfall
 title: "repowiki/raw/ 目录堆积会使同步捕获线性变慢，逼近 60s 超时"
-date: 2026-08-12
-related_modules: ["mcp", "hooks", "\"\""]
-related_components: []
 tags: ["pitfall"]
-source_ref: "raw\conv-hook是同步执行还是异步执行的.md"
 status: deprecated
 generated: { by: codewiki/5.2.2, at: 2026-08-12T11:58:40Z }
 stale_after: 2026-11-10
-origin: conversation
 
+metadata:
+  date: "2026-08-12"
+  origin: "conversation"
+  related_components: []
+  related_modules: ["mcp", "hooks", "\"\""]
+  source_ref: "raw\\conv-hook是同步执行还是异步执行的.md"
 ---
 
 ## 背景

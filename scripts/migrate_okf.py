@@ -80,7 +80,7 @@ def actor_id() -> str:
         from codewiki.src.config import actor_id as _aid
         return _aid()
     except Exception:
-        return "agent:codewiki"
+        return "codewiki"
 
 
 def infer_type(path: Path, output_dir: Path) -> str:
@@ -103,12 +103,52 @@ def title_of(body_lines, fallback: str) -> str:
     return fallback
 
 
+# YAML double-quoted scalar legal escape starters (§11 frontmatter must parse).
+_VALID_ESCAPE = re.compile(r'\\(?!["\\nrt0abfveN_LPxuU ])')
+
+def repair_double_quoted_escapes(fm_lines: list) -> list:
+    """Repair invalid YAML escapes in single-line ``key: "value"`` rows.
+
+    Producer code that interpolated a Windows path with a bare f-string wrote
+    e.g. ``source_ref: "raw\\conv-20260808T145202Z.md"`` where ``\\c`` is not a
+    legal YAML escape, so the whole frontmatter fails to parse (SPEC §11).
+    Doubling every backslash not followed by a legal escape character turns the
+    scalar into valid YAML (``raw\\\\conv-...``).  Rows with no backslash or no
+    double-quoted scalar are returned unchanged.
+    """
+    out = []
+    for line in fm_lines:
+        m = re.match(r'^(\s*[A-Za-z_][A-Za-z0-9_]*:\s*)"(.*)"\s*$', line)
+        if m and "\\" in m.group(2):
+            value = _VALID_ESCAPE.sub(r"\\\\", m.group(2))
+            line = f'{m.group(1)}"{value}"'
+        out.append(line)
+    return out
+
+
 def migrate_file(path: Path, output_dir: Path, stale_days: int, dry_run: bool,
                  fold_private: bool = False) -> list:
     """Migrate one markdown file. Returns list of change descriptions."""
     changes = []
     content = path.read_text(encoding="utf-8")
     data, fm_lines, body_lines, end_idx = split_frontmatter(content)
+
+    # OKF §11: frontmatter must be parseable.  Producer code that interpolated a
+    # Windows path with a bare f-string wrote `source_ref: "raw\conv-…"` where
+    # `\c` is not a legal YAML escape, making the whole block fail to parse.
+    # Repair those rows first so fold/patch below can act on the real data.
+    if data is None:
+        repaired_lines = repair_double_quoted_escapes(fm_lines)
+        if repaired_lines != fm_lines:
+            try:
+                data = yaml.safe_load("\n".join(repaired_lines))
+                if not isinstance(data, dict):
+                    data = None
+                else:
+                    fm_lines = repaired_lines
+                    changes.append("repaired invalid YAML escapes")
+            except Exception:
+                data = None
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     stale_date = (datetime.now(timezone.utc) + timedelta(days=stale_days)).strftime("%Y-%m-%d")
@@ -198,7 +238,8 @@ def migrate_file(path: Path, output_dir: Path, stale_days: int, dry_run: bool,
         return changes
 
     if data is None:
-        # Starts with '---' but unparseable/unclosed → leave untouched
+        # Starts with '---' but unparseable/unclosed (repair already attempted
+        # above) → leave untouched.
         changes.append("SKIPPED: unparseable frontmatter")
         return changes
 

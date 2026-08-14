@@ -1,16 +1,17 @@
 ---
 type: lesson
 title: "同一会话的 PreCompact/Stop 不带 transcript_path，落空信封会被 duplicate 去重，应视为 no-op"
-date: 2026-08-09
-related_modules: ["team-memory", "mcp", "\"\""]
-related_components: []
 tags: ["lesson", "precompact", "sessionend"]
-source_ref: "raw\conv-20260808T152648Z.md"
 status: deprecated
 generated: { by: codewiki/5.2.1, at: 2026-08-09T08:44:52Z }
 stale_after: 2026-11-07
-origin: conversation
 
+metadata:
+  date: "2026-08-09"
+  origin: "conversation"
+  related_components: []
+  related_modules: ["team-memory", "mcp", "\"\""]
+  source_ref: "raw\\conv-20260808T152648Z.md"
 ---
 
 ## 背景

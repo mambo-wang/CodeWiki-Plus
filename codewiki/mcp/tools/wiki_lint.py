@@ -1119,6 +1119,7 @@ def _check_okf_conformance(
     from codewiki.src.config import (
         INDEX_FILENAME,
         META_DIR,
+        RAW_DIR,
         WIKI_DIR,
     )
 
@@ -1127,11 +1128,18 @@ def _check_okf_conformance(
     # Collect candidate .md files across the bundle.  P3: the original scan
     # only covered wiki/, notes/ and raw/sources/, silently missing root-level
     # runbooks such as team-memory-hook.md.  Scan the whole bundle and skip
-    # scratch/staging directories (.meta/, .trash/, .hook-debug/) instead.
+    # scratch/staging directories (.meta/, .trash/, .hook-debug/) and the raw/
+    # capture staging layer (conv-*.md from capture_conversation).  raw/sources/
+    # is exempt: it holds the ingested source documents that still get audited.
     _scratch_dirs = {META_DIR, ".trash", ".hook-debug"}
     targets: List[Path] = []
     for _md in output_dir.rglob("*.md"):
-        if any(_part in _scratch_dirs for _part in _md.parts):
+        parts = _md.parts
+        # raw/ 根下是 capture_conversation 采集暂存层（conv-*.md），跳过；
+        # raw/sources/ 是真实源文档层，仍参与审计。
+        if RAW_DIR in parts and "sources" not in parts:
+            continue
+        if any(_part in _scratch_dirs for _part in parts):
             continue
         targets.append(_md)
 
