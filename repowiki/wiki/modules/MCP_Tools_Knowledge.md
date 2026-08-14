@@ -1,56 +1,36 @@
 ---
 title: MCP_Tools_Knowledge
-depth: 2
-module_type: leaf
-component_count: 44
-components:
-  - codewiki/mcp/tools/agents_md.py::_build_section
-  - codewiki/mcp/tools/agents_md.py::_extract_modules
-  - codewiki/mcp/tools/agents_md.py::write_agents_md
-  - codewiki/mcp/tools/agents_md.py::_write_agents_md
-  - codewiki/mcp/tools/batch_ingest.py::handle_batch_ingest
-  - codewiki/mcp/tools/code_reader.py::_read_source_from_disk
-  - codewiki/mcp/tools/code_reader.py::handle_read_code_components
-  - codewiki/mcp/tools/file_viewer.py::handle_view_repo_file
-  - codewiki/mcp/tools/knowledge_loop.py::_auto_match_modules
-  - codewiki/mcp/tools/knowledge_loop.py::_collect
-  - codewiki/mcp/tools/knowledge_loop.py::_extract_frontmatter
-  - codewiki/mcp/tools/knowledge_loop.py::_extract_frontmatter_block
-  - codewiki/mcp/tools/knowledge_loop.py::_extract_keywords
-  - codewiki/mcp/tools/knowledge_loop.py::_extract_section
-  - codewiki/mcp/tools/knowledge_loop.py::_extract_tags
-  - codewiki/mcp/tools/knowledge_loop.py::_get_module_components
-  - codewiki/mcp/tools/knowledge_loop.py::_get_module_doc_name
-  - codewiki/mcp/tools/knowledge_loop.py::_inject_symbol_links
-  - codewiki/mcp/tools/knowledge_loop.py::_legacy_keyword_search
-  - codewiki/mcp/tools/knowledge_loop.py::_load_symbol_map
-  - codewiki/mcp/tools/knowledge_loop.py::_protect
-  - codewiki/mcp/tools/knowledge_loop.py::_query_mode_detail
-  - codewiki/mcp/tools/knowledge_loop.py::_query_mode_directory
-  - codewiki/mcp/tools/knowledge_loop.py::_query_mode_overview
-  - codewiki/mcp/tools/knowledge_loop.py::_replace_symbol
-  - codewiki/mcp/tools/knowledge_loop.py::_resolve_within
-  - codewiki/mcp/tools/knowledge_loop.py::_score_document
-  - codewiki/mcp/tools/knowledge_loop.py::_slugify
-  - codewiki/mcp/tools/knowledge_loop.py::_update_note_status
-  - codewiki/mcp/tools/knowledge_loop.py::_walk
-  - codewiki/mcp/tools/knowledge_loop.py::handle_confirm_note
-  - codewiki/mcp/tools/knowledge_loop.py::handle_ingest_note
-  - codewiki/mcp/tools/knowledge_loop.py::handle_query_wiki
-  - codewiki/mcp/tools/knowledge_loop.py::handle_reject_note
-  - codewiki/mcp/tools/source_ingest.py::_clean_source_refs
-  - codewiki/mcp/tools/source_ingest.py::_count_source_refs
-  - codewiki/mcp/tools/source_ingest.py::_load_registry
-  - codewiki/mcp/tools/source_ingest.py::_resolve_output_dir
-  - codewiki/mcp/tools/source_ingest.py::_save_registry
-  - codewiki/mcp/tools/source_ingest.py::handle_ingest_source
-  - codewiki/mcp/tools/source_ingest.py::handle_retract_source
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
 type: Module
-generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:39Z }
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
 stale_after: 2026-10-31
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 44
+  components: ['codewiki/mcp/tools/agents_md.py::_build_section', 'codewiki/mcp/tools/agents_md.py::_extract_modules',
+    'codewiki/mcp/tools/agents_md.py::write_agents_md', 'codewiki/mcp/tools/agents_md.py::_write_agents_md',
+    'codewiki/mcp/tools/batch_ingest.py::handle_batch_ingest', 'codewiki/mcp/tools/code_reader.py::_read_source_from_disk',
+    'codewiki/mcp/tools/code_reader.py::handle_read_code_components', 'codewiki/mcp/tools/file_viewer.py::handle_view_repo_file',
+    'codewiki/mcp/tools/knowledge_loop.py::_auto_match_modules', 'codewiki/mcp/tools/knowledge_loop.py::_collect',
+    'codewiki/mcp/tools/knowledge_loop.py::_extract_frontmatter', 'codewiki/mcp/tools/knowledge_loop.py::_extract_frontmatter_block',
+    'codewiki/mcp/tools/knowledge_loop.py::_extract_keywords', 'codewiki/mcp/tools/knowledge_loop.py::_extract_section',
+    'codewiki/mcp/tools/knowledge_loop.py::_extract_tags', 'codewiki/mcp/tools/knowledge_loop.py::_get_module_components',
+    'codewiki/mcp/tools/knowledge_loop.py::_get_module_doc_name', 'codewiki/mcp/tools/knowledge_loop.py::_inject_symbol_links',
+    'codewiki/mcp/tools/knowledge_loop.py::_legacy_keyword_search', 'codewiki/mcp/tools/knowledge_loop.py::_load_symbol_map',
+    'codewiki/mcp/tools/knowledge_loop.py::_protect', 'codewiki/mcp/tools/knowledge_loop.py::_query_mode_detail',
+    'codewiki/mcp/tools/knowledge_loop.py::_query_mode_directory', 'codewiki/mcp/tools/knowledge_loop.py::_query_mode_overview',
+    'codewiki/mcp/tools/knowledge_loop.py::_replace_symbol', 'codewiki/mcp/tools/knowledge_loop.py::_resolve_within',
+    'codewiki/mcp/tools/knowledge_loop.py::_score_document', 'codewiki/mcp/tools/knowledge_loop.py::_slugify',
+    'codewiki/mcp/tools/knowledge_loop.py::_update_note_status', 'codewiki/mcp/tools/knowledge_loop.py::_walk',
+    'codewiki/mcp/tools/knowledge_loop.py::handle_confirm_note', 'codewiki/mcp/tools/knowledge_loop.py::handle_ingest_note',
+    'codewiki/mcp/tools/knowledge_loop.py::handle_query_wiki', 'codewiki/mcp/tools/knowledge_loop.py::handle_reject_note',
+    'codewiki/mcp/tools/source_ingest.py::_clean_source_refs', 'codewiki/mcp/tools/source_ingest.py::_count_source_refs',
+    'codewiki/mcp/tools/source_ingest.py::_load_registry', 'codewiki/mcp/tools/source_ingest.py::_resolve_output_dir',
+    'codewiki/mcp/tools/source_ingest.py::_save_registry', 'codewiki/mcp/tools/source_ingest.py::handle_ingest_source',
+    'codewiki/mcp/tools/source_ingest.py::handle_retract_source']
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
 ---
 
 # MCP_Tools_Knowledge 模块文档

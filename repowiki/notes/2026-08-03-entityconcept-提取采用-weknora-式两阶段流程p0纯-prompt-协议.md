@@ -1,31 +1,18 @@
 ---
 type: decision
 title: Entity/Concept 提取采用 WeKnora 式两阶段流程（P0：纯 prompt 协议）
-date: 2026-08-03
-related_modules:
-- mcp
-- prompt_server
-related_components: []
-tags:
-- codewiki
-- decision
-- weknora
-aliases:
-- extraction_dedup
-- 两阶段提取
-- WeKnora借鉴
-- 编译器纪律
-- granularity透传
-- related≠same
-source_ref: WeKnora prompts_wiki.go (Tencent/WeKnora)
+tags: [codewiki, decision, weknora]
+aliases: [extraction_dedup, 两阶段提取, WeKnora借鉴, 编译器纪律, granularity透传, related≠same]
 status: stable
-generated:
-  by: codewiki/5.2.0
-  at: 2026-08-03 04:46:14+00:00
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-03 04:46:14+00:00'}
 stale_after: '2026-11-01'
 verified:
-- by: human:mambo-wang
-  at: '2026-08-03T04:46:38Z'
+- {by: 'human:mambo-wang', at: '2026-08-03T04:46:38Z'}
+metadata:
+  date: 2026-08-03
+  related_modules: [mcp, prompt_server]
+  related_components: []
+  source_ref: WeKnora prompts_wiki.go (Tencent/WeKnora)
 ---
 
 ## 背景

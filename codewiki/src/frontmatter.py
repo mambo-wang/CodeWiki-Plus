@@ -10,7 +10,9 @@ OKF v0.2 reference:
   - §4: ``type`` (required), ``title``, ``aliases``
   - §5: lifecycle ``status`` / ``verified`` / ``stale_after``,
         provenance ``generated``
-  - §7: ``generated.by`` follows the ``<producer>/<version>`` convention
+  - §7: ``generated.by`` follows the ``<producer>/<version>`` convention for
+        agents and tools (``human:<id>`` for people, ``process:<id>`` for
+        pipelines)
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ logger = logging.getLogger(__name__)
 _OKF_STANDARD_KEYS = frozenset({
     "type", "title", "aliases", "description",
     "status", "verified", "stale_after", "generated",
+    "tags", "sources",
 })
 
 # Producer-private keys that were historically written at the top level and
@@ -38,6 +41,10 @@ PRIVATE_FRONTMATTER_KEYS = frozenset({
     "format", "decision", "decided_at", "severity", "root_cause",
     "captured_at", "content_hash", "turn_count", "link_to",
     "source_session", "keep_raw",
+    # Note-specific fields historically written at the top level (notes/)
+    "date", "summary", "keywords", "origin",
+    "related_modules", "related_components",
+    "source_ref", "source_refs", "chunk_refs",
 })
 
 

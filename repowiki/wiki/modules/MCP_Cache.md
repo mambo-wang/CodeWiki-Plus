@@ -1,26 +1,20 @@
 ---
 title: MCP_Cache
-depth: 2
-module_type: leaf
-component_count: 11
-components:
-  - codewiki/mcp/cache.py::AnalysisCache
-  - codewiki/mcp/cache.py::ComponentMeta
-  - codewiki/mcp/cache.py::LazyComponentStore
-  - codewiki/mcp/cache.py::_build_indexable_text
-  - codewiki/mcp/cache.py::_extract_frontmatter
-  - codewiki/mcp/cache.py::_extract_snippet
-  - codewiki/mcp/cache.py::_extract_title
-  - codewiki/mcp/cache.py::_parse_frontmatter_dict
-  - codewiki/mcp/cache.py::_parse_row
-  - codewiki/mcp/cache.py::_tokenize
-  - codewiki/mcp/cache.py::_sql_chunks
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
 type: Module
-generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:39Z }
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
 stale_after: 2026-10-31
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 11
+  components: ['codewiki/mcp/cache.py::AnalysisCache', 'codewiki/mcp/cache.py::ComponentMeta',
+    'codewiki/mcp/cache.py::LazyComponentStore', 'codewiki/mcp/cache.py::_build_indexable_text',
+    'codewiki/mcp/cache.py::_extract_frontmatter', 'codewiki/mcp/cache.py::_extract_snippet',
+    'codewiki/mcp/cache.py::_extract_title', 'codewiki/mcp/cache.py::_parse_frontmatter_dict',
+    'codewiki/mcp/cache.py::_parse_row', 'codewiki/mcp/cache.py::_tokenize', 'codewiki/mcp/cache.py::_sql_chunks']
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
 ---
 
 # MCP_Cache 模块文档

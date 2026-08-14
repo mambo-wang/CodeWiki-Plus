@@ -1,14 +1,15 @@
 ---
 type: lesson
-title: "MCP 工具 schema 不声明 session_id，handler 隐式读取"
-date: 2026-08-03
-related_modules: ["MCP_Tools", "MCP_Core"]
-related_components: []
-tags: ["codewiki", "lesson"]
-aliases: ["session_id约定", "inputSchema约定", "MCP工具schema约定"]
+title: MCP 工具 schema 不声明 session_id，handler 隐式读取
+tags: [codewiki, lesson]
+aliases: [session_id约定, inputSchema约定, MCP工具schema约定]
 status: draft
-generated: { by: codewiki, at: 2026-08-03T01:32:32Z }
+generated: {by: codewiki, at: !!timestamp '2026-08-03 01:32:32+00:00'}
 stale_after: 2026-11-01
+metadata:
+  date: 2026-08-03
+  related_modules: [MCP_Tools, MCP_Core]
+  related_components: []
 ---
 
 ## 背景

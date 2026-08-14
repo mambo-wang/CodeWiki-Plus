@@ -4,6 +4,7 @@ title: "README_CN"
 description: "WeKnora（腾讯开源企业级知识库平台）中文 README，用于测试两阶段知识提取流程"
 status: stable
 generated: { by: codewiki/5.2.0, at: 2026-08-03T04:50:45Z }
+stale_after: 2026-11-11
 ---
 
 <p align="center">

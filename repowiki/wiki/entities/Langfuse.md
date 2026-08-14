@@ -1,17 +1,17 @@
 ---
-title: "Langfuse"
+title: Langfuse
 type: Entity
-description: "WeKnora 集成的全链路可观测性追踪后端，追踪 ReAct 循环、Token 消耗与任务流水线"
-generated: { by: codewiki/5.2.0, at: 2026-08-03T04:55:04Z }
+description: WeKnora 集成的全链路可观测性追踪后端，追踪 ReAct 循环、Token 消耗与任务流水线
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-03 04:55:04+00:00'}
 stale_after: 2026-11-01
 aliases: [Langfuse 追踪, 链路追踪]
-source_refs: ["README_CN"]
-chunk_refs: ["README_CN:61", "README_CN:63", "README_CN:161", "README_CN:69", "README_CN:70", "README_CN:213", "README_CN:225"]
 sources:
-  - id: README_CN
-    resource: raw/sources/README_CN.md
-    title: "WeKnora（腾讯开源企业级知识库平台）中文 README，用于测试两阶段知识提取流程"
-    last_modified: 2026-08-03
+- {id: README_CN, resource: raw/sources/README_CN.md, title: WeKnora（腾讯开源企业级知识库平台）中文
+    README，用于测试两阶段知识提取流程, last_modified: 2026-08-03}
+metadata:
+  source_refs: [README_CN]
+  chunk_refs: ['README_CN:61', 'README_CN:63', 'README_CN:161', 'README_CN:69', 'README_CN:70',
+    'README_CN:213', 'README_CN:225']
 ---
 # Langfuse
 

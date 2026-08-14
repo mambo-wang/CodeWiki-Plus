@@ -1,14 +1,10 @@
 ---
 title: DependencyAnalyzer
-depth: 1
-module_type: overview
-component_count: 0
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
 type: Module
-generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:39Z }
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
 stale_after: 2026-10-31
+metadata: {depth: 1, module_type: overview, component_count: 0, generated_by: codewiki,
+  generator_version: '1.0', updated_at: 2026-07-28}
 ---
 
 # DependencyAnalyzer 模块文档（概览）

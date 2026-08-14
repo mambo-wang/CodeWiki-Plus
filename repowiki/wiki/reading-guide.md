@@ -1,3 +1,9 @@
+---
+type: Concept
+title: "阅读指南"
+generated: { by: agent:codewiki/5.2.2, at: 2026-08-13T15:04:37Z }
+stale_after: 2026-11-11
+---
 # 阅读指南
 
 > 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。

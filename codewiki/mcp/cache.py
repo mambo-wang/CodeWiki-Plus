@@ -266,14 +266,16 @@ def _build_indexable_text(content: str, page_type: Optional[str] = None) -> str:
         parts.append(aliases_text)
         parts.append(aliases_text)
 
-    # LLM Wiki: severity boost (for pitfall/known_issue notes)
-    severity = fm.get("severity", "")
+    # LLM Wiki: severity boost (for pitfall/known_issue notes) — may be folded
+    # under metadata: (OKF §4/§5)
+    _meta = fm.get("metadata") or {}
+    severity = fm.get("severity", "") or _meta.get("severity", "")
     if isinstance(severity, str) and severity:
         parts.append(severity)
         parts.append(severity)
 
     # LLM Wiki: related_modules 2x boost (module names for cross-reference discovery)
-    related = fm.get("related_modules", [])
+    related = fm.get("related_modules", []) or _meta.get("related_modules", [])
     if isinstance(related, list):
         related_text = " ".join(str(r) for r in related)
     elif isinstance(related, str):

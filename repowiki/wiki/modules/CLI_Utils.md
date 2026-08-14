@@ -1,58 +1,37 @@
 ---
 title: CLI_Utils
-depth: 2
-module_type: leaf
-component_count: 43
-components:
-  - codewiki/cli/utils/api_errors.py::APIErrorHandler
-  - codewiki/cli/utils/api_errors.py::wrap_api_call
-  - codewiki/cli/utils/errors.py::APIError
-  - codewiki/cli/utils/errors.py::CodeWikiError
-  - codewiki/cli/utils/errors.py::ConfigurationError
-  - codewiki/cli/utils/errors.py::FileSystemError
-  - codewiki/cli/utils/errors.py::RepositoryError
-  - codewiki/cli/utils/errors.py::error_with_suggestion
-  - codewiki/cli/utils/errors.py::handle_error
-  - codewiki/cli/utils/errors.py::info
-  - codewiki/cli/utils/errors.py::success
-  - codewiki/cli/utils/errors.py::warning
-  - codewiki/cli/utils/fs.py::check_writable
-  - codewiki/cli/utils/fs.py::cleanup_directory
-  - codewiki/cli/utils/fs.py::ensure_directory
-  - codewiki/cli/utils/fs.py::find_files
-  - codewiki/cli/utils/fs.py::get_file_size
-  - codewiki/cli/utils/fs.py::safe_read
-  - codewiki/cli/utils/fs.py::safe_write
-  - codewiki/cli/utils/instructions.py::compute_github_pages_url
-  - codewiki/cli/utils/instructions.py::display_generation_summary
-  - codewiki/cli/utils/instructions.py::display_post_generation_instructions
-  - codewiki/cli/utils/instructions.py::get_pr_creation_url
-  - codewiki/cli/utils/logging.py::CLILogger
-  - codewiki/cli/utils/logging.py::create_logger
-  - codewiki/cli/utils/progress.py::ModuleProgressBar
-  - codewiki/cli/utils/progress.py::ProgressTracker
-  - codewiki/cli/utils/repo_validator.py::_get_git_repo
-  - codewiki/cli/utils/repo_validator.py::check_writable_output
-  - codewiki/cli/utils/repo_validator.py::count_code_files
-  - codewiki/cli/utils/repo_validator.py::get_git_branch
-  - codewiki/cli/utils/repo_validator.py::get_git_commit_hash
-  - codewiki/cli/utils/repo_validator.py::is_git_repository
-  - codewiki/cli/utils/repo_validator.py::validate_repository
-  - codewiki/cli/utils/validation.py::detect_supported_languages
-  - codewiki/cli/utils/validation.py::is_top_tier_model
-  - codewiki/cli/utils/validation.py::mask_api_key
-  - codewiki/cli/utils/validation.py::should_exclude_file
-  - codewiki/cli/utils/validation.py::validate_api_key
-  - codewiki/cli/utils/validation.py::validate_model_name
-  - codewiki/cli/utils/validation.py::validate_output_directory
-  - codewiki/cli/utils/validation.py::validate_repository_path
-  - codewiki/cli/utils/validation.py::validate_url
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
 type: Module
-generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:39Z }
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
 stale_after: 2026-10-31
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 43
+  components: ['codewiki/cli/utils/api_errors.py::APIErrorHandler', 'codewiki/cli/utils/api_errors.py::wrap_api_call',
+    'codewiki/cli/utils/errors.py::APIError', 'codewiki/cli/utils/errors.py::CodeWikiError',
+    'codewiki/cli/utils/errors.py::ConfigurationError', 'codewiki/cli/utils/errors.py::FileSystemError',
+    'codewiki/cli/utils/errors.py::RepositoryError', 'codewiki/cli/utils/errors.py::error_with_suggestion',
+    'codewiki/cli/utils/errors.py::handle_error', 'codewiki/cli/utils/errors.py::info',
+    'codewiki/cli/utils/errors.py::success', 'codewiki/cli/utils/errors.py::warning',
+    'codewiki/cli/utils/fs.py::check_writable', 'codewiki/cli/utils/fs.py::cleanup_directory',
+    'codewiki/cli/utils/fs.py::ensure_directory', 'codewiki/cli/utils/fs.py::find_files',
+    'codewiki/cli/utils/fs.py::get_file_size', 'codewiki/cli/utils/fs.py::safe_read',
+    'codewiki/cli/utils/fs.py::safe_write', 'codewiki/cli/utils/instructions.py::compute_github_pages_url',
+    'codewiki/cli/utils/instructions.py::display_generation_summary', 'codewiki/cli/utils/instructions.py::display_post_generation_instructions',
+    'codewiki/cli/utils/instructions.py::get_pr_creation_url', 'codewiki/cli/utils/logging.py::CLILogger',
+    'codewiki/cli/utils/logging.py::create_logger', 'codewiki/cli/utils/progress.py::ModuleProgressBar',
+    'codewiki/cli/utils/progress.py::ProgressTracker', 'codewiki/cli/utils/repo_validator.py::_get_git_repo',
+    'codewiki/cli/utils/repo_validator.py::check_writable_output', 'codewiki/cli/utils/repo_validator.py::count_code_files',
+    'codewiki/cli/utils/repo_validator.py::get_git_branch', 'codewiki/cli/utils/repo_validator.py::get_git_commit_hash',
+    'codewiki/cli/utils/repo_validator.py::is_git_repository', 'codewiki/cli/utils/repo_validator.py::validate_repository',
+    'codewiki/cli/utils/validation.py::detect_supported_languages', 'codewiki/cli/utils/validation.py::is_top_tier_model',
+    'codewiki/cli/utils/validation.py::mask_api_key', 'codewiki/cli/utils/validation.py::should_exclude_file',
+    'codewiki/cli/utils/validation.py::validate_api_key', 'codewiki/cli/utils/validation.py::validate_model_name',
+    'codewiki/cli/utils/validation.py::validate_output_directory', 'codewiki/cli/utils/validation.py::validate_repository_path',
+    'codewiki/cli/utils/validation.py::validate_url']
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
 ---
 
 # CLI_Utils 模块文档

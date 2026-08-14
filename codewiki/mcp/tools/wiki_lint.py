@@ -45,15 +45,17 @@ _LEGACY_STATUS_MAP = {
 _OKF_TOP_LEVEL_KEYS = frozenset({
     "type", "title", "description", "aliases",
     "status", "verified", "stale_after", "generated",
-    "tags", "metadata",
+    "tags", "sources", "metadata",
 })
-# Top-level extensions kept for backward compatibility — runtime consumers
-# read these with line-based parsing (cache.py boost, knowledge_loop origin
-# filter, wiki_index note date, lint itself, distill raw fields) so they
-# cannot be folded yet.
+# Legacy top-level extensions that may still appear on older pages.  They are
+# producer-private under OKF §4/§5 and should be folded under ``metadata``
+# (migrate_okf.py --fold-private does this).  They stay tolerated here — and
+# line-based consumers (wiki_index note date, lint note_clusters, cache.py
+# boost) keep reading them via the indented ``key: value`` rows — so folding
+# remains backwards-compatible.
 _OKF_LEGACY_TOP_LEVEL_KEYS = frozenset({
     "severity", "origin", "root_cause",
-    "sources", "source_refs", "chunk_refs",
+    "source_refs", "chunk_refs",
     "related_modules", "related_components", "source_ref",
     "summary", "keywords", "date",
 })

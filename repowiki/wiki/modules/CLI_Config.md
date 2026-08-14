@@ -1,25 +1,20 @@
 ---
 title: CLI_Config
-depth: 2
-module_type: leaf
-component_count: 10
-components:
-  - codewiki/cli/config_manager.py::ConfigManager
-  - codewiki/cli/git_manager.py::GitManager
-  - codewiki/cli/html_generator.py::HTMLGenerator
-  - codewiki/cli/models/config.py::AgentInstructions
-  - codewiki/cli/models/config.py::Configuration
-  - codewiki/cli/models/job.py::DocumentationJob
-  - codewiki/cli/models/job.py::GenerationOptions
-  - codewiki/cli/models/job.py::JobStatistics
-  - codewiki/cli/models/job.py::JobStatus
-  - codewiki/cli/models/job.py::LLMConfig
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
 type: Module
-generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:39Z }
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
 stale_after: 2026-10-31
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 10
+  components: ['codewiki/cli/config_manager.py::ConfigManager', 'codewiki/cli/git_manager.py::GitManager',
+    'codewiki/cli/html_generator.py::HTMLGenerator', 'codewiki/cli/models/config.py::AgentInstructions',
+    'codewiki/cli/models/config.py::Configuration', 'codewiki/cli/models/job.py::DocumentationJob',
+    'codewiki/cli/models/job.py::GenerationOptions', 'codewiki/cli/models/job.py::JobStatistics',
+    'codewiki/cli/models/job.py::JobStatus', 'codewiki/cli/models/job.py::LLMConfig']
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
 ---
 
 # CLI_Config 模块文档

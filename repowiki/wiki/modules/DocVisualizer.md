@@ -1,27 +1,21 @@
 ---
 title: DocVisualizer
-depth: 2
-module_type: leaf
-component_count: 12
-components:
-  - codewiki/src/fe/template_utils.py::StringTemplateLoader
-  - codewiki/src/fe/template_utils.py::render_job_list
-  - codewiki/src/fe/template_utils.py::render_navigation
-  - codewiki/src/fe/template_utils.py::render_template
-  - codewiki/src/fe/visualise_docs.py::get_file_title
-  - codewiki/src/fe/visualise_docs.py::index
-  - codewiki/src/fe/visualise_docs.py::initialize_globals
-  - codewiki/src/fe/visualise_docs.py::load_module_tree
-  - codewiki/src/fe/visualise_docs.py::main
-  - codewiki/src/fe/visualise_docs.py::markdown_to_html
-  - codewiki/src/fe/visualise_docs.py::replace_mermaid
-  - codewiki/src/fe/visualise_docs.py::serve_doc
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
 type: Module
-generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:39Z }
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
 stale_after: 2026-10-31
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 12
+  components: ['codewiki/src/fe/template_utils.py::StringTemplateLoader', 'codewiki/src/fe/template_utils.py::render_job_list',
+    'codewiki/src/fe/template_utils.py::render_navigation', 'codewiki/src/fe/template_utils.py::render_template',
+    'codewiki/src/fe/visualise_docs.py::get_file_title', 'codewiki/src/fe/visualise_docs.py::index',
+    'codewiki/src/fe/visualise_docs.py::initialize_globals', 'codewiki/src/fe/visualise_docs.py::load_module_tree',
+    'codewiki/src/fe/visualise_docs.py::main', 'codewiki/src/fe/visualise_docs.py::markdown_to_html',
+    'codewiki/src/fe/visualise_docs.py::replace_mermaid', 'codewiki/src/fe/visualise_docs.py::serve_doc']
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
 ---
 
 # DocVisualizer 模块文档

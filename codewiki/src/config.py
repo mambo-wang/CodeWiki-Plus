@@ -40,15 +40,16 @@ PAGE_TYPE_DIRS = {
 # Files excluded from wiki index and search (system files)
 WIKI_SYSTEM_FILES = {'index.md', 'log.md', 'overview.md', 'schema.yaml'}
 
-# OKF v0.2 actor convention (§7): <producer>/<version> for agents.
-# Single source of truth for the actor string used in `generated.by` /
-# `verified[].by` frontmatter fields.
+# OKF v0.2 actor convention (§7): '<producer>/<version>' for agents and tools
+# (e.g. ``reference_agent/gemini-2.5-pro``), 'human:<id>' for people,
+# 'process:<id>' for pipelines.  Single source of truth for the actor string
+# used in `generated.by` / `verified[].by` fields.
 ACTOR_NAME = 'codewiki'
 OKF_VERSION = '0.2'
 
 
 def actor_id() -> str:
-    """Return the OKF actor id for this tool, e.g. ``codewiki/5.2.0``."""
+    """Return the OKF actor id for this tool, e.g. ``codewiki/5.2.0`` (§7)."""
     from codewiki import __version__
     return f"{ACTOR_NAME}/{__version__}"
 

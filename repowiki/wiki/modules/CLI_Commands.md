@@ -1,30 +1,22 @@
 ---
 title: CLI_Commands
-depth: 2
-module_type: leaf
-component_count: 15
-components:
-  - codewiki/cli/commands/config.py::config_agent
-  - codewiki/cli/commands/config.py::config_group
-  - codewiki/cli/commands/config.py::config_set
-  - codewiki/cli/commands/config.py::config_show
-  - codewiki/cli/commands/config.py::config_validate
-  - codewiki/cli/commands/config.py::parse_patterns
-  - codewiki/cli/commands/generate.py::_detect_changed_files
-  - codewiki/cli/commands/generate.py::_find_affected
-  - codewiki/cli/commands/generate.py::_invalidate_affected_modules
-  - codewiki/cli/commands/generate.py::generate_command
-  - codewiki/cli/commands/generate.py::parse_patterns
-  - codewiki/cli/main.py::cli
-  - codewiki/cli/main.py::main
-  - codewiki/cli/main.py::mcp_command
-  - codewiki/cli/main.py::version
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
 type: Module
-generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:39Z }
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
 stale_after: 2026-10-31
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 15
+  components: ['codewiki/cli/commands/config.py::config_agent', 'codewiki/cli/commands/config.py::config_group',
+    'codewiki/cli/commands/config.py::config_set', 'codewiki/cli/commands/config.py::config_show',
+    'codewiki/cli/commands/config.py::config_validate', 'codewiki/cli/commands/config.py::parse_patterns',
+    'codewiki/cli/commands/generate.py::_detect_changed_files', 'codewiki/cli/commands/generate.py::_find_affected',
+    'codewiki/cli/commands/generate.py::_invalidate_affected_modules', 'codewiki/cli/commands/generate.py::generate_command',
+    'codewiki/cli/commands/generate.py::parse_patterns', 'codewiki/cli/main.py::cli',
+    'codewiki/cli/main.py::main', 'codewiki/cli/main.py::mcp_command', 'codewiki/cli/main.py::version']
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
 ---
 
 # CLI_Commands 模块文档

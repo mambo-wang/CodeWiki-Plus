@@ -1,25 +1,20 @@
 ---
 title: MCP_Prompts
-depth: 2
-module_type: leaf
-component_count: 10
-components:
-  - codewiki/mcp/server.py::_prompt_architecture_review
-  - codewiki/mcp/server.py::_prompt_code_analysis
-  - codewiki/mcp/server.py::_prompt_cross_service_trace
-  - codewiki/mcp/server.py::_prompt_extract_knowledge
-  - codewiki/mcp/server.py::_prompt_generate_wiki
-  - codewiki/mcp/server.py::_prompt_impact_review
-  - codewiki/mcp/server.py::_prompt_incremental_update
-  - codewiki/mcp/server.py::_prompt_quality_check
-  - codewiki/mcp/server.py::_prompt_search_wiki
-  - codewiki/mcp/server.py::_prompt_workspace_analysis
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
 type: Module
-generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:39Z }
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
 stale_after: 2026-10-31
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 10
+  components: ['codewiki/mcp/server.py::_prompt_architecture_review', 'codewiki/mcp/server.py::_prompt_code_analysis',
+    'codewiki/mcp/server.py::_prompt_cross_service_trace', 'codewiki/mcp/server.py::_prompt_extract_knowledge',
+    'codewiki/mcp/server.py::_prompt_generate_wiki', 'codewiki/mcp/server.py::_prompt_impact_review',
+    'codewiki/mcp/server.py::_prompt_incremental_update', 'codewiki/mcp/server.py::_prompt_quality_check',
+    'codewiki/mcp/server.py::_prompt_search_wiki', 'codewiki/mcp/server.py::_prompt_workspace_analysis']
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
 ---
 
 # MCP_Prompts 模块文档

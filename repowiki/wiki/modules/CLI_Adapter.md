@@ -1,16 +1,16 @@
 ---
 title: CLI_Adapter
-depth: 2
-module_type: leaf
-component_count: 1
-components:
-  - codewiki/cli/adapters/doc_generator.py::CLIDocumentationGenerator
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
 type: Module
-generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:39Z }
+generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
 stale_after: 2026-10-31
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 1
+  components: ['codewiki/cli/adapters/doc_generator.py::CLIDocumentationGenerator']
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
 ---
 
 # CLI_Adapter 模块文档
