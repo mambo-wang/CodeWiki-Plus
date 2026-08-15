@@ -195,4 +195,17 @@ python scripts/migrate_okf.py --fold-private repowiki
 
 ## 8. 与检索的关系
 
-OKF frontmatter 字段**不进入** `query_wiki` 的 BM25 全文索引，因此新增/调整 frontmatter 字段不影响检索结果。检索仍基于正文内容；`aliases`/`tags` 用于搜索索引与链接解析，`status`/`stale_after` 用于过滤过期与未确认知识。
+`query_wiki` 的 BM25 索引构建分两步：`cache.py` 的 `_tokenize` 会先用 `_FRONTMATTER_RE` 剥离整段 frontmatter，因此 **OKF 的溯源/生命周期字段（`type`、`status`、`verified`、`stale_after`、`generated`、`actor`、`sources` 等）不进入索引**，调整它们不影响检索结果。
+
+但有一个例外：`cache.py` 的 `_build_indexable_text` 在剥离前会**显式提取 6 个语义字段并加权 prepend 到正文**，使它们参与 BM25：
+
+| 字段 | 权重 | 读取位置 |
+|------|------|---------|
+| `tags` | 3x | 顶层 `tags` |
+| `aliases` | 3x | 顶层 `aliases`（OKF 标准字段）|
+| `title` | 2x | 顶层 `title`（OKF 标准字段）|
+| `description` | 2x | 顶层 `description` |
+| `severity` | 2x | 顶层 `severity` 或 `metadata.severity` |
+| `related_modules` | 2x | 顶层 `related_modules` 或 `metadata.related_modules` |
+
+其中 `title`、`aliases` 属于 OKF 标准字段——即**并非所有 OKF frontmatter 字段都不进索引**。`status`/`stale_after` 等生命周期字段不参与 BM25，而是在 `query_wiki` 结果层做过滤（未确认/过期知识）。

@@ -73,24 +73,28 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 
 **本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。
 
-1. **确保采集脚本就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它。用以下命令解析 CodeWiki 自带的源脚本路径，并**强制复制**到目标目录（务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
+1. **确保两个 hook 脚本就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。用以下命令解析 CodeWiki 自带的源脚本路径，并**强制复制**到目标目录（务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
 
    ```powershell
-   # 源脚本随 codewiki 包发布，位于 codewiki/hooks/capture_session_end.py
-   $src = python -c "import codewiki, os; print(os.path.join(os.path.dirname(codewiki.__file__),'hooks','capture_session_end.py').replace('\\\\','/'))"
-   $dest = Join-Path '{repo_path}' '.codebuddy/hooks/capture_session_end.py'
-   New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
-   Copy-Item $src $dest -Force
-   python -c "import ast; ast.parse(open(r'$dest', encoding='utf-8').read()); print('hook script copied OK')"
+   # 源脚本随 codewiki 包发布，位于 codewiki/hooks/ 下的两个文件
+   $pkg = python -c "import codewiki, os; print(os.path.dirname(codewiki.__file__).replace('\\\\','/'))"
+   $destDir = Join-Path '{repo_path}' '.codebuddy/hooks'
+   New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+   Copy-Item (Join-Path $pkg 'hooks/capture_session_end.py') (Join-Path $destDir 'capture_session_end.py') -Force
+   Copy-Item (Join-Path $pkg 'hooks/task_session_start.py') (Join-Path $destDir 'task_session_start.py') -Force
+   python -c "import ast; ast.parse(open(r'$destDir/capture_session_end.py', encoding='utf-8').read()); ast.parse(open(r'$destDir/task_session_start.py', encoding='utf-8').read()); print('hook scripts copied OK')"
    ```
 
-   若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从 `CODEWIKI_HOME` 环境变量指向的 checkout 取 `$env:CODEWIKI_HOME/codewiki/hooks/capture_session_end.py`，同样 Copy-Item 到 `$dest`。兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
+   若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从 `CODEWIKI_HOME` 环境变量指向的 checkout 取 `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本，同样 Copy-Item 到 `$destDir`。兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
 
 2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置）：
 
 ```json
 {{
   "hooks": {{
+    "SessionStart": [
+      {{ "matcher": "startup", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/task_session_start.py\\"", "timeout": 15 }} ] }}
+    ],
     "SessionEnd": [
       {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
     ]
@@ -98,7 +102,8 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 }}
 ```
 
-   只注册 `SessionEnd`：它是唯一可靠携带 `transcript_path` 的事件，能抓到完整正文。`PreCompact`/`Stop` 不带 transcript，只会落空信封被去重跳过，故不注册。
+   - `SessionStart`（matcher=`startup`）：新会话开始同步返回 `hookSpecificOutput.additionalContext`，把任务关联引导注入给 Agent，是"新建会话提示选任务"的确定性触发点。
+   - `SessionEnd`：唯一可靠携带 `transcript_path` 的事件，能抓到完整正文。`PreCompact`/`Stop` 不带 transcript，只会落空信封被去重跳过，故不注册。
 
 3. 向 `{repo_path}/AGENTS.md` 写入任务记忆会话引导段（启用采集后，新建会话时 Agent 才会提示用户关联/新建任务）。
    **只动标记块，绝不改 AGENTS.md 其余内容**：若已存在 `{_TASK_MEMORY_AGENTS_START}` 到 `{_TASK_MEMORY_AGENTS_END}` 之间的块，用下面文本整体替换；若不存在，追加到文件末尾（前面留一个空行）。以下文本按原样写入，含 START/END 注释标记：
@@ -107,10 +112,17 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 
 4. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）。
 
-5. 用模拟事件验证（期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
+5. 用模拟事件验证两个脚本：
+   - SessionEnd（期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
 
 ```powershell
 '{{"session_id":"verify-1","transcript_path":"d:/tmp/conv.json","cwd":"{repo_path}","hook_event_name":"SessionEnd","reason":"other"}}' | python "{repo_path}/.codebuddy/hooks/capture_session_end.py"
+```
+
+   - SessionStart（期望 stdout 的 hookSpecificOutput.additionalContext 中包含"任务关联"）：
+
+```powershell
+'{{"session_id":"verify-2","cwd":"{repo_path}","hook_event_name":"SessionStart","source":"startup"}}' | python "{repo_path}/.codebuddy/hooks/task_session_start.py"
 ```
 
 6. 验证完成后删除测试产物：`{repo_path}/repowiki/raw/` 下 verify-1 会话生成的 conv-*.md 文件
@@ -809,34 +821,38 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 
 ## 步骤 1: 检查当前状态
 读取 `{repo_path}/.codebuddy/settings.json`：
-- **已启用**：存在 hooks.SessionEnd 条目，且执行 `python "{repo_path}/.codebuddy/hooks/capture_session_end.py"`，且该脚本文件物理存在（注意：CodeBuddy hooks 不展开环境变量，命令中必须写脚本的绝对路径，不能用 `$CODEBUDDY_PROJECT_DIR`）
-- **未启用**：文件不存在，或没有 SessionEnd 条目，或脚本文件缺失
+- **已启用**：存在 hooks.SessionEnd 与 hooks.SessionStart 两个条目，且 `capture_session_end.py` 与 `task_session_start.py` 两个脚本文件都物理存在（注意：CodeBuddy hooks 不展开环境变量，命令中必须写脚本的绝对路径，不能用 `$CODEBUDDY_PROJECT_DIR`）
+- **未启用**：文件不存在，或缺少任一条目，或任一脚本文件缺失
 
 ## 步骤 2A: 启用
-1. **确保采集脚本就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它。
-   **不论目标是否已存在该文件，每次启用都要从 CodeWiki 自带的源脚本重新复制覆盖**，
+1. **确保两个 hook 脚本就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。
+   **不论目标是否已存在，每次启用都要从 CodeWiki 自带的源脚本重新复制覆盖**，
    以保证与目标 `codewiki` 包版本一致（不要因为"已存在"就跳过，否则升级包后会残留旧脚本）：
    用以下命令解析 CodeWiki 自带的源脚本路径，并**强制复制**到目标目录
    （务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
 
      ```powershell
-     # 源脚本随 codewiki 包发布，位于 codewiki/hooks/capture_session_end.py
-     $src = python -c "import codewiki, os; print(os.path.join(os.path.dirname(codewiki.__file__),'hooks','capture_session_end.py').replace('\\\\','/'))"
-     $dest = Join-Path '{repo_path}' '.codebuddy/hooks/capture_session_end.py'
-     New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
-     Copy-Item $src $dest -Force
-     python -c "import ast; ast.parse(open(r'$dest', encoding='utf-8').read()); print('hook script copied OK')"
+     # 源脚本随 codewiki 包发布，位于 codewiki/hooks/ 下的两个文件
+     $pkg = python -c "import codewiki, os; print(os.path.dirname(codewiki.__file__).replace('\\\\','/'))"
+     $destDir = Join-Path '{repo_path}' '.codebuddy/hooks'
+     New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+     Copy-Item (Join-Path $pkg 'hooks/capture_session_end.py') (Join-Path $destDir 'capture_session_end.py') -Force
+     Copy-Item (Join-Path $pkg 'hooks/task_session_start.py') (Join-Path $destDir 'task_session_start.py') -Force
+     python -c "import ast; ast.parse(open(r'$destDir/capture_session_end.py', encoding='utf-8').read()); ast.parse(open(r'$destDir/task_session_start.py', encoding='utf-8').read()); print('hook scripts copied OK')"
      ```
 
      若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从
      `CODEWIKI_HOME` 环境变量指向的 checkout 取
-     `$env:CODEWIKI_HOME/codewiki/hooks/capture_session_end.py`，同样 Copy-Item 到 `$dest`。
+     `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本，同样 Copy-Item 到 `$destDir`。
      兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
 2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置）：
 
 ```json
 {{
   "hooks": {{
+    "SessionStart": [
+      {{ "matcher": "startup", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/task_session_start.py\\"", "timeout": 15 }} ] }}
+    ],
     "SessionEnd": [
       {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
     ]
@@ -844,7 +860,8 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 }}
 ```
 
-   只注册 `SessionEnd`：它是唯一可靠携带 `transcript_path` 的事件，能抓到完整正文。
+   - `SessionStart`（matcher=`startup`）：新会话开始同步返回 `hookSpecificOutput.additionalContext`，把任务关联引导注入给 Agent，是"新建会话提示选任务"的确定性触发点；如需覆盖 `--resume` 恢复场景，matcher 改为 `startup|resume`。
+   - `SessionEnd`：唯一可靠携带 `transcript_path` 的事件，能抓到完整正文。
    `PreCompact`/`Stop` 不带 transcript，只会落空信封被去重跳过，故不注册。
 
 3. 向 `{repo_path}/AGENTS.md` 写入任务记忆会话引导段（启用采集后，新建会话时 Agent 才会提示用户关联/新建任务）。
@@ -853,19 +870,26 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 {_TASK_MEMORY_AGENTS_SECTION}
 
 4. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）
-5. 用模拟事件验证（先准备一个小的 transcript 文件，如 `[{{"role":"user","content":"测试"}}]` 存为 d:/tmp/conv.json；期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
+5. 用模拟事件验证两个脚本：
+   - SessionEnd（先准备一个小的 transcript 文件，如 `[{{"role":"user","content":"测试"}}]` 存为 d:/tmp/conv.json；期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
 
 ```powershell
 '{{"session_id":"verify-1","transcript_path":"d:/tmp/conv.json","cwd":"{repo_path}","hook_event_name":"SessionEnd","reason":"other"}}' | python "{repo_path}/.codebuddy/hooks/capture_session_end.py"
 ```
 
+   - SessionStart（期望 stdout 的 hookSpecificOutput.additionalContext 中包含"任务关联"）：
+
+```powershell
+'{{"session_id":"verify-2","cwd":"{repo_path}","hook_event_name":"SessionStart","source":"startup"}}' | python "{repo_path}/.codebuddy/hooks/task_session_start.py"
+```
+
 6. 验证完成后删除测试产物：`{repo_path}/repowiki/raw/` 下 verify-1 会话生成的 conv-*.md 文件
 
 ## 步骤 2B: 关闭
-1. 从 `{repo_path}/.codebuddy/settings.json` 移除 SessionEnd 条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
+1. 从 `{repo_path}/.codebuddy/settings.json` 移除 SessionStart 与 SessionEnd 两个条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
 2. 从 `{repo_path}/AGENTS.md` 移除任务记忆会话引导段：删除 `{_TASK_MEMORY_AGENTS_START}` 到 `{_TASK_MEMORY_AGENTS_END}` 之间的整段（含两行注释标记本身）；若不存在该标记块则无需处理，其余内容保持不动
 3. 已采集的 raw 文件保留在 `repowiki/raw/`，之后仍可蒸馏；关闭采集不会删除它们
-4. 采集脚本 `{repo_path}/.codebuddy/hooks/capture_session_end.py` 可保留也可删除；重新启用时步骤 2A 会自动补回
+4. hook 脚本 `capture_session_end.py` 与 `task_session_start.py` 可保留也可删除；重新启用时步骤 2A 会自动补回
 
 ## 注意事项
 - Hook 是 CodeBuddy 专属机制。其他运行时（Trae、CLI agent 等）请改用 `capture_conversation` MCP 工具手动采集
