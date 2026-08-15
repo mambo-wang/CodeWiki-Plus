@@ -10,12 +10,18 @@ sessions:
       <task_id>/
         task.md               # task description + status (frontmatter + body)
         memories.md           # accumulated task memories (append-only)
+        pending-memories.json # staged (unconfirmed) distilled memories
 
 Session bindings live under ``repowiki/.meta/task_bindings/<source_session_id>.json``
 so an IDE session can be associated with a task. ``capture_conversation`` then
 stamps ``task_id`` into raw frontmatter, ``distill_conversation`` routes distilled
 memories back to the task, and ``get_task_context`` aggregates the task's knowledge
 so the next session can pick up where it left off.
+
+Distilled memories are NOT appended to ``memories.md`` directly: they are staged in
+``pending-memories.json`` first, then the host agent presents them to the user and
+calls ``confirm_task_memories`` (persist) or ``reject_task_memories`` (drop) — the
+same quality gate notes get via confirm_note/reject_note.
 
 Design constraints (must hold):
   - task_id is derived from the original title (slugified) and is immutable.
@@ -35,6 +41,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -197,6 +204,46 @@ def _append_memory_atomic(path: Path, content: str) -> None:
     os.replace(tmp, path)
 
 
+def _pending_memories_path(output_dir: Path, task_id: str) -> Path:
+    """Path to a task's staged (unconfirmed) distilled memories."""
+    return _tasks_dir(output_dir) / task_id / "pending-memories.json"
+
+
+def _read_pending_memories(output_dir: Path, task_id: str) -> List[Dict[str, Any]]:
+    """Read pending memories as a list of entries; [] when absent/corrupt."""
+    p = _pending_memories_path(output_dir, task_id)
+    if not p.exists():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        mems = data.get("memories", []) if isinstance(data, dict) else []
+        return [m for m in mems if isinstance(m, dict)]
+    except (json.JSONDecodeError, OSError):
+        logger.warning("Pending memories unreadable at %s; treating as empty.", p)
+        return []
+
+
+def _write_pending_memories(
+    output_dir: Path, task_id: str, memories: List[Dict[str, Any]]
+) -> None:
+    """Atomically write a task's pending memories (temp file + os.replace)."""
+    p = _pending_memories_path(output_dir, task_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(
+        json.dumps({"task_id": task_id, "memories": memories}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    os.replace(tmp, p)
+
+
+def _ids_mean_all(memory_ids: Any) -> bool:
+    """Treat empty/omitted memory_ids (or ["*"]) as 'all pending memories'."""
+    if not isinstance(memory_ids, list) or not memory_ids:
+        return True
+    return any(str(i).strip() == "*" for i in memory_ids)
+
+
 # --------------------------------------------------------------------------- #
 # Handlers
 # --------------------------------------------------------------------------- #
@@ -290,11 +337,13 @@ def handle_get_task(arguments: Dict[str, Any], store: SessionStore) -> str:
     if mem_path.exists():
         memories = mem_path.read_text(encoding="utf-8").strip()
 
+    pending = _read_pending_memories(output_dir, task_id)
     return json.dumps({
         "ok": True,
         "task": task,
         "description": description,
         "memories": memories,
+        "pending_memories": pending,
     }, ensure_ascii=False)
 
 
@@ -506,5 +555,185 @@ def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> s
         "task": task,
         "description": description,
         "memories": memories,
+        "pending_memories": _read_pending_memories(output_dir, task_id),
         "related_notes": related_notes,
+    }, ensure_ascii=False)
+
+
+# --------------------------------------------------------------------------- #
+# Pending-memory confirmation gate
+# --------------------------------------------------------------------------- #
+
+def handle_stage_task_memories(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """Stage distilled task memories in a pending area awaiting user confirmation.
+
+    Distilled memories are NOT appended to ``memories.md`` directly. They land in
+    ``repowiki/tasks/<task_id>/pending-memories.json`` first; the host agent
+    presents them to the user, then calls ``confirm_task_memories`` to persist
+    (atomic append to memories.md) or ``reject_task_memories`` to drop. Content
+    already staged for this task is skipped (best-effort dedup).
+    """
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    try:
+        output_dir = _resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    task_id = str(arguments.get("task_id") or "").strip()
+    if not task_id:
+        return json.dumps({"error": "task_id is required."})
+
+    pending = _read_pending_memories(output_dir, task_id)
+    raw = arguments.get("memories")
+    if not isinstance(raw, list) or not raw:
+        return json.dumps({
+            "ok": True,
+            "task_id": task_id,
+            "staged": 0,
+            "pending_total": len(pending),
+            "pending": pending,
+        }, ensure_ascii=False)
+
+    tasks = _read_index(output_dir)
+    if _find_by_id(tasks, task_id) is None:
+        return json.dumps({"error": f"Task '{task_id}' does not exist."})
+
+    source_raw = str(arguments.get("source_raw") or "").strip() or None
+    existing = {str(m.get("content") or "").strip() for m in pending}
+    now = _now_iso()
+    staged = 0
+    for m in raw:
+        content = str(m or "").strip()
+        if not content or content in existing:
+            continue
+        pending.append({
+            "id": f"mem-{uuid.uuid4().hex[:12]}",
+            "content": content,
+            "source_raw": source_raw,
+            "staged_at": now,
+        })
+        existing.add(content)
+        staged += 1
+    _write_pending_memories(output_dir, task_id, pending)
+
+    return json.dumps({
+        "ok": True,
+        "task_id": task_id,
+        "staged": staged,
+        "pending_total": len(pending),
+        "pending": pending,
+    }, ensure_ascii=False)
+
+
+def handle_list_pending_memories(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """List a task's pending (staged, unconfirmed) memories.
+
+    Like ``query_wiki``, this does not validate the task exists — ghost task ids
+    simply return an empty pending list.
+    """
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    try:
+        output_dir = _resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    task_id = str(arguments.get("task_id") or "").strip()
+    if not task_id:
+        return json.dumps({"error": "task_id is required."})
+
+    return json.dumps({
+        "ok": True,
+        "task_id": task_id,
+        "pending": _read_pending_memories(output_dir, task_id),
+    }, ensure_ascii=False)
+
+
+def handle_confirm_task_memories(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """Confirm pending memories: append them to memories.md and drop from pending.
+
+    ``memory_ids`` selects which pending entries to confirm. Omit it (or pass
+    ``["*"]``) to confirm ALL pending. Confirmed entries land via the same atomic
+    append-only write used by ``add_task_memory``.
+    """
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    try:
+        output_dir = _resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    task_id = str(arguments.get("task_id") or "").strip()
+    if not task_id:
+        return json.dumps({"error": "task_id is required."})
+
+    tasks = _read_index(output_dir)
+    if _find_by_id(tasks, task_id) is None:
+        return json.dumps({"error": f"Task '{task_id}' does not exist."})
+
+    pending = _read_pending_memories(output_dir, task_id)
+    if _ids_mean_all(arguments.get("memory_ids")):
+        chosen = pending
+        remaining: List[Dict[str, Any]] = []
+    else:
+        id_set = {str(i).strip() for i in arguments.get("memory_ids", []) if str(i).strip()}
+        chosen = [m for m in pending if m.get("id") in id_set]
+        remaining = [m for m in pending if m.get("id") not in id_set]
+
+    confirmed = 0
+    mem_path = _memories_path(output_dir, task_id)
+    for m in chosen:
+        content = str(m.get("content") or "").strip()
+        if not content:
+            continue
+        _append_memory_atomic(mem_path, content)
+        confirmed += 1
+
+    _write_pending_memories(output_dir, task_id, remaining)
+    return json.dumps({
+        "ok": True,
+        "task_id": task_id,
+        "confirmed": confirmed,
+        "remaining": remaining,
+    }, ensure_ascii=False)
+
+
+def handle_reject_task_memories(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """Reject pending memories: drop them from the pending area without persisting.
+
+    ``memory_ids`` selects which pending entries to discard. Omit it (or pass
+    ``["*"]``) to reject ALL pending. ``reason`` is optional and informational
+    only — rejected entries are simply removed.
+    """
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    try:
+        output_dir = _resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    task_id = str(arguments.get("task_id") or "").strip()
+    if not task_id:
+        return json.dumps({"error": "task_id is required."})
+
+    tasks = _read_index(output_dir)
+    if _find_by_id(tasks, task_id) is None:
+        return json.dumps({"error": f"Task '{task_id}' does not exist."})
+
+    pending = _read_pending_memories(output_dir, task_id)
+    if _ids_mean_all(arguments.get("memory_ids")):
+        remaining: List[Dict[str, Any]] = []
+        rejected = len(pending)
+    else:
+        id_set = {str(i).strip() for i in arguments.get("memory_ids", []) if str(i).strip()}
+        remaining = [m for m in pending if m.get("id") not in id_set]
+        rejected = len(pending) - len(remaining)
+
+    _write_pending_memories(output_dir, task_id, remaining)
+    return json.dumps({
+        "ok": True,
+        "task_id": task_id,
+        "rejected": rejected,
+        "remaining": remaining,
     }, ensure_ascii=False)
