@@ -14,6 +14,23 @@
 * **ingest_note**: 添加笔记: query_wiki 索引机制：frontmatter 除 6 个 boost 字段外一律剥离不进 BM25，metadata 折叠与 json.dumps 转义不影响检索
 * **ingest_note**: 添加笔记: migrate_okf --fold-private 改行手术折叠避免跨行 flow 值 churn；新增 repair_double_quoted_escapes 先修复坏转义再折叠
 * **ingest_note**: 添加笔记: wiki_lint 需豁免 raw/ 根暂存层但保留 raw/sources/，RAW_DIR 须单独处理不可塞进 _scratch_dirs
+* **ingest_note**: 添加笔记: IDE hook 的 SessionEnd envelope 须用 user 角色，system 角色会被 transcript 提取丢弃
+* **ingest_note**: 添加笔记: 任务记忆采用单一 memories.md 追加式原子写，非每次新建文件
+* **ingest_note**: 添加笔记: 任务归属在采集阶段决定，蒸馏仅读回 task_id 不做推断
+* **ingest_note**: 添加笔记: capture_conversation 的 task_id 需显式传入，绑定文件曾不被自动消费（已加回退修复）
+* **ingest_note**: 添加笔记: task_bindings 只与任务存在性挂钩，不校验活跃/完成状态
+* **ingest_note**: 添加笔记: 任务记忆蒸馏改为 pending 暂存 + 确认闸门，与笔记评审对齐
+* **ingest_note**: 添加笔记: _process_llm_output 是蒸馏三种模式的共同落盘路径，改一处全覆盖
+* **ingest_note**: 添加笔记: MCP server 层架构摩擦点扫描结论（7 项，按严重度排序）
+* **ingest_note**: 添加笔记: output_dir 解析收敛方案：resolve_workspace 单点 + 优先级统一
+* **ingest_note**: 添加笔记: MCP server 薄壳化架构：server.py 职责拆分到 registry/prompts/resources/tools
+* **ingest_note**: 添加笔记: module_tree.json 的 children 是字符串引用而非嵌套对象
+* **ingest_note**: 添加笔记: get_prompt 工具参数是 prompt_type 而非 name
+* **ingest_note**: 添加笔记: 蒸馏多文件时逐文件处理 + 每文件后触发上下文压缩，避免累积撑满
+* **ingest_note**: 添加笔记: write_doc_file 默认 status=stable，与笔记/蒸馏的 draft 语义分层
+* **ingest_note**: 添加笔记: OKF §7 actor 约定是 codewiki/<version>，旧格式 agent:codewiki/ 已废弃
+* **ingest_note**: 添加笔记: no_knowledge 的 raw 由 distill 清理删除，keep_raw 是唯一保留途径
+* **ingest_note**: 添加笔记: 任务记忆系统 grill 决策：绑定按 source_session_id 维度，注入走起 session 引导而非 hook 自动注入
 
 ## 2026-08-13
 * **lint_wiki**: 检查完成: 53 个问题
