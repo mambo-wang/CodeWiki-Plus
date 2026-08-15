@@ -142,6 +142,26 @@ def _slugify(text: str) -> str:
     return slug
 
 
+def _resolve_task_from_binding(output_dir: Path, source_session_id: str) -> str:
+    """Read repowiki/.meta/task_bindings/<session>.json and return its task_id.
+
+    路径约定必须与 task_manager._bindings_dir() 保持一致
+    （output_dir / ".meta" / "task_bindings"）。此处不能 import task_manager，
+    因为它反向 import 了本模块的 _resolve_output_dir / _slugify（循环依赖），
+    所以目录名在这里有意重复一份。
+
+    绑定文件缺失/损坏/无 task_id 时返回 ""（视为无任务对话）。
+    """
+    try:
+        binding = output_dir / ".meta" / "task_bindings" / f"{source_session_id}.json"
+        if not binding.exists():
+            return ""
+        data = json.loads(binding.read_text(encoding="utf-8"))
+        return str(data.get("task_id") or "").strip()
+    except (json.JSONDecodeError, OSError, TypeError):
+        return ""
+
+
 def _first_user_text(turns: List[Dict[str, str]]) -> str:
     """Extract the first user turn's text content for use as a filename."""
     for t in turns:
@@ -450,6 +470,14 @@ def handle_capture_conversation(
     source_session_id = str(arguments.get("source_session_id") or "")
 
     task_id = str(arguments.get("task_id") or "")
+    task_source = "argument" if task_id else ""
+    # 回退：未显式传入 task_id 时，按 source_session_id 反查会话绑定文件，
+    # 让 set_session_task 建立的绑定真正生效。此前绑定文件从不被消费，
+    # 导致「绑定成功但 raw 仍无 task_id」的断链。显式 task_id 永远优先。
+    if not task_id and source_session_id:
+        task_id = _resolve_task_from_binding(output_dir, source_session_id)
+        if task_id:
+            task_source = "binding"
 
     content_hash = _content_hash(turns, link_to, task_id)
 
@@ -616,4 +644,5 @@ def handle_capture_conversation(
         "superseded": superseded,
         "keep_raw": keep_raw,
         "task_id": task_id,
+        "task_source": task_source,
     }, indent=2, ensure_ascii=False)

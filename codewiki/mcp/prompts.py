@@ -911,6 +911,8 @@ def _prompt_distill_conversations(args: dict[str, str]) -> str:
 - 返回 `status="prepared"` → 你得到 `system_prompt` 和 `captures[]`。**注意：captures 里只有元数据（`conversation_id` / `full_path` / `transcript_chars` / `preview`），不含完整 transcript 正文**——正文走磁盘文件侧通道（file-side-channel），避免一次内联多条大对话撑满你的上下文。
 
 ## 步骤 2: 逐个蒸馏并落地（你就是 LLM，file-side-channel）
+**为什么不用宿主上下文压缩（compact）**：上下文压缩是客户端框架层能力，MCP 工具层无法触发；且原文一旦被压缩就是二次信息损失。正确处理多条大对话的方式是 file-side-channel 逐个落地——正文走磁盘、MCP 只回传 `full_path` + 短 `preview`，你逐条 read_file → 蒸馏 → submit 落盘 → 释放该条正文，任何时刻只持有一条原文。
+
 **必须一条一条处理，绝不要一次性读完所有正文**——每蒸馏完一条立即 submit 落盘、释放该条正文，再读下一条。对每条 capture：
 
 1. `read_file(filePath=full_path)` 读该条完整 transcript。正文很长时按 `offset`/`limit` 分段读；`transcript_chars` 提示总长度；`preview` 仅用于判断这条是否值得读全文（闲聊/问候可直接跳过，返回空结果）
