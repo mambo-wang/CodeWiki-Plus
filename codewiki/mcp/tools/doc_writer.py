@@ -310,6 +310,9 @@ def _okf_patch_defaults(
             ("description", f"description: {_json.dumps(user_description, ensure_ascii=False)}")
         )
     lines.append(("generated", _okf_generated_line()))
+    # OKF v0.2 lifecycle: code-generated wiki pages are stable knowledge by
+    # default (applied only when the key is missing from existing frontmatter).
+    lines.append(("status", "status: stable"))
     lines.append(("stale_after", f"stale_after: {_okf_stale_date(schema)}"))
     return lines
 
@@ -554,6 +557,9 @@ def _build_okf_frontmatter(
         aliases = [filename.replace(".md", "")]
     aliases_str = ", ".join(f'"{a}"' for a in aliases)
     fm_parts.append(f"aliases: [{aliases_str}]")
+    # OKF v0.2 lifecycle: code-generated wiki pages are stable knowledge by
+    # default — an explicit `status` in frontmatter_extra overrides this.
+    fm_parts.append(f"status: {extra.get('status') or 'stable'}")
     # Type-specific fields from extra:
     #  - OKF v0.2 standard keys (status/tags/description/...) stay at the
     #    top level — the only fields the spec allows there.
@@ -564,7 +570,7 @@ def _build_okf_frontmatter(
     for key, val in extra.items():
         # description/tags/aliases are produced from dedicated parameters
         # above — skip so no duplicate top-level rows are emitted.
-        if not val or key in ("aliases", "description", "tags"):
+        if not val or key in ("aliases", "description", "tags", "status"):
             continue
         if is_okf_standard_key(key):
             fm_parts.append(f"{key}: {json.dumps(val, ensure_ascii=False)}")
@@ -977,6 +983,9 @@ def _inject_lightweight_frontmatter(
     if not aliases:
         aliases = [filename.replace(".md", "")]
     fm_lines.append(f"aliases: [{', '.join(str(v) for v in aliases)}]")
+    # OKF v0.2 lifecycle: code-generated wiki pages are stable knowledge by
+    # default — an explicit `status` in frontmatter_extra overrides this.
+    fm_lines.append(f"status: {(frontmatter_extra or {}).get('status') or 'stable'}")
 
     # User-provided tags
     if user_tags:
@@ -991,7 +1000,7 @@ def _inject_lightweight_frontmatter(
         for key, value in frontmatter_extra.items():
             # description/tags/aliases are produced from dedicated parameters
             # above — skip so no duplicate top-level rows are emitted.
-            if key in ("aliases", "description", "tags") or value is None:
+            if key in ("aliases", "description", "tags", "status") or value is None:
                 continue
             if is_okf_standard_key(key):
                 fm_lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
