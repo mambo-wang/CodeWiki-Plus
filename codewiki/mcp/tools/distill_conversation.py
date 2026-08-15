@@ -92,6 +92,12 @@ _DISTILL_SYSTEM = (
 
 _NOTE_TYPE_HINT = "Allowed note_type values: " + ", ".join(sorted(_VALID_NOTE_TYPES)) + "."
 
+# Mode C (prepare) 遵循 file-side-channel：不通过 MCP stdio 内联完整 transcript
+# 正文（多条大对话会撑满宿主 Agent 上下文）。每条 capture 只回传 full_path +
+# 元数据 + 短 preview（初筛用）；正文走磁盘文件，由宿主 Agent 用
+# read_file(full_path, offset, limit) 逐条读取、逐条蒸馏、逐条 submit 落盘。
+_DEFAULT_PREVIEW_CHARS = 1500
+
 # --------------------------------------------------------------------------- #
 # 严格门（对齐 TAM shouldExtractL1）：L0 采集门之外的确定性质量过滤。
 # 在 transcript 喂给 LLM 之前按行拦截，避免纯符号/纯问号等噪声进入蒸馏。
@@ -900,6 +906,7 @@ def handle_distill_conversation(
         return json.dumps({"error": f"Invalid mode '{mode}'. Expected one of: auto, prepare, submit."})
 
     if mode == "prepare":
+        preview_chars = int(arguments.get("preview_chars") or _DEFAULT_PREVIEW_CHARS)
         captures: List[Dict[str, Any]] = []
         for p in targets:
             built = _build_distill_input(p)
@@ -909,11 +916,15 @@ def handle_distill_conversation(
             captures.append({
                 "conversation_id": p.stem,
                 "path": str(p.relative_to(output_dir)) if _safe_rel(p, output_dir) else str(p),
+                # file-side-channel：正文走磁盘，这里只给绝对路径。
+                "full_path": str(p.resolve()),
+                "transcript_chars": len(built["transcript"]),
                 "captured_at": meta.get("captured_at", ""),
                 "turn_count": meta.get("turn_count", ""),
                 "link_to": _unquote_fm(meta.get("link_to", "")),
                 "task_id": _unquote_fm(meta.get("task_id", "")),
-                "transcript": built["transcript"],
+                # 短预览仅用于初筛（这条对话有没有可蒸馏的知识），不是完整正文。
+                "preview": built["transcript"][:preview_chars],
             })
         if not captures:
             return json.dumps({
@@ -927,11 +938,18 @@ def handle_distill_conversation(
             "system_prompt": _DISTILL_SYSTEM,
             "captures": captures,
             "next": (
-                "Act as the LLM: apply system_prompt to each capture's transcript and "
-                'produce one JSON object shaped {"notes": [{title, note_type, '
-                "related_modules, tags, content}], \"memories\": [string]} per capture. "
-                "Then call distill_conversation again with mode='submit' and distilled="
-                "{conversation_id: <that JSON>}."
+                "Process captures ONE AT A TIME — do NOT read all transcripts at once "
+                "(that would overflow your host context). For each capture: "
+                "(1) read the FULL transcript with read_file(filePath=full_path), in "
+                "offset/limit chunks if large (transcript_chars is the total size; "
+                "preview is only a taster for deciding whether to skip); "
+                "(2) apply system_prompt to it and produce ONE JSON object shaped "
+                '{"notes": [{title, note_type, related_modules, tags, content}], '
+                '"memories": [string]}; '
+                "(3) immediately persist it with mode='submit' and distilled="
+                "{conversation_id: <that JSON>} so it lands on disk; "
+                "(4) only then move to the next capture, dropping the previous "
+                "transcript from working memory."
             ),
         }, indent=2, ensure_ascii=False)
 
