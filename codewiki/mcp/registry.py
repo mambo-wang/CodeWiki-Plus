@@ -896,6 +896,70 @@ _register(
 
 _register(
     Tool(
+        name="batch_set_status",
+        description=(
+            "Batch-promote generated wiki pages and/or notes from draft to stable "
+            "(or to deprecated) in one call (OKF v0.2 lifecycle). Scans the output "
+            "directory, rewrites the frontmatter status of every matching document, "
+            "and — like confirm_note — appends a verified event ({by, at}) and renews "
+            "stale_after for stable promotions. "
+            "Use after the user has reviewed and approved a batch of generated pages. "
+            "Supports dry_run to preview the affected files first, and scope='wiki' "
+            "|'notes'|'all' to restrict where to scan."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "output_dir": {
+                    "type": "string",
+                    "description": "Output directory for wiki pages",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
+                },
+                "status": {
+                    "type": "string",
+                    "description": "Target status: 'stable' (default) or 'deprecated'.",
+                    "default": "stable",
+                },
+                "scope": {
+                    "type": "string",
+                    "description": "Which documents to scan: 'all' (default), 'wiki', or 'notes'.",
+                    "default": "all",
+                },
+                "only_draft": {
+                    "type": "boolean",
+                    "description": "Only promote documents currently in draft status (default true).",
+                    "default": True,
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "Preview which files would change without writing anything (default false).",
+                    "default": False,
+                },
+                "renew_stale_after": {
+                    "type": "boolean",
+                    "description": "Renew stale_after on promotion to stable (default true).",
+                    "default": True,
+                },
+                "by": {
+                    "type": "string",
+                    "description": (
+                        "OKF actor id recording who verified the documents, e.g. 'human:mambo-wang' "
+                        "for a person or 'codewiki/5.2.0' for a tool (default: tool actor id)"
+                    ),
+                },
+            },
+            "required": ["repo_path"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.knowledge_loop:handle_batch_set_status",
+    mode="thread",
+)
+
+_register(
+    Tool(
         name="reject_note",
         description=(
             "Reject a draft note, excluding it from future query_wiki results. "

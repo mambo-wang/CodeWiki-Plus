@@ -41,6 +41,9 @@ TOOLS = [
             "4) cleans up workspace files on disk. "
             "Always call this after finishing documentation work to ensure search indexes "
             "are up-to-date. "
+            "The response includes a 'draft_pending' field when generated documents are "
+            "still status: draft — in that case proactively ask the user whether to promote "
+            "them to stable, and if approved call batch_set_status(status='stable'). "
             "If the session was already closed, a normal call returns status='already_closed' "
             "without rebuilding; pass force=true to force a full rebuild anyway."
         ),
@@ -259,9 +262,54 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     if session is not None:
         store.remove(session.session_id)
 
-    return json.dumps({
+    # Count documents still in draft so the agent can offer a batch promotion
+    # to the user (batch_set_status tool).
+    draft_docs = _scan_draft_docs(output_dir)
+
+    resp = {
         "status": "closed",
         "output_dir": output_dir,
         "agents_md_updated": agents_md_updated,
         "agents_md_diff": agents_md_diff,
-    })
+    }
+    if draft_docs:
+        resp["draft_pending"] = {
+            "count": len(draft_docs),
+            "files": draft_docs,
+            "hint": (
+                f"{len(draft_docs)} generated document(s) are still status: draft. "
+                "Ask the user whether to promote them all to stable; if the user agrees, "
+                "call batch_set_status(status='stable', scope='all', by='human:<username>')."
+            ),
+        }
+    return json.dumps(resp, ensure_ascii=False, indent=2)
+
+
+def _scan_draft_docs(output_dir: str) -> list[str]:
+    """Return relative paths of wiki pages + notes whose status is draft."""
+    from codewiki.src.config import WIKI_DIR, NOTES_DIR, WIKI_SYSTEM_FILES
+    draft: list[str] = []
+    base = Path(output_dir)
+    for sub, exclude_system in ((WIKI_DIR, True), (NOTES_DIR, False)):
+        d = base / sub
+        if not d.exists():
+            continue
+        for p in sorted(d.rglob("*.md")):
+            if exclude_system and p.name in WIKI_SYSTEM_FILES:
+                continue
+            try:
+                text = p.read_text(encoding="utf-8")
+                if not text.startswith("---"):
+                    continue
+                end = text.find("---", 3)
+                if end < 0:
+                    continue
+                import yaml
+                data = yaml.safe_load(text[3:end])
+                if isinstance(data, dict):
+                    st = str(data.get("status", "draft") or "draft").strip().lower()
+                    if st in ("draft", "pending"):
+                        draft.append(str(p.relative_to(base)))
+            except Exception:
+                continue
+    return draft

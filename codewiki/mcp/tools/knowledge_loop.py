@@ -244,7 +244,14 @@ def _inject_symbol_links(content: str, output_dir: Path, depth: int = 2, session
     text = _CAMEL_RE.sub(_replace_symbol, text)
 
     # --- restore protected regions ---
-    for i, original in enumerate(protected):
+    # Reverse order is required: a protected region may be nested inside another
+    # (e.g. inline code / link / HTML comment inside a heading, which is protected
+    # last). Inner placeholders get a lower index, so restoring them *before* the
+    # outer region fails — they are still hidden inside ``protected[outer]`` and
+    # won't be present in the text yet. Restoring outer-first puts them back into
+    # the text so the next iteration can replace them. Forward order would leave
+    # ``\x00PROTxxxx\x00`` NUL residue in the output.
+    for i, original in reversed(list(enumerate(protected))):
         text = text.replace(_PLACEHOLDER.format(i), original)
 
     return text
@@ -441,42 +448,25 @@ def _resolve_within(output_dir: Path, relative: str) -> Optional[Path]:
     return candidate
 
 
-def _update_note_status(output_dir: Path, note_file: str, new_status: str,
-                        reason: str = "", verified_by: str = "",
-                        renew_stale_after: bool = False) -> str:
-    """Update the status field in a note's YAML frontmatter.
+def _apply_status_to_file(path: Path, output_dir: Path, new_status: str,
+                          reason: str = "", verified_by: str = "",
+                          renew_stale_after: bool = False) -> str:
+    """Rewrite the ``status`` field in a markdown file's YAML frontmatter.
 
     OKF v0.2: when *verified_by* is given, a ``verified`` entry
     ``{by, at}`` is appended (§5.2); when *renew_stale_after* is set the
     ``stale_after`` date is reset (re-confirmation re-guarantees freshness,
     §5.5).  Mutations go through a YAML round-trip so list values stay
-    well-formed.
+    well-formed.  Returns a JSON string with key ``doc_file``.
     """
-    from codewiki.src.config import NOTES_DIR
-
-    # Normalize once: _resolve_within() returns fully-resolved paths, and on
-    # Windows the raw output_dir may use 8.3 short names (e.g. ADMINI~1) or
-    # different casing, which would break relative_to() below.
-    output_dir = Path(output_dir).expanduser().resolve()
-
-    note_path = _resolve_within(output_dir, f"{NOTES_DIR}/{note_file}")
-    if note_path is None:
-        return json.dumps({"error": f"Invalid note_file path: {note_file}"})
-    if not note_path.exists():
-        # Try direct path
-        note_path = _resolve_within(output_dir, note_file)
-        if note_path is None:
-            return json.dumps({"error": f"Invalid note_file path: {note_file}"})
-    if not note_path.exists():
-        return json.dumps({"error": f"Note not found: {note_file}"})
-
+    path = Path(path).expanduser().resolve()
     try:
-        text = note_path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
     except OSError as e:
-        return json.dumps({"error": f"Cannot read note: {e}"})
+        return json.dumps({"error": f"Cannot read document: {e}"})
 
     if not text.startswith("---"):
-        return json.dumps({"error": "Note has no YAML frontmatter."})
+        return json.dumps({"error": "Document has no YAML frontmatter."})
 
     end = text.find("---", 3)
     if end < 0:
@@ -498,11 +488,11 @@ def _update_note_status(output_dir: Path, note_file: str, new_status: str,
         else:
             fm_text = fm_text.rstrip("\n") + f"\nstatus: {new_status}\n"
         new_text = f"---{fm_text}---{body}"
-        note_path.write_text(new_text, encoding="utf-8")
+        path.write_text(new_text, encoding="utf-8")
         return json.dumps({
             "status": new_status,
-            "note_file": str(note_path.relative_to(output_dir)),
-            "message": f"Note marked as {new_status}.",
+            "doc_file": str(path.relative_to(output_dir)),
+            "message": f"Document marked as {new_status}.",
         }, indent=2, ensure_ascii=False)
 
     data["status"] = new_status
@@ -531,25 +521,64 @@ def _update_note_status(output_dir: Path, note_file: str, new_status: str,
     import yaml as _yaml
     new_fm = _yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
     new_text = f"---\n{new_fm}---{body}"
-    note_path.write_text(new_text, encoding="utf-8")
+    path.write_text(new_text, encoding="utf-8")
 
     # Update search index
     try:
         from codewiki.mcp.tools.wiki_search import update_file
-        update_file(output_dir, note_path)
+        update_file(output_dir, path)
     except Exception:
         pass
 
-    msg = f"Note marked as {new_status}."
+    msg = f"Document marked as {new_status}."
     if reason:
         msg += f" Reason: {reason}"
     if verified_by:
         msg += f" Verified by {verified_by}."
     return json.dumps({
         "status": new_status,
-        "note_file": str(note_path.relative_to(output_dir)),
+        "doc_file": str(path.relative_to(output_dir)),
         "message": msg,
     }, indent=2, ensure_ascii=False)
+
+
+def _update_note_status(output_dir: Path, note_file: str, new_status: str,
+                        reason: str = "", verified_by: str = "",
+                        renew_stale_after: bool = False) -> str:
+    """Update the status field in a note's YAML frontmatter.
+
+    Thin wrapper around :func:`_apply_status_to_file` that keeps the
+    ``notes/`` prefix resolution and the ``note_file`` response key used by
+    ``confirm_note`` / ``reject_note``.
+    """
+    from codewiki.src.config import NOTES_DIR
+
+    # Normalize once: _resolve_within() returns fully-resolved paths, and on
+    # Windows the raw output_dir may use 8.3 short names (e.g. ADMINI~1) or
+    # different casing, which would break relative_to() below.
+    output_dir = Path(output_dir).expanduser().resolve()
+
+    note_path = _resolve_within(output_dir, f"{NOTES_DIR}/{note_file}")
+    if note_path is None:
+        return json.dumps({"error": f"Invalid note_file path: {note_file}"})
+    if not note_path.exists():
+        # Try direct path
+        note_path = _resolve_within(output_dir, note_file)
+        if note_path is None:
+            return json.dumps({"error": f"Invalid note_file path: {note_file}"})
+    if not note_path.exists():
+        return json.dumps({"error": f"Note not found: {note_file}"})
+
+    result = json.loads(_apply_status_to_file(
+        note_path, output_dir, new_status,
+        reason=reason, verified_by=verified_by, renew_stale_after=renew_stale_after,
+    ))
+    if "error" in result:
+        return json.dumps(result, indent=2, ensure_ascii=False)
+    # Keep the public response shape: note_file key + note-oriented message.
+    result["note_file"] = result.pop("doc_file")
+    result["message"] = result["message"].replace("Document", "Note")
+    return json.dumps(result, indent=2, ensure_ascii=False)
 
 
 def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
@@ -609,6 +638,145 @@ def handle_reject_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     reason = arguments.get("reason", "")
 
     return _update_note_status(output_dir, note_file, "deprecated", reason)
+
+
+# ---------------------------------------------------------------------------
+#  batch_set_status
+# ---------------------------------------------------------------------------
+
+def _iter_wiki_docs(output_dir: Path):
+    """Yield wiki page files (excluding system files) under *output_dir*."""
+    from codewiki.src.config import WIKI_DIR, WIKI_SYSTEM_FILES
+    wiki_dir = Path(output_dir) / WIKI_DIR
+    if not wiki_dir.exists():
+        return
+    for p in sorted(wiki_dir.rglob("*.md")):
+        if p.name in WIKI_SYSTEM_FILES:
+            continue
+        yield p
+
+
+def _iter_note_docs(output_dir: Path):
+    """Yield note files under *output_dir*."""
+    from codewiki.src.config import NOTES_DIR
+    notes_dir = Path(output_dir) / NOTES_DIR
+    if not notes_dir.exists():
+        return
+    yield from sorted(notes_dir.rglob("*.md"))
+
+
+def _read_doc_status(path: Path) -> str:
+    """Return the normalized OKF status of a markdown doc (default 'draft')."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return "draft"
+    if not text.startswith("---"):
+        return "draft"
+    end = text.find("---", 3)
+    if end < 0:
+        return "draft"
+    try:
+        import yaml
+        data = yaml.safe_load(text[3:end])
+        if not isinstance(data, dict):
+            return "draft"
+        return _norm_status(data.get("status", "draft"))
+    except Exception:
+        return "draft"
+
+
+def handle_batch_set_status(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """Batch-promote wiki pages and/or notes from draft to stable (OKF v0.2).
+
+    Scans the output directory and rewrites the frontmatter ``status`` field
+    of every matching document, appending a ``verified`` event and renewing
+    ``stale_after`` exactly like :func:`handle_confirm_note`.  Use this after
+    a user confirms a batch of generated pages.
+    """
+    from codewiki.mcp.tools.workspace_result import resolve_session
+    session = resolve_session(arguments, store)
+    od = arguments.get("output_dir")
+    rp = arguments.get("repo_path")
+    if od:
+        output_dir = Path(od).expanduser().resolve()
+    elif rp:
+        output_dir = (Path(rp).expanduser().resolve() / "repowiki")
+    elif session:
+        output_dir = Path(session.output_dir).expanduser().resolve()
+    else:
+        return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
+
+    target = arguments.get("status", "stable") or "stable"
+    scope = (arguments.get("scope", "all") or "all").lower()  # all | wiki | notes
+    only_draft = bool(arguments.get("only_draft", True))
+    dry_run = bool(arguments.get("dry_run", False))
+    by = _okf_actor(arguments.get("by"))
+    renew = bool(arguments.get("renew_stale_after", True))
+
+    if target not in ("stable", "deprecated"):
+        return json.dumps({
+            "error": f"Unsupported target status: {target}. Use 'stable' or 'deprecated'.",
+        }, ensure_ascii=False)
+
+    # Collect candidate files per scope
+    candidates: List[Path] = []
+    if scope in ("all", "wiki"):
+        candidates.extend(_iter_wiki_docs(output_dir))
+    if scope in ("all", "notes"):
+        candidates.extend(_iter_note_docs(output_dir))
+    if not candidates:
+        return json.dumps({"scope": scope, "scanned": 0, "updated": [],
+                           "skipped": [], "message": "No documents found."}, ensure_ascii=False)
+
+    updated: List[Dict[str, str]] = []
+    skipped: List[Dict[str, str]] = []
+    errors: List[Dict[str, str]] = []
+
+    for path in candidates:
+        current = _read_doc_status(path)
+        rel = str(path.relative_to(output_dir))
+        if only_draft and current != "draft":
+            skipped.append({"file": rel, "from": current, "reason": "not draft"})
+            continue
+        if current == target:
+            skipped.append({"file": rel, "from": current, "reason": "already target"})
+            continue
+        if dry_run:
+            updated.append({"file": rel, "from": current, "to": target, "dry_run": True})
+            continue
+        result = json.loads(_apply_status_to_file(
+            path, output_dir, target,
+            verified_by=by, renew_stale_after=(renew and target == "stable"),
+        ))
+        if "error" in result:
+            errors.append({"file": rel, "error": result["error"]})
+        else:
+            updated.append({"file": result["doc_file"], "from": current, "to": target})
+
+    summary = {
+        "target": target,
+        "scope": scope,
+        "dry_run": dry_run,
+        "scanned": len(candidates),
+        "updated": len([u for u in updated if not u.get("dry_run")]),
+        "previewed": len([u for u in updated if u.get("dry_run")]),
+        "skipped": len(skipped),
+        "errors": len(errors),
+        "verified_by": by,
+        "renewed_stale_after": renew and target == "stable",
+    }
+    msg = ("Dry run preview — nothing written. " if dry_run else
+           f"Batch-completed: {summary['updated']} document(s) promoted to {target}.")
+    if errors:
+        msg += f" {len(errors)} error(s) encountered."
+    return json.dumps({
+        **summary,
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors,
+        "message": msg,
+    }, indent=2, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
