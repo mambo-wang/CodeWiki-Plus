@@ -2,7 +2,7 @@
 okf_version: "0.2"
 ---
 
-<!-- 自动生成于 2026-08-12T21:01:31+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-15T17:08:37+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -15,12 +15,12 @@ okf_version: "0.2"
 * [CLI_Adapter](modules/CLI_Adapter.md) - title: CLI_Adapter
 * [CLI_Commands](modules/CLI_Commands.md) - title: CLI_Commands
 * [CLI_Config](modules/CLI_Config.md) - title: CLI_Config
-* [CLI_Utils](modules/CLI_Utils.md) - title: CLI_Utils
+* [CLI_Utils 模块文档](modules/CLI_Utils.md) - title: CLI_Utils
 * [DependencyAnalyzer](modules/DependencyAnalyzer.md) - title: DependencyAnalyzer
 * [DocVisualizer](modules/DocVisualizer.md) - title: DocVisualizer
 * [Frontend](modules/Frontend.md) - title: Frontend
 * [GraphAndSort](modules/GraphAndSort.md) - title: GraphAndSort
-* [LLM_Backend](modules/LLM_Backend.md) - title: LLM_Backend
+* [LLM_Backend 模块文档](modules/LLM_Backend.md) - title: LLM_Backend
 * [LanguageAnalyzers](modules/LanguageAnalyzers.md) - title: LanguageAnalyzers
 * [MCP_Cache](modules/MCP_Cache.md) - title: MCP_Cache
 * [MCP_Core](modules/MCP_Core.md) - title: MCP_Core
@@ -28,10 +28,10 @@ okf_version: "0.2"
 * [MCP_Server](modules/MCP_Server.md) - title: MCP_Server
 * [MCP_Tools_Analysis](modules/MCP_Tools_Analysis.md) - title: MCP_Tools_Analysis
 * [MCP_Tools_Dependency](modules/MCP_Tools_Dependency.md) - title: MCP_Tools_Dependency
-* [MCP_Tools_DocWriter](modules/MCP_Tools_DocWriter.md) - title: MCP_Tools_DocWriter
+* [MCP_Tools_DocWriter 模块文档](modules/MCP_Tools_DocWriter.md) - title: MCP_Tools_DocWriter
 * [MCP_Tools_Knowledge](modules/MCP_Tools_Knowledge.md) - title: MCP_Tools_Knowledge
-* [MCP_Tools_Quality](modules/MCP_Tools_Quality.md) - title: MCP_Tools_Quality
-* [RouteExtractors](modules/RouteExtractors.md) - title: RouteExtractors
+* [MCP_Tools_Quality 模块文档](modules/MCP_Tools_Quality.md) - title: MCP_Tools_Quality
+* [RouteExtractors 模块文档](modules/RouteExtractors.md) - title: RouteExtractors
 * [SharedConfig](modules/SharedConfig.md) - title: SharedConfig
 * [WebApp](modules/WebApp.md) - title: WebApp
 
@@ -57,21 +57,32 @@ okf_version: "0.2"
 
 ## 知识笔记
 
+* [CodeWiki frontmatter 修补是 additive-only：LLM 直写的 status: draft 不会被默认 stable 覆盖](../notes/2026-08-15-codewiki-frontmatter-修补是-additive-onlyllm-直写的-status-draft-不.md) - architecture (architecture, 2026-08-15)
+* [migrate_okf --fold-private 改行手术折叠避免跨行 flow 值 churn；新增 repair_double_quoted_escapes 先修复坏转义再折叠](../notes/2026-08-15-migrate-okf---fold-private-改行手术折叠避免跨行-flow-值-churn新增-repair.md) - decision (decision, 2026-08-15)
+* [OKF v0.2 §7 actor 格式：agent 应写 <producer>/<version>，agent: 前缀不在规范内，消费端仅凭 human: 前缀推导信任档位](../notes/2026-08-15-okf-v02-7-actor-格式agent-应写-producerversionagent-前缀不在规范内消费端仅凭.md) - lesson (lesson, 2026-08-15)
+* [ontology.yaml 的 types/relations 是未实现的 schema 骨架，只有 terms 被消费](../notes/2026-08-15-ontologyyaml-的-typesrelations-是未实现的-schema-骨架只有-terms-被消费.md) - architecture (architecture, 2026-08-15)
+* [PowerShell 下中文经命令行传参（git commit -m / python -c）会被 GBK 破坏，应改用 UTF-8 文件方式](../notes/2026-08-15-powershell-下中文经命令行传参git-commit--m-python--c会被-gbk-破坏应改用-utf.md) - workaround (workaround, 2026-08-15)
+* [query_wiki 索引机制：frontmatter 除 6 个 boost 字段外一律剥离不进 BM25，metadata 折叠与 json.dumps 转义不影响检索](../notes/2026-08-15-query-wiki-索引机制frontmatter-除-6-个-boost-字段外一律剥离不进-bm25metadat.md) - architecture (architecture, 2026-08-15)
+* [wiki_lint 需豁免 raw/ 根暂存层但保留 raw/sources/，RAW_DIR 须单独处理不可塞进 _scratch_dirs](../notes/2026-08-15-wiki-lint-需豁免-raw-根暂存层但保留-rawsourcesraw-dir-须单独处理不可塞进-scratc.md) - pitfall (pitfall, 2026-08-15)
+* [wiki 页出现 \x00PROTxxxx\x00 占位符残留会使文件被判为 binary 无法读取](../notes/2026-08-15-wiki-页出现-x00protxxxxx00-占位符残留会使文件被判为-binary-无法读取.md) - pitfall (pitfall, 2026-08-15)
+* [YAML frontmatter 裸 f-string 插值 Windows 路径产生非法转义 \c 导致整个 frontmatter 无法解析（OKF §11 违规），字符串字段一律用 json.dumps 转义](../notes/2026-08-15-yaml-frontmatter-裸-f-string-插值-windows-路径产生非法转义-c-导致整个-front.md) - pitfall (pitfall, 2026-08-15)
+* [生成的 wiki 页面 status 为 draft 的根因排查：prompt 模板示例会误导 LLM](../notes/2026-08-15-生成的-wiki-页面-status-为-draft-的根因排查prompt-模板示例会误导-llm.md) - lesson (lesson, 2026-08-15)
+* [私有键统一折叠进 metadata:（单行 JSON 值）形成闭环，防止全量生成恢复顶层键](../notes/2026-08-15-私有键统一折叠进-metadata单行-json-值形成闭环防止全量生成恢复顶层键.md) - decision (decision, 2026-08-15)
+* [CodeBuddy IDE 把系统上下文注入 user 消息，采集时必须剥离系统标签块](../notes/2026-08-12-codebuddy-ide-把系统上下文注入-user-消息采集时必须剥离系统标签块.md) - lesson (lesson, 2026-08-12)
+* [confirm_note/reject_note 的 output_dir 解析顺序改为 output_dir → repo_path → session](../notes/2026-08-12-confirm-notereject-note-的-output-dir-解析顺序改为-output-dir-repo.md) - decision (decision, 2026-08-12)
+* [IDE hook 采用「同步采集 + 异步蒸馏」两段式执行模型](../notes/2026-08-12-ide-hook-采用同步采集-异步蒸馏两段式执行模型.md) - architecture (architecture, 2026-08-12)
+* [MCP 工具无法自动探测当前项目路径，需显式传 repo_path](../notes/2026-08-12-mcp-工具无法自动探测当前项目路径需显式传-repo-path.md) - pitfall (pitfall, 2026-08-12)
+* [query_wiki 的 output_dir 非必填，解析顺序为 output_dir → session → repo_path](../notes/2026-08-12-query-wiki-的-output-dir-非必填解析顺序为-output-dir-session-repo-pat.md) - architecture (architecture, 2026-08-12)
+* [repowiki/raw/ 目录堆积会使同步捕获线性变慢，逼近 60s 超时](../notes/2026-08-12-repowikiraw-目录堆积会使同步捕获线性变慢逼近-60s-超时.md) - pitfall (pitfall, 2026-08-12)
+* [resolve_session 恢复的 session.output_dir 会覆盖 repo_path 推断，导致 Note not found](../notes/2026-08-12-resolve-session-恢复的-sessionoutput-dir-会覆盖-repo-path-推断导致-not.md) - pitfall (pitfall, 2026-08-12)
+* [TencentDB-Agent-Memory 四层记忆金字塔：逐层蒸馏 + 触发式调度](../notes/2026-08-12-tencentdb-agent-memory-四层记忆金字塔逐层蒸馏-触发式调度.md) - architecture (architecture, 2026-08-12)
+* [块剥离正则不要用 ^ 行首锚点：系统块前可能有 user: 前缀](../notes/2026-08-12-块剥离正则不要用-行首锚点系统块前可能有-user-前缀.md) - pitfall (pitfall, 2026-08-12)
+* [CodeBuddy index.json transcript 是裸 JSON 数组，_load_transcript 必须支持 list 顶层展开](../notes/2026-08-09-codebuddy-indexjson-transcript-是裸-json-数组-load-transcript-必须.md) - pitfall (pitfall, 2026-08-09)
+* [hook 事件信封合成时须置空 source_session_id，否则 supersede 会覆盖真实 transcript（数据丢失）](../notes/2026-08-09-hook-事件信封合成时须置空-source-session-id否则-supersede-会覆盖真实-transcri.md) - pitfall (pitfall, 2026-08-09)
+* [Windows 下 hook 按 sys.stdin.read() 读取中文事件会崩溃，必须按字节读 + 显式 UTF-8 解码](../notes/2026-08-09-windows-下-hook-按-sysstdinread-读取中文事件会崩溃必须按字节读-显式-utf-8-解码.md) - pitfall (pitfall, 2026-08-09)
+* [同一会话的 PreCompact/Stop 不带 transcript_path，落空信封会被 duplicate 去重，应视为 no-op](../notes/2026-08-09-同一会话的-precompactstop-不带-transcript-path落空信封会被-duplicate-去重应视.md) - lesson (lesson, 2026-08-09)
+* [归档对话文件名用用户首句 slug，且与 conversation_id 必须一致（蒸馏链路依赖此约束）](../notes/2026-08-09-归档对话文件名用用户首句-slug且与-conversation-id-必须一致蒸馏链路依赖此约束.md) - decision (decision, 2026-08-09)
+* [无知识的 raw 对话蒸馏后也应清理，删除条件要用 produced is not None 而非 truthy](../notes/2026-08-09-无知识的-raw-对话蒸馏后也应清理删除条件要用-produced-is-not-none-而非-truthy.md) - lesson (lesson, 2026-08-09)
+* [CodeBuddy IDE transcript_path 指向的 index.json 只存元数据，真实内容在 messages/<id>.json](../notes/2026-08-08-codebuddy-ide-transcript-path-指向的-indexjson-只存元数据真实内容在-messa.md) - pitfall (pitfall, 2026-08-08)
 * [Entity/Concept 提取采用 WeKnora 式两阶段流程（P0：纯 prompt 协议）](../notes/2026-08-03-entityconcept-提取采用-weknora-式两阶段流程p0纯-prompt-协议.md) - decision (decision, 2026-08-03)
 * [MCP 工具 schema 不声明 session_id，handler 隐式读取](../notes/2026-08-03-mcp-工具-schema-不声明-session-idhandler-隐式读取.md) - lesson (lesson, 2026-08-03)
-* [2026-08-08-codebuddy-ide-transcript-path-指向的-indexjson-只存元数据真实内容在-messa](../notes/2026-08-08-codebuddy-ide-transcript-path-指向的-indexjson-只存元数据真实内容在-messa.md) - note
-* [2026-08-09-codebuddy-indexjson-transcript-是裸-json-数组-load-transcript-必须](../notes/2026-08-09-codebuddy-indexjson-transcript-是裸-json-数组-load-transcript-必须.md) - note
-* [2026-08-09-hook-事件信封合成时须置空-source-session-id否则-supersede-会覆盖真实-transcri](../notes/2026-08-09-hook-事件信封合成时须置空-source-session-id否则-supersede-会覆盖真实-transcri.md) - note
-* [2026-08-09-windows-下-hook-按-sysstdinread-读取中文事件会崩溃必须按字节读-显式-utf-8-解码](../notes/2026-08-09-windows-下-hook-按-sysstdinread-读取中文事件会崩溃必须按字节读-显式-utf-8-解码.md) - note
-* [2026-08-09-同一会话的-precompactstop-不带-transcript-path落空信封会被-duplicate-去重应视](../notes/2026-08-09-同一会话的-precompactstop-不带-transcript-path落空信封会被-duplicate-去重应视.md) - note
-* [2026-08-09-归档对话文件名用用户首句-slug且与-conversation-id-必须一致蒸馏链路依赖此约束](../notes/2026-08-09-归档对话文件名用用户首句-slug且与-conversation-id-必须一致蒸馏链路依赖此约束.md) - note
-* [2026-08-09-无知识的-raw-对话蒸馏后也应清理删除条件要用-produced-is-not-none-而非-truthy](../notes/2026-08-09-无知识的-raw-对话蒸馏后也应清理删除条件要用-produced-is-not-none-而非-truthy.md) - note
-* [2026-08-12-codebuddy-ide-把系统上下文注入-user-消息采集时必须剥离系统标签块](../notes/2026-08-12-codebuddy-ide-把系统上下文注入-user-消息采集时必须剥离系统标签块.md) - note
-* [2026-08-12-confirm-notereject-note-的-output-dir-解析顺序改为-output-dir-repo](../notes/2026-08-12-confirm-notereject-note-的-output-dir-解析顺序改为-output-dir-repo.md) - note
-* [2026-08-12-ide-hook-采用同步采集-异步蒸馏两段式执行模型](../notes/2026-08-12-ide-hook-采用同步采集-异步蒸馏两段式执行模型.md) - note
-* [2026-08-12-mcp-工具无法自动探测当前项目路径需显式传-repo-path](../notes/2026-08-12-mcp-工具无法自动探测当前项目路径需显式传-repo-path.md) - note
-* [2026-08-12-query-wiki-的-output-dir-非必填解析顺序为-output-dir-session-repo-pat](../notes/2026-08-12-query-wiki-的-output-dir-非必填解析顺序为-output-dir-session-repo-pat.md) - note
-* [2026-08-12-repowikiraw-目录堆积会使同步捕获线性变慢逼近-60s-超时](../notes/2026-08-12-repowikiraw-目录堆积会使同步捕获线性变慢逼近-60s-超时.md) - note
-* [2026-08-12-resolve-session-恢复的-sessionoutput-dir-会覆盖-repo-path-推断导致-not](../notes/2026-08-12-resolve-session-恢复的-sessionoutput-dir-会覆盖-repo-path-推断导致-not.md) - note
-* [2026-08-12-tencentdb-agent-memory-四层记忆金字塔逐层蒸馏-触发式调度](../notes/2026-08-12-tencentdb-agent-memory-四层记忆金字塔逐层蒸馏-触发式调度.md) - note
-* [2026-08-12-块剥离正则不要用-行首锚点系统块前可能有-user-前缀](../notes/2026-08-12-块剥离正则不要用-行首锚点系统块前可能有-user-前缀.md) - note

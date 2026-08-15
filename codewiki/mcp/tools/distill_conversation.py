@@ -623,22 +623,27 @@ def _process_llm_output(
             "status": result.get("status", "unknown"),
         })
 
-    # Task-memory dual track: route the LLM's task-scoped "memories" back to the
-    # bound task. Only meaningful when the raw file carries a task_id. Ghost
-    # task_id (task deleted after capture) is tolerated — add_task_memory will
-    # report the task as missing and we skip silently.
+    # Task-memory dual track: route the LLM's task-scoped "memories" into the
+    # task's PENDING area (repowiki/tasks/<task_id>/pending-memories.json) so the
+    # host agent can present them to the user for confirmation before they land
+    # in memories.md (confirm_task_memories / reject_task_memories). Only
+    # meaningful when the raw file carries a task_id. Ghost task_id (task deleted
+    # after capture) is tolerated — stage_task_memories reports the task as
+    # missing and we skip silently.
     memories = _parse_llm_memories(llm_output) if task_id else []
-    memories_created = 0
+    memories_staged = 0
+    memories_pending: List[Dict[str, Any]] = []
     if task_id and memories:
-        from codewiki.mcp.tools.task_manager import handle_add_task_memory
-        for mem in memories:
-            r = json.loads(handle_add_task_memory({
-                "output_dir": str(output_dir),
-                "task_id": task_id,
-                "content": mem,
-            }, store))
-            if r.get("ok"):
-                memories_created += 1
+        from codewiki.mcp.tools.task_manager import handle_stage_task_memories
+        r = json.loads(handle_stage_task_memories({
+            "output_dir": str(output_dir),
+            "task_id": task_id,
+            "memories": memories,
+            "source_raw": raw_rel,
+        }, store))
+        if r.get("ok"):
+            memories_staged = r.get("staged", 0)
+            memories_pending = r.get("pending", [])
 
     # Mark raw as distilled and conditionally delete.
     # A raw file is only kept when explicitly requested (keep_raw) or when
@@ -673,11 +678,12 @@ def _process_llm_output(
 
     return {
         "raw_path": str(raw_path),
-        "status": "completed" if (produced or memories_created) else "no_knowledge",
+        "status": "completed" if (produced or memories_staged) else "no_knowledge",
         "notes_created": len(produced),
         "notes": produced,
         "distilled": produced,
-        "memories_created": memories_created,
+        "memories_staged": memories_staged,
+        "memories_pending": memories_pending,
         "task_id": task_id or None,
         "deleted_raw": deleted,
         "keep_raw": keep_raw,

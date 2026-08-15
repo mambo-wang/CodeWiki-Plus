@@ -139,15 +139,17 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
 
 **会话开始时(推荐)：**
 1. `list_tasks(status="active")` 列出进行中的任务
-2. 询问用户二选一：
+2. **必须用 `ask_followup_question` 工具弹出结构化选择框**（IDE 原生弹框 UI，用户可直接点击），不要用纯文本输出一段话让用户自行回复。选项二选一（加一个"跳过"）：
    - **关联已有任务**：用户从列表中选择，用 `set_session_task(source_session_id=<会话id>, task_id=<任务id>)` 建立绑定，本会话采集的对话会自动带上 `task_id`
-   - **新建任务**：用户直接输入任务名（可补一句描述），调 `create_task(title=<任务名>, description=<可选>)` 创建后即关联该新任务
+   - **新建任务**：选择后再弹一个 `ask_followup_question` 输入框让用户输入任务名（可补一句描述），调 `create_task(title=<任务名>, description=<可选>)` 创建后即关联该新任务
+   - **跳过**：本次会话不做任务关联
+   新建任务两步弹框：选择「新建任务」后**必须**再次调用 `ask_followup_question` 弹出第二个输入框（标题「新建任务」，问题「请输入新任务名称」，带 2 个占位选项）。弹框自带输入框，用户可自由输入任务名后回车；以输入文字为准，立即调用 `create_task(title=<任务名>)` 创建并关联。若用户只点了占位选项，用文字追问确认真实任务名
 3. `get_task_context(task_id=<任务id>)` 拉取任务描述 + 记忆 + 关联笔记，作为继续工作的上下文
 
 **工具入口：**
-- `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context`
-- 存储：`repowiki/tasks/.index.json` + `<task_id>/task.md` + `<task_id>/memories.md`；会话绑定在 `repowiki/.meta/task_bindings/`
-- `capture_conversation` / `distill_conversation` / `ingest_note` / `query_wiki` 均接受 `task_id`；蒸馏时 LLM 双轨产出 `notes`(通用知识) 与 `memories`(任务进度，自动落盘 `memories.md`)
+- `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context` / `stage_task_memories` / `list_pending_memories` / `confirm_task_memories` / `reject_task_memories`
+- 存储：`repowiki/tasks/.index.json` + `<task_id>/task.md` + `<task_id>/memories.md` + `<task_id>/pending-memories.json`；会话绑定在 `repowiki/.meta/task_bindings/`
+- `capture_conversation` / `distill_conversation` / `ingest_note` / `query_wiki` 均接受 `task_id`；蒸馏时 LLM 双轨产出 `notes`(通用知识) 与 `memories`(任务进度)，后者**先暂存 pending 待确认**（`confirm_task_memories` 落盘 `memories.md`，`reject_task_memories` 丢弃），与笔记 confirm/reject 评审闸门对齐
 - MCP prompt `task-workflow`（prompts/list）— 完整工作流指引
 
 **关键设计约束(实现时务必遵守)：**

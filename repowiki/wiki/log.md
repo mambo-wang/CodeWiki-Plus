@@ -2,6 +2,19 @@
 
 > 本文件为追加写入的操作记录，由系统自动维护
 
+## 2026-08-15
+* **ingest_note**: 添加笔记: ontology.yaml 的 types/relations 是未实现的 schema 骨架，只有 terms 被消费
+* **ingest_note**: 添加笔记: PowerShell 下中文经命令行传参（git commit -m / python -c）会被 GBK 破坏，应改用 UTF-8 文件方式
+* **ingest_note**: 添加笔记: CodeWiki frontmatter 修补是 additive-only：LLM 直写的 status: draft 不会被默认 stable 覆盖
+* **ingest_note**: 添加笔记: 生成的 wiki 页面 status 为 draft 的根因排查：prompt 模板示例会误导 LLM
+* **ingest_note**: 添加笔记: wiki 页出现 \x00PROTxxxx\x00 占位符残留会使文件被判为 binary 无法读取
+* **ingest_note**: 添加笔记: OKF v0.2 §7 actor 格式：agent 应写 <producer>/<version>，agent: 前缀不在规范内，消费端仅凭 human: 前缀推导信任档位
+* **ingest_note**: 添加笔记: YAML frontmatter 裸 f-string 插值 Windows 路径产生非法转义 \c 导致整个 frontmatter 无法解析（OKF §11 违规），字符串字段一律用 json.dumps 转义
+* **ingest_note**: 添加笔记: 私有键统一折叠进 metadata:（单行 JSON 值）形成闭环，防止全量生成恢复顶层键
+* **ingest_note**: 添加笔记: query_wiki 索引机制：frontmatter 除 6 个 boost 字段外一律剥离不进 BM25，metadata 折叠与 json.dumps 转义不影响检索
+* **ingest_note**: 添加笔记: migrate_okf --fold-private 改行手术折叠避免跨行 flow 值 churn；新增 repair_double_quoted_escapes 先修复坏转义再折叠
+* **ingest_note**: 添加笔记: wiki_lint 需豁免 raw/ 根暂存层但保留 raw/sources/，RAW_DIR 须单独处理不可塞进 _scratch_dirs
+
 ## 2026-08-13
 * **lint_wiki**: 检查完成: 53 个问题
 * **lint_wiki**: 检查完成: 53 个问题

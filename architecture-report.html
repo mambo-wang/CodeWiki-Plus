@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeWiki MCP Server 架构深化扫描报告</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --yellow: #d29922; --red: #f85149;
+    --orange: #db6d28; --purple: #bc8cff;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; line-height:1.6; padding:0 0 60px; }
+  .wrap { max-width:1080px; margin:0 auto; padding:0 24px; }
+  header { padding:48px 0 24px; border-bottom:1px solid var(--border); margin-bottom:32px; }
+  header h1 { font-size:28px; font-weight:700; letter-spacing:-.5px; }
+  header h1 .dot { color:var(--accent); }
+  header p.sub { color:var(--muted); margin-top:8px; font-size:14px; }
+  .badges { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
+  .badge { background:var(--panel); border:1px solid var(--border); padding:4px 12px; border-radius:20px; font-size:12px; color:var(--muted); }
+  .badge b { color:var(--text); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:16px; margin:32px 0; }
+  .stat { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px 20px; }
+  .stat .num { font-size:30px; font-weight:700; }
+  .stat .lbl { color:var(--muted); font-size:13px; margin-top:4px; }
+  .stat.blue .num{color:var(--accent)} .stat.green .num{color:var(--green)} .stat.yellow .num{color:var(--yellow)} .stat.red .num{color:var(--red)} .stat.purple .num{color:var(--purple)} .stat.orange .num{color:var(--orange)}
+  h2 { font-size:20px; margin:40px 0 16px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+  h2 .n { color:var(--accent); font-weight:400; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; margin-bottom:16px; overflow:hidden; }
+  .card:hover { border-color:#484f58; }
+  .card .head { display:flex; align-items:flex-start; gap:12px; padding:16px 20px; cursor:pointer; user-select:none; }
+  .card .sev { flex:0 0 auto; font-size:11px; font-weight:700; padding:3px 10px; border-radius:6px; letter-spacing:.5px; margin-top:4px; }
+  .sev.high{background:rgba(248,81,73,.15);color:var(--red)} .sev.med{background:rgba(210,153,34,.15);color:var(--yellow)} .sev.low{background:rgba(139,148,158,.15);color:var(--muted)}
+  .card .title { font-size:16px; font-weight:600; flex:1; }
+  .card .chev { color:var(--muted); transition:transform .2s; font-size:14px; margin-top:4px; }
+  .card.open .chev { transform:rotate(90deg); }
+  .card .body { display:none; padding:0 20px 20px; }
+  .card.open .body { display:block; }
+  .kw { color:var(--muted); font-size:12px; margin-top:6px; }
+  .kw code { background:rgba(110,118,129,.15); padding:1px 6px; border-radius:4px; color:var(--accent); font-size:11px; font-family:"SFMono-Regular",Consolas,monospace; }
+  .body p { color:var(--muted); font-size:14px; margin-bottom:10px; }
+  .body p b { color:var(--text); }
+  .ev { background:#0d1117; border:1px solid var(--border); border-left:3px solid var(--yellow); border-radius:6px; padding:10px 14px; font-family:"SFMono-Regular",Consolas,monospace; font-size:12px; color:#c9d1d9; margin:8px 0; white-space:pre-wrap; }
+  .fix { background:rgba(63,185,80,.07); border:1px solid rgba(63,185,80,.25); border-radius:6px; padding:12px 16px; margin-top:12px; font-size:14px; }
+  .fix b { color:var(--green); }
+  .fix code { background:rgba(110,118,129,.2); padding:1px 6px; border-radius:4px; font-family:"SFMono-Regular",Consolas,monospace; font-size:12px; color:#7ee787; }
+  .tags { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .tag { font-size:11px; padding:2px 8px; border-radius:10px; background:rgba(88,166,255,.1); color:var(--accent); }
+  .pick { margin-top:48px; background:linear-gradient(135deg, rgba(88,166,255,.08), rgba(188,140,255,.06)); border:1px solid rgba(88,166,255,.3); border-radius:12px; padding:24px; }
+  .pick h3 { font-size:18px; margin-bottom:8px; }
+  .pick p { color:var(--muted); font-size:14px; }
+  .pick .opts { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; margin-top:16px; }
+  .opt { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px 16px; font-size:14px; cursor:pointer; transition:border-color .15s, background .15s; }
+  .opt:hover { border-color:var(--accent); background:rgba(88,166,255,.06); }
+  .opt .o-title { font-weight:600; color:var(--accent); font-size:15px; }
+  .opt .o-desc { color:var(--muted); font-size:13px; margin-top:4px; }
+  footer { margin-top:48px; color:var(--muted); font-size:12px; text-align:center; }
+  .heat { display:flex; flex-wrap:wrap; gap:6px; margin:16px 0; }
+  .heat span { background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:4px 10px; font-family:"SFMono-Regular",Consolas,monospace; font-size:11px; color:var(--muted); }
+  .heat b { color:var(--orange); font-weight:700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>CodeWiki <span class="dot">MCP Server</span> 架构深化扫描</h1>
+  <p class="sub">扫描聚焦 <code>codewiki/mcp/</code> 包 · 目标：找出可深化的摩擦点，供挑选后逐一深挖</p>
+  <div class="badges">
+    <span class="badge">扫描范围 <b>codewiki/mcp</b></span>
+    <span class="badge">工具数 <b>33</b></span>
+    <span class="badge">报告日期 <b>2026-08-15</b></span>
+    <span class="badge">关联任务 <b>CodeWiki 架构深化分析</b></span>
+  </div>
+</header>
+
+<div class="grid">
+  <div class="stat red"><div class="num">2108</div><div class="lbl">registry.py 行数（schema 占 ~85%）</div></div>
+  <div class="stat yellow"><div class="num">7</div><div class="lbl">同款 output_dir 解析散落文件数</div></div>
+  <div class="stat orange"><div class="num">10+</div><div class="lbl">frontmatter 解析重复位置</div></div>
+  <div class="stat purple"><div class="num">2</div><div class="lbl">个 >1000 行 tools 文件</div></div>
+  <div class="stat green"><div class="num">1</div><div class="lbl">个绕过 dispatch 的独立 CLI（_ide_hook）</div></div>
+</div>
+
+<h2>概览 · 发现的深化机会</h2>
+
+<div id="cards">
+
+<div class="card open">
+  <div class="head">
+    <span class="sev high">HIGH</span>
+    <div>
+      <div class="title">#1 output_dir / session 解析逻辑复制粘贴 7 处</div>
+      <div class="kw"><code>knowledge_loop.py</code> <code>capture_conversation.py</code> <code>distill_conversation.py</code> <code>doc_writer.py</code></div>
+    </div>
+    <span class="chev">▶</span>
+  </div>
+  <div class="body">
+    <p>同一段「解析 <b>output_dir → 解析/恢复 session → 派生 repo_path → 失败抛错」</b>的逻辑在多个 handler 里各写一份。调用方想改一处行为（比如 session 恢复策略）要同步改 7 个文件。</p>
+    <div class="ev"># capture_conversation.py 与 distill_conversation.py 各有一份几乎相同的 _resolve_output_dir()
+# knowledge_loop.py 中 handle_ingest_note / handle_query_wiki / handle_confirm_note … 6+ 处同构解析</div>
+    <p><b>注意</b>：<code>workspace_result.py</code> 里已存在 <code>resolve_session()</code> 公共辅助，但多数 handler 没有复用，仍各自手写。</p>
+    <div class="fix"><b>深化方向</b>：收敛到一个 <code>resolve_workspace(arguments) → WorkspaceContext</code> 辅助（封装 output_dir / session / repo_path 三元组解析），7 处改为单点调用。纯删减、无行为变化，风险最低。</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="head">
+    <span class="sev high">HIGH</span>
+    <div>
+      <div class="title">#2 frontmatter 解析逻辑分散在 10+ 个文件</div>
+      <div class="kw"><code>cache.py</code> <code>doc_writer.py</code> <code>knowledge_loop.py</code> <code>source_ingest.py</code> <code>wiki_lint.py</code> …</div>
+    </div>
+    <span class="chev">▶</span>
+  </div>
+  <div class="body">
+    <p>「读 YAML frontmatter → 取某 key」的辅助函数分别存在于 <b>cache.py</b>（<code>_parse_frontmatter_dict</code>、<code>_extract_frontmatter</code>）、<b>doc_writer.py</b>（74 处引用 frontmatter）、<b>knowledge_loop.py</b>（42 处）、<b>source_ingest.py</b>（32 处）、<b>wiki_lint.py</b>（20 处）等。</p>
+    <div class="ev"># cache.py:112  def _parse_frontmatter_dict(text) …
+# cache.py:1515 def _extract_frontmatter(content, key) …
+# 但 doc_writer / knowledge_loop / source_ingest 各自又实现了一版</div>
+    <p>同样字段（<code>type</code> / <code>title</code> / <code>related_modules</code>…）在不同文件的解析容错行为可能不一致——这是潜在的隐性 bug 来源。</p>
+    <div class="fix"><b>深化方向</b>：抽一个 <code>codewiki/mcp/wiki_fm.py</code>（或并入现有公共模块）统一 frontmatter 读写，所有文件改为 import 单点。收效面最广。</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="head">
+    <span class="sev med">MED</span>
+    <div>
+      <div class="title">#3 registry.py 巨型 schema 文件 —— 工具定义与实现分离</div>
+      <div class="kw"><code>registry.py</code>（2108 行） vs <code>tools/*.py</code></div>
+    </div>
+    <span class="chev">▶</span>
+  </div>
+  <div class="body">
+    <p>2108 行里约 85% 是 <b>纯 schema 数据</b>（超长 description 字符串 + inputSchema dict），真正的 dispatch 逻辑只有 ~60 行。每个工具的知识被拆在两处：schema 在 <code>registry.py</code>，handler 在 <code>tools/xxx.py</code>。改一个工具要跳两个文件、对齐两处。</p>
+    <div class="ev"># registry.py:  ~1800 行 Tool(name=…, description=「数百字」, inputSchema={…})
+# 而 handler 实现: tools/knowledge_loop.py 等</div>
+    <div class="fix"><b>深化方向</b>：把 schema 收编到各 handler 文件内（如 <code>TOOL_DEF = Tool(...)</code> + <code>REGISTER(tool)</code> 声明式注册），registry 只留 dispatch 与汇总。让「一个工具的完整知识就近可见」。</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="head">
+    <span class="sev med">MED</span>
+    <div>
+      <div class="title">#4 _ide_hook.py 是绕过 dispatch 的独立 CLI 入口</div>
+      <div class="kw"><code>_ide_hook.py</code>（可 python -m 直接跑）</div>
+    </div>
+    <span class="chev">▶</span>
+  </div>
+  <div class="body">
+    <p>名义上是 mcp 包的内部模块，实际是 <b>独立 CLI 入口</b>：直接 <code>import handle_capture_conversation</code>，手工组装 arguments dict，绕过 registry 的 schema 校验与 dispatch 管线。</p>
+    <div class="ev"># _ide_hook.py: from codewiki.mcp.tools.capture_conversation import handle_capture_conversation
+#        … 手工构造 arguments（绕过 inputSchema 校验）</div>
+    <p>后果：hook 路径与 MCP 路径的 <b>参数行为可能漂移</b>（校验、默认值、错误格式），同一个 capture_conversation 语义在两处不同。</p>
+    <div class="fix"><b>深化方向</b>：让 hook 走同一 dispatch（构造合法 arguments 交给 registry），或至少共享同一参数规范化函数。</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="head">
+    <span class="sev med">MED</span>
+    <div>
+      <div class="title">#5 workspace.py docstring 与实际实现不符 + 死参数</div>
+      <div class="kw"><code>workspace.py</code></div>
+    </div>
+    <span class="chev">▶</span>
+  </div>
+  <div class="body">
+    <p>模块 docstring 声明目录布局是 <code>.codewiki/sessions/{session_id}/</code>，但实际实现已改为 <b>固定的 <code>.codewiki/workspace/</code></b>（见 <code>__init__</code> 注释「Use a fixed directory per repo instead of per-session」）。同时构造器接收 <code>session_id</code> 参数但完全未使用——死参数。</p>
+    <div class="ev"># workspace.py:10  .codewiki/sessions/{session_id}/     ← docstring 过时
+# workspace.py:59  def __init__(self, repo_path, session_id="")  # session_id 从未被使用
+# workspace.py:63  self.root = repo_path / _WORKSPACE_REL   # 实际固定目录</div>
+    <div class="fix"><b>深化方向</b>：docstring 对齐实现、删除 <code>session_id</code> 死参数（改调用方），消除「文档 vs 行为」漂移。</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="head">
+    <span class="sev low">LOW</span>
+    <div>
+      <div class="title">#6 session.find_or_restore 隐式副作用</div>
+      <div class="kw"><code>session.py</code> <code>knowledge_loop.py</code></div>
+    </div>
+    <span class="chev">▶</span>
+  </div>
+  <div class="body">
+    <p>查询类工具只传 <code>repo_path</code> 时，<code>find_or_restore()</code> 会<b>静默从 SQLite 恢复 session</b>。knowledge_loop.py 里甚至有一段注释承认：该恢复可能返回 stale/incorrect path，然后手动用 repo_path 覆盖。</p>
+    <div class="ev"># knowledge_loop.py:  # find_or_restore() 可能返回 stale/incorrect path，优先用显式 repo_path
+#        session = _sf.find_or_restore(...)  # 隐式副作用</div>
+    <p>「调用查询工具 → 静默重建分析 session」对外部是不可见的魔法行为。</p>
+    <div class="fix"><b>深化方向</b>：将恢复逻辑显式化为「优先显式参数，缺省才尝试恢复」，并在调用点注释/文档化该副作用。</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="head">
+    <span class="sev low">LOW</span>
+    <div>
+      <div class="title">#7 dispatch 内嵌 CBM enrichment 后置钩子</div>
+      <div class="kw"><code>registry.py</code> <code>cbm_integration.py</code></div>
+    </div>
+    <span class="chev">▶</span>
+  </div>
+  <div class="body">
+    <p>dispatch 中对 <code>analyze_repo</code> / <code>analyze_impact</code> / <code>query_cross_service</code> 的结果做 CBM 增强改写（解析 JSON 后注入）。这是对 handler 返回值的 <b>隐式契约</b>：非 JSON 字符串的返回会静默跳过增强。</p>
+    <div class="fix"><b>深化方向</b>：把 enrichment 收编为 handler 的显式装饰器/包装器，或至少在文档中明确返回值契约。</div>
+  </div>
+</div>
+
+</div><!-- /cards -->
+
+<h2>文件体量热力图（mcp/tools）</h2>
+<div class="heat">
+  <span>knowledge_loop <b>1784</b></span>
+  <span>wiki_lint <b>1517</b></span>
+  <span>doc_writer <b>1478</b></span>
+  <span>prompt_server <b>1246</b></span>
+  <span>distill_conversation <b>1027</b></span>
+  <span>analysis <b>908</b></span>
+  <span>source_ingest <b>643</b></span>
+  <span>capture_conversation <b>619</b></span>
+  <span>task_manager <b>510</b></span>
+  <span>wiki_index <b>481</b></span>
+  <span>…其余 20 个 <b>&lt; 500</b></span>
+</div>
+
+<div class="pick">
+  <h3>🎯 挑选一个方向开始深挖</h3>
+  <p>每个方向都会先做「删除测试 / 概念收敛」，确认复杂度真的消失而不是搬走，然后给出一份实施方案供你 grill。</p>
+  <div class="opts">
+    <div class="opt" onclick="pick('1')"><div class="o-title">#1 收敛 output_dir 解析（低风险纯删减）</div><div class="o-desc">7 处同款解析 → 单点 resolve_workspace()</div></div>
+    <div class="opt" onclick="pick('2')"><div class="o-title">#2 统一 frontmatter 模块（收效面最广）</div><div class="o-desc">10+ 文件重复解析 → 单一 wiki_fm 模块</div></div>
+    <div class="opt" onclick="pick('3')"><div class="o-title">#3 registry 声明式注册（结构改善）</div><div class="o-desc">schema 与 handler 就近，消除巨型文件</div></div>
+    <div class="opt" onclick="pick('4')"><div class="o-title">#4 hook 走统一 dispatch（防漂移）</div><div class="o-desc">_ide_hook 复用参数规范化管线</div></div>
+  </div>
+</div>
+
+<footer>CodeWiki 架构深化扫描 · 由 improve-codebase-architecture 生成 · 报告为分析产物，不进入 repowiki</footer>
+
+</div>
+
+<script>
+document.querySelectorAll('.card .head').forEach(h=>{
+  h.addEventListener('click',()=>h.parentElement.classList.toggle('open'));
+});
+function pick(n){
+  const anchors={'1':['#1','knowledge_loop'],'2':['#2','frontmatter'],'3':['#3','registry'],'4':['#4','hook']};
+  const a=anchors[n];
+  const cards=[...document.querySelectorAll('.card')];
+  cards.forEach(c=>{ if(c.querySelector('.title').textContent.includes(a[1])) c.classList.add('open'); else c.classList.remove('open'); });
+  document.querySelector('.pick').scrollIntoView({behavior:'smooth'});
+}
+</script>
+</body>
+</html>

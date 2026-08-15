@@ -42,9 +42,11 @@ _TASK_MEMORY_AGENTS_SECTION = f"""{_TASK_MEMORY_AGENTS_START}
 
 **会话开始时(推荐)：**
 1. `list_tasks(status="active")` 列出进行中的任务
-2. 询问用户二选一：
+2. **必须用 `ask_followup_question` 工具弹出结构化选择框**（IDE 原生弹框 UI，用户可直接点击），不要用纯文本输出一段话让用户自行回复。选项二选一（加一个"跳过"）：
    - **关联已有任务**：用户从列表中选择，用 `set_session_task(source_session_id=<会话id>, task_id=<任务id>)` 建立绑定，本会话采集的对话会自动带上 `task_id`
-   - **新建任务**：用户直接输入任务名（可补一句描述），调 `create_task(title=<任务名>, description=<可选>)` 创建后即关联该新任务
+   - **新建任务**：选择后再弹一个 `ask_followup_question` 输入框让用户输入任务名（可补一句描述），调 `create_task(title=<任务名>, description=<可选>)` 创建后即关联该新任务
+   - **跳过**：本次会话不做任务关联
+   新建任务两步弹框：选择「新建任务」后**必须**再次调用 `ask_followup_question` 弹出第二个输入框（标题「新建任务」，问题「请输入新任务名称」，带 2 个占位选项）。弹框自带输入框，用户可自由输入任务名后回车；以输入文字为准，立即调用 `create_task(title=<任务名>)` 创建并关联。若用户只点了占位选项，用文字追问确认真实任务名
 3. `get_task_context(task_id=<任务id>)` 拉取任务描述 + 记忆 + 关联笔记，作为继续工作的上下文
 
 **工具入口：**
@@ -921,19 +923,25 @@ def _prompt_distill_conversations(args: dict[str, str]) -> str:
       "tags": ["可选", "关键词"],
       "content": "## 背景 ... ## 正确做法/决策 ... ## 根因 ..."
     }}
+  ],
+  "memories": [
+    "本次会话完成了什么、下一步做什么、达成的决策……（1-3 句）"
   ]
 }}
 ```
 
-质量门槛：只提取**持久有效**、未来的 Agent 或队友能直接受益的知识（带 rationale 的决策、被纠正的假设、踩坑点、不明显的架构事实、含恢复条件的临时方案）。跳过闲聊、问候和临时任务状态。没有合格内容就返回 `{{"notes": []}}`——绝不凑数。
+- **notes（通用经验）**：只提取**持久有效**、未来的 Agent 或队友能直接受益的知识（带 rationale 的决策、被纠正的假设、踩坑点、不明显的架构事实、含恢复条件的临时方案）。跳过闲聊、问候和临时任务状态。没有合格内容就返回 `{{"notes": []}}`——绝不凑数。
+- **memories（任务记忆）**：记录**任务范围内的进度知识**（本次做了什么、剩余事项、达成的决策、下一步上下文），每条 1-3 句简洁 Markdown。仅当 raw 对话绑定 task_id 时有意义，工具会暂存到 `repowiki/tasks/<task_id>/pending-memories.json`，待步骤 4 与用户确认（`confirm_task_memories`）后才落盘到 `memories.md`；未绑定的对话返回 `{{"memories": []}}`。
+
+没有合格内容就返回 `{{"notes": [], "memories": []}}`。
 
 ## 步骤 3: 提交确定性处理
 调用 distill_conversation(mode="submit", repo_path="{repo_path}", distilled={{"<conversation_id>": <步骤2产出的JSON>, ...}})
 
-工具会与已有笔记去重、经 ingest_note 写入草稿（status=draft）、标记/删除已处理的 raw 文件并重建检索索引。结果按 capture 报告：新建笔记数 / 去重抑制数 / 合并数。
+工具会与已有笔记去重、经 ingest_note 写入草稿（status=draft）、将任务记忆暂存到 pending（未确认不落盘）、标记/删除已处理的 raw 文件并重建检索索引。结果按 capture 报告：新建笔记数 / 去重抑制数 / 合并数 / 待确认记忆数。
 
 ## 步骤 4: 与用户评审（必须）
-逐条展示产出的草稿（标题 + 一句话摘要），询问用户保留哪些。对接受的调用 `confirm_note`，对拒绝的调用 `reject_note`。**绝不静默确认**——草稿评审是知识飞轮的质量闸门。
+逐条展示产出的草稿（标题 + 一句话摘要），并**同步展示待确认的任务记忆**（若 `memories_pending` 非空，用 `list_pending_memories` 拉取完整列表），一起询问用户保留哪些。对接受的笔记调用 `confirm_note`、对接受的记忆调用 `confirm_task_memories`，对拒绝的调用 `reject_note` / `reject_task_memories`。**绝不静默确认**——草稿评审是知识飞轮的质量闸门，记忆确认同理。
 
 ## 备选：后台 worker（Mode B）
 仅当 MCP server 进程配置了 MAIN_MODEL / LLM_BASE_URL / LLM_API_KEY 环境变量时，可改用 distill_conversation(run_in_background=true)，轮询 `repowiki/distill-jobs.json` 直到 status=completed，再执行步骤 4。IDE Agent 优先使用上面的 prepare/submit 流程。"""
@@ -949,13 +957,13 @@ def _prompt_task_workflow(args: dict[str, str]) -> str:
 1. `list_tasks(status="active", repo_path="{repo_path}")` 列出进行中的任务
 2. 向用户展示列表并给出两种选择：
    - **关联已有任务**：用户从列表中选择一个
-   - **新建任务**：用户直接输入新任务名（可再补充一句描述），调用 `create_task(title=<新任务名>, description=<可选>)` 创建后即关联该新任务
+   - **新建任务**：先调用 `ask_followup_question` 弹出输入框（标题「新建任务」，问题「请输入新任务名称」）让用户输入任务名（可再补充一句描述），调用 `create_task(title=<新任务名>, description=<可选>)` 创建后即关联该新任务
 3. 关联后：`set_session_task(source_session_id=<当前会话id>, task_id=<选中任务>)` 建立绑定，之后本会话采集的对话会自动带上 task_id
 4. `get_task_context(task_id=<选中任务>)` 拉取该任务的描述 + 记忆 + 关联笔记，作为继续工作的上下文
 
 ## 会话进行中
 - 采集对话时带上 `task_id`（capture_conversation 的 task_id 参数，或经 set_session_task 绑定后自动带）
-- 蒸馏时（distill-conversations 流程）LLM 会同时产出 `notes`（通用知识）和 `memories`（任务进度），后者自动落盘到 `repowiki/tasks/<task_id>/memories.md`
+- 蒸馏时（distill-conversations 流程）LLM 会同时产出 `notes`（通用知识）和 `memories`（任务进度），后者先暂存到 pending（`repowiki/tasks/<task_id>/pending-memories.json`），向用户展示确认后调用 `confirm_task_memories` 落盘到 `repowiki/tasks/<task_id>/memories.md`，或用 `reject_task_memories` 丢弃
 
 ## 会话结束
 - 任务完成：`complete_task(task_id=...)`
@@ -1212,11 +1220,12 @@ def register(server):
             ),
             Prompt(
                 name="distill-conversations",
-                title="蒸馏对话提取经验",
+                title="蒸馏对话提取记忆和经验",
                 description=(
-                    "把 repowiki/raw/ 中已采集的对话蒸馏为经验笔记：宿主 Agent 充当 LLM，"
-                    "distill_conversation(mode=prepare) 取 transcript → Agent 提取知识 → "
-                    "mode=submit 交回做去重/草稿入库/评审。全程本地闭环，蒸馏产出须 confirm_note 确认。"
+                    "把 repowiki/raw/ 中已采集的对话蒸馏为双轨产物：notes（通用经验笔记）与 "
+                    "memories（任务进度记忆）。宿主 Agent 充当 LLM，distill_conversation(mode=prepare) "
+                    "取 transcript → Agent 提取知识 → mode=submit 交回做去重/草稿入库/记忆落盘/评审。"
+                    "全程本地闭环，蒸馏产出的笔记须 confirm_note 确认，记忆自动写入任务 memories.md。"
                 ),
                 arguments=[
                     PromptArgument(
