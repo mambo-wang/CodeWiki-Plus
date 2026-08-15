@@ -111,8 +111,24 @@ def main():
     if doc1.exists():
         fm1 = read_fm(doc1)
         check("write_doc_file", "注入 type", "type:" in fm1, fm1[:200])
-        check("write_doc_file", "注入 generated", "generated:" in fm1 and "agent:codewiki/" in fm1, fm1[:300])
+        check("write_doc_file", "注入 generated", "generated:" in fm1 and "codewiki/" in fm1, fm1[:300])
         check("write_doc_file", "注入 stale_after(90d)", "stale_after:" in fm1, fm1[:300])
+        # 代码生成 wiki 场景默认 stable（OKF v0.2 生命周期）
+        check("write_doc_file", "默认status=stable", "status: stable" in fm1, fm1[:300])
+        check("write_doc_file", "status仅注入一次", fm1.count("status:") == 1, fm1[:300])
+
+    # frontmatter_extra 显式 status 可覆盖默认 stable
+    r = json.loads(asyncio.run(handle_write_doc_file({
+        "session_id": sid, "filename": "okf_draft_override.md",
+        "content": "# 覆盖测试\n\n显式指定 draft 状态。\n",
+        "frontmatter_extra": {"status": "draft"},
+    }, store)))
+    over_doc = Path(r.get("path", ""))
+    if over_doc.exists():
+        over_fm = read_fm(over_doc)
+        check("write_doc_file", "frontmatter_extra可覆盖为draft",
+              "status: draft" in over_fm, over_fm[:300])
+        check("write_doc_file", "覆盖时不重复注入", over_fm.count("status:") == 1, over_fm[:300])
 
     # Agent-written frontmatter without type → patched (P0 fix)
     r = json.loads(asyncio.run(handle_write_doc_file({
@@ -126,6 +142,7 @@ def main():
         check("write_doc_file", "保留代理自定义键", "custom_key: keep-me" in fm2, fm2[:300])
         check("write_doc_file", "保留原标题", "自定义标题" in fm2, fm2[:300])
         check("write_doc_file", "补丁generated/stale_after", "generated:" in fm2 and "stale_after:" in fm2, fm2[:400])
+        check("write_doc_file", "缺失status补丁为stable", "status: stable" in fm2, fm2[:400])
 
     # Agent-written frontmatter WITH type → untouched type, no dup
     r = json.loads(asyncio.run(handle_write_doc_file({
@@ -349,7 +366,7 @@ def main():
     # Default actor when by is omitted
     r = json.loads(handle_confirm_note({"session_id": sid, "note_file": note3.name}, store))
     fm = read_fm(note3)
-    check("confirm_note", "默认actor=agent:codewiki", "agent:codewiki/" in fm, fm[:500])
+    check("confirm_note", "默认actor=codewiki", "codewiki/" in fm, fm[:500])
 
     # Legacy note: status confirmed + bare-mapping verified
     notes_dir = output_dir / "notes"
@@ -365,7 +382,7 @@ def main():
         data = _yaml.safe_load(fm)
         vlist = data.get("verified")
         ok = isinstance(vlist, list) and len(vlist) == 2 and \
-            vlist[0].get("by") == "human:old-reviewer" and "agent:codewiki/" in str(vlist[1].get("by", ""))
+            vlist[0].get("by") == "human:old-reviewer" and "codewiki/" in str(vlist[1].get("by", ""))
     except Exception as e:
         ok, data = False, str(e)
     check("confirm_note", "bare verified映射转列表并追加", ok, str(data)[:300])

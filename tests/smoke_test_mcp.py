@@ -655,9 +655,10 @@ def main():
     check("c2 no_knowledge", by_cid.get(cid2, {}).get("status") == "no_knowledge", str(by_cid.get(cid2)))
     check("c1 raw deleted", not (Path(output_dir) / "raw" / f"{cid1}.md").exists(), str(cid1))
     _c2_path = Path(output_dir) / "raw" / f"{cid2}.md"
-    check("c2 raw kept but marked distilled",
-          _c2_path.exists() and "status: distilled" in _c2_path.read_text(encoding="utf-8"),
-          str(_c2_path))
+    # no_knowledge raws are noise and cleaned up by distill_conversation
+    # (see tests/test_distill_cleanup.py); keep_raw is the only opt-in that
+    # preserves the raw file.
+    check("c2 raw deleted on no_knowledge", not _c2_path.exists(), str(_c2_path))
 
     # Missing extraction result leaves the raw file untouched (still pending)
     cap_c3 = json.loads(handle_capture_conversation({

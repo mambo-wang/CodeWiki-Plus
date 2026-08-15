@@ -1,7 +1,7 @@
 ---
 type: Concept
 title: "阅读指南"
-generated: { by: agent:codewiki/5.2.2, at: 2026-08-13T15:04:37Z }
+generated: { by: codewiki/5.2.2, at: 2026-08-13T15:04:37Z }
 stale_after: 2026-11-11
 ---
 # 阅读指南
