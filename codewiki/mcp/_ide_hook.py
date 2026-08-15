@@ -363,6 +363,8 @@ def main(argv: Optional[list] = None) -> int:
                         "(used to resolve repowiki/raw/).")
     parser.add_argument("--session-id", help="Active session id (optional).")
     parser.add_argument("--link-to", help="Wiki object id this conversation relates to.")
+    parser.add_argument("--task-id", help="Task id this conversation is bound to "
+                        "(stamped into raw frontmatter so distillation routes memories back).")
     parser.add_argument("--keep-raw", action="store_true",
                         help="Hint distill_conversation to retain the raw file.")
     args = parser.parse_args(argv)
@@ -442,6 +444,14 @@ def main(argv: Optional[list] = None) -> int:
         "source_session_id": (
             "" if is_envelope
             else (_pick("session_id", args.session_id) or "")
+        ),
+        # Task binding, stamped into raw frontmatter so distill_conversation can
+        # route distilled memories back to the task. Like source_session_id, the
+        # envelope (no real transcript) must NOT carry task_id — it is not a real
+        # conversation and would otherwise pollute per-task memory routing.
+        "task_id": (
+            "" if is_envelope
+            else (_pick("task_id", args.task_id) or "")
         ),
     }
     if not arguments["repo_path"]:

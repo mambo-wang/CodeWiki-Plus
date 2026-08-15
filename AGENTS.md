@@ -131,3 +131,28 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
 - `repowiki/raw/` 是**暂存区,不进 `query_wiki` 检索**,蒸馏完成后由 `distill_conversation` 删除(除非 `keep_raw`);未蒸馏的 raw 会一直保留(无自动过期);不膨胀、不影响查询性能。
 - 蒸馏产出 `status=draft` 的 note,须 `confirm_note` 确认后才成正式知识。
 - 触发形态:**both** —— 手动命令(主) + IDE hook(可选)。
+
+<!-- TEAM-MEMORY-TASK:START -->
+## Task memory (任务记忆)
+
+跨会话延续长线工作上下文。任务记忆是**任务范围内的进度知识**(本次做了什么、下一步、待办)，与 Wiki 笔记(**跨任务的通用经验**)互补。
+
+**会话开始时(推荐)：**
+1. `list_tasks(status="active")` 列出进行中的任务
+2. 询问用户二选一：
+   - **关联已有任务**：用户从列表中选择，用 `set_session_task(source_session_id=<会话id>, task_id=<任务id>)` 建立绑定，本会话采集的对话会自动带上 `task_id`
+   - **新建任务**：用户直接输入任务名（可补一句描述），调 `create_task(title=<任务名>, description=<可选>)` 创建后即关联该新任务
+3. `get_task_context(task_id=<任务id>)` 拉取任务描述 + 记忆 + 关联笔记，作为继续工作的上下文
+
+**工具入口：**
+- `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context`
+- 存储：`repowiki/tasks/.index.json` + `<task_id>/task.md` + `<task_id>/memories.md`；会话绑定在 `repowiki/.meta/task_bindings/`
+- `capture_conversation` / `distill_conversation` / `ingest_note` / `query_wiki` 均接受 `task_id`；蒸馏时 LLM 双轨产出 `notes`(通用知识) 与 `memories`(任务进度，自动落盘 `memories.md`)
+- MCP prompt `task-workflow`（prompts/list）— 完整工作流指引
+
+**关键设计约束(实现时务必遵守)：**
+- task_id 由标题 slugify 生成且**不可变**；同名任务被拒绝；**无重命名**(删除后重建)。
+- `delete_task` 级联删除任务目录与绑定文件，但**不删**已打上 `task_id` 的笔记。
+- `query_wiki` 不校验任务存在性(幽灵 `task_id` 允许)。
+- `memories.md` 追加式原子写(临时文件 + `os.replace`)，并发串行。
+<!-- TEAM-MEMORY-TASK:END -->

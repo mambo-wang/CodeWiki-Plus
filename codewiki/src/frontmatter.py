@@ -40,7 +40,7 @@ PRIVATE_FRONTMATTER_KEYS = frozenset({
     "resource", "generated_from", "category", "domain", "version",
     "format", "decision", "decided_at", "severity", "root_cause",
     "captured_at", "content_hash", "turn_count", "link_to",
-    "source_session", "keep_raw",
+    "source_session", "keep_raw", "task_id",
     # Note-specific fields historically written at the top level (notes/)
     "date", "summary", "keywords", "origin",
     "related_modules", "related_components",

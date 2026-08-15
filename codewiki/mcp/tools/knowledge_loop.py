@@ -345,6 +345,11 @@ def handle_ingest_note(
     # level only carries OKF-standard keys.  Line-based consumers (wiki_index
     # note date, lint note_clusters) still read them via the indented rows.
     metadata_lines = [f"  date: {today}"]
+    # Task routing: stamp task_id under metadata so query_wiki(task_id=...) and
+    # get_task_context can surface task-scoped notes. Omitted for taskless notes.
+    task_id = arguments.get("task_id")
+    if task_id:
+        metadata_lines.append(f"  task_id: {task_id}")
     if related_modules:
         metadata_lines.append(f"  related_modules: {json.dumps(related_modules, ensure_ascii=False)}")
     if related_components:
@@ -1143,6 +1148,9 @@ def handle_query_wiki(
     mode = arguments.get("mode")  # progressive reading: overview | directory | detail
     # T5: team-memory fusion — distinguish distilled notes from LLM-generated ones
     origin_filter = arguments.get("origin_filter")  # optional: "conversation" | "generated" | "any"
+    # Task routing: restrict results to notes stamped with a given task_id.
+    # Never validates task existence (ghost task_id is allowed post-delete).
+    task_id_filter = arguments.get("task_id")
 
     # --- Progressive reading modes (early return) ---
     if mode == "overview":
@@ -1265,6 +1273,8 @@ def handle_query_wiki(
                         # T5: tag distilled notes so callers can tell them apart
                         # from LLM-generated notes. Defaults to "generated".
                         entry["origin"] = _extract_frontmatter(nc, "origin") or "generated"
+                        # Task routing: surface the bound task_id (empty when none).
+                        entry["task_id"] = _extract_frontmatter(nc, "task_id") or ""
                     except OSError:
                         entry["date"] = ""
 
@@ -1332,6 +1342,14 @@ def handle_query_wiki(
         results = [
             r for r in results
             if r.get("source") != "note" or r.get("origin", "generated") == wanted
+        ]
+    # Task routing filter: only notes with a matching task_id pass. Non-note
+    # results (docs/sources) are left intact — task filtering is note-scoped.
+    if task_id_filter:
+        wanted_task = str(task_id_filter).strip()
+        results = [
+            r for r in results
+            if r.get("source") != "note" or r.get("task_id", "") == wanted_task
         ]
 
     # Build context_package summary

@@ -307,9 +307,12 @@ def _transcript_text(turns: List[Dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
-def _content_hash(turns: List[Dict[str, str]], linked: str) -> str:
+def _content_hash(turns: List[Dict[str, str]], linked: str, task_id: str = "") -> str:
+    # task_id participates in the hash so the *same* conversation captured under
+    # two different tasks is NOT deduplicated away — the task binding is part of
+    # what makes a capture distinct.
     payload = json.dumps(
-        {"turns": turns, "link_to": linked},
+        {"turns": turns, "link_to": linked, "task_id": task_id},
         ensure_ascii=False,
         sort_keys=True,
     )
@@ -369,6 +372,7 @@ def _rebuild_index(raw_dir: Path) -> Dict[str, Any]:
         ch = _peek_frontmatter(text, "content_hash")
         ss = _peek_frontmatter(text, "source_session")
         st = _peek_frontmatter(text, "status") or "pending"
+        tk = _peek_frontmatter(text, "task_id")
         if not ch:
             continue
         files.append({
@@ -376,6 +380,7 @@ def _rebuild_index(raw_dir: Path) -> Dict[str, Any]:
             "content_hash": ch,
             "source_session": ss,
             "status": st,
+            "task_id": tk,
         })
     return {"files": files}
 
@@ -411,6 +416,9 @@ def handle_capture_conversation(
         up incremental transcripts.
       - keep_raw (optional, bool, default False): hint for distill_conversation
         to retain the raw file after distillation. Stored as metadata only.
+      - task_id (optional): id of the task this conversation is bound to. Stored
+        as metadata and participates in dedup hashing so the same conversation
+        under different tasks is preserved separately.
 
     Returns a JSON status object.
     """
@@ -441,7 +449,9 @@ def handle_capture_conversation(
 
     source_session_id = str(arguments.get("source_session_id") or "")
 
-    content_hash = _content_hash(turns, link_to)
+    task_id = str(arguments.get("task_id") or "")
+
+    content_hash = _content_hash(turns, link_to, task_id)
 
     # Ensure repowiki/raw/ exists
     from codewiki.src.config import RAW_DIR
@@ -540,6 +550,11 @@ def handle_capture_conversation(
         "source_session": source_session_id,
         "keep_raw": keep_raw,
     }
+    # task_id must stay top-level (like source_session) so distill_conversation's
+    # simple line parser can read it back; only add when present to avoid an
+    # empty ``task_id: `` line on taskless captures.
+    if task_id:
+        meta["task_id"] = task_id
     from codewiki.src.frontmatter import inject_okf_frontmatter
     content = inject_okf_frontmatter(
         "# Conversation Transcript\n\n" + body + "\n",
@@ -568,6 +583,7 @@ def handle_capture_conversation(
         "content_hash": content_hash,
         "source_session": source_session_id,
         "status": "pending",
+        "task_id": task_id,
     }
     if superseded:
         for i, e in enumerate(entries):
@@ -599,4 +615,5 @@ def handle_capture_conversation(
         "source_session": source_session_id,
         "superseded": superseded,
         "keep_raw": keep_raw,
+        "task_id": task_id,
     }, indent=2, ensure_ascii=False)
