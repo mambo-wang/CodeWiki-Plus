@@ -1214,12 +1214,21 @@ _register(
                     "type": "string",
                     "description": "Conversation id (conv-<id>) to distill a single capture.",
                 },
+                "preview_chars": {
+                    "type": "integer",
+                    "description": (
+                        "Mode prepare only: max chars of the short 'preview' per capture. "
+                        "The full transcript is NOT inlined (file-side-channel); read it via "
+                        "read_file(full_path)."
+                    ),
+                },
                 "mode": {
                     "type": "string",
                     "enum": ["auto", "prepare", "submit"],
                     "description": (
-                        "auto (default): Mode A/B below. prepare: return pending transcripts + "
-                        "system prompt without any LLM (host agent will do the extraction). "
+                        "auto (default): Mode A/B below. prepare: return pending captures as "
+                        "full_path + metadata + short preview (no full transcript inlined, "
+                        "file-side-channel) + system prompt, without any LLM. "
                         "submit: run the deterministic half on agent-produced results in 'distilled'."
                     ),
                 },

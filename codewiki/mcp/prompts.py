@@ -905,13 +905,16 @@ def _prompt_distill_conversations(args: dict[str, str]) -> str:
 
 **分工**：你（宿主 Agent）就是本流程的 LLM——你负责思考与知识提取；CodeWiki MCP 负责确定性工作（解析、去重、入库、评审流水线）。全程本地闭环，数据不出机器。
 
-## 步骤 1: 收集待蒸馏的捕获
+## 步骤 1: 收集待蒸馏的捕获清单
 调用 distill_conversation(mode="prepare", repo_path="{repo_path}")
 - 返回 `status="noop"` → 还没有任何捕获。给用户两个选择：启用自动采集（见 team-memory-hook prompt），或用 `capture_conversation` 立即采集当前对话。到此为止
-- 返回 `status="prepared"` → 你得到 `system_prompt` 和 `captures[]`（每项含 `conversation_id` 与 `transcript`）
+- 返回 `status="prepared"` → 你得到 `system_prompt` 和 `captures[]`。**注意：captures 里只有元数据（`conversation_id` / `full_path` / `transcript_chars` / `preview`），不含完整 transcript 正文**——正文走磁盘文件侧通道（file-side-channel），避免一次内联多条大对话撑满你的上下文。
 
-## 步骤 2: 提取知识（你就是 LLM）
-对每条 capture，将 `system_prompt` 应用于其 transcript，产出一个 JSON 对象：
+## 步骤 2: 逐个蒸馏并落地（你就是 LLM，file-side-channel）
+**必须一条一条处理，绝不要一次性读完所有正文**——每蒸馏完一条立即 submit 落盘、释放该条正文，再读下一条。对每条 capture：
+
+1. `read_file(filePath=full_path)` 读该条完整 transcript。正文很长时按 `offset`/`limit` 分段读；`transcript_chars` 提示总长度；`preview` 仅用于判断这条是否值得读全文（闲聊/问候可直接跳过，返回空结果）
+2. 将 `system_prompt` 应用于该条 transcript，产出一个 JSON 对象：
 
 ```json
 {{
@@ -935,10 +938,11 @@ def _prompt_distill_conversations(args: dict[str, str]) -> str:
 
 没有合格内容就返回 `{{"notes": [], "memories": []}}`。
 
-## 步骤 3: 提交确定性处理
-调用 distill_conversation(mode="submit", repo_path="{repo_path}", distilled={{"<conversation_id>": <步骤2产出的JSON>, ...}})
+3. 立即调用 distill_conversation(mode="submit", repo_path="{repo_path}", conversation_id="<该条id>", distilled={{"<conversation_id>": <第2步产出的JSON>}}) 落盘这一条
+4. 落盘后即可丢弃该条 transcript 正文，继续处理下一条 capture
 
-工具会与已有笔记去重、经 ingest_note 写入草稿（status=draft）、将任务记忆暂存到 pending（未确认不落盘）、标记/删除已处理的 raw 文件并重建检索索引。结果按 capture 报告：新建笔记数 / 去重抑制数 / 合并数 / 待确认记忆数。
+## 步骤 3: 提交确定性处理（已在步骤 2 逐条执行）
+工具对每条 submit 都会：与已有笔记去重、经 ingest_note 写入草稿（status=draft）、将任务记忆暂存到 pending（未确认不落盘）、标记/删除已处理的 raw 文件并重建检索索引。结果按 capture 报告：新建笔记数 / 去重抑制数 / 合并数 / 待确认记忆数。
 
 ## 步骤 4: 与用户评审（必须）
 逐条展示产出的草稿（标题 + 一句话摘要），并**同步展示待确认的任务记忆**（若 `memories_pending` 非空，用 `list_pending_memories` 拉取完整列表），一起询问用户保留哪些。对接受的笔记调用 `confirm_note`、对接受的记忆调用 `confirm_task_memories`，对拒绝的调用 `reject_note` / `reject_task_memories`。**绝不静默确认**——草稿评审是知识飞轮的质量闸门，记忆确认同理。
