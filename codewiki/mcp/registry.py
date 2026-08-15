@@ -738,6 +738,10 @@ _register(
                         "Use 'stable' only when the knowledge is already human-verified."
                     ),
                 },
+                "task_id": {
+                    "type": "string",
+                    "description": "Optional task id to route this note to (surfaced by query_wiki task_id filter and get_task_context).",
+                },
             },
             "required": ["title", "content"],
         },
@@ -842,6 +846,10 @@ _register(
                 "section": {
                     "type": "string",
                     "description": "Section heading for mode=detail (e.g. 'Business Constraints'). Omit for full page.",
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Optional task id to filter notes by (note-scoped; docs/sources are unaffected). Never validates task existence.",
                 },
             },
             "required": ["query"],
@@ -1154,6 +1162,10 @@ _register(
                 "keep_raw": {
                     "type": "boolean",
                     "description": "Hint for distill_conversation to retain the raw file after distillation (default false).",
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Optional task id this conversation is bound to. Stored as metadata and used by distill_conversation to route task memories back to the task.",
                 },
             },
             "required": ["conversation"],
@@ -1692,6 +1704,213 @@ _register(
     handler_path="codewiki.mcp.tools.knowledge_loop:handle_wiki_stats",
     mode="thread",
     takes_store=True,
+)
+
+
+# -------------------------------------------------------------------
+#  Task memory layer (task_manager.py)
+# -------------------------------------------------------------------
+
+_register(
+    Tool(
+        name="create_task",
+        description=(
+            "Create a new task in the task memory layer (repowiki/tasks/). A task "
+            "is a long-running unit of work that accumulates distilled memories across "
+            "sessions. The task id is derived from the title and is immutable; duplicate "
+            "titles are rejected and there is no rename (delete then recreate instead)."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Task title (unique; also determines the task id).",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional task description (markdown).",
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional active session id (resolves output_dir).",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Wiki output directory (default: <repo_path>/repowiki).",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path used to derive output_dir when output_dir is absent.",
+                },
+            },
+            "required": ["title"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.task_manager:handle_create_task",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="list_tasks",
+        description=(
+            "List tasks from the task memory layer, optionally filtered by status "
+            "('active' or 'completed'). New sessions should only surface active tasks."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "description": "Optional status filter: 'active' or 'completed'.",
+                },
+                "session_id": {"type": "string", "description": "Optional active session id."},
+                "output_dir": {"type": "string", "description": "Wiki output directory."},
+                "repo_path": {"type": "string", "description": "Repository path."},
+            },
+        },
+    ),
+    handler_path="codewiki.mcp.tools.task_manager:handle_list_tasks",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="get_task",
+        description=(
+            "Return a single task's details (description) plus its accumulated memories."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "Task id."},
+                "session_id": {"type": "string", "description": "Optional active session id."},
+                "output_dir": {"type": "string", "description": "Wiki output directory."},
+                "repo_path": {"type": "string", "description": "Repository path."},
+            },
+            "required": ["task_id"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.task_manager:handle_get_task",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="complete_task",
+        description=(
+            "Mark an active task as completed. Completed tasks are hidden from new "
+            "sessions' task pickers."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "Task id."},
+                "session_id": {"type": "string", "description": "Optional active session id."},
+                "output_dir": {"type": "string", "description": "Wiki output directory."},
+                "repo_path": {"type": "string", "description": "Repository path."},
+            },
+            "required": ["task_id"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.task_manager:handle_complete_task",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="delete_task",
+        description=(
+            "Delete a task, its directory (task.md + memories.md), and any session "
+            "bindings pointing at it. Notes stamped with the task_id are NOT deleted."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "Task id."},
+                "session_id": {"type": "string", "description": "Optional active session id."},
+                "output_dir": {"type": "string", "description": "Wiki output directory."},
+                "repo_path": {"type": "string", "description": "Repository path."},
+            },
+            "required": ["task_id"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.task_manager:handle_delete_task",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="set_session_task",
+        description=(
+            "Bind a source (IDE) session id to a task id. The binding is consumed by "
+            "capture_conversation (stamps task_id into raw frontmatter). Binding files "
+            "live under repowiki/.meta/task_bindings/."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "source_session_id": {
+                    "type": "string",
+                    "description": "The IDE/source session id to bind.",
+                },
+                "task_id": {"type": "string", "description": "Task id to bind to."},
+                "session_id": {"type": "string", "description": "Optional active session id."},
+                "output_dir": {"type": "string", "description": "Wiki output directory."},
+                "repo_path": {"type": "string", "description": "Repository path."},
+            },
+            "required": ["source_session_id", "task_id"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.task_manager:handle_set_session_task",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="add_task_memory",
+        description=(
+            "Append a memory entry to a task's memories.md (atomic, append-only). "
+            "Task memories are task-scoped progress knowledge, distinct from wiki notes."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "Task id."},
+                "content": {"type": "string", "description": "Memory text (markdown)."},
+                "session_id": {"type": "string", "description": "Optional active session id."},
+                "output_dir": {"type": "string", "description": "Wiki output directory."},
+                "repo_path": {"type": "string", "description": "Repository path."},
+            },
+            "required": ["task_id", "content"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.task_manager:handle_add_task_memory",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="get_task_context",
+        description=(
+            "Aggregate a task's full context: task.md description, accumulated "
+            "memories.md, and related notes (notes whose frontmatter carries the "
+            "matching task_id). Use this at session start to resume a task."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "Task id."},
+                "session_id": {"type": "string", "description": "Optional active session id."},
+                "output_dir": {"type": "string", "description": "Wiki output directory."},
+                "repo_path": {"type": "string", "description": "Repository path."},
+            },
+            "required": ["task_id"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.task_manager:handle_get_task_context",
+    mode="thread",
 )
 
 

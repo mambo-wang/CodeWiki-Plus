@@ -75,9 +75,19 @@ _DISTILL_SYSTEM = (
     '## Background, ## Decision/正确做法, ## Rationale, ## Root cause, ## Recovery. '
     'Reuse exact names, paths, and code snippets from the conversation."\n'
     "    }\n"
+    "  ],\n"
+    '  "memories": [\n'
+    '    "string",\n'
+    '    "string"\n'
     "  ]\n"
     "}\n"
-    "If the conversation contains no durable knowledge, return {\"notes\": []}."
+    'The "memories" array captures task-scoped progress knowledge: what was '
+    "accomplished this session, what remains, decisions reached, and next-step "
+    "context relevant to the *task at hand* (not general reusable wiki knowledge, "
+    "which belongs in notes). Each entry is a concise 1-3 sentence Markdown string "
+    "suitable for appending to a task memory log. Return [] when there is no "
+    "task-scoped progress to record.\n"
+    "If the conversation contains no durable knowledge, return {\"notes\": [], \"memories\": []}."
 )
 
 _NOTE_TYPE_HINT = "Allowed note_type values: " + ", ".join(sorted(_VALID_NOTE_TYPES)) + "."
@@ -230,6 +240,23 @@ def _parse_frontmatter(path: Path) -> Dict[str, str]:
             k, v = line.split(":", 1)
             meta[k.strip()] = v.strip()
     return meta
+
+
+def _unquote_fm(value: str) -> str:
+    """Strip JSON string quoting from a line-parsed frontmatter value.
+
+    ``inject_okf_frontmatter`` writes ``top_level_extra`` values via
+    ``json.dumps`` (e.g. ``task_id: "foo"``). The simple line parser in
+    ``_parse_frontmatter`` keeps those quotes, so a value of ``"foo"`` would
+    otherwise leak into routing keys and break task lookups.
+    """
+    v = (value or "").strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+        try:
+            return json.loads(v)
+        except (json.JSONDecodeError, TypeError):
+            return v
+    return v
 
 
 def _extract_turns(text: str) -> str:
@@ -457,6 +484,31 @@ def _parse_llm_notes(raw_llm_output: str) -> List[Dict[str, Any]]:
     return notes
 
 
+def _parse_llm_memories(raw_llm_output: str) -> List[str]:
+    """Parse the LLM JSON output into a list of task-memory strings; best-effort."""
+    text = raw_llm_output.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text)
+        text = text.strip()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                data = json.loads(text[start:end + 1])
+            except json.JSONDecodeError:
+                return []
+        else:
+            return []
+    memories = data.get("memories", []) if isinstance(data, dict) else []
+    if not isinstance(memories, list):
+        return []
+    return [str(m).strip() for m in memories if str(m).strip()]
+
+
 def _build_distill_input(raw_path: Path) -> Optional[Dict[str, Any]]:
     """Build the LLM input for one raw conversation file.
 
@@ -476,12 +528,13 @@ def _build_distill_input(raw_path: Path) -> Optional[Dict[str, Any]]:
         return None
     transcript = filtered
 
-    link_to = meta.get("link_to", "")
+    link_to = _unquote_fm(meta.get("link_to", ""))
+    task_id = _unquote_fm(meta.get("task_id", ""))
     prompt = (
-        f"Conversation transcript (link_to={link_to or 'none'}):\n\n"
+        f"Conversation transcript (link_to={link_to or 'none'}, task_id={task_id or 'none'}):\n\n"
         f"{transcript}\n\n"
         f"{_NOTE_TYPE_HINT}\n"
-        "Extract durable knowledge as JSON."
+        "Extract durable knowledge as JSON (notes + memories)."
     )
     return {"meta": meta, "transcript": transcript, "prompt": prompt}
 
@@ -505,7 +558,8 @@ def _process_llm_output(
     from codewiki.mcp.tools.knowledge_loop import handle_ingest_note
 
     meta = _parse_frontmatter(raw_path)
-    link_to = meta.get("link_to", "")
+    link_to = _unquote_fm(meta.get("link_to", ""))
+    task_id = _unquote_fm(meta.get("task_id", ""))
 
     notes = _parse_llm_notes(llm_output)
     produced: List[Dict[str, Any]] = []
@@ -543,7 +597,7 @@ def _process_llm_output(
                 })
             continue
 
-        result = json.loads(handle_ingest_note({
+        ingest_args = {
             "output_dir": str(output_dir),
             "title": title,
             "note_type": note_type,
@@ -552,7 +606,12 @@ def _process_llm_output(
             "tags": note.get("tags", []),
             "status": "draft",
             "source_ref": raw_rel,  # traceability: source_conversation
-        }, store))
+        }
+        # Route the note to its task so get_task_context / query_wiki(task_id=...)
+        # can surface task-scoped knowledge. Omitted for taskless conversations.
+        if task_id:
+            ingest_args["task_id"] = task_id
+        result = json.loads(handle_ingest_note(ingest_args, store))
         note_file = result.get("note_path") or result.get("note_file")
         # Add origin: conversation to the draft note frontmatter (traceability)
         if note_file:
@@ -563,6 +622,23 @@ def _process_llm_output(
             "note_file": note_file,
             "status": result.get("status", "unknown"),
         })
+
+    # Task-memory dual track: route the LLM's task-scoped "memories" back to the
+    # bound task. Only meaningful when the raw file carries a task_id. Ghost
+    # task_id (task deleted after capture) is tolerated — add_task_memory will
+    # report the task as missing and we skip silently.
+    memories = _parse_llm_memories(llm_output) if task_id else []
+    memories_created = 0
+    if task_id and memories:
+        from codewiki.mcp.tools.task_manager import handle_add_task_memory
+        for mem in memories:
+            r = json.loads(handle_add_task_memory({
+                "output_dir": str(output_dir),
+                "task_id": task_id,
+                "content": mem,
+            }, store))
+            if r.get("ok"):
+                memories_created += 1
 
     # Mark raw as distilled and conditionally delete.
     # A raw file is only kept when explicitly requested (keep_raw) or when
@@ -597,10 +673,12 @@ def _process_llm_output(
 
     return {
         "raw_path": str(raw_path),
-        "status": "completed" if produced else "no_knowledge",
+        "status": "completed" if (produced or memories_created) else "no_knowledge",
         "notes_created": len(produced),
         "notes": produced,
         "distilled": produced,
+        "memories_created": memories_created,
+        "task_id": task_id or None,
         "deleted_raw": deleted,
         "keep_raw": keep_raw,
     }
@@ -827,7 +905,8 @@ def handle_distill_conversation(
                 "path": str(p.relative_to(output_dir)) if _safe_rel(p, output_dir) else str(p),
                 "captured_at": meta.get("captured_at", ""),
                 "turn_count": meta.get("turn_count", ""),
-                "link_to": meta.get("link_to", ""),
+                "link_to": _unquote_fm(meta.get("link_to", "")),
+                "task_id": _unquote_fm(meta.get("task_id", "")),
                 "transcript": built["transcript"],
             })
         if not captures:
@@ -844,8 +923,8 @@ def handle_distill_conversation(
             "next": (
                 "Act as the LLM: apply system_prompt to each capture's transcript and "
                 'produce one JSON object shaped {"notes": [{title, note_type, '
-                "related_modules, tags, content}]} per capture. Then call "
-                "distill_conversation again with mode='submit' and distilled="
+                "related_modules, tags, content}], \"memories\": [string]} per capture. "
+                "Then call distill_conversation again with mode='submit' and distilled="
                 "{conversation_id: <that JSON>}."
             ),
         }, indent=2, ensure_ascii=False)

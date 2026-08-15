@@ -29,15 +29,47 @@ def _resolve_path(raw: str) -> str:
     return os.path.normpath(os.path.join(os.getcwd(), p))
 
 
+# The AGENTS.md snippet injected/removed by the team-memory-hook prompt so that,
+# when the SessionEnd capture hook is enabled, future agents are told to prompt
+# the user to bind (or create) a task at the start of every new session.
+# Wrapped in HTML comment markers so it can be removed cleanly on disable.
+_TASK_MEMORY_AGENTS_START = "<!-- TEAM-MEMORY-TASK:START -->"
+_TASK_MEMORY_AGENTS_END = "<!-- TEAM-MEMORY-TASK:END -->"
+_TASK_MEMORY_AGENTS_SECTION = f"""{_TASK_MEMORY_AGENTS_START}
+## Task memory (任务记忆)
+
+跨会话延续长线工作上下文。任务记忆是**任务范围内的进度知识**(本次做了什么、下一步、待办)，与 Wiki 笔记(**跨任务的通用经验**)互补。
+
+**会话开始时(推荐)：**
+1. `list_tasks(status="active")` 列出进行中的任务
+2. 询问用户二选一：
+   - **关联已有任务**：用户从列表中选择，用 `set_session_task(source_session_id=<会话id>, task_id=<任务id>)` 建立绑定，本会话采集的对话会自动带上 `task_id`
+   - **新建任务**：用户直接输入任务名（可补一句描述），调 `create_task(title=<任务名>, description=<可选>)` 创建后即关联该新任务
+3. `get_task_context(task_id=<任务id>)` 拉取任务描述 + 记忆 + 关联笔记，作为继续工作的上下文
+
+**工具入口：**
+- `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context`
+- 存储：`repowiki/tasks/.index.json` + `<task_id>/task.md` + `<task_id>/memories.md`；会话绑定在 `repowiki/.meta/task_bindings/`
+- `capture_conversation` / `distill_conversation` / `ingest_note` / `query_wiki` 均接受 `task_id`；蒸馏时 LLM 双轨产出 `notes`(通用知识) 与 `memories`(任务进度，自动落盘 `memories.md`)
+- MCP prompt `task-workflow`（prompts/list）— 完整工作流指引
+
+**关键设计约束(实现时务必遵守)：**
+- task_id 由标题 slugify 生成且**不可变**；同名任务被拒绝；**无重命名**(删除后重建)。
+- `delete_task` 级联删除任务目录与绑定文件，但**不删**已打上 `task_id` 的笔记。
+- `query_wiki` 不校验任务存在性(幽灵 `task_id` 允许)。
+- `memories.md` 追加式原子写(临时文件 + `os.replace`)，并发串行。
+{_TASK_MEMORY_AGENTS_END}"""
+
+
 def _prompt_init_wiki(args: dict[str, str]) -> str:
     repo_path = _resolve_path(args.get("repo_path", ""))
     output_dir = args.get("output_dir", "")
     od_note = f'，output_dir="{output_dir}"' if output_dir else ""
-    # T6: 可选启用 IDE hook（team-memory fusion 自动采集对话）
-    enable_hook = args.get("enable_hook", "").strip().lower()
-    if enable_hook in ("1", "true", "yes", "on"):
-        hook_block = f"""## 步骤 2: 启用 IDE 对话自动采集 Hook（team-memory fusion）
-为支持 team-memory fusion（对话→Wiki 经验沉淀），启用 CodeBuddy 的 SessionEnd hook，使会话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成）。
+    # T6: 可选启用任务管理（跨会话任务记忆 + 对话采集 Hook）
+    enable_task_management = args.get("enable_task_management", "").strip().lower()
+    if enable_task_management in ("1", "true", "yes", "on"):
+        hook_block = f"""## 步骤 2: 启用任务管理（跨会话任务记忆 + 对话采集）
+为支持跨会话任务记忆，启用 CodeBuddy 的 SessionEnd hook 使会话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成），并向 AGENTS.md 写入任务引导段，使新建会话时 Agent 提示用户关联已有任务或输入任务名新建。
 
 **本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。
 
@@ -68,15 +100,20 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 
    只注册 `SessionEnd`：它是唯一可靠携带 `transcript_path` 的事件，能抓到完整正文。`PreCompact`/`Stop` 不带 transcript，只会落空信封被去重跳过，故不注册。
 
-3. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）。
+3. 向 `{repo_path}/AGENTS.md` 写入任务记忆会话引导段（启用采集后，新建会话时 Agent 才会提示用户关联/新建任务）。
+   **只动标记块，绝不改 AGENTS.md 其余内容**：若已存在 `{_TASK_MEMORY_AGENTS_START}` 到 `{_TASK_MEMORY_AGENTS_END}` 之间的块，用下面文本整体替换；若不存在，追加到文件末尾（前面留一个空行）。以下文本按原样写入，含 START/END 注释标记：
 
-4. 用模拟事件验证（期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
+{_TASK_MEMORY_AGENTS_SECTION}
+
+4. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）。
+
+5. 用模拟事件验证（期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
 
 ```powershell
 '{{"session_id":"verify-1","transcript_path":"d:/tmp/conv.json","cwd":"{repo_path}","hook_event_name":"SessionEnd","reason":"other"}}' | python "{repo_path}/.codebuddy/hooks/capture_session_end.py"
 ```
 
-5. 验证完成后删除测试产物：`{repo_path}/repowiki/raw/` 下 verify-1 会话生成的 conv-*.md 文件
+6. 验证完成后删除测试产物：`{repo_path}/repowiki/raw/` 下 verify-1 会话生成的 conv-*.md 文件
 
 > 注意：hook 只负责 capture_conversation（落 raw），真正的蒸馏需另行运行 distill_conversation（异步、LLM 重活）。"""
         step_shift = 1
@@ -810,19 +847,25 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
    只注册 `SessionEnd`：它是唯一可靠携带 `transcript_path` 的事件，能抓到完整正文。
    `PreCompact`/`Stop` 不带 transcript，只会落空信封被去重跳过，故不注册。
 
-3. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）
-4. 用模拟事件验证（先准备一个小的 transcript 文件，如 `[{{"role":"user","content":"测试"}}]` 存为 d:/tmp/conv.json；期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
+3. 向 `{repo_path}/AGENTS.md` 写入任务记忆会话引导段（启用采集后，新建会话时 Agent 才会提示用户关联/新建任务）。
+   **只动标记块，绝不改 AGENTS.md 其余内容**：若已存在 `{_TASK_MEMORY_AGENTS_START}` 到 `{_TASK_MEMORY_AGENTS_END}` 之间的块，用下面文本整体替换；若不存在，追加到文件末尾（前面留一个空行）。以下文本按原样写入，含 START/END 注释标记：
+
+{_TASK_MEMORY_AGENTS_SECTION}
+
+4. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）
+5. 用模拟事件验证（先准备一个小的 transcript 文件，如 `[{{"role":"user","content":"测试"}}]` 存为 d:/tmp/conv.json；期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
 
 ```powershell
 '{{"session_id":"verify-1","transcript_path":"d:/tmp/conv.json","cwd":"{repo_path}","hook_event_name":"SessionEnd","reason":"other"}}' | python "{repo_path}/.codebuddy/hooks/capture_session_end.py"
 ```
 
-5. 验证完成后删除测试产物：`{repo_path}/repowiki/raw/` 下 verify-1 会话生成的 conv-*.md 文件
+6. 验证完成后删除测试产物：`{repo_path}/repowiki/raw/` 下 verify-1 会话生成的 conv-*.md 文件
 
 ## 步骤 2B: 关闭
 1. 从 `{repo_path}/.codebuddy/settings.json` 移除 SessionEnd 条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
-2. 已采集的 raw 文件保留在 `repowiki/raw/`，之后仍可蒸馏；关闭采集不会删除它们
-3. 采集脚本 `{repo_path}/.codebuddy/hooks/capture_session_end.py` 可保留也可删除；重新启用时步骤 2A 会自动补回
+2. 从 `{repo_path}/AGENTS.md` 移除任务记忆会话引导段：删除 `{_TASK_MEMORY_AGENTS_START}` 到 `{_TASK_MEMORY_AGENTS_END}` 之间的整段（含两行注释标记本身）；若不存在该标记块则无需处理，其余内容保持不动
+3. 已采集的 raw 文件保留在 `repowiki/raw/`，之后仍可蒸馏；关闭采集不会删除它们
+4. 采集脚本 `{repo_path}/.codebuddy/hooks/capture_session_end.py` 可保留也可删除；重新启用时步骤 2A 会自动补回
 
 ## 注意事项
 - Hook 是 CodeBuddy 专属机制。其他运行时（Trae、CLI agent 等）请改用 `capture_conversation` MCP 工具手动采集
@@ -872,9 +915,37 @@ def _prompt_distill_conversations(args: dict[str, str]) -> str:
 仅当 MCP server 进程配置了 MAIN_MODEL / LLM_BASE_URL / LLM_API_KEY 环境变量时，可改用 distill_conversation(run_in_background=true)，轮询 `repowiki/distill-jobs.json` 直到 status=completed，再执行步骤 4。IDE Agent 优先使用上面的 prepare/submit 流程。"""
 
 
-# ===================================================================
-#  Registration
-# ===================================================================
+def _prompt_task_workflow(args: dict[str, str]) -> str:
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    return f"""任务记忆工作流。当用户说"继续上一个任务""接着做 XX 任务""切换任务"或需要跨会话延续工作上下文时使用本流程。
+
+任务记忆层把"长线工作单元"（task）与"可复用 Wiki 知识"（note）分开：任务记忆是**任务范围内的进度知识**（本次做了什么、下一步、待办），笔记是**跨任务的通用经验**（编码规范、踩坑、决策）。
+
+## 会话开始：关联任务（可选但推荐）
+1. `list_tasks(status="active", repo_path="{repo_path}")` 列出进行中的任务
+2. 向用户展示列表并给出两种选择：
+   - **关联已有任务**：用户从列表中选择一个
+   - **新建任务**：用户直接输入新任务名（可再补充一句描述），调用 `create_task(title=<新任务名>, description=<可选>)` 创建后即关联该新任务
+3. 关联后：`set_session_task(source_session_id=<当前会话id>, task_id=<选中任务>)` 建立绑定，之后本会话采集的对话会自动带上 task_id
+4. `get_task_context(task_id=<选中任务>)` 拉取该任务的描述 + 记忆 + 关联笔记，作为继续工作的上下文
+
+## 会话进行中
+- 采集对话时带上 `task_id`（capture_conversation 的 task_id 参数，或经 set_session_task 绑定后自动带）
+- 蒸馏时（distill-conversations 流程）LLM 会同时产出 `notes`（通用知识）和 `memories`（任务进度），后者自动落盘到 `repowiki/tasks/<task_id>/memories.md`
+
+## 会话结束
+- 任务完成：`complete_task(task_id=...)`
+- 需要归档/放弃：`delete_task(task_id=...)`（会级联删除任务目录与绑定，但**不删**已打上 task_id 的笔记）
+- 手动追加进度：`add_task_memory(task_id=..., content=...)`
+
+## 检索
+- `query_wiki(query=..., task_id=<任务id>)` 按任务过滤笔记
+- `get_task_context(task_id=...)` 聚合任务全貌
+
+## 约束
+- task_id 由标题生成且不可变；同名任务会被拒绝；**无重命名**（删除后重建）
+- `query_wiki` 不校验任务是否存在（任务删除后笔记仍可被 task_id 检索）"""
+
 
 def register(server):
     """Register prompt handlers on the given MCP Server instance."""
@@ -904,8 +975,8 @@ def register(server):
                         required=False,
                     ),
                     PromptArgument(
-                        name="enable_hook",
-                        description="是否启用 IDE 对话自动采集 Hook（team-memory fusion）：true/1 会在初始化指引中追加 hook 启用说明；留空或 false 则跳过。Hook 默认关闭，仅采集对话不蒸馏。",
+                        name="enable_task_management",
+                        description="是否启用任务管理（跨会话任务记忆）：true/1 会在初始化指引中追加任务管理启用说明（注册 SessionEnd 采集 Hook + 向 AGENTS.md 写入任务引导段，新建会话时提示用户关联/新建任务）；留空或 false 则跳过。默认关闭。",
                         required=False,
                     ),
                 ],
@@ -1096,11 +1167,11 @@ def register(server):
             ),
             Prompt(
                 name="team-memory-hook",
-                title="启用/关闭对话自动采集 Hook",
+                title="任务管理（跨会话任务记忆）",
                 description=(
-                    "管理 team-memory fusion 的 CodeBuddy 对话采集 Hook：检查现状、"
-                    "启用（注册 SessionEnd事件）或关闭。"
-                    "Hook 只采集对话到 repowiki/raw/，不蒸馏。"
+                    "管理跨会话任务记忆：启用时注册 SessionEnd 采集 Hook 并向 AGENTS.md "
+                    "写入任务引导段（新建会话时提示用户关联已有任务或输入任务名新建），"
+                    "关闭时一并移除。采集仅落 raw 不蒸馏。"
                 ),
                 arguments=[
                     PromptArgument(
@@ -1122,6 +1193,21 @@ def register(server):
                     "把 repowiki/raw/ 中已采集的对话蒸馏为经验笔记：宿主 Agent 充当 LLM，"
                     "distill_conversation(mode=prepare) 取 transcript → Agent 提取知识 → "
                     "mode=submit 交回做去重/草稿入库/评审。全程本地闭环，蒸馏产出须 confirm_note 确认。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="repo_path",
+                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                ],
+            ),
+            Prompt(
+                name="task-workflow",
+                title="任务记忆工作流",
+                description=(
+                    "跨会话延续工作上下文：创建/关联任务、采集对话绑定 task_id、蒸馏时双轨产出"
+                    "笔记与任务记忆、按 task_id 检索与聚合。适用于「继续上一个任务」等长线工作场景。"
                 ),
                 arguments=[
                     PromptArgument(
@@ -1154,6 +1240,7 @@ def register(server):
             "ingest-note": _prompt_ingest_note,
             "team-memory-hook": _prompt_team_memory_hook,
             "distill-conversations": _prompt_distill_conversations,
+            "task-workflow": _prompt_task_workflow,
         }
 
         handler = prompts_map.get(name)

@@ -1,0 +1,510 @@
+"""MCP tool: task_manager — task CRUD + per-task memory store.
+
+This module adds a *task memory layer* alongside the wiki knowledge layer
+(``notes/`` + ``wiki/``) and the team-memory fusion layer (``raw/``). A task is
+a long-running unit of work that accumulates distilled memories across many
+sessions:
+
+    repowiki/tasks/
+      .index.json             # task index: [{id, title, status, created_at, ...}]
+      <task_id>/
+        task.md               # task description + status (frontmatter + body)
+        memories.md           # accumulated task memories (append-only)
+
+Session bindings live under ``repowiki/.meta/task_bindings/<source_session_id>.json``
+so an IDE session can be associated with a task. ``capture_conversation`` then
+stamps ``task_id`` into raw frontmatter, ``distill_conversation`` routes distilled
+memories back to the task, and ``get_task_context`` aggregates the task's knowledge
+so the next session can pick up where it left off.
+
+Design constraints (must hold):
+  - task_id is derived from the original title (slugified) and is immutable.
+  - Duplicate detection is by original title (strip-compared); no two tasks may
+    share a title, and there is no rename tool — delete then recreate instead.
+  - ``delete_task`` cascades: it removes the task directory, its index entry, and
+    any session binding files pointing at it.
+  - ``memories.md`` is append-only; concurrent writers are serialized via an
+    atomic write (temp file + ``os.replace``).
+  - ``query_wiki`` never validates task existence — ghost ``task_id`` references
+    are allowed (the task may have been deleted; the note stays).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from codewiki.mcp.session import SessionStore
+from codewiki.mcp.tools.capture_conversation import _resolve_output_dir, _slugify
+
+logger = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------------- #
+# Storage helpers
+# --------------------------------------------------------------------------- #
+
+def _tasks_dir(output_dir: Path) -> Path:
+    """Path to the repowiki/tasks directory (created lazily by callers)."""
+    return output_dir / "tasks"
+
+
+def _bindings_dir(output_dir: Path) -> Path:
+    """Path to repowiki/.meta/task_bindings (created lazily by callers)."""
+    return output_dir / ".meta" / "task_bindings"
+
+
+def _index_path(output_dir: Path) -> Path:
+    return _tasks_dir(output_dir) / ".index.json"
+
+
+def _read_index(output_dir: Path) -> List[Dict[str, Any]]:
+    """Read the task index as a list of task entries; [] when absent/corrupt."""
+    p = _index_path(output_dir)
+    if not p.exists():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        tasks = data.get("tasks", []) if isinstance(data, dict) else []
+        return [t for t in tasks if isinstance(t, dict)]
+    except (json.JSONDecodeError, OSError):
+        logger.warning("Task index unreadable at %s; treating as empty.", p)
+        return []
+
+
+def _write_index(output_dir: Path, tasks: List[Dict[str, Any]]) -> None:
+    """Atomically write the task index."""
+    p = _index_path(output_dir)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(
+        json.dumps({"tasks": tasks}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    os.replace(tmp, p)
+
+
+def _find_by_id(tasks: List[Dict[str, Any]], task_id: str) -> Optional[Dict[str, Any]]:
+    for t in tasks:
+        if t.get("id") == task_id:
+            return t
+    return None
+
+
+def _find_by_title(tasks: List[Dict[str, Any]], title: str) -> Optional[Dict[str, Any]]:
+    needle = title.strip()
+    for t in tasks:
+        if str(t.get("title", "")).strip() == needle:
+            return t
+    return None
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _task_path(output_dir: Path, task_id: str) -> Path:
+    return _tasks_dir(output_dir) / task_id / "task.md"
+
+
+def _memories_path(output_dir: Path, task_id: str) -> Path:
+    return _tasks_dir(output_dir) / task_id / "memories.md"
+
+
+def _extract_fm(text: str, key: str) -> Optional[str]:
+    """Extract a frontmatter value (top-level or nested under ``metadata:``).
+
+    Mirrors ``knowledge_loop._extract_frontmatter`` semantics: the value may sit
+    at the top level of the YAML block, or one level deep under ``metadata:``.
+    """
+    if not text:
+        return None
+    # Grab the first frontmatter block if present.
+    m = re.match(r"\A---\s*\n(.*?)\n---", text, re.DOTALL)
+    block = m.group(1) if m else text
+    lines = block.splitlines()
+    in_metadata = False
+    for raw in lines:
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent == 0:
+            in_metadata = line.strip().lower() == "metadata:"
+        if ":" not in line:
+            continue
+        k, _, v = line.partition(":")
+        if k.strip() == key and v.strip():
+            # Only honor top-level keys, or keys nested exactly one level.
+            if indent == 0 or (in_metadata and indent >= 2):
+                return v.strip().strip("'\"")
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Task file write helpers
+# --------------------------------------------------------------------------- #
+
+def _task_frontmatter(task: Dict[str, Any]) -> str:
+    """Render the YAML frontmatter block for a task.md file."""
+    lines = [
+        "---",
+        "type: task",
+        f"task_id: {task['id']}",
+        f"title: {task['title']}",
+        f"status: {task['status']}",
+        f"created_at: {task['created_at']}",
+    ]
+    if task.get("completed_at"):
+        lines.append(f"completed_at: {task['completed_at']}")
+    lines.append("---")
+    return "\n".join(lines)
+
+
+def _write_task_file(output_dir: Path, task: Dict[str, Any], description: str) -> None:
+    p = _task_path(output_dir, task["id"])
+    p.parent.mkdir(parents=True, exist_ok=True)
+    body = (description or "").strip()
+    content = _task_frontmatter(task) + "\n\n" + body + "\n"
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, p)
+
+
+def _append_memory_atomic(path: Path, content: str) -> None:
+    """Append a memory entry to memories.md using an atomic read-modify-write.
+
+    The read + write is not lock-protected across processes, but the final
+    replace is atomic, so no reader ever observes a partially written file.
+    Callers that need cross-process serialization should serialize externally;
+    within a single MCP server the tool dispatch already serializes handlers.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = ""
+    if path.exists():
+        existing = path.read_text(encoding="utf-8").rstrip("\n")
+        if existing:
+            existing += "\n\n"
+    entry = (content or "").strip()
+    new_content = existing + entry + "\n"
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(new_content, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+# --------------------------------------------------------------------------- #
+# Handlers
+# --------------------------------------------------------------------------- #
+
+def handle_create_task(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """Create a new task. Duplicate titles are rejected; no rename is supported."""
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    try:
+        output_dir = _resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    title = str(arguments.get("title") or "").strip()
+    if not title:
+        return json.dumps({"error": "title is required to create a task."})
+
+    task_id = _slugify(title)
+    if not task_id:
+        return json.dumps({"error": "title did not produce a usable task id."})
+
+    tasks = _read_index(output_dir)
+    if _find_by_title(tasks, title):
+        return json.dumps({"error": f"A task titled '{title}' already exists."})
+    if _find_by_id(tasks, task_id):
+        return json.dumps({"error": f"A task with id '{task_id}' already exists."})
+
+    description = str(arguments.get("description") or "").strip()
+    task = {
+        "id": task_id,
+        "title": title,
+        "status": "active",
+        "created_at": _now_iso(),
+    }
+    tasks.append(task)
+    _write_index(output_dir, tasks)
+    _write_task_file(output_dir, task, description)
+
+    return json.dumps({
+        "ok": True,
+        "task": task,
+        "description": description,
+    }, ensure_ascii=False)
+
+
+def handle_list_tasks(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """List tasks, optionally filtered by status ('active'/'completed')."""
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    try:
+        output_dir = _resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    tasks = _read_index(output_dir)
+    status = arguments.get("status")
+    if status:
+        status = str(status).strip()
+        tasks = [t for t in tasks if t.get("status") == status]
+
+    return json.dumps({"ok": True, "tasks": tasks}, ensure_ascii=False)
+
+
+def handle_get_task(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """Return a single task's details plus its accumulated memories."""
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    try:
+        output_dir = _resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    task_id = str(arguments.get("task_id") or "").strip()
+    if not task_id:
+        return json.dumps({"error": "task_id is required."})
+
+    tasks = _read_index(output_dir)
+    task = _find_by_id(tasks, task_id)
+    if task is None:
+        return json.dumps({"error": f"Task '{task_id}' does not exist."})
+
+    task_file = _task_path(output_dir, task_id)
+    description = ""
+    if task_file.exists():
+        text = task_file.read_text(encoding="utf-8")
+        m = re.match(r"\A---\s*\n.*?\n---\s*\n?(.*)", text, re.DOTALL)
+        description = (m.group(1) if m else text).strip()
+
+    memories = ""
+    mem_path = _memories_path(output_dir, task_id)
+    if mem_path.exists():
+        memories = mem_path.read_text(encoding="utf-8").strip()
+
+    return json.dumps({
+        "ok": True,
+        "task": task,
+        "description": description,
+        "memories": memories,
+    }, ensure_ascii=False)
+
+
+def handle_complete_task(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """Mark an active task as completed."""
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    try:
+        output_dir = _resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    task_id = str(arguments.get("task_id") or "").strip()
+    if not task_id:
+        return json.dumps({"error": "task_id is required."})
+
+    tasks = _read_index(output_dir)
+    task = _find_by_id(tasks, task_id)
+    if task is None:
+        return json.dumps({"error": f"Task '{task_id}' does not exist."})
+    if task.get("status") == "completed":
+        return json.dumps({"ok": True, "task": task, "note": "Task was already completed."})
+
+    task["status"] = "completed"
+    task["completed_at"] = _now_iso()
+    _write_index(output_dir, tasks)
+
+    task_file = _task_path(output_dir, task_id)
+    if task_file.exists():
+        text = task_file.read_text(encoding="utf-8")
+        m = re.match(r"\A---\s*\n.*?\n---\s*\n?(.*)", text, re.DOTALL)
+        body = (m.group(1) if m else "").strip()
+        _write_task_file(output_dir, task, body)
+
+    return json.dumps({"ok": True, "task": task}, ensure_ascii=False)
+
+
+def handle_delete_task(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """Delete a task, its directory, and any session bindings pointing at it."""
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    try:
+        output_dir = _resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    task_id = str(arguments.get("task_id") or "").strip()
+    if not task_id:
+        return json.dumps({"error": "task_id is required."})
+
+    tasks = _read_index(output_dir)
+    task = _find_by_id(tasks, task_id)
+    if task is None:
+        return json.dumps({"error": f"Task '{task_id}' does not exist."})
+
+    # 1. Remove from index.
+    remaining = [t for t in tasks if t.get("id") != task_id]
+    _write_index(output_dir, remaining)
+
+    # 2. Remove the task directory tree (task.md + memories.md).
+    import shutil
+    task_dir = _tasks_dir(output_dir) / task_id
+    if task_dir.exists():
+        shutil.rmtree(task_dir, ignore_errors=True)
+
+    # 3. Cascade: drop session bindings that point at this task.
+    cleared_bindings = 0
+    bdir = _bindings_dir(output_dir)
+    if bdir.exists():
+        for bf in bdir.glob("*.json"):
+            try:
+                data = json.loads(bf.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if data.get("task_id") == task_id:
+                try:
+                    bf.unlink()
+                    cleared_bindings += 1
+                except OSError:
+                    logger.warning("Failed to remove binding %s", bf)
+
+    return json.dumps({
+        "ok": True,
+        "deleted": task_id,
+        "cleared_bindings": cleared_bindings,
+    }, ensure_ascii=False)
+
+
+def handle_set_session_task(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """Bind a source (IDE) session id to a task id.
+
+    The binding is consumed by capture_conversation (stamps task_id into raw
+    frontmatter). The binding file is intentionally NOT auto-deleted here —
+    the caller decides when the association is done.
+    """
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    try:
+        output_dir = _resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    source_session_id = str(arguments.get("source_session_id") or "").strip()
+    task_id = str(arguments.get("task_id") or "").strip()
+    if not source_session_id:
+        return json.dumps({"error": "source_session_id is required."})
+    if not task_id:
+        return json.dumps({"error": "task_id is required."})
+
+    # Validate the task exists (unlike query_wiki, bindings should not dangle).
+    tasks = _read_index(output_dir)
+    if _find_by_id(tasks, task_id) is None:
+        return json.dumps({"error": f"Task '{task_id}' does not exist."})
+
+    bdir = _bindings_dir(output_dir)
+    bdir.mkdir(parents=True, exist_ok=True)
+    binding = {"task_id": task_id, "bound_at": _now_iso()}
+    p = bdir / f"{source_session_id}.json"
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(binding, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, p)
+
+    return json.dumps({
+        "ok": True,
+        "source_session_id": source_session_id,
+        "task_id": task_id,
+    }, ensure_ascii=False)
+
+
+def handle_add_task_memory(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """Append a memory entry to a task's memories.md (atomic, append-only)."""
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    try:
+        output_dir = _resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    task_id = str(arguments.get("task_id") or "").strip()
+    content = str(arguments.get("content") or "").strip()
+    if not task_id:
+        return json.dumps({"error": "task_id is required."})
+    if not content:
+        return json.dumps({"error": "content is required."})
+
+    tasks = _read_index(output_dir)
+    if _find_by_id(tasks, task_id) is None:
+        return json.dumps({"error": f"Task '{task_id}' does not exist."})
+
+    _append_memory_atomic(_memories_path(output_dir, task_id), content)
+
+    return json.dumps({
+        "ok": True,
+        "task_id": task_id,
+        "appended_chars": len(content),
+    }, ensure_ascii=False)
+
+
+def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """Aggregate a task's full context: task.md + memories.md + related notes.
+
+    Related notes are discovered by scanning repowiki/notes/ for files whose
+    frontmatter carries a matching ``task_id`` (top-level or under metadata).
+    """
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    try:
+        output_dir = _resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    task_id = str(arguments.get("task_id") or "").strip()
+    if not task_id:
+        return json.dumps({"error": "task_id is required."})
+
+    tasks = _read_index(output_dir)
+    task = _find_by_id(tasks, task_id)
+    if task is None:
+        return json.dumps({"error": f"Task '{task_id}' does not exist."})
+
+    description = ""
+    task_file = _task_path(output_dir, task_id)
+    if task_file.exists():
+        text = task_file.read_text(encoding="utf-8")
+        m = re.match(r"\A---\s*\n.*?\n---\s*\n?(.*)", text, re.DOTALL)
+        description = (m.group(1) if m else text).strip()
+
+    memories = ""
+    mem_path = _memories_path(output_dir, task_id)
+    if mem_path.exists():
+        memories = mem_path.read_text(encoding="utf-8").strip()
+
+    # Discover related notes by frontmatter task_id.
+    related_notes: List[Dict[str, str]] = []
+    notes_dir = output_dir / "notes"
+    if notes_dir.exists():
+        for nf in sorted(notes_dir.glob("*.md")):
+            try:
+                text = nf.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if _extract_fm(text, "task_id") != task_id:
+                continue
+            title = _extract_fm(text, "title") or nf.stem
+            related_notes.append({"relpath": nf.name, "title": title})
+
+    return json.dumps({
+        "ok": True,
+        "task": task,
+        "description": description,
+        "memories": memories,
+        "related_notes": related_notes,
+    }, ensure_ascii=False)
