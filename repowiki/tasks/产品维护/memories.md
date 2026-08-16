@@ -1,5 +1,3 @@
 调研并修复了 capture_conversation 的 task_id 断链：根因是绑定文件（.meta/task_bindings/）不被自动消费，文档声称「绑定被 capture 消费」但实现无自动衔接。已落地 _resolve_task_from_binding 回退逻辑（放在 _content_hash 之前）+ task_source 字段 + 2 个测试（test_task_manager.py 17 passed，test_ide_hook_capture.py 21 passed）。采用宽松语义（绑定存在即盖章，不校验任务 status）。后续可选：若需「只认 active 任务」，在 _resolve_task_from_binding 里加 tasks/.index.json 的 status 查询。
 
 本次会话修复了 task_session_start.py hook 的两个缺口：①新增「硬性执行顺序」段（会话第一个动作必须是弹任务关联框，严禁先探索代码/先回答）；②直接把 active 任务标题+task_id 注入 additionalContext，避免 agent 再自己 list_tasks。改动同时落在源副本 codewiki/hooks/ 与项目副本 .codebuddy/hooks/ 两个文件（内容一致），确保随包分发到所有用户。
-
-撰写公众号文章《CodeWiki-Plus 系列 3：任务管理与经验记忆提取》，落盘 `docs/articles/CodeWiki-Plus系列3：任务管理与经验记忆提取.md`。内容覆盖：sessionStart hook 弹框绑定任务 + get_task_context 拉取记忆；sessionEnd hook 采集对话（系统提示词过滤/工具输出截断/会话绑定读 task_id/content_hash 去重）；distill_conversation 三种模式与 Mode C file side channel（prepare→分块读→submit）避免上下文爆炸；notes/memories 双轨产出 + confirm/reject 评审闸门。含 5 张 mermaid 图（全景飞轮、sessionStart 时序、sessionEnd 采集流程、file side channel 时序、双轨评审）。下一步：用户审阅后可发公众号；系列 4 预留本体论（ontology.yaml）主题。
