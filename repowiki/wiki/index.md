@@ -2,7 +2,7 @@
 okf_version: "0.2"
 ---
 
-<!-- 自动生成于 2026-08-15T21:17:26+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-15T23:07:54+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -58,8 +58,10 @@ okf_version: "0.2"
 ## 知识笔记
 
 * [capture_conversation 的 task_id 需显式传入，绑定文件曾不被自动消费（已加回退修复）](../notes/2026-08-15-capture-conversation-的-task-id-需显式传入绑定文件曾不被自动消费已加回退修复.md) - pitfall (pitfall, 2026-08-15)
+* [CodeBuddy hook 有源/项目双副本，改 task_session_start.py 需同步源副本才随包分发](../notes/2026-08-15-codebuddy-hook-有源项目双副本改-task-session-startpy-需同步源副本才随包分发.md) - pitfall (pitfall, 2026-08-15)
 * [CodeWiki frontmatter 修补是 additive-only：LLM 直写的 status: draft 不会被默认 stable 覆盖](../notes/2026-08-15-codewiki-frontmatter-修补是-additive-onlyllm-直写的-status-draft-不.md) - architecture (architecture, 2026-08-15)
 * [get_prompt 工具参数是 prompt_type 而非 name](../notes/2026-08-15-get-prompt-工具参数是-prompt-type-而非-name.md) - pitfall (pitfall, 2026-08-15)
+* [hook 注入的 additionalContext 是软约束，需硬性执行顺序 + 直接注入任务标题才可靠](../notes/2026-08-15-hook-注入的-additionalcontext-是软约束需硬性执行顺序-直接注入任务标题才可靠.md) - lesson (lesson, 2026-08-15)
 * [IDE hook 的 SessionEnd envelope 须用 user 角色，system 角色会被 transcript 提取丢弃](../notes/2026-08-15-ide-hook-的-sessionend-envelope-须用-user-角色system-角色会被-transcr.md) - pitfall (pitfall, 2026-08-15)
 * [MCP server 层架构摩擦点扫描结论（7 项，按严重度排序）](../notes/2026-08-15-mcp-server-层架构摩擦点扫描结论7-项按严重度排序.md) - architecture (architecture, 2026-08-15)
 * [MCP server 薄壳化架构：server.py 职责拆分到 registry/prompts/resources/tools](../notes/2026-08-15-mcp-server-薄壳化架构serverpy-职责拆分到-registrypromptsresourcestools.md) - architecture (architecture, 2026-08-15)

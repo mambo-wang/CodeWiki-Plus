@@ -119,13 +119,22 @@ def _build_message(event: dict, repo_path: str) -> str:
     lines = ["[task-memory] 本会话开始前，请先处理「任务关联」（跨会话任务记忆）。"]
     lines.append("")
     lines.append(
+        "【硬性执行顺序】无论用户第一条消息问什么（哪怕是关于代码、文件、bug 的具体问题），"
+        "本会话的第一个动作都必须是下面这个任务关联弹框流程；弹框、绑定、拉取上下文全部完成后，"
+        "才允许开始读文件/搜索代码/回答用户提问。严禁先探索代码或直接回答，事后再补弹任务关联框。"
+    )
+    lines.append("")
+    lines.append(
         "【必须弹框】请立即调用 ask_followup_question 工具弹出结构化选择框"
         "（这是 IDE 的原生弹框 UI，用户可以直接点击选项），不要用纯文本输出一段话让用户自行回复。"
         "弹框标题用「任务关联」，提供以下选项："
     )
     if active:
-        lines.append("- 关联已有任务：列出下面每个进行中任务的标题作为选项，用户选中后调用 "
+        lines.append("- 关联已有任务：把下面每个进行中任务的标题作为弹框选项，用户选中后调用 "
                      f"set_session_task(source_session_id={session_id or '<当前会话id>'}, task_id=<选中任务>) 建立绑定")
+        lines.append("  当前进行中的任务：")
+        for t in active:
+            lines.append(f"    - {t.get('title') or t.get('id')}（task_id={t.get('id')}）")
     else:
         lines.append("- 新建任务：选择后会再弹一个输入框让用户输入任务名（可补一句描述），调用 "
                      "create_task(title=<任务名>, description=<可选>) 创建后即关联该新任务")
