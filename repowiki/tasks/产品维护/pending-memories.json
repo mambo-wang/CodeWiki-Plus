@@ -1,11 +1,4 @@
 {
   "task_id": "产品维护",
-  "memories": [
-    {
-      "id": "mem-2f78ddc3ed05",
-      "content": "公众号文章《CodeWiki-Plus 系列 3》已按业务视角重写完成（削减技术细节、增补业务梳理与开发思路）。下一步：用户审阅后可发公众号；系列 4 预留本体论（ontology.yaml）主题。",
-      "source_raw": "raw\\conv-@d-repos-CodeWiki-CN-docs-articles-CodeWiki-Plus系列3：任务管理与经验记.md",
-      "staged_at": "2026-08-16T06:15:15.357683+00:00"
-    }
-  ]
+  "memories": []
 }
