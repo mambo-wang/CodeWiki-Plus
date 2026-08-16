@@ -47,7 +47,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from codewiki.mcp.session import SessionStore
-from codewiki.mcp.tools.capture_conversation import _resolve_output_dir, _slugify
+from codewiki.mcp.tools.capture_conversation import (
+    _resolve_output_dir,
+    _slugify,
+    pending_raws_by_task,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -536,7 +540,9 @@ def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> s
     if mem_path.exists():
         memories = mem_path.read_text(encoding="utf-8").strip()
 
-    # Discover related notes by frontmatter task_id.
+    # Discover related notes by frontmatter task_id. The ``status`` field lets
+    # the host agent tell drafts apart from confirmed knowledge when injecting
+    # this context (draft → must be labelled "待确认", never cited as settled).
     related_notes: List[Dict[str, str]] = []
     notes_dir = output_dir / "notes"
     if notes_dir.exists():
@@ -548,7 +554,20 @@ def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> s
             if _extract_fm(text, "task_id") != task_id:
                 continue
             title = _extract_fm(text, "title") or nf.stem
-            related_notes.append({"relpath": nf.name, "title": title})
+            status = _extract_fm(text, "status") or "stable"
+            related_notes.append({"relpath": nf.name, "title": title, "status": status})
+
+    # Pending (not-yet-distilled) raw captures bound to this task. This is the
+    # deterministic catch-up distillation trigger: pending_raw_count > 0 means
+    # the agent should run distill_conversation(mode="prepare", task_id=...)
+    # BEFORE answering the user's actual question (see sessionStart hook).
+    # The listing is truncated to keep the context payload bounded.
+    pending_raws = pending_raws_by_task(output_dir).get(task_id, [])
+    _MAX_PENDING_SHOWN = 10
+    pending_payload = [
+        {"relpath": e["relpath"], "captured_at": e["captured_at"]}
+        for e in pending_raws[:_MAX_PENDING_SHOWN]
+    ]
 
     return json.dumps({
         "ok": True,
@@ -557,6 +576,9 @@ def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> s
         "memories": memories,
         "pending_memories": _read_pending_memories(output_dir, task_id),
         "related_notes": related_notes,
+        "pending_raw_count": len(pending_raws),
+        "pending_raws": pending_payload,
+        "pending_raws_truncated": len(pending_raws) > _MAX_PENDING_SHOWN,
     }, ensure_ascii=False)
 
 
