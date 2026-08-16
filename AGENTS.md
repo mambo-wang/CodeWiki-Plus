@@ -145,6 +145,7 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
    - **跳过**：本次会话不做任务关联
    新建任务两步弹框：选择「新建任务」后**必须**再次调用 `ask_followup_question` 弹出第二个输入框（标题「新建任务」，问题「请输入新任务名称」，带 2 个占位选项）。弹框自带输入框，用户可自由输入任务名后回车；以输入文字为准，立即调用 `create_task(title=<任务名>)` 创建并关联。若用户只点了占位选项，用文字追问确认真实任务名
 3. `get_task_context(task_id=<任务id>)` 拉取任务描述 + 记忆 + 关联笔记，作为继续工作的上下文
+4. **补蒸馏**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），在回答用户提问之前先执行 `distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)` → 重新 `get_task_context` 把新产出的待确认记忆/草稿笔记注入上下文 → 向用户展示待确认项（`confirm_task_memories` / `confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、会话结束前补蒸馏
 
 **工具入口：**
 - `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context` / `stage_task_memories` / `list_pending_memories` / `confirm_task_memories` / `reject_task_memories`

@@ -1214,6 +1214,14 @@ _register(
                     "type": "string",
                     "description": "Conversation id (conv-<id>) to distill a single capture.",
                 },
+                "task_id": {
+                    "type": "string",
+                    "description": (
+                        "Only distill pending raw conversations bound to this task "
+                        "(sessionStart catch-up path). Applies to prepare/submit/batch/Mode B. "
+                        "Returns status=noop when nothing pending belongs to the task."
+                    ),
+                },
                 "preview_chars": {
                     "type": "integer",
                     "description": (
@@ -1904,8 +1912,14 @@ _register(
         name="get_task_context",
         description=(
             "Aggregate a task's full context: task.md description, accumulated "
-            "memories.md, and related notes (notes whose frontmatter carries the "
-            "matching task_id). Use this at session start to resume a task."
+            "memories.md, pending (unconfirmed) memories, and related notes "
+            "(notes whose frontmatter carries the matching task_id, each with "
+            "its status: draft = unconfirmed, stable = confirmed). Also returns "
+            "pending_raw_count / pending_raws — the number of un-distilled raw "
+            "captures bound to this task. If pending_raw_count > 0, run "
+            "distill_conversation(mode='prepare', task_id=<this task>) to catch "
+            "up BEFORE answering the user's question. Use this at session start "
+            "to resume a task."
         ),
         inputSchema={
             "type": "object",

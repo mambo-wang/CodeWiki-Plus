@@ -2,6 +2,9 @@
 
 > 本文件为追加写入的操作记录，由系统自动维护
 
+## 2026-08-16
+* **ingest_note**: 添加笔记: 技术文章面向业务读者时应削减实现细节、增补业务梳理与开发思路
+
 ## 2026-08-15
 * **ingest_note**: 添加笔记: ontology.yaml 的 types/relations 是未实现的 schema 骨架，只有 terms 被消费
 * **ingest_note**: 添加笔记: PowerShell 下中文经命令行传参（git commit -m / python -c）会被 GBK 破坏，应改用 UTF-8 文件方式

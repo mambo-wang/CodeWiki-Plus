@@ -22,9 +22,10 @@ Why a SessionStart hook (not just AGENTS.md guidance):
 
 Unlike the SessionEnd capture hook (which fires-and-forgets via a detached
 subprocess), this hook MUST return its ``systemMessage`` synchronously — the IDE
-is waiting on stdout. It is therefore deliberately lightweight: it reads one
-JSON file and prints one JSON line, and never imports the ``codewiki`` package
-(no import-path dance, fast startup, no risk of a slow import blocking the IDE).
+is waiting on stdout. It is therefore deliberately lightweight: it reads at
+most two small JSON files (task index + raw capture index) and prints one JSON
+line, and never imports the ``codewiki`` package (no import-path dance, fast
+startup, no risk of a slow import blocking the IDE).
 
 CodeBuddy invokes it with the event as JSON on stdin, e.g.:
 
@@ -105,6 +106,53 @@ def _load_active_tasks(repo_path: str) -> list:
     return [t for t in tasks if isinstance(t, dict) and t.get("status") == "active"]
 
 
+def _count_pending_raws(repo_path: str) -> dict:
+    """Count un-distilled raw captures grouped by task_id.
+
+    Reads ``repowiki/raw/.index.json`` (maintained by capture_conversation,
+    shape ``{"files": [{"relpath", "status", "task_id", ...}]}``): entries
+    whose status is not "distilled" form the distillation backlog. If the index
+    is missing, falls back to a lightweight frontmatter peek of conv-*.md.
+    Any failure returns {} so the hook degrades silently to its previous
+    behaviour (never breaks task binding). Stays stdlib-only and O(entries).
+    """
+    counts: dict = {}
+    try:
+        raw_dir = Path(repo_path) / "repowiki" / "raw"
+        idx_path = raw_dir / ".index.json"
+        if idx_path.is_file():
+            data = json.loads(idx_path.read_text(encoding="utf-8-sig", errors="replace"))
+            files = data.get("files", []) if isinstance(data, dict) else []
+            for e in files:
+                if not isinstance(e, dict):
+                    continue
+                if str(e.get("status") or "pending") == "distilled":
+                    continue
+                rel = str(e.get("relpath") or "")
+                if not rel or not (raw_dir / rel).is_file():
+                    continue  # stale index entry — the file is gone
+                task_id = str(e.get("task_id") or "")
+                counts[task_id] = counts.get(task_id, 0) + 1
+            return counts
+        # Fallback: no index — peek frontmatter of each raw capture.
+        for p in sorted(raw_dir.glob("conv-*.md")):
+            try:
+                text = p.read_text(encoding="utf-8-sig", errors="replace")
+            except OSError:
+                continue
+            status, task_id = "pending", ""
+            for line in text.splitlines():
+                if line.startswith("status:"):
+                    status = line[len("status:"):].strip().strip("\"'")
+                elif line.startswith("task_id:"):
+                    task_id = line[len("task_id:"):].strip().strip("\"'")
+            if status != "distilled":
+                counts[task_id] = counts.get(task_id, 0) + 1
+    except Exception:
+        return {}
+    return counts
+
+
 def _build_message(event: dict, repo_path: str) -> str:
     """Build the guidance injected into the fresh session.
 
@@ -120,8 +168,9 @@ def _build_message(event: dict, repo_path: str) -> str:
     lines.append("")
     lines.append(
         "【硬性执行顺序】无论用户第一条消息问什么（哪怕是关于代码、文件、bug 的具体问题），"
-        "本会话的第一个动作都必须是下面这个任务关联弹框流程；弹框、绑定、拉取上下文全部完成后，"
-        "才允许开始读文件/搜索代码/回答用户提问。严禁先探索代码或直接回答，事后再补弹任务关联框。"
+        "本会话的第一个动作都必须是下面这个任务关联弹框流程；弹框、绑定、拉取上下文"
+        "（以及有积压时的补蒸馏）全部完成后，才允许开始读文件/搜索代码/回答用户提问。"
+        "严禁先探索代码或直接回答，事后再补弹任务关联框。"
     )
     lines.append("")
     lines.append(
@@ -150,8 +199,45 @@ def _build_message(event: dict, repo_path: str) -> str:
     lines.append("")
     lines.append(
         "关联完成后调用 get_task_context(task_id=<选中任务>) 拉取该任务上下文继续工作。"
+        "返回中的 pending_raw_count 是本任务尚未蒸馏的历史对话数：若大于 0，必须先按下方"
+        "「补蒸馏」流程处理完积压，再开始回答用户提问。"
         "若用户明确表示本次会话与任何任务无关，可跳过本提示。"
     )
+
+    # Catch-up distillation backlog: deterministic trigger so agents that never
+    # "think to" distill still clear the backlog at session start.
+    pending_counts = _count_pending_raws(repo_path)
+    if pending_counts:
+        total = sum(pending_counts.values())
+        lines.append("")
+        lines.append(f"【补蒸馏】检测到 {total} 条未蒸馏的历史对话积压：")
+        for tid, n in sorted(pending_counts.items()):
+            label = f"任务 {tid}" if tid else "未关联任务"
+            lines.append(f"  - {label}: {n} 条")
+        lines.append(
+            "绑定任务之后、开始回答用户提问之前，对已绑定任务执行补蒸馏："
+        )
+        lines.append(
+            "  1. distill_conversation(mode=\"prepare\", task_id=<绑定的任务id>) "
+            "获取该任务的积压对话清单"
+        )
+        lines.append(
+            "  2. 按清单逐条 read_file 阅读 raw 文件，提取 notes（通用经验）与 memories（任务进度）"
+        )
+        lines.append(
+            "  3. distill_conversation(mode=\"submit\", distilled=<提取结果>) 提交；"
+            "产出为草稿笔记与待确认记忆"
+        )
+        lines.append(
+            "  4. 重新 get_task_context 拉取最新上下文（新产出的待确认记忆/草稿笔记会一并注入）"
+        )
+        lines.append(
+            "  5. 向用户展示待确认项，经 confirm_task_memories / confirm_note 确认后才正式落盘"
+        )
+        lines.append(
+            "若用户明确表示紧急，可先回答提问，但必须在会话结束前完成补蒸馏。"
+            "注意：pending 记忆与 draft 笔记在确认前只能作为只读参考，不得当作已定论的结论引用。"
+        )
 
     return "\n".join(lines)
 

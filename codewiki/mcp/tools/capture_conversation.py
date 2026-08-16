@@ -393,6 +393,7 @@ def _rebuild_index(raw_dir: Path) -> Dict[str, Any]:
         ss = _peek_frontmatter(text, "source_session")
         st = _peek_frontmatter(text, "status") or "pending"
         tk = _peek_frontmatter(text, "task_id")
+        ca = _peek_frontmatter(text, "captured_at")
         if not ch:
             continue
         files.append({
@@ -401,6 +402,7 @@ def _rebuild_index(raw_dir: Path) -> Dict[str, Any]:
             "source_session": ss,
             "status": st,
             "task_id": tk,
+            "captured_at": ca,
         })
     return {"files": files}
 
@@ -413,6 +415,76 @@ def _peek_frontmatter(text: str, key: str) -> str:
         if line.startswith(marker):
             return line[len(marker):].strip()
     return ""
+
+
+def pending_raws_by_task(output_dir: Path) -> Dict[str, List[Dict[str, str]]]:
+    """Aggregate pending (not-yet-distilled) raw conversations by task_id.
+
+    Shared read-only helper — the single source of truth for "which raw files
+    still need distillation, grouped by task". Consumers:
+
+    - ``distill_conversation``: task-scoped catch-up distillation (its
+      ``task_id`` filter across prepare/submit/batch/Mode B).
+    - ``task_manager.handle_get_task_context``: ``pending_raw_count`` — the
+      deterministic trigger signal telling the agent that catch-up distillation
+      is needed for the bound task.
+
+    Resolution is **index-first**: ``raw/.index.json`` (maintained by
+    ``handle_capture_conversation``) gives O(1) per-file task_id/status without
+    opening the file. Files missing from the index (legacy captures or a failed
+    index write) fall back to a frontmatter peek, mirroring
+    ``distill_conversation._iter_raw_files`` semantics (``status != distilled``).
+
+    Returns ``task_id -> [{"relpath", "task_id", "captured_at"}]``; entries
+    without a task_id are grouped under the empty-string key. Never raises —
+    any read failure degrades to "no pending raws" for that file.
+    """
+    from codewiki.src.config import RAW_DIR
+    raw_dir = output_dir / RAW_DIR
+    if not raw_dir.is_dir():
+        return {}
+
+    index = _read_index(raw_dir)
+    indexed: Dict[str, dict] = {}
+    if isinstance(index, dict):
+        for e in index.get("files", []):
+            if isinstance(e, dict) and e.get("relpath"):
+                indexed[str(e["relpath"])] = e
+
+    def _unq(v: str) -> str:
+        v = v.strip()
+        return v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v
+
+    by_task: Dict[str, List[Dict[str, str]]] = {}
+    try:
+        candidates = sorted(raw_dir.glob("conv-*.md"))
+    except OSError:
+        return {}
+    for p in candidates:
+        if not p.is_file():
+            continue
+        entry = indexed.get(p.name)
+        if entry is not None:
+            if str(entry.get("status") or "pending") == "distilled":
+                continue
+            task_id = str(entry.get("task_id") or "")
+            captured_at = str(entry.get("captured_at") or "")
+        else:
+            # Not indexed — peek frontmatter directly.
+            try:
+                text = p.read_text(encoding="utf-8-sig", errors="replace")
+            except OSError:
+                continue
+            if _unq(_peek_frontmatter(text, "status") or "pending") == "distilled":
+                continue
+            task_id = _unq(_peek_frontmatter(text, "task_id"))
+            captured_at = _unq(_peek_frontmatter(text, "captured_at"))
+        by_task.setdefault(task_id, []).append({
+            "relpath": p.name,
+            "task_id": task_id,
+            "captured_at": captured_at,
+        })
+    return by_task
 
 
 # --------------------------------------------------------------------------- #
@@ -612,6 +684,10 @@ def handle_capture_conversation(
         "source_session": source_session_id,
         "status": "pending",
         "task_id": task_id,
+        # captured_at is consumed by pending_raws_by_task() → get_task_context
+        # so the backlog listing can show when each capture happened without
+        # opening the raw file.
+        "captured_at": now_iso,
     }
     if superseded:
         for i, e in enumerate(entries):

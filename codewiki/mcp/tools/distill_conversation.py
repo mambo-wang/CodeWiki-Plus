@@ -858,6 +858,9 @@ def handle_distill_conversation(
       - session_id / output_dir / repo_path: repowiki resolution.
       - raw_path / conversation_id (optional): target a single raw file; if
         omitted, all pending raw/conv-*.md files are distilled (batch).
+      - task_id (optional): only distill pending raws bound to this task
+        (sessionStart catch-up path). Applies to prepare/submit/batch/Mode B.
+        If nothing pending belongs to the task, returns status="noop".
       - llm (optional, Mode A): async callable ``llm(prompt, system) -> str``.
         Calling in this mode runs distillation inline (still in a thread per the
         server's mode="thread" dispatch) and returns the result JSON.
@@ -889,6 +892,32 @@ def handle_distill_conversation(
     from codewiki.src.config import RAW_DIR
     raw_dir = output_dir / RAW_DIR
     targets = [single] if single else _iter_raw_files(raw_dir)
+
+    # Optional task scope: only distill raws bound to the given task. This is
+    # the sessionStart catch-up path — after binding a task, the agent calls
+    # distill_conversation(mode="prepare", task_id=<bound task>) to clear only
+    # that task's backlog. The filter sits on `targets`, so it applies
+    # uniformly to prepare/submit/batch/Mode B. Task membership comes from
+    # pending_raws_by_task (index-first, frontmatter fallback) — the same
+    # source of truth get_task_context uses for pending_raw_count.
+    task_filter = str(arguments.get("task_id") or "").strip()
+    if task_filter:
+        from codewiki.mcp.tools.capture_conversation import pending_raws_by_task
+        allowed = {
+            str((raw_dir / e["relpath"]).resolve())
+            for e in pending_raws_by_task(output_dir).get(task_filter, [])
+        }
+        targets = [t for t in targets if str(t.resolve()) in allowed]
+        if not targets:
+            return json.dumps({
+                "status": "noop",
+                "task_id": task_filter,
+                "message": (
+                    f"No pending (un-distilled) conversations bound to task "
+                    f"'{task_filter}'. Nothing to distill."
+                ),
+                "distilled": [],
+            }, ensure_ascii=False)
 
     if not targets:
         return json.dumps({
