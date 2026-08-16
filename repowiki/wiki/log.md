@@ -31,6 +31,8 @@
 * **ingest_note**: 添加笔记: OKF §7 actor 约定是 codewiki/<version>，旧格式 agent:codewiki/ 已废弃
 * **ingest_note**: 添加笔记: no_knowledge 的 raw 由 distill 清理删除，keep_raw 是唯一保留途径
 * **ingest_note**: 添加笔记: 任务记忆系统 grill 决策：绑定按 source_session_id 维度，注入走起 session 引导而非 hook 自动注入
+* **ingest_note**: 添加笔记: CodeBuddy hook 有源/项目双副本，改 task_session_start.py 需同步源副本才随包分发
+* **ingest_note**: 添加笔记: hook 注入的 additionalContext 是软约束，需硬性执行顺序 + 直接注入任务标题才可靠
 
 ## 2026-08-13
 * **lint_wiki**: 检查完成: 53 个问题
