@@ -45,7 +45,7 @@ CodeWiki-Plus 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/Code
 
 实际上，CodeWiki 的核心工具链——AST 解析、依赖图、Mermaid 校验——完全不需要 LLM。真正需要 LLM 智能的 4 个环节（模块聚类、文档撰写、子模块递归、总览合成），恰好是 AI IDE 的 Agent 最擅长做的事情。
 
-因此，我们将 CodeWiki 的 MCP Server 从"黑盒式一键生成"拆分为**28 个细粒度工具**，让它退化为纯工具链服务器。AI IDE 的 Agent 通过 MCP 协议调用这些工具，用自己的推理能力完成全部文档生成工作：
+因此，我们将 CodeWiki 的 MCP Server 从"黑盒式一键生成"拆分为**40 个细粒度工具**，让它退化为纯工具链服务器。AI IDE 的 Agent 通过 MCP 协议调用这些工具，用自己的推理能力完成全部文档生成工作：
 
 ```
 改造前：
@@ -61,12 +61,13 @@ CodeWiki-Plus 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/Code
 | 能力维度 | 原版 CodeWiki | CodeWiki-Plus |
 |----------|--------------|---------------|
 | LLM 配置 | 必须自行配置 API Key | 零配置，IDE 自身模型驱动 |
-| 生成模式 | 黑盒一键生成 | 28 个细粒度工具，Agent 全程可控 |
+| 生成模式 | 黑盒一键生成 | 40 个细粒度工具，Agent 全程可控 |
 | 文档质量 | 通用描述 | Evidence-Based 断言（代码引用 + 置信度） |
 | 生成效率 | 所有组件同等处理 | 代码路由分类，boilerplate 仅保留签名 |
 | 上下文精度 | 模块内组件 | BFS 1-hop 调用图扩展 + 约束索引表 |
 | 增量更新 | 文件级 Git diff | 方法级 content_hash 精确检测 |
 | 知识管理 | 无 | 结构化 Wiki + 笔记飞轮 + 外部文档管理 |
+| 任务记忆 | 无 | 跨会话任务上下文 + 任务记忆暂存确认 |
 | 搜索能力 | 无 | BM25 + wikilink 图谱多跳 + 渐进式阅读 |
 | 跨服务分析 | 无 | Monorepo 子服务检测 + 跨服务调用追踪 |
 | 质量保障 | 无 | 16 项 lint 检查 + health score + 问题追踪 |
@@ -117,7 +118,7 @@ codewiki --version
 }
 ```
 
-配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 28 个工具。
+配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 40 个工具。
 
 **第 3 步：在 Agent 模式中输入提示词**
 
@@ -172,6 +173,9 @@ repowiki/
 │   ├── pitfall-xxx.md           #   踩坑记录
 │   ├── workaround-xxx.md        #   临时方案
 │   └── ...
+├── tasks/                       # 任务记忆（跨会话长线工作上下文）
+│   ├── .index.json              #   任务索引
+│   └── <task_id>/               #   task.md + memories.md + pending-memories.json
 ├── .meta/
 │   ├── project.json             #   项目映射（repo_path/output_dir/cache_db 路径）
 │   ├── symbol_map.json          #   符号→源文件映射（SQLite 主存储的 JSON 兼容副本）
@@ -186,7 +190,7 @@ repowiki/
 
 ### MCP 工具速查
 
-所有工具均不需要 LLM 配置，由 IDE Agent 通过 MCP 协议调用。MCP Server 内置 **instructions**（能力概览与工作流指南）、**14 个工作流 Prompt**（覆盖初始化、生成、增量、搜索、质检、跨服务、团队记忆融合等全流程）和 **6 个 Resource**（wiki-catalog / module-tree / index-status 等）。
+所有工具均不需要 LLM 配置，由 IDE Agent 通过 MCP 协议调用。MCP Server 内置 **instructions**（能力概览与工作流指南）、**19 个工作流 Prompt**（覆盖初始化、生成、增量、搜索、质检、跨服务、团队记忆融合、任务记忆等全流程）和 **6 个 Resource**（wiki-catalog / module-tree / index-status 等）。
 
 **代码分析（6 个）：**
 
@@ -210,7 +214,7 @@ repowiki/
 | `get_prompt` | 获取各阶段的提示词模板（含 16 种 prompt_type） |
 | `close_session` | 关闭会话释放资源，构建 BM25 索引 + wikilink 图谱，写入生成元数据 |
 
-**知识管理（7 个）：**
+**知识管理（10 个）：**
 
 | 工具 | 用途 |
 |------|------|
@@ -218,9 +222,12 @@ repowiki/
 | `ingest_note` | 将开发笔记归档到 notes/，支持 8 种类型 + aliases + source_ref；默认写入为 candidate 状态 |
 | `confirm_note` | 将 candidate 笔记升级为 confirmed（正式领域知识） |
 | `reject_note` | 否决 candidate 笔记，后续 query_wiki 不再返回 |
+| `batch_set_status` | 批量流转笔记状态（确认/否决多条笔记一次完成） |
 | `ingest_source` | 导入第三方文档到 `raw/sources/`，注册到 `source_registry.json` |
 | `retract_source` | 撤回已导入的外部文档（flag_stale / remove_refs 两种模式） |
 | `batch_ingest` | 批量导入：一次调用处理多个笔记/文档 |
+| `init_wiki` | 初始化 Wiki 工作区目录结构与项目级 schema.yaml |
+| `wiki_stats` | Wiki 知识库统计（页面数、笔记状态分布、覆盖率概览） |
 
 **质量保障（2 个）：**
 
@@ -241,6 +248,23 @@ repowiki/
 |------|------|
 | `capture_conversation` | 采集对话转录到 repowiki/raw/，仅落盘不蒸馏，支持 session 覆盖去重 |
 | `distill_conversation` | 蒸馏 raw 对话为 Wiki 笔记：Mode C prepare → Agent 提取 → submit 入库（status=draft），需 confirm_note 确认 |
+
+**任务管理（12 个）：**
+
+| 工具 | 用途 |
+|------|------|
+| `create_task` | 创建长线任务（task_id 由标题 slugify 生成，不可变、不允许重名） |
+| `list_tasks` | 列出任务，支持 status 过滤（active / completed） |
+| `get_task` | 查看单个任务详情 |
+| `get_task_context` | 拉取任务描述 + 记忆 + 关联笔记，作为继续工作的上下文；返回 pending_raw_count 提示补蒸馏 |
+| `set_session_task` | 将当前会话绑定到任务，后续采集/蒸馏自动携带 task_id |
+| `add_task_memory` | 手动向任务追加进度记忆 |
+| `stage_task_memories` | 暂存候选任务记忆（待确认） |
+| `list_pending_memories` | 列出待确认的任务记忆 |
+| `confirm_task_memories` | 确认暂存记忆，落盘到任务 memories.md |
+| `reject_task_memories` | 否决暂存记忆 |
+| `complete_task` | 完成任务 |
+| `delete_task` | 删除任务（级联删除任务目录与绑定，但不删已打 task_id 标签的笔记） |
 
 > 另有 2 个遗留工具（`generate_docs`、`get_module_tree`）保留向后兼容，需先通过 `codewiki config set` 配置 LLM API。
 
@@ -359,6 +383,46 @@ LLM 发现跨功能约束
 - 自动采集 Hook 只落 raw，永不自动蒸馏；蒸馏须显式调用 `distill_conversation`。
 - `repowiki/raw/` 是暂存区，不进 `query_wiki` 检索；蒸馏完成后由工具自动清理（除非 `keep_raw`）。
 - 触发形态为 **both**：手动命令（主）+ IDE Hook（可选）。
+
+### 任务记忆（Task Memory）
+
+任务记忆解决"长线工作跨会话断片"的问题：一个任务往往持续数天、横跨多个会话，Agent 每次重启都要从零了解"上次做到哪了"。任务记忆与 Wiki 笔记互补——**Wiki 笔记沉淀跨任务的通用经验，任务记忆保存任务范围内的进度知识**（本次做了什么、下一步、待办）。
+
+**工作流：**
+
+```
+会话开始：
+  list_tasks(status="active") → 选择关联已有任务或新建
+  → set_session_task 绑定会话（后续采集自动携带 task_id）
+  → get_task_context 拉取任务描述 + 记忆 + 关联笔记
+  → 若 pending_raw_count > 0：补蒸馏历史对话后再开始工作
+
+会话过程中：
+  distill_conversation 双轨产出：
+    notes    → 通用知识笔记（走 confirm_note 评审）
+    memories → 任务进度记忆（先暂存 pending）
+  → confirm_task_memories 确认后落盘 memories.md
+```
+
+**存储结构：**
+
+```
+repowiki/
+├── tasks/
+│   ├── .index.json           # 任务索引
+│   └── <task_id>/
+│       ├── task.md           # 任务描述
+│       ├── memories.md       # 已确认的任务记忆（追加式原子写）
+│       └── pending-memories.json  # 待确认记忆暂存
+└── .meta/
+    └── task_bindings/        # 会话 ↔ 任务绑定
+```
+
+**关键约束：**
+
+- task_id 由标题 slugify 生成且不可变；同名任务被拒绝；无重命名（删除后重建）。
+- 任务记忆先暂存、经 `confirm_task_memories` 确认后才落盘，与笔记评审闸门对齐。
+- 可选的 IDE SessionStart Hook（默认关闭）在会话开始时自动提示关联任务。
 
 ### 渐进式阅读协议
 
@@ -521,7 +585,7 @@ CodeWiki-Plus 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 
 #### 工作流 Prompt
 
-MCP Server 内置 **14 个工作流 Prompt**，在 AI IDE 中通过 Prompt 面板直接触发，Agent 自动编排多工具调用：
+MCP Server 内置 **19 个工作流 Prompt**，在 AI IDE 中通过 Prompt 面板直接触发，Agent 自动编排多工具调用：
 
 | Prompt 名称 | 面向场景 | 核心步骤 |
 |-------------|----------|----------|
@@ -539,6 +603,7 @@ MCP Server 内置 **14 个工作流 Prompt**，在 AI IDE 中通过 Prompt 面�
 | `ingest-note` | 经验知识归档 | ingest_note（8 种类型）→ candidate 状态 → confirm/reject 流转 → BM25 索引 |
 | `team-memory-hook` | 对话自动采集管理 | 检查状态 → 启用（注册 SessionEnd 事件）/ 关闭 → 验证 |
 | `distill-conversations` | 对话蒸馏提取经验 | prepare 取 transcript → Agent 提取知识 → submit 去重入库 → confirm/reject 评审 |
+| `task-workflow` | 任务记忆完整工作流 | 会话开始关联任务 → 补蒸馏 → get_task_context → 工作中沉淀 memories → confirm 落盘 |
 
 ### 使用场景示例
 
@@ -602,6 +667,14 @@ Agent 调用 `lint_wiki`，返回 16 项诊断报告和 health_score。
 
 Agent 调用 `analyze_repo`（自动检测子服务）→ `query_cross_service(filter_type="all")`。
 
+**场景 9：跨会话延续长线任务**
+
+```
+继续上次的"支付重构"任务。
+```
+
+Agent 调用 `list_tasks` 找到任务 → `set_session_task` 绑定会话 → `get_task_context` 恢复上下文（做了什么、下一步），若有未蒸馏对话先补蒸馏，然后无缝继续工作。
+
 ### 支持的其他 AI IDE
 
 除 CodeBuddy 外，任何支持 MCP stdio 协议的 AI IDE 均可使用：
@@ -642,7 +715,7 @@ Python、Java、JavaScript、TypeScript、C、C++、C#、Kotlin、Go、PHP
 - [Tencent/WeKnora](https://github.com/Tencent/WeKnora) — 外部文档管理、文档健康检查、自适应分块思路
 - [CodingHub](https://github.com/mambo-wang/CodingHub) — MCP Server 最佳实践（instructions / prompts / resources）
 
-我们在上游基础上将 MCP Server 从黑盒模式拆分为 **28 个细粒度工具**，并新增结构化 Wiki、Evidence-Based 断言、代码路由分类、知识飞轮、渐进式阅读、方法级增量检测、monorepo 跨服务分析、团队记忆融合等能力。
+我们在上游基础上将 MCP Server 从黑盒模式拆分为 **40 个细粒度工具**，并新增结构化 Wiki、Evidence-Based 断言、代码路由分类、知识飞轮、渐进式阅读、方法级增量检测、monorepo 跨服务分析、团队记忆融合、任务记忆等能力。
 
 上游论文：[CodeWiki: Evaluating AI's Ability to Generate Holistic Documentation for Large-Scale Codebases](https://arxiv.org/abs/2510.24428)
 
@@ -674,7 +747,7 @@ The original CodeWiki is an excellent repository-level documentation framework. 
 
 In practice, CodeWiki's core toolchain—Tree-sitter AST parsing, dependency graph construction, topological sorting, and Mermaid validation—does not need an LLM at all. The 4 stages that do require LLM intelligence (module clustering, document writing, sub-module recursion, and overview synthesis) are exactly what AI IDE Agents excel at.
 
-We refactored CodeWiki's MCP Server from a "one-click black box" into **28 fine-grained tools**, turning it into a pure toolchain server. The AI IDE's Agent calls these tools via MCP and uses its own reasoning to complete all documentation work:
+We refactored CodeWiki's MCP Server from a "one-click black box" into **40 fine-grained tools**, turning it into a pure toolchain server. The AI IDE's Agent calls these tools via MCP and uses its own reasoning to complete all documentation work:
 
 ```
 Before:
@@ -690,12 +763,13 @@ After:
 | Dimension | Upstream CodeWiki | CodeWiki-Plus |
 |-----------|------------------|---------------|
 | LLM config | Must configure API key | Zero-config, IDE model driven |
-| Generation mode | Black-box one-click | 28 fine-grained tools, full Agent control |
+| Generation mode | Black-box one-click | 40 fine-grained tools, full Agent control |
 | Doc quality | Generic descriptions | Evidence-Based assertions (code quotes + confidence) |
 | Generation efficiency | All components equal | Code routing: boilerplate gets signature-only |
 | Context precision | Intra-module components | BFS 1-hop call graph + constraint index table |
 | Incremental update | File-level Git diff | Method-level content_hash detection |
 | Knowledge management | None | Structured Wiki + note flywheel + external docs |
+| Task memory | None | Cross-session task context + pending-confirm task memories |
 | Search | None | BM25 + wikilink graph multi-hop + progressive reading |
 | Cross-service | None | Monorepo sub-service detection + call tracing |
 | Quality assurance | None | 16 lint checks + health score + issue tracking |
@@ -769,7 +843,7 @@ Stage 5: Call close_session to free resources, build search index
 
 ### MCP Tools
 
-All tools require zero LLM config. The IDE Agent invokes them via MCP. The server includes built-in **instructions**, **14 Workflow Prompts** (covering init, generation, incremental update, search, quality check, cross-service analysis, team memory fusion), and **6 Resources**.
+All tools require zero LLM config. The IDE Agent invokes them via MCP. The server includes built-in **instructions**, **19 Workflow Prompts** (covering init, generation, incremental update, search, quality check, cross-service analysis, team memory fusion, task memory), and **6 Resources**.
 
 **Code Analysis (6):**
 
@@ -793,7 +867,7 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP. The serve
 | `get_prompt` | Retrieve prompt templates (23 prompt_types) |
 | `close_session` | Close session, build BM25 index + wikilink graph, write metadata |
 
-**Knowledge Management (7):**
+**Knowledge Management (10):**
 
 | Tool | Purpose |
 |------|---------|
@@ -801,9 +875,12 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP. The serve
 | `ingest_note` | File structured notes (8 types) with aliases + source_ref; default candidate status |
 | `confirm_note` | Promote candidate note to confirmed knowledge |
 | `reject_note` | Reject candidate note, exclude from future searches |
+| `batch_set_status` | Batch transition note statuses (confirm/reject multiple at once) |
 | `ingest_source` | Import third-party docs into `raw/sources/` |
 | `retract_source` | Retract imported docs (flag_stale / remove_refs) |
 | `batch_ingest` | Batch import multiple notes/sources in one call |
+| `init_wiki` | Initialize Wiki workspace directories and project-level schema.yaml |
+| `wiki_stats` | Wiki statistics (page counts, note status distribution, coverage overview) |
 
 **Quality Assurance (2):**
 
@@ -824,6 +901,23 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP. The serve
 |------|---------|
 | `capture_conversation` | Capture conversation transcripts to repowiki/raw/ (persistence only, no distillation); session-level supersede dedup |
 | `distill_conversation` | Distill raw conversations into Wiki notes: Mode C prepare → Agent extracts → submit (status=draft); requires confirm_note |
+
+**Task Management (12):**
+
+| Tool | Purpose |
+|------|---------|
+| `create_task` | Create a long-running task (task_id slugified from title, immutable, no duplicates) |
+| `list_tasks` | List tasks with status filtering (active / completed) |
+| `get_task` | Inspect a single task |
+| `get_task_context` | Fetch task description + memories + related notes as working context; reports pending_raw_count for catch-up distillation |
+| `set_session_task` | Bind the current session to a task; subsequent captures/distillations carry task_id automatically |
+| `add_task_memory` | Manually append a progress memory to a task |
+| `stage_task_memories` | Stage candidate task memories (pending confirmation) |
+| `list_pending_memories` | List pending task memories |
+| `confirm_task_memories` | Confirm staged memories, persist to the task's memories.md |
+| `reject_task_memories` | Reject staged memories |
+| `complete_task` | Mark a task complete |
+| `delete_task` | Delete a task (cascades task dir and bindings, but keeps tagged notes) |
 
 > 2 legacy tools (`generate_docs`, `get_module_tree`) retained for backward compatibility.
 
@@ -898,6 +992,43 @@ Inspired by Team-Agent-Memory's "extract retrievable experience from conversatio
 - `repowiki/raw/` is a staging area excluded from `query_wiki`; it is cleaned up after distillation automatically (unless `keep_raw`).
 - Trigger form is **both**: manual command (primary) + IDE hook (optional).
 
+### Task Memory
+
+Task Memory solves the "cross-session amnesia" problem for long-running work: a task often spans days and multiple sessions, and the Agent normally restarts from zero. Task Memory complements Wiki notes — **Wiki notes capture cross-task general knowledge, while task memories hold task-scoped progress** (what was done, what's next, todos).
+
+**Workflow:**
+
+```
+Session start:
+  list_tasks(status="active") → pick an existing task or create one
+  → set_session_task binds the session (captures carry task_id automatically)
+  → get_task_context restores description + memories + related notes
+  → if pending_raw_count > 0: catch-up distillation before working
+
+During the session:
+  distill_conversation produces two tracks:
+    notes    → general knowledge notes (confirm_note review)
+    memories → task progress memories (staged as pending first)
+  → confirm_task_memories persists them to memories.md
+```
+
+**Storage layout:**
+
+```
+repowiki/
+├── tasks/
+│   ├── .index.json                # task index
+│   └── <task_id>/                 # task.md + memories.md + pending-memories.json
+└── .meta/
+    └── task_bindings/             # session ↔ task bindings
+```
+
+**Key constraints:**
+
+- task_id is slugified from the title and immutable; duplicate titles are rejected; no rename (delete and recreate).
+- Task memories are staged first and only persisted after `confirm_task_memories`, aligned with the note review gate.
+- An optional IDE SessionStart hook (off by default) can prompt task association at session start.
+
 ### Progressive Reading Protocol
 
 `query_wiki` supports three consumption modes:
@@ -911,7 +1042,7 @@ Inspired by Team-Agent-Memory's "extract retrievable experience from conversatio
 
 ### Workflow Prompts
 
-The MCP server includes **14 built-in workflow prompts** that can be triggered from the AI IDE's prompt panel. The Agent automatically orchestrates multi-tool calls:
+The MCP server includes **19 built-in workflow prompts** that can be triggered from the AI IDE's prompt panel. The Agent automatically orchestrates multi-tool calls:
 
 | Prompt | Scenario | Core Steps |
 |--------|----------|------------|
@@ -929,6 +1060,7 @@ The MCP server includes **14 built-in workflow prompts** that can be triggered f
 | `ingest-note` | Experience knowledge archiving | ingest_note (8 types) → candidate status → confirm/reject → BM25 index |
 | `team-memory-hook` | Conversation capture hook management | Check status → enable (register SessionEnd event) / disable → verify |
 | `distill-conversations` | Conversation distillation | prepare fetch transcripts → Agent extracts → submit ingest → confirm/reject review |
+| `task-workflow` | Full task memory workflow | Associate task at session start → catch-up distillation → get_task_context → accumulate memories → confirm |
 
 ### Supported Languages
 
