@@ -28,6 +28,8 @@ _ALL_CHECKS = {
     "superseded_pages", "overview_stale", "unsupported_claims",
     "isolated_components", "stale_notes", "note_clusters",
     "okf_conformance",
+    # P2 (team-memory fusion): L2 scene block hygiene
+    "scenario_capacity", "scenario_orphan",
 }
 
 # OKF v0.2 lifecycle vocabulary (see okf/SPEC.md §5)
@@ -1093,6 +1095,133 @@ def _check_note_clusters(
 
 
 # ---------------------------------------------------------------------------
+#  P2: L2 scene block hygiene (team-memory fusion 设计方案 §4.3.4)
+# ---------------------------------------------------------------------------
+
+def _check_scenario_capacity(
+    output_dir: Path,
+) -> List[Dict[str, Any]]:
+    """Error/warning when live scene blocks reach or exceed the capacity cap.
+
+    The consolidation protocol (UPDATE > MERGE > CREATE with graded warnings)
+    exists precisely to keep the scenario set bounded; lint backstops it in
+    case a submit slipped through or files were written outside the tool.
+    """
+    issues: List[Dict[str, Any]] = []
+    try:
+        from codewiki.mcp.tools.note_consolidation import _scan_scenarios
+        from codewiki.mcp.tools.aggregation_state import read_config
+        live = _scan_scenarios(output_dir)
+        max_scenes = read_config(output_dir)["max_scenarios"]
+    except Exception:
+        return issues
+    if not live:
+        return issues
+    if len(live) > max_scenes:
+        issues.append({
+            "check": "scenario_capacity",
+            "severity": "error",
+            "message": (
+                f"Scenario blocks exceed the cap: {len(live)}/{max_scenes}. "
+                "MERGE similar scenes (mark losers [DELETED]) before adding more."
+            ),
+            "file": "wiki/scenarios/",
+            "suggestion": (
+                "Run consolidate_notes(mode='prepare') and follow the RED "
+                "capacity protocol: merge first, then re-submit."
+            ),
+        })
+    elif len(live) == max_scenes:
+        issues.append({
+            "check": "scenario_capacity",
+            "severity": "warning",
+            "message": (
+                f"Scenario blocks at capacity: {len(live)}/{max_scenes}. "
+                "Only UPDATE is allowed until a merge frees a slot."
+            ),
+            "file": "wiki/scenarios/",
+            "suggestion": "Prefer UPDATE/MERGE on the next consolidate_notes run.",
+        })
+    return issues
+
+
+def _check_scenario_orphan(
+    output_dir: Path,
+    retrieval_gap_days: int = 90,
+) -> List[Dict[str, Any]]:
+    """Info-level flag for scene blocks with no provenance and no retrieval use.
+
+    A scenario is an orphan when it has no metadata.source_notes (never linked
+    to the notes it was consolidated from) AND has not been retrieved for
+    retrieval_gap_days (or ever). Such blocks may be redundant or outdated.
+    """
+    import sqlite3
+    from datetime import datetime, timedelta
+
+    issues: List[Dict[str, Any]] = []
+    try:
+        from codewiki.mcp.tools.note_consolidation import (
+            _scan_scenarios, _read_frontmatter,
+        )
+    except Exception:
+        return issues
+
+    scenarios = _scan_scenarios(output_dir)
+    if not scenarios:
+        return issues
+
+    # Retrieval stats (same source stale_notes uses)
+    stats_db = output_dir / ".meta" / "retrieval_stats.db"
+    retrieval_map: Dict[str, str] = {}
+    if stats_db.exists():
+        try:
+            conn = sqlite3.connect(str(stats_db))
+            try:
+                rows = conn.execute(
+                    "SELECT file_path, last_hit FROM retrieval_stats"
+                ).fetchall()
+                for fp, lh in rows:
+                    if lh:
+                        retrieval_map[str(fp).replace("\\", "/")] = lh
+            finally:
+                conn.close()
+        except Exception:
+            pass
+
+    retrieval_threshold = datetime.now() - timedelta(days=retrieval_gap_days)
+    for sc in scenarios:
+        path = output_dir / sc["file"]
+        fm = _read_frontmatter(path) or {}
+        meta = fm.get("metadata") if isinstance(fm.get("metadata"), dict) else {}
+        if meta.get("source_notes"):
+            continue  # provenance present — not an orphan
+        last_hit = retrieval_map.get(sc["file"].replace("\\", "/"))
+        recently_used = False
+        if last_hit:
+            try:
+                recently_used = datetime.fromisoformat(last_hit) >= retrieval_threshold
+            except ValueError:
+                recently_used = True  # unparseable timestamp: be conservative
+        if recently_used:
+            continue
+        issues.append({
+            "check": "scenario_orphan",
+            "severity": "info",
+            "message": (
+                f"Scene block '{sc['title']}' has no source_notes provenance and "
+                f"has not been retrieved for {retrieval_gap_days}+ days — "
+                "consider reviewing, merging, or retiring it."
+            ),
+            "file": sc["file"],
+            "suggestion": (
+                "Verify the block is still valid; retire via [DELETED] on the "
+                "next consolidate_notes run if superseded."
+            ),
+        })
+    return issues
+
+
+# ---------------------------------------------------------------------------
 #  OKF v0.2 conformance (§11 / §12)
 # ---------------------------------------------------------------------------
 
@@ -1418,6 +1547,12 @@ def handle_lint_wiki(
 
     if "note_clusters" in checks and output_dir:
         all_issues.extend(_check_note_clusters(output_dir))
+
+    if "scenario_capacity" in checks and output_dir:
+        all_issues.extend(_check_scenario_capacity(output_dir))
+
+    if "scenario_orphan" in checks and output_dir:
+        all_issues.extend(_check_scenario_orphan(output_dir))
 
     if "okf_conformance" in checks and output_dir:
         all_issues.extend(_check_okf_conformance(output_dir))

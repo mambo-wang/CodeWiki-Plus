@@ -993,6 +993,41 @@ def _prompt_task_workflow(args: dict[str, str]) -> str:
 - `query_wiki` 不校验任务是否存在（任务删除后笔记仍可被 task_id 检索）"""
 
 
+def _prompt_consolidate_knowledge(args: dict[str, str]) -> str:
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    return f"""知识聚合工作流（团队记忆融合 P2）。当用户说"聚合一下笔记""整理场景块""合并重复经验"，或 confirm_note / batch_set_status / wiki_stats / get_task_context 的响应里出现 `aggregation_hint`（consolidation_due=true）时，使用本流程把已确认笔记升级为 L2 工作方法场景块。
+
+## ⛔ 行为契约（必须遵守）
+- `aggregation_hint` 只是**提醒**：先向用户说明计数器已越线并询问"是否现在聚合"，得到同意才继续；**严禁不打招呼直接执行**。
+- 用户拒绝或选择稍后：立即停止，不再追问（计数器侧已抑制重复提醒）。
+- 聚合只消费 **已确认（stable）** 笔记；不要触碰 draft/deprecated 笔记。
+
+## 步骤 1：准备
+`consolidate_notes(mode="prepare", repo_path="{repo_path}")`，关注返回中的：
+- `capacity.warning`：red = 必须先 MERGE 到上限以下；orange = 只准 UPDATE；yellow = 优先 UPDATE/MERGE
+- `pending_notes`：待聚合的已确认笔记（含 metadata.scene 分组线索）
+- `scenarios_index`：现有场景块（file/title/summary/heat）
+
+## 步骤 2：规划与撰写
+1. 逐条 `view_repo_file` 阅读 pending notes 与计划改动的场景块；按工作对象/方法体系分组（metadata.scene 相同者优先归组）
+2. 策略优先级 **UPDATE > MERGE > CREATE**；CREATE 前必须先读至少 2 个最相似场景块确认无法融入，且每批最多新建 1 个
+3. 用 `write_doc_file(page_type="scenario", ...)` 写场景块：章节为 工作场景 / 适用条件 / 核心 SOP / 判断逻辑 / 禁忌与反模式 / 关键事实依据 / 相关任务与资产 / 演化记录 / 待确认问题；单文件 ≤1500 字符；提炼**方法**而非流水账，禁止写成日报/清单/个人画像
+4. 删除场景块的唯一方式：把文件内容改写为 `[DELETED]`（submit 时工具自动清理）
+5. 新旧知识矛盾时写入"演化记录/待确认问题"，不要静默覆盖
+
+## 步骤 3：退役被吸收的笔记
+对被场景块**完全吸收**的源笔记调用 `reject_note(note_file=..., reason="consolidated into <场景块标题>")`，使其退出检索。部分吸收的笔记保留。
+
+## 步骤 4：提交报告
+`consolidate_notes(mode="submit", report={{"scenarios": [{{"file": "wiki/scenarios/xxx.md", "action": "created|updated|merged|deleted", "source_notes": ["notes/..."], "summary": "30-40 字摘要", "heat": 1}}]}})`
+- 工具侧校验文件、写入双向溯源（source_notes ⇄ consolidated_into）、清理 [DELETED]、强制容量上限并归零聚合计数器
+- 返回 `capacity_exceeded` 时：先 MERGE 再重新提交
+- 返回 `error` 时：按 errors 修正后重交
+
+## 步骤 5：验证
+`lint_wiki(checks=["scenario_capacity", "scenario_orphan"])` 确认无新增 error；向用户汇报本次聚合的场景块清单与被退役的笔记。"""
+
+
 def register(server):
     """Register prompt handlers on the given MCP Server instance."""
     from mcp.types import Prompt, PromptArgument
@@ -1264,6 +1299,23 @@ def register(server):
                     ),
                 ],
             ),
+            Prompt(
+                name="consolidate-knowledge",
+                title="知识聚合（L2 场景块）",
+                description=(
+                    "把已确认笔记聚合为 L2 工作方法场景块（wiki/scenarios/）："
+                    "prepare 获取待聚合笔记与容量预警 → 撰写/更新场景块 → "
+                    "reject_note 退役被吸收笔记 → submit 记录溯源并归零计数器。"
+                    "适用于「聚合笔记」或 aggregation_hint 提醒触发时（须先询问用户）。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="repo_path",
+                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                ],
+            ),
         ]
 
     @server.get_prompt()
@@ -1288,6 +1340,7 @@ def register(server):
             "team-memory-hook": _prompt_team_memory_hook,
             "distill-conversations": _prompt_distill_conversations,
             "task-workflow": _prompt_task_workflow,
+            "consolidate-knowledge": _prompt_consolidate_knowledge,
         }
 
         handler = prompts_map.get(name)

@@ -193,7 +193,7 @@ _register(
                 },
                 "page_type": {
                     "type": "string",
-                    "enum": ["module", "entity", "concept", "source", "comparison", "query"],
+                    "enum": ["module", "entity", "concept", "source", "comparison", "query", "scenario"],
                     "description": "LLM Wiki page type. Determines subdirectory routing (default: module → wiki/modules/)",
                 },
                 "frontmatter_extra": {
@@ -267,7 +267,7 @@ _register(
                 },
                 "page_type": {
                     "type": "string",
-                    "enum": ["module", "entity", "concept", "source", "comparison", "query"],
+                    "enum": ["module", "entity", "concept", "source", "comparison", "query", "scenario"],
                     "description": "LLM Wiki page type for path resolution (default: module)",
                 },
                 "old_string": {
@@ -1274,6 +1274,73 @@ _register(
         },
     ),
     handler_path="codewiki.mcp.tools.distill_conversation:handle_distill_conversation",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="consolidate_notes",
+        description=(
+            "Consolidate CONFIRMED (stable) notes into L2 work-method scene blocks "
+            "under wiki/scenarios/ (team-memory fusion P2). Mode C protocol — the "
+            "host agent does the consolidation reasoning, the tool does deterministic "
+            "bookkeeping. mode='prepare': returns pending confirmed notes (not yet "
+            "absorbed), the current scenarios index (file/title/summary/heat), a "
+            "graded capacity warning (red=merge first / orange=update only / "
+            "yellow=prefer update) and the consolidation system prompt. The agent "
+            "then writes scene blocks via write_doc_file(page_type='scenario'), "
+            "retires fully-absorbed source notes via reject_note, and calls "
+            "mode='submit' with report.scenarios=[{file, action, source_notes, "
+            "summary?, heat?}] (action: created|updated|merged|deleted). Submit "
+            "validates files, stamps summary/heat, records provenance "
+            "(source_notes ⇄ consolidated_into), cleans [DELETED] markers, enforces "
+            "the capacity cap and resets the aggregation counter. NEVER runs "
+            "automatically — only on explicit request; when triggered by an "
+            "aggregation_hint reminder, ask the user first."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional active session id (resolves output_dir).",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Wiki output directory (default: <repo_path>/repowiki).",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path used to derive output_dir when output_dir is absent.",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["prepare", "submit"],
+                    "description": (
+                        "prepare: return pending notes + scenarios index + capacity "
+                        "warning + system prompt. submit: record the consolidation "
+                        "report produced by the agent."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "prepare only: max pending notes to return (default 50).",
+                },
+                "report": {
+                    "type": "object",
+                    "description": (
+                        "submit only: {scenarios: [{file, action, source_notes, "
+                        "summary?, heat?}]} — file relative to output_dir "
+                        "(wiki/scenarios/...md), action in created|updated|merged|"
+                        "deleted, source_notes the absorbed note files. deleted "
+                        "requires the file body to be exactly [DELETED]."
+                    ),
+                },
+            },
+            "required": ["mode"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.note_consolidation:handle_consolidate_notes",
     mode="thread",
 )
 
