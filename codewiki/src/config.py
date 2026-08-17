@@ -41,6 +41,10 @@ PAGE_TYPE_DIRS = {
     'source': 'sources',
     'comparison': 'comparisons',
     'query': 'queries',
+    # P2 (team-memory fusion): L2 work-method scene blocks — consolidated
+    # reusable knowledge (SOP / judgment logic / taboos / principles) distilled
+    # from confirmed notes via consolidate_notes.
+    'scenario': 'scenarios',
 }
 # Files excluded from wiki index and search (system files)
 WIKI_SYSTEM_FILES = {'index.md', 'log.md', 'overview.md', 'schema.yaml'}

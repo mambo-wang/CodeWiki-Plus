@@ -569,6 +569,16 @@ def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> s
         for e in pending_raws[:_MAX_PENDING_SHOWN]
     ]
 
+    # P2 (§4.5): aggregation counters surfaced next to pending_raw_count —
+    # a pull-style signal that consolidation may be due. Best-effort: any
+    # failure omits the section without affecting task context restoration.
+    aggregation = None
+    try:
+        from codewiki.mcp.tools import aggregation_state as agg
+        aggregation = agg.aggregation_summary(output_dir)
+    except Exception:
+        pass
+
     return json.dumps({
         "ok": True,
         "task": task,
@@ -579,6 +589,7 @@ def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> s
         "pending_raw_count": len(pending_raws),
         "pending_raws": pending_payload,
         "pending_raws_truncated": len(pending_raws) > _MAX_PENDING_SHOWN,
+        **({"aggregation": aggregation} if aggregation else {}),
     }, ensure_ascii=False)
 
 

@@ -591,11 +591,37 @@ def _update_note_status(output_dir: Path, note_file: str, new_status: str,
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
+def _maybe_attach_aggregation_hint(result_json: str, output_dir: Path, count: int) -> str:
+    """P2 (§4.5.2): after a successful confirmation, bump the aggregation
+    counters and attach a proactive ``aggregation_hint`` when a threshold is
+    crossed. Best-effort — any failure returns the original response so the
+    confirmation itself is never affected. The hint only REMINDS: the host
+    agent must ask the user before running consolidate_notes.
+    """
+    try:
+        data = json.loads(result_json)
+    except (json.JSONDecodeError, TypeError):
+        return result_json
+    if not isinstance(data, dict) or "error" in data:
+        return result_json
+    try:
+        from codewiki.mcp.tools import aggregation_state as agg
+        state = agg.record_confirmations(output_dir, count)
+        hint = agg.build_aggregation_hint(output_dir, state)
+        if hint is not None:
+            data["aggregation_hint"] = hint
+            return json.dumps(data, indent=2, ensure_ascii=False)
+    except Exception as e:  # counters must never break confirmations
+        logger.debug("aggregation hint skipped: %s", e)
+    return result_json
+
+
 def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     """Confirm a draft note, promoting it to stable (verified) domain knowledge.
 
     OKF v0.2: appends a ``verified`` entry (``human:<id>`` when ``by`` is
     passed, else ``codewiki/<version>``) and renews ``stale_after``.
+    P2: bumps aggregation counters and may attach ``aggregation_hint`` (§4.5.2).
     """
     from codewiki.mcp.tools.workspace_result import resolve_session
     session = resolve_session(arguments, store)
@@ -617,11 +643,12 @@ def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     if not note_file:
         return json.dumps({"error": "note_file is required (relative path within notes/)."})
 
-    return _update_note_status(
+    result_json = _update_note_status(
         output_dir, note_file, "stable",
         verified_by=_okf_actor(arguments.get("by")),
         renew_stale_after=True,
     )
+    return _maybe_attach_aggregation_hint(result_json, output_dir, count=1)
 
 
 def handle_reject_note(arguments: Dict[str, Any], store: SessionStore) -> str:
@@ -780,13 +807,18 @@ def handle_batch_set_status(arguments: Dict[str, Any], store: SessionStore) -> s
            f"Batch-completed: {summary['updated']} document(s) promoted to {target}.")
     if errors:
         msg += f" {len(errors)} error(s) encountered."
-    return json.dumps({
+    result_json = json.dumps({
         **summary,
         "updated": updated,
         "skipped": skipped,
         "errors": errors,
         "message": msg,
     }, indent=2, ensure_ascii=False)
+    # P2 (§4.5.2): batch confirmations drive the same aggregation counters.
+    n_promoted = summary["updated"]
+    if target == "stable" and not dry_run and n_promoted > 0:
+        result_json = _maybe_attach_aggregation_hint(result_json, output_dir, count=n_promoted)
+    return result_json
 
 
 # ---------------------------------------------------------------------------
@@ -1497,9 +1529,16 @@ def handle_wiki_stats(
 
     db_path = _get_stats_db_path(output_dir)
     if not db_path.exists():
+        # P2: aggregation counters stay visible even before any query stats exist.
+        try:
+            from codewiki.mcp.tools import aggregation_state as agg
+            _agg = agg.aggregation_summary(output_dir)
+        except Exception:
+            _agg = None
         return json.dumps({
             "error": "No retrieval stats database found. Run query_wiki first to generate stats.",
             "db_path": str(db_path),
+            **({"aggregation": _agg} if _agg else {}),
         })
 
     sort_by = arguments.get("sort_by", "hit_count")
@@ -1574,6 +1613,15 @@ def handle_wiki_stats(
     finally:
         conn.close()
 
+    # P2 (§4.5): expose aggregation counters so agents/users can see when
+    # consolidation is due without waiting for a threshold-crossing hint.
+    aggregation = None
+    try:
+        from codewiki.mcp.tools import aggregation_state as agg
+        aggregation = agg.aggregation_summary(output_dir)
+    except Exception:
+        pass
+
     return json.dumps({
         "total_distinct_queries": total_queries,
         "returned": len(stats),
@@ -1581,6 +1629,7 @@ def handle_wiki_stats(
         "order": order,
         "stats": stats,
         **({"zero_hit_files": zero_hit} if include_zero_hit else {}),
+        **({"aggregation": aggregation} if aggregation else {}),
     }, indent=2, ensure_ascii=False)
 
 
