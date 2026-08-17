@@ -295,6 +295,9 @@ def handle_ingest_note(
     severity = arguments.get("severity")
     root_cause = arguments.get("root_cause")
     source_ref = arguments.get("source_ref")
+    # P1 (team-memory fusion): scene label distilled from conversations — a
+    # grouping hint for future L2 consolidation (设计方案 §4.1)。
+    scene = str(arguments.get("scene") or "").strip()
     aliases = arguments.get("aliases", [])
     # Roadmap 2.2: knowledge flywheel status
     # OKF v0.2 §5.4: write the spec vocabulary (draft|stable|deprecated);
@@ -360,6 +363,8 @@ def handle_ingest_note(
         metadata_lines.append(f"  root_cause: {json.dumps(root_cause, ensure_ascii=False)}")
     if source_ref:
         metadata_lines.append(f"  source_ref: {json.dumps(source_ref, ensure_ascii=False)}")
+    if scene:
+        metadata_lines.append(f"  scene: {json.dumps(scene, ensure_ascii=False)}")
     frontmatter_lines.append("metadata:")
     frontmatter_lines.extend(metadata_lines)
     frontmatter_lines.append(f"status: {note_status}")

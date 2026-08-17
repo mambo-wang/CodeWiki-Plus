@@ -1245,7 +1245,11 @@ _register(
                     "description": (
                         "Mode submit only: mapping of conversation_id (e.g. 'conv-20260808T113515Z') "
                         'to the extraction JSON shaped {"notes": [{title, note_type, related_modules, '
-                        "tags, content}]}. Values may be JSON strings or objects."
+                        "tags, content, priority?, scene?}]}. Optional per-note fields: "
+                        "priority (0-100; <70 is dropped deterministically), scene (short work-context "
+                        "label stored as metadata.scene), and — to resolve conflicts_pending from a "
+                        "previous submit — dedup_action (store|skip|update|merge) plus target "
+                        "(candidate note file for update/merge). Values may be JSON strings or objects."
                     ),
                 },
                 "llm": {
