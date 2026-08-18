@@ -106,10 +106,10 @@ git clone https://github.com/mambo-wang/CodeWiki-CN.git
 cd CodeWiki-CN
 
 # 2. 安装依赖
-pip install -e .
+uv sync --extra dev
 
 # 3. 验证
-python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
+uv run python -c "from codewiki.mcp.server import server; print('MCP Server OK')"
 ```
 
 ### CodeBuddy 配置
@@ -330,7 +330,7 @@ codewiki generate
 ## 常见问题
 
 **Q: MCP Server 启动报错找不到依赖？**
-A: 确保已运行 `pip install -e .` 安装 CodeWiki 及其依赖。
+A: 确保已运行 `uv sync --extra dev` 安装 CodeWiki 及其依赖。
 
 **Q: analyze_repo 分析很慢？**
 A: 大型仓库（>10 万行）的 Tree-sitter 解析需要一定时间，通常 30 秒内完成。可以通过 `--include` / `--exclude` 缩小分析范围。

@@ -39,7 +39,7 @@ codewiki/
 ├── tests/                    # Test suite
 ├── output/                   # Generated documentation output
 ├── pyproject.toml           # Project metadata
-├── requirements.txt         # Python dependencies
+├── uv.lock                  # Locked dependency versions
 └── README.md                # Main documentation
 ```
 
@@ -56,18 +56,17 @@ codewiki/
 
 ```bash
 # Clone the repository
-git clone https://github.com/FSoft-AI4Code/CodeWiki.git
-cd CodeWiki
+git clone https://github.com/mambo-wang/CodeWiki-Plus.git
+cd CodeWiki-Plus
 
-# Create virtual environment
-python3.12 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+# Install with uv (creates .venv from uv.lock, including dev extras)
+uv sync --extra dev
 
-# Install in development mode
-pip install -e .
+# Run the tests
+uv run pytest tests/ -q
 
-# Install development dependencies
-pip install -r requirements.txt
+# Lint changed files with ruff
+uv run ruff check
 ```
 
 ## Core Components
