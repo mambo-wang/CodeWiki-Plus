@@ -644,6 +644,7 @@ _register(
                             "missing_aliases", "stale_sources", "superseded_pages",
                             "isolated_components", "overview_stale", "unsupported_claims",
                             "stale_notes", "note_clusters", "okf_conformance",
+                            "scenario_capacity", "scenario_orphan",
                         ],
                     },
                     "description": "Which checks to run (default: [\"all\"])",
