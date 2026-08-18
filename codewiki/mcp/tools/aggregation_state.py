@@ -199,6 +199,15 @@ def mark_consolidated(output_dir: Path) -> Dict[str, Any]:
     return state
 
 
+def mark_doctrine_refreshed(output_dir: Path) -> Dict[str, Any]:
+    """Reset the doctrine counter after a successful refresh_doctrine submit (P3)."""
+    state = load_state(output_dir)
+    state["notes_since_last_doctrine"] = 0
+    state["last_doctrine_at"] = _now_iso()
+    save_state(output_dir, state)
+    return state
+
+
 def aggregation_summary(output_dir: Path) -> Dict[str, Any]:
     """Read-only section for wiki_stats / get_task_context responses."""
     state = load_state(output_dir)

@@ -960,6 +960,37 @@ def _query_mode_overview(
 
     result: Dict[str, Any] = {"mode": "overview", "query": query}
 
+    # P3 (§4.4): inject the L3 Project Operating Doctrine + scene navigation.
+    # The doctrine is the stable, always-on orientation layer: any agent
+    # touching the project starts with its principles; scene blocks stay
+    # progressive (navigation only, read on demand).
+    doctrine_path = output_dir / WIKI_DIR / "doctrine.md"
+    if doctrine_path.is_file():
+        try:
+            doc_text = doctrine_path.read_text(encoding="utf-8", errors="replace")
+            if doc_text.startswith("---"):
+                end = doc_text.find("---", 3)
+                if end > 0:
+                    doc_text = doc_text[end + 3:]
+            result["doctrine"] = doc_text[:1300].strip()
+        except OSError:
+            pass
+    try:
+        from codewiki.mcp.tools.note_consolidation import _scan_scenarios
+        scenes = sorted(_scan_scenarios(output_dir), key=lambda s: -s["heat"])
+        if scenes:
+            nav_lines = []
+            for sc in scenes:
+                heat = "🔥" * min(5, max(1, sc["heat"])) if sc["heat"] else ""
+                summary = sc["summary"] or ""
+                nav_lines.append(f"- {sc['file']} {heat} — {sc['title']}: {summary}".rstrip(" —:"))
+            result["scene_navigation"] = (
+                "🗺️ Scene Navigation (work-method scene blocks; read on demand "
+                "via view_repo_file):\n" + "\n".join(nav_lines)
+            )
+    except Exception:
+        pass  # doctrine injection must never break overview mode
+
     # 1. Include overview.md content (truncated)
     overview_path = output_dir / OVERVIEW_FILENAME
     if not overview_path.exists():
@@ -1170,7 +1201,10 @@ def handle_query_wiki(
             return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
 
     query = arguments.get("query", "")
-    if not query:
+    mode = arguments.get("mode")  # progressive reading: overview | directory | detail
+    # Progressive reading modes are orientation, not keyword search — query
+    # stays optional there (P3: overview mode is the doctrine injection entry).
+    if not query and mode not in ("overview", "directory", "detail"):
         return json.dumps({"error": "query is required."})
 
     scope = arguments.get("scope")  # optional module name or directory prefix
@@ -1182,7 +1216,6 @@ def handle_query_wiki(
     type_filter = arguments.get("type_filter")  # optional page type filter
     hop = min(3, max(0, arguments.get("hop", 0)))  # graph expansion hops (0-3)
     expand = arguments.get("expand", False)  # return full content instead of snippet
-    mode = arguments.get("mode")  # progressive reading: overview | directory | detail
     # T5: team-memory fusion — distinguish distilled notes from LLM-generated ones
     origin_filter = arguments.get("origin_filter")  # optional: "conversation" | "generated" | "any"
     # Task routing: restrict results to notes stamped with a given task_id.

@@ -1346,6 +1346,70 @@ _register(
 
 _register(
     Tool(
+        name="refresh_doctrine",
+        description=(
+            "Regenerate the L3 Project Operating Doctrine at wiki/doctrine.md "
+            "(team-memory fusion P3) — one highly-refined (<=1200 chars) "
+            "document of cross-scenario SOPs, principles, decision logic, "
+            "boundaries, anti-patterns and agent rules. Mode C protocol: "
+            "mode='prepare' returns the current doctrine, changed scene blocks "
+            "(updated since last refresh), statistics and the doctrine system "
+            "prompt (six dimensions / five filters / five incremental "
+            "strategies / hard prohibitions). The agent compresses the changed "
+            "scenes, then mode='submit' with content=<final doctrine Markdown>: "
+            "the tool rejects over-cap content, backs up the previous version "
+            "(rolling keep-3), writes OKF frontmatter with source_scenarios "
+            "provenance, resets the doctrine counter and rebuilds the index. "
+            "The new doctrine lands as status=draft (promote via confirm_note). "
+            "Once present, query_wiki(mode='overview') injects it automatically. "
+            "NEVER runs automatically; when prompted by an aggregation_hint or "
+            "doctrine_hint reminder, ask the user first."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional active session id (resolves output_dir).",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Wiki output directory (default: <repo_path>/repowiki).",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path used to derive output_dir when output_dir is absent.",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["prepare", "submit"],
+                    "description": (
+                        "prepare: return current doctrine + changed scenes + stats "
+                        "+ system prompt. submit: write the final doctrine."
+                    ),
+                },
+                "content": {
+                    "type": "string",
+                    "description": (
+                        "submit only: the FINAL doctrine Markdown. Must be within "
+                        "the char cap (default 1200; schema.yaml "
+                        "conventions.aggregation.doctrine_max_chars overrides)."
+                    ),
+                },
+                "by": {
+                    "type": "string",
+                    "description": "Optional actor id for the OKF generated.by field (default codewiki/<version>).",
+                },
+            },
+            "required": ["mode"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.doctrine:handle_refresh_doctrine",
+    mode="thread",
+)
+
+_register(
+    Tool(
         name="batch_ingest",
         description=(
             "Bulk-import multiple notes and/or source documents in one call. "

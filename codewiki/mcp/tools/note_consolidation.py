@@ -496,6 +496,27 @@ def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
 
     state = agg.mark_consolidated(output_dir)
 
+    # P3 cascade hint (§4.5.2): scenes were just refreshed — if the doctrine
+    # counter is also over its threshold, this is the natural moment to run
+    # refresh_doctrine. Still a hint only: the agent must ask the user.
+    doctrine_hint = None
+    try:
+        cfg = agg.read_config(output_dir)
+        d_counter = int(state.get("notes_since_last_doctrine") or 0)
+        if d_counter >= cfg["doctrine_threshold"]:
+            doctrine_hint = {
+                "doctrine_due": True,
+                "notes_since_last_doctrine": d_counter,
+                "doctrine_threshold": cfg["doctrine_threshold"],
+                "message": (
+                    "Scenes were just consolidated and the doctrine counter is "
+                    "over its threshold — suggest refresh_doctrine next. Ask "
+                    "the user first, never run it silently."
+                ),
+            }
+    except Exception:
+        pass
+
     # Rebuild the search index so scene blocks become queryable immediately.
     try:
         from codewiki.mcp.tools.wiki_search import build_full_index
@@ -513,6 +534,7 @@ def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
             "notes_since_last_consolidation": int(state.get("notes_since_last_consolidation") or 0),
             "notes_since_last_doctrine": int(state.get("notes_since_last_doctrine") or 0),
         },
+        **({"doctrine_hint": doctrine_hint} if doctrine_hint else {}),
         "message": (
             f"Consolidation recorded: {len(processed)} scene operation(s). "
             "Counter reset. Confirm the new/updated scene blocks are reviewed; "
