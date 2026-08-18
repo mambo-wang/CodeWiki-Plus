@@ -1025,7 +1025,14 @@ def _prompt_consolidate_knowledge(args: dict[str, str]) -> str:
 - 返回 `error` 时：按 errors 修正后重交
 
 ## 步骤 5：验证
-`lint_wiki(checks=["scenario_capacity", "scenario_orphan"])` 确认无新增 error；向用户汇报本次聚合的场景块清单与被退役的笔记。"""
+`lint_wiki(checks=["scenario_capacity", "scenario_orphan"])` 确认无新增 error；向用户汇报本次聚合的场景块清单与被退役的笔记。
+
+## 步骤 6：Doctrine 级联（可选）
+若步骤 4 的 submit 响应携带 `doctrine_hint`（doctrine_due=true），说明场景刚更新且 Doctrine 计数器已越线——正是刷新 L3 项目原则的时机。向用户说明并询问是否顺带刷新；同意后执行：
+1. `refresh_doctrine(mode="prepare")` 获取现有 doctrine 与变化场景清单
+2. 阅读变化场景，按六维度/五过滤/五策略压缩（只有项目状态或低层事实时选择"不改"并跳过）
+3. `refresh_doctrine(mode="submit", content=<≤1200字终稿>)` 写入 wiki/doctrine.md（draft，需 confirm）
+用户拒绝则到此为止，不再追问。"""
 
 
 def register(server):
