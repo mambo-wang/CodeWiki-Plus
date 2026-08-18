@@ -1,17 +1,25 @@
 ---
 type: pitfall
-title: "CodeBuddy IDE transcript_path 指向的 index.json 只存元数据，真实内容在 messages/<id>.json"
-tags: ["pitfall"]
-status: stable
-generated: { by: codewiki/5.2.1, at: 2026-08-08T15:19:35Z }
+title: CodeBuddy IDE transcript_path 指向的 index.json 只存元数据，真实内容在 messages/<id>.json
+tags:
+- pitfall
+status: deprecated
+generated:
+  by: codewiki/5.2.1
+  at: 2026-08-08 15:19:35+00:00
 stale_after: 2026-11-06
-
 metadata:
-  date: "2026-08-08"
-  origin: "conversation"
+  date: '2026-08-08'
+  origin: conversation
   related_components: []
-  related_modules: ["team-memory", "ide-hook", "\"\""]
-  source_ref: "raw\\conv-20260808T145202Z.md"
+  related_modules:
+  - team-memory
+  - ide-hook
+  - '""'
+  source_ref: raw\conv-20260808T145202Z.md
+  consolidated_into:
+  - wiki/scenarios/IDE-Hook采集链路方法.md
+reject_reason: consolidated into IDE-Hook采集链路方法
 ---
 
 ## 背景

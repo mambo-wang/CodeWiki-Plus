@@ -9,7 +9,9 @@ metadata:
   - task_manager
   - distill_conversation
   source_ref: raw\conv-新建session的时候，选择完创建任务后，能不能再弹个框输入任务名称-@d-repos-CodeWiki-CN-.co.md
-status: stable
+  consolidated_into:
+  - wiki/scenarios/任务记忆系统设计方法.md
+status: deprecated
 generated:
   by: codewiki/5.2.2
   at: 2026-08-15 13:11:39+00:00
@@ -18,6 +20,7 @@ origin: conversation
 verified:
 - by: codewiki/5.2.2
   at: '2026-08-15T13:26:01Z'
+reject_reason: consolidated into 任务记忆系统设计方法
 ---
 
 ## 背景
