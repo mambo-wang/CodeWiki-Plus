@@ -10,7 +10,9 @@ metadata:
   - _ide_hook
   - distill_conversation
   source_ref: raw\conv-review最近两次提交.md
-status: stable
+  consolidated_into:
+  - wiki/scenarios/IDE-Hook采集链路方法.md
+status: deprecated
 generated:
   by: codewiki/5.2.2
   at: 2026-08-15 13:11:35+00:00
@@ -19,6 +21,7 @@ origin: conversation
 verified:
 - by: codewiki/5.2.2
   at: '2026-08-15T13:26:11Z'
+reject_reason: consolidated into IDE-Hook采集链路方法
 ---
 
 ## 背景

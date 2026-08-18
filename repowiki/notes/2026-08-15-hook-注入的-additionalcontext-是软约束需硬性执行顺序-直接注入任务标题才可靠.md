@@ -9,7 +9,9 @@ metadata:
   related_modules:
   - task-memory
   source_ref: raw\conv-@d-repos-CodeWiki-CN-repowiki-.meta-task_bindings-这里文件的作用是什么.md
-status: stable
+  consolidated_into:
+  - wiki/scenarios/IDE-Hook采集链路方法.md
+status: deprecated
 generated:
   by: codewiki/5.2.2
   at: 2026-08-15 15:07:53+00:00
@@ -18,6 +20,7 @@ origin: conversation
 verified:
 - by: codewiki/5.2.2
   at: '2026-08-15T15:08:30Z'
+reject_reason: consolidated into IDE-Hook采集链路方法
 ---
 
 ## 背景

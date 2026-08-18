@@ -2,6 +2,13 @@
 
 > 本文件为追加写入的操作记录，由系统自动维护
 
+## 2026-08-18
+* **write_doc_file**: 创建 IDE-Hook采集链路方法.md
+* **write_doc_file**: 创建 对话蒸馏管线与raw暂存区.md
+* **write_doc_file**: 创建 任务记忆系统设计方法.md
+* **write_doc_file**: 创建 MCP-Server薄壳架构与参数约定.md
+* **write_doc_file**: 创建 Wiki页面生成约定与数据结构.md
+
 ## 2026-08-16
 * **ingest_note**: 添加笔记: 技术文章面向业务读者时应削减实现细节、增补业务梳理与开发思路
 
