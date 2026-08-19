@@ -2,7 +2,7 @@
 okf_version: "0.2"
 ---
 
-<!-- 自动生成于 2026-08-18T09:51:51+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-19T09:43:38+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -57,6 +57,7 @@ okf_version: "0.2"
 
 ## 知识笔记
 
+* [L0 对话归档采用链接优先、零索引设计](../notes/2026-08-19-l0-对话归档采用链接优先零索引设计.md) - decision (decision, 2026-08-19)
 * [技术文章面向业务读者时应削减实现细节、增补业务梳理与开发思路](../notes/2026-08-16-技术文章面向业务读者时应削减实现细节增补业务梳理与开发思路.md) - lesson (lesson, 2026-08-16)
 * [capture_conversation 的 task_id 需显式传入，绑定文件曾不被自动消费（已加回退修复）](../notes/2026-08-15-capture-conversation-的-task-id-需显式传入绑定文件曾不被自动消费已加回退修复.md) - pitfall (pitfall, 2026-08-15)
 * [CodeBuddy hook 有源/项目双副本，改 task_session_start.py 需同步源副本才随包分发](../notes/2026-08-15-codebuddy-hook-有源项目双副本改-task-session-startpy-需同步源副本才随包分发.md) - pitfall (pitfall, 2026-08-15)
