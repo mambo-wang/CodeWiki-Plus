@@ -375,7 +375,9 @@ def _find_existing_note(
             fm = _parse_frontmatter(note_path)
         except Exception:
             continue
-        title = fm.get("title", "") or note_path.stem
+        # ingest_note writes the title JSON-quoted; unquote so Jaccard tokens
+        # are not polluted by the surrounding quotes.
+        title = _unquote_fm(fm.get("title", "")) or note_path.stem
         note_type = fm.get("type") or fm.get("note_type") or ""
         title_sim = _title_similarity(candidate_title, title)
         same_type = (note_type == candidate_type)
@@ -542,7 +544,7 @@ def _find_weak_conflicts(
                 fm = _parse_frontmatter(note_path)
             except Exception:
                 continue
-            title = fm.get("title", "") or note_path.stem
+            title = _unquote_fm(fm.get("title", "")) or note_path.stem
             note_type = fm.get("type") or fm.get("note_type") or ""
             sim = _title_similarity(candidate_title, title)
             if sim < _CONFLICT_TITLE_FLOOR:
@@ -761,6 +763,7 @@ def _process_llm_output(
     related_modules_override: Optional[List[str]] = None,
     dedup: str = "suppress",
     conflict_policy: str = "auto_suppress",
+    drop_raw: bool = False,
 ) -> Dict[str, Any]:
     """Deterministic half of distillation.
 
@@ -945,30 +948,49 @@ def _process_llm_output(
             memories_staged = r.get("staged", 0)
             memories_pending = r.get("pending", [])
 
-    # Mark raw as distilled and conditionally delete.
-    # A raw file is kept when explicitly requested (keep_raw), when weak
-    # conflicts are still awaiting agent adjudication (the second submit needs
-    # the raw to stay pending/re-readable), or when distillation failed to
-    # produce a verdict. Conversations that were distilled but yielded no
-    # reusable knowledge (no_knowledge) are noise and are cleaned up so they
-    # don't linger in the transient staging area.
+    # Mark raw as distilled, then apply the retention policy (L0 archive):
+    #   drop_raw (argument or frontmatter) -> delete (explicit privacy opt-out)
+    #   produced knowledge OR keep_raw     -> archive into conversations/ and
+    #                                         repoint note source_ref links
+    #   no_knowledge without keep_raw      -> delete (noise; the staging area
+    #                                         is not a warehouse)
+    # Weak conflicts still pending keep the raw in raw/ untouched so the second
+    # submit can re-read it.
     from codewiki.src.config import RAW_DIR
     raw_dir = output_dir / RAW_DIR
     keep_raw = str(meta.get("keep_raw", "false")).lower() == "true"
+    if not drop_raw:
+        drop_raw = str(meta.get("drop_raw", "false")).lower() == "true"
     deleted = False
+    archived_to: Optional[str] = None
     if unresolved_conflicts == 0:
         _mark_distilled(raw_path)
-        if not keep_raw:
+        produced_knowledge = bool(produced) or bool(memories_staged)
+        if drop_raw:
             try:
                 raw_path.unlink()
                 deleted = True
             except OSError:
                 pass
-        # Keep the raw-dir index (used by capture_conversation) in sync so it
-        # does not reference deleted files or match distilled ones for pending
-        # supersede.
+        elif produced_knowledge or keep_raw:
+            # L0 archive: retained for provenance. Link-only layer — never
+            # indexed; reached via note source_ref (设计方案 §9 链接优先)。
+            archived_to = _archive_raw(raw_path, output_dir)
+            if archived_to:
+                _rewrite_source_refs_after_archive(
+                    output_dir, raw_path.name, archived_to
+                )
+        else:
+            # no_knowledge noise: clean up so it doesn't linger.
+            try:
+                raw_path.unlink()
+                deleted = True
+            except OSError:
+                pass
+        # Keep the raw-dir index (used by capture_conversation) in sync: the
+        # entry leaves raw/ both when deleted and when archived.
         try:
-            _sync_raw_index_on_distill(raw_dir, raw_path, deleted)
+            _sync_raw_index_on_distill(raw_dir, raw_path, deleted or bool(archived_to))
         except Exception:  # best-effort; never block distillation
             pass
 
@@ -996,6 +1018,7 @@ def _process_llm_output(
         "memories_pending": memories_pending,
         "task_id": task_id or None,
         "deleted_raw": deleted,
+        "archived_raw": archived_to,
         "keep_raw": keep_raw,
     }
     if conflicts:
@@ -1089,6 +1112,78 @@ def _sync_raw_index_on_distill(raw_dir: Path, raw_path: Path, deleted: bool) -> 
                 tmp.unlink()
         except OSError:
             pass
+
+
+# --------------------------------------------------------------------------- #
+# L0 archive (team-memory fusion): distilled conversations are retained for
+# provenance instead of deleted. Design decision (链接优先、零索引):
+#   - archive lives in repowiki/conversations/ (flat, permanent);
+#   - it is NOT indexed for BM25 search — discovery is link-only, agents reach
+#     a conversation by following the distilled note's source_ref;
+#   - raw/ stays the pending staging queue (capture scans never see archives).
+# --------------------------------------------------------------------------- #
+def _archive_raw(raw_path: Path, output_dir: Path) -> Optional[str]:
+    """Move a distilled raw transcript into conversations/ (L0 archive).
+
+    Returns the archive path relative to output_dir (forward slashes), or None
+    when the move failed (the file then stays in raw/ marked distilled —
+    graceful degradation, provenance simply keeps pointing at raw/).
+    """
+    import shutil
+    from codewiki.src.config import CONVERSATIONS_DIR
+
+    arch_dir = Path(output_dir) / CONVERSATIONS_DIR
+    try:
+        arch_dir.mkdir(parents=True, exist_ok=True)
+        dest = arch_dir / raw_path.name
+        if dest.exists():
+            # Defensive: same name already archived (e.g. re-captured slug).
+            import hashlib
+            digest = hashlib.sha1(
+                (raw_path.name + str(raw_path.stat().st_size)).encode()
+            ).hexdigest()[:6]
+            dest = arch_dir / f"{raw_path.stem}-{digest}.md"
+        shutil.move(str(raw_path), str(dest))
+        return f"{CONVERSATIONS_DIR}/{dest.name}".replace("\\", "/")
+    except OSError as e:
+        logger.warning("L0 archive failed for %s: %s", raw_path, e)
+        return None
+
+
+def _rewrite_source_refs_after_archive(
+    output_dir: Path, raw_name: str, archive_rel: str
+) -> int:
+    """Repoint note source_ref from raw/<name> to the archived location.
+
+    Scans notes/ (bounded) rather than only this run's produced files, so
+    multi-round conflict submits converge: notes produced in an earlier round
+    (before the raw was finally archived) get repointed too.
+    """
+    from codewiki.src.config import NOTES_DIR
+
+    notes_dir = Path(output_dir) / NOTES_DIR
+    if not notes_dir.is_dir():
+        return 0
+    # Frontmatter stores the ref JSON-escaped, so the separator may appear as
+    # '/' or one/two backslashes in the raw file text.
+    pattern = re.compile(r"raw[/\\]+" + re.escape(raw_name))
+    target = archive_rel.replace("\\", "/")
+    updated = 0
+    for p in notes_dir.glob("*.md"):
+        try:
+            text = p.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if raw_name not in text:
+            continue
+        new_text = pattern.sub(target, text)
+        if new_text != text:
+            try:
+                p.write_text(new_text, encoding="utf-8")
+                updated += 1
+            except OSError:
+                pass
+    return updated
 
 
 # --------------------------------------------------------------------------- #
@@ -1334,6 +1429,7 @@ def handle_distill_conversation(
             res = _process_llm_output(
                 p, llm_output, output_dir, store, note_type_ov, related_ov,
                 conflict_policy="hold",
+                drop_raw=bool(arguments.get("drop_raw", False)),
             )
             res["conversation_id"] = key
             results.append(res)

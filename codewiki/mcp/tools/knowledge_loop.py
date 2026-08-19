@@ -58,6 +58,40 @@ def _okf_actor(by: Optional[str] = None) -> str:
         return "codewiki"
 
 
+def _note_source_ref(output_dir: Path, rel_file: str) -> Optional[str]:
+    """Return a note's metadata.source_ref (link to its L0 source conversation).
+
+    Link-first L0 provenance (团队记忆融合 §9): search results expose this so
+    agents can trace distilled knowledge back to the archived original dialogue
+    and read it on demand. Best-effort: any parse/read failure returns None.
+    """
+    try:
+        text = (Path(output_dir) / rel_file).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if not text.startswith("---"):
+        return None
+    end = text.find("---", 3)
+    if end < 0:
+        return None
+    try:
+        import yaml
+        fm = yaml.safe_load(text[3:end])
+    except Exception:
+        return None
+    if not isinstance(fm, dict):
+        return None
+    meta = fm.get("metadata")
+    value = None
+    if isinstance(meta, dict):
+        value = meta.get("source_ref")
+    if value is None:
+        value = fm.get("source_ref")
+    if not value:
+        return None
+    return str(value).replace("\\", "/")
+
+
 def _trust_tier(verified) -> str:
     """Derive the OKF v0.2 trust tier from a parsed ``verified`` field (§5.3).
 
@@ -1290,6 +1324,12 @@ def handle_query_wiki(
             _fpath = r["file"]
             if _fpath.startswith("notes/"):
                 entry["source_type"] = "developer_note"
+                # L0 link-first provenance (团队记忆融合 §9): surface the link to
+                # the archived source conversation so agents can trace a note
+                # back to the original dialogue on demand (view_repo_file).
+                _sref = _note_source_ref(output_dir, _fpath)
+                if _sref:
+                    entry["source_ref"] = _sref
             elif _fpath.startswith("raw/sources/"):
                 entry["source_type"] = "ingested_source"
             else:
