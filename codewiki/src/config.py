@@ -25,6 +25,11 @@ SYMBOL_MAP_FILENAME = 'symbol_map.json'
 WIKI_DIR = 'wiki'
 RAW_DIR = 'raw'
 RAW_SOURCES_DIR = 'raw/sources'
+# L0 archive (team-memory fusion): distilled conversations are moved here for
+# permanent provenance. Link-only layer — NOT indexed for BM25 search; reached
+# by following note source_ref links (view_repo_file). raw/ stays the pending
+# staging queue.
+CONVERSATIONS_DIR = 'conversations'
 # Task memory layer — per-task knowledge store (task.md + memories.md + index)
 TASKS_DIR = 'tasks'
 TASKS_INDEX_FILENAME = '.index.json'

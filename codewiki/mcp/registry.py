@@ -1162,7 +1162,12 @@ _register(
                 },
                 "keep_raw": {
                     "type": "boolean",
-                    "description": "Hint for distill_conversation to retain the raw file after distillation (default false).",
+                    "description": (
+                        "Hint for distill_conversation to retain the conversation "
+                        "even if it yields no knowledge (archived to conversations/; "
+                        "conversations that DO produce knowledge are archived by "
+                        "default). Default false."
+                    ),
                 },
                 "task_id": {
                     "type": "string",
@@ -1189,8 +1194,12 @@ _register(
             "mode='prepare' returns pending transcripts + the distillation system prompt, "
             "the host agent extracts knowledge with its own model, then mode='submit' with "
             "distilled={conversation_id: <notes JSON>} runs the deterministic half. "
-            "Produces status='draft' notes that must be promoted via confirm_note; "
-            "the raw file is deleted unless keep_raw."
+            "Produces status='draft' notes that must be promoted via confirm_note. "
+            "Raw retention (L0 archive): a conversation that produced knowledge is "
+            "ARCHIVED to repowiki/conversations/ after distillation and the notes' "
+            "source_ref is repointed there (link-first provenance, not indexed for "
+            "search); no_knowledge noise is deleted; pass drop_raw=true to delete "
+            "explicitly (privacy opt-out)."
         ),
         inputSchema={
             "type": "object",
@@ -1251,6 +1260,14 @@ _register(
                         "label stored as metadata.scene), and — to resolve conflicts_pending from a "
                         "previous submit — dedup_action (store|skip|update|merge) plus target "
                         "(candidate note file for update/merge). Values may be JSON strings or objects."
+                    ),
+                },
+                "drop_raw": {
+                    "type": "boolean",
+                    "description": (
+                        "Privacy opt-out: delete the raw conversation after "
+                        "distillation instead of archiving it to conversations/. "
+                        "Default false (archive). Applies to mode=submit."
                     ),
                 },
                 "llm": {
