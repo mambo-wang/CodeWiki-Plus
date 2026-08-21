@@ -63,6 +63,18 @@ conventions:
   # 知识保鲜期（天）。write_doc_file / ingest_note 据此计算 stale_after 日期，
   # 过期后 lint 的 okf_conformance 检查会提示复核（§5.5）
   default_stale_days: 90
+  # 使用信号反馈（U 线，docs/知识飞轮增强设计方案-P0三项.md §3）：
+  # 把 retrieval_stats.db 的检索热度接入 BM25 排序（final = BM25 × authority × heat）。
+  #   heat = 1 + min(boost_cap, 0.03 × ln(1 + hit_count))
+  #          − cold_penalty（仅当 hit_count ≥ cold_min_hits 且 last_hit 超过 cold_days 天）
+  # 无检索记录的文档 heat = 1.0（新文档不受影响，规避马太效应）；
+  # enabled=false 时排序行为与关闭前完全一致（结果条目仍携带 usage 字段）。
+  usage_ranking:
+    enabled: true
+    boost_cap: 0.15      # 热度增益上限（heat 上界 ~1.15）
+    cold_penalty: 0.2    # 冷文档惩罚幅度（heat 下界 0.8）
+    cold_days: 180       # 距最近一次命中的天数超过此值视为冷
+    cold_min_hits: 3     # 只有「热过后来冷」的文档才受罚
   # 全局默认标签列表，会自动追加到每个文档的 frontmatter tags 中。
   # 例如 [project-x, v2] 会让所有文档带上这些标签，便于跨项目检索
   okf_tags: []

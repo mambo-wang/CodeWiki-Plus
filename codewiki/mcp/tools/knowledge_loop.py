@@ -1417,6 +1417,71 @@ def _query_mode_detail(
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
+def _query_mode_check(
+    output_dir: Path,
+    query: str,
+    scope: Optional[str],
+    type_filter: Optional[str],
+    session,
+    include_notes: bool,
+    include_sources: bool,
+) -> str:
+    """Mode=check: lightweight relevance pre-check.
+
+    Runs a capped BM25 search (top 3, no snippets, no graph expansion) and
+    returns a relevance verdict with top scores/titles only — enough for an
+    agent to decide whether a full search is worth the tokens. Deliberately
+    does NOT record retrieval stats: a pre-check is not a consumption event
+    and must not pollute the usage/heat signals (U-line feedback loop).
+    """
+    results: List[Dict[str, Any]] = []
+    try:
+        from codewiki.mcp.tools.wiki_search import (
+            search as bm25_search,
+            build_full_index,
+        )
+        from codewiki.src.config import SEARCH_INDEX_FILENAME, META_DIR
+
+        meta_idx = output_dir / META_DIR / SEARCH_INDEX_FILENAME
+        root_idx = output_dir / SEARCH_INDEX_FILENAME
+        idx_path = meta_idx if meta_idx.exists() else root_idx
+        if not idx_path.exists() or session is not None:
+            build_full_index(output_dir, session=session)
+
+        raw = bm25_search(
+            output_dir, query, scope=scope, include_notes=include_notes,
+            max_results=3, expand_terms=None, session=session,
+            type_filter=type_filter, hop=0,
+        )
+        for r in raw:
+            # Mirror the main path's include_sources semantics.
+            if not include_sources and r["file"].startswith("raw/sources/"):
+                continue
+            results.append({
+                "file": r["file"],
+                "title": r["title"],
+                "relevance_score": r["relevance_score"],
+            })
+    except Exception as e:
+        logger.warning("check-mode search failed: %s", e)
+
+    top_score = results[0]["relevance_score"] if results else 0.0
+    verdict = {
+        "mode": "check",
+        "relevant": bool(results),
+        "top_score": top_score,
+        "top_results": results,
+        "hint": (
+            "relevant=true means at least one doc matched above the BM25 "
+            "threshold. Judge strength by top_score; if your key distinguishing "
+            "terms do not appear in any returned title, a full search is "
+            "unlikely to find the answer — consider contributing the knowledge "
+            "via ingest_note instead."
+        ),
+    }
+    return json.dumps(verdict, indent=2, ensure_ascii=False)
+
+
 def handle_query_wiki(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -1459,6 +1524,9 @@ def handle_query_wiki(
     type_filter = arguments.get("type_filter")  # optional page type filter
     hop = min(3, max(0, arguments.get("hop", 0)))  # graph expansion hops (0-3)
     expand = arguments.get("expand", False)  # return full content instead of snippet
+    # Content budget for expand mode (default 3000 keeps legacy behaviour;
+    # agents may raise it up to 20000 for full-page deep reading).
+    max_chars = min(20000, max(500, int(arguments.get("max_chars", 3000))))
     # T5: team-memory fusion — distinguish distilled notes from LLM-generated ones
     origin_filter = arguments.get("origin_filter")  # optional: "conversation" | "generated" | "any"
     # Task routing: restrict results to notes stamped with a given task_id.
@@ -1474,6 +1542,12 @@ def handle_query_wiki(
         page = arguments.get("page", "")
         section = arguments.get("section")
         return _query_mode_detail(output_dir, page, section)
+    if mode == "check":
+        # Lightweight relevance pre-check: top score + titles only, no
+        # snippets, no retrieval-stats recording (a pre-check is not a real
+        # consumption event and must not pollute usage/heat signals).
+        return _query_mode_check(output_dir, query, scope, type_filter, session,
+                                 include_notes, include_sources)
 
     # Load module tree for component mapping
     module_tree = None
@@ -1491,6 +1565,7 @@ def handle_query_wiki(
     # --- BM25 search (preferred) ---
     results: List[Dict[str, Any]] = []
     search_method = "bm25"
+    coverage = None  # T1: corpus-level query-token coverage (BM25 path only)
     try:
         from codewiki.mcp.tools.wiki_search import (
             search as bm25_search,
@@ -1517,6 +1592,19 @@ def handle_query_wiki(
             hop=hop,
         )
 
+        # T1 (检索透明化): corpus-level coverage of the query tokens. If the
+        # query's key distinguishing terms are all in `missing`, results are
+        # topically adjacent rather than answers — the caller must judge,
+        # scores alone cannot express it.
+        try:
+            from codewiki.mcp.tools.wiki_search import query_coverage
+            coverage = query_coverage(
+                output_dir, query, expand_terms=expand_terms, session=session
+            )
+        except Exception as e:
+            logger.debug("query_coverage unavailable: %s", e)
+            coverage = None
+
         for r in raw_results:
             # Filter by include_sources: skip raw/sources/ entries when disabled
             if not include_sources and r["file"].startswith("raw/sources/"):
@@ -1529,6 +1617,11 @@ def handle_query_wiki(
                 "snippet": r["snippet"],
                 "relevance_score": r["relevance_score"],
             }
+            # T1: per-doc matched tokens + U1: usage signals — pass through.
+            if r.get("matched_tokens"):
+                entry["matched_tokens"] = r["matched_tokens"]
+            if r.get("usage") is not None:
+                entry["usage"] = r["usage"]
             # Source type annotation (Roadmap 1.4)
             _fpath = r["file"]
             if _fpath.startswith("notes/"):
@@ -1558,9 +1651,10 @@ def handle_query_wiki(
                         full_text = file_path.read_text(encoding="utf-8", errors="replace")
                         if "<!-- crosslinks" in full_text:
                             full_text = full_text.split("<!-- crosslinks")[0]
-                        entry["content"] = full_text[:3000].strip()
-                        if len(full_text) > 3000:
+                        entry["content"] = full_text[:max_chars].strip()
+                        if len(full_text) > max_chars:
                             entry["content_truncated"] = True
+                            entry["content_budget"] = max_chars
                     except OSError:
                         pass
             if r["source"] == "note":
@@ -1706,6 +1800,7 @@ def handle_query_wiki(
         "query": query,
         "keywords": keywords,
         "search_method": search_method,
+        **({"query_coverage": coverage} if coverage else {}),
         "results": results,
         "context_package": context_package,
     }, indent=2, ensure_ascii=False)
@@ -1917,6 +2012,13 @@ def handle_wiki_stats(
     except Exception:
         freshness = None
 
+    # 使用信号反馈 (U 线): once-hot-now-cold docs — retrieval health signal.
+    cold = None
+    try:
+        cold = _cold_candidates(output_dir)
+    except Exception:
+        cold = None
+
     return json.dumps({
         "total_distinct_queries": total_queries,
         "returned": len(stats),
@@ -1926,7 +2028,66 @@ def handle_wiki_stats(
         **({"zero_hit_files": zero_hit} if include_zero_hit else {}),
         **({"aggregation": aggregation} if aggregation else {}),
         **({"freshness": freshness} if freshness else {}),
+        **({"cold_candidates": cold} if cold else {}),
     }, indent=2, ensure_ascii=False)
+
+
+def _cold_candidates(output_dir: Path) -> Optional[List[Dict[str, Any]]]:
+    """Usage-signal health metric (U-line): docs that were hot
+    (hit_count >= cold_min_hits) but have not been retrieved for more than
+    cold_days. Mirrors the usage_ranking cold-penalty definition in the BM25
+    paths so the stats view and the ranking behaviour never diverge.
+    Returns None when no stats db exists or nothing is cold.
+    """
+    db_path = output_dir / ".meta" / "retrieval_stats.db"
+    if not db_path.exists():
+        return None
+
+    cold_days, cold_min_hits = 180, 3
+    try:
+        from codewiki.mcp.tools.page_router import load_schema
+        schema = load_schema(str(output_dir)) or {}
+        ur = (schema.get("conventions") or {}).get("usage_ranking") or {}
+        cold_days = int(ur.get("cold_days", cold_days))
+        cold_min_hits = int(ur.get("cold_min_hits", cold_min_hits))
+    except Exception:
+        pass
+
+    import sqlite3
+    from datetime import datetime, timedelta
+
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT file_path, hit_count, last_hit FROM retrieval_stats "
+                "WHERE hit_count >= ?",
+                (cold_min_hits,),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.debug("cold_candidates query failed: %s", e)
+        return None
+
+    today = datetime.now()
+    cutoff = today - timedelta(days=cold_days)
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        try:
+            lh_dt = datetime.strptime(str(row["last_hit"]), "%Y-%m-%d")
+        except (TypeError, ValueError):
+            continue
+        if lh_dt < cutoff:
+            out.append({
+                "file_path": row["file_path"],
+                "hit_count": row["hit_count"],
+                "last_hit": row["last_hit"],
+                "days_since_last_hit": (today - lh_dt).days,
+            })
+    out.sort(key=lambda x: -x["days_since_last_hit"])
+    return out
 
 
 def _legacy_keyword_search(

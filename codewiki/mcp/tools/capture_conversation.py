@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from codewiki.mcp.session import SessionState, SessionStore
+from codewiki.mcp.tools.friction import format_friction_signals, score_friction
 
 logger = logging.getLogger(__name__)
 
@@ -642,6 +643,11 @@ def handle_capture_conversation(
         actor = "codewiki"
 
     body = _transcript_text(turns)
+    # Friction scoring (K-line): pure-function signal detection on the already
+    # filtered dialogue turns. Default config on purpose — capture must stay
+    # lightweight (no schema.yaml reads here). The score only feeds frontmatter
+    # metadata + the returned JSON; it never gates the capture itself.
+    friction = score_friction(turns)
     meta = {
         "captured_at": now_iso,
         "content_hash": content_hash,
@@ -649,6 +655,12 @@ def handle_capture_conversation(
         "link_to": link_to,
         "source_session": source_session_id,
         "keep_raw": keep_raw,
+        # K-line friction signals: top-level single-line keys so the stdlib-only
+        # line scanners (distill_conversation / session-start hook) can read
+        # them back. A 0 score is written too — "no friction" is information.
+        # Values use the comma+equals format, YAML-special-char free.
+        "friction_score": friction["score"],
+        "friction_signals": format_friction_signals(friction["signals"]),
     }
     # task_id must stay top-level (like source_session) so distill_conversation's
     # simple line parser can read it back; only add when present to avoid an
@@ -721,4 +733,6 @@ def handle_capture_conversation(
         "keep_raw": keep_raw,
         "task_id": task_id,
         "task_source": task_source,
+        # K-line friction readout (hook may print it to the IDE log).
+        "friction": friction,
     }, indent=2, ensure_ascii=False)

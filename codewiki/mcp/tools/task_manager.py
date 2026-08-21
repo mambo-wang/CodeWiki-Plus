@@ -564,8 +564,34 @@ def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> s
     # The listing is truncated to keep the context payload bounded.
     pending_raws = pending_raws_by_task(output_dir).get(task_id, [])
     _MAX_PENDING_SHOWN = 10
+
+    def _raw_friction_score(raw_dir: Path, relpath: str) -> int:
+        """Line-scan a raw conv file's top-level ``friction_score:`` (0 default).
+
+        Bounded to the shown entries (≤ _MAX_PENDING_SHOWN files) so the cost
+        stays negligible. Any read/parse failure degrades to 0.
+        """
+        try:
+            text = (raw_dir / relpath).read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            return 0
+        m = re.search(r"^friction_score:\s*(-?\d+)", text, re.MULTILINE)
+        if not m:
+            return 0
+        try:
+            return int(m.group(1))
+        except ValueError:
+            return 0
+
+    raw_dir = output_dir / "raw"
     pending_payload = [
-        {"relpath": e["relpath"], "captured_at": e["captured_at"]}
+        {
+            "relpath": e["relpath"],
+            "captured_at": e["captured_at"],
+            # K-line: friction score as the catch-up distillation priority hint
+            # (score >= 20 → the conversation likely holds a worth-keeping lesson).
+            "friction_score": _raw_friction_score(raw_dir, e["relpath"]),
+        }
         for e in pending_raws[:_MAX_PENDING_SHOWN]
     ]
 

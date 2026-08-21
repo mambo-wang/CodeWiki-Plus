@@ -153,6 +153,63 @@ def _count_pending_raws(repo_path: str) -> dict:
     return counts
 
 
+def _latest_friction_hint(repo_path: str) -> str:
+    """Scan the most recent pending raw capture for a high friction score.
+
+    K-line (摩擦信号触发机制): a session that showed friction (corrections /
+    interrupts / repeats) is the most likely to hold a worth-distilling lesson.
+    When the newest pending ``conv-*.md`` carries ``friction_score: >= 20``,
+    return a one-line Chinese hint recommending catch-up distillation first.
+    Returns "" otherwise. stdlib-only line scanning (same convention as the
+    ``status:``/``task_id:`` keys); every failure degrades silently.
+    """
+    try:
+        raw_dir = Path(repo_path) / "repowiki" / "raw"
+        if not raw_dir.is_dir():
+            return ""
+        # Most recent first (mtime): the last session is the relevant one.
+        files = [p for p in raw_dir.glob("conv-*.md") if p.is_file()]
+        if not files:
+            return ""
+        files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        for p in files[:5]:  # bounded scan: only the newest few captures
+            try:
+                text = p.read_text(encoding="utf-8-sig", errors="replace")
+            except OSError:
+                continue
+            score = None
+            status = "pending"
+            correction = None
+            for line in text.splitlines():
+                if line.startswith("friction_score:"):
+                    try:
+                        score = int(line[len("friction_score:"):].strip())
+                    except ValueError:
+                        score = None
+                elif line.startswith("status:"):
+                    status = line[len("status:"):].strip().strip("\"'")
+                elif line.startswith("friction_signals:"):
+                    for part in line[len("friction_signals:"):].split(","):
+                        kv = part.strip().split("=", 1)
+                        if len(kv) == 2 and kv[0].strip() == "correction":
+                            try:
+                                correction = int(kv[1].strip())
+                            except ValueError:
+                                pass
+            if score is None or status == "distilled":
+                continue
+            if score >= 20:
+                corr = f"（纠正 {correction} 次）" if correction is not None else ""
+                return (
+                    f"[codewiki] 上次会话摩擦分 {score}{corr}，"
+                    "建议先 distill_conversation 补蒸馏再开始新任务"
+                )
+            return ""  # newest pending capture is calm — don't disturb
+    except Exception:
+        return ""
+    return ""
+
+
 def _build_message(event: dict, repo_path: str) -> str:
     """Build the guidance injected into the fresh session.
 
@@ -238,6 +295,13 @@ def _build_message(event: dict, repo_path: str) -> str:
             "若用户明确表示紧急，可先回答提问，但必须在会话结束前完成补蒸馏。"
             "注意：pending 记忆与 draft 笔记在确认前只能作为只读参考，不得当作已定论的结论引用。"
         )
+
+    # K-line: the newest pending capture showed friction (score >= 20) —
+    # surface a one-line hint so the agent prioritises catch-up distillation.
+    friction_hint = _latest_friction_hint(repo_path)
+    if friction_hint:
+        lines.append("")
+        lines.append(friction_hint)
 
     return "\n".join(lines)
 
