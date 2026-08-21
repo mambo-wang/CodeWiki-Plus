@@ -4,6 +4,7 @@
 
 ## 2026-08-21
 * **ingest_source**: 导入外部文档: tam-team-memory-practice (md)
+* **ingest_note**: 添加笔记: 下一期方向：资产置信分层与负反馈闭环（Roadmap Phase 5）
 
 ## 2026-08-19
 * **ingest_note**: 添加笔记: L0 对话归档采用链接优先、零索引设计
