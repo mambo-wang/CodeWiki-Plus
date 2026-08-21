@@ -379,6 +379,9 @@ USAGE_RANKING_DEFAULTS: Dict[str, Any] = {
     "cold_penalty": 0.2,
     "cold_days": 180,
     "cold_min_hits": 3,
+    # P1 A-line: adoption (actually-used) weighs 2x recall (merely-retrieved).
+    # Set 0 to disable adoption influence on ranking.
+    "adopted_weight": 0.06,
 }
 _USAGE_HEAT_FLOOR = 0.8
 
@@ -396,7 +399,7 @@ def load_usage_ranking_config(schema: Optional[dict]) -> Dict[str, Any]:
     block = conv.get("usage_ranking") or {}
     if not isinstance(block, dict):
         return cfg
-    for key in ("boost_cap", "cold_penalty"):
+    for key in ("boost_cap", "cold_penalty", "adopted_weight"):
         try:
             cfg[key] = float(block.get(key, cfg[key]))
         except (TypeError, ValueError):
@@ -417,11 +420,15 @@ def compute_usage_heat(
     last_hit: Any,
     cfg: Optional[Dict[str, Any]] = None,
     today: Optional[date] = None,
+    adopted_count: Any = None,
 ) -> float:
     """heat(doc) per the usage-ranking model. Pure function, no IO.
 
     - no retrieval record (hit_count falsy/<=0) → 1.0 (neutral);
-    - boost: ``1 + min(boost_cap, 0.03 * ln(1 + hit_count))``;
+    - boost: ``1 + min(boost_cap, 0.03·ln(1+hits) + adopted_weight·ln(1+adopted))``
+      — adoption (actually-used) weighs 2× recall (merely-retrieved) by
+      default (``adopted_weight`` = 0.06 vs 0.03), still capped by
+      ``boost_cap`` so popularity never overrides relevance;
     - cold penalty: only for docs that were hot before (hit_count >=
       cold_min_hits) whose last_hit is more than cold_days ago — subtract
       cold_penalty, floored at 0.8.  Unparseable last_hit counts as not
@@ -434,9 +441,14 @@ def compute_usage_heat(
         hits = 0
     if hits <= 0:
         return 1.0
-    heat = 1.0 + min(
-        float(cfg.get("boost_cap", 0.15)), 0.03 * math.log(1 + hits)
-    )
+    try:
+        adopted = int(adopted_count or 0)
+    except (TypeError, ValueError):
+        adopted = 0
+    boost = 0.03 * math.log(1 + hits)
+    if adopted > 0:
+        boost += float(cfg.get("adopted_weight", 0.06)) * math.log(1 + adopted)
+    heat = 1.0 + min(float(cfg.get("boost_cap", 0.15)), boost)
     if hits >= int(cfg.get("cold_min_hits", 3)) and last_hit:
         try:
             last = datetime.strptime(str(last_hit).strip()[:10], "%Y-%m-%d").date()
@@ -453,17 +465,22 @@ def compute_usage_heat(
     return heat
 
 
-# file_path -> (hit_count, last_hit) per retrieval_stats.db, cached by the
-# db file's mtime so repeated searches don't reopen the database (the file
-# is rewritten by query_wiki after every call — mtime bump forces a reload).
-_retrieval_usage_cache: Dict[str, Tuple[Optional[float], Dict[str, Tuple[int, Optional[str]]]]] = {}
+# file_path -> (hit_count, last_hit, adopted_count) per retrieval_stats.db,
+# cached by the db file's mtime so repeated searches don't reopen the database
+# (the file is rewritten by query_wiki / capture adoption recording after every
+# call — mtime bump forces a reload).
+_retrieval_usage_cache: Dict[str, Tuple[Optional[float], Dict[str, Tuple[int, Optional[str], int]]]] = {}
 
 
-def _load_retrieval_usage_map(output_dir: Optional[Path]) -> Dict[str, Tuple[int, Optional[str]]]:
-    """Load ``file_path → (hit_count, last_hit)`` from .meta/retrieval_stats.db.
+def _load_retrieval_usage_map(
+    output_dir: Optional[Path],
+) -> Dict[str, Tuple[int, Optional[str], int]]:
+    """Load ``file_path → (hit_count, last_hit, adopted_count)``.
 
-    Missing db → empty mapping.  Read failures degrade silently to an empty
-    mapping (usage signals must never break the search path).
+    hit/last_hit come from ``retrieval_stats``; adopted_count aggregates the
+    ``adoption_events`` table (P1 A-line) in the same db. Missing db or
+    missing adoption table → adopted=0 everywhere. Read failures degrade
+    silently to an empty mapping (usage signals must never break search).
     """
     if output_dir is None:
         return {}
@@ -481,7 +498,7 @@ def _load_retrieval_usage_map(output_dir: Optional[Path]) -> Dict[str, Tuple[int
     cached = _retrieval_usage_cache.get(key)
     if cached is not None and cached[0] == mtime:
         return cached[1]
-    usage: Dict[str, Tuple[int, Optional[str]]] = {}
+    usage: Dict[str, Tuple[int, Optional[str], int]] = {}
     if mtime is not None:
         try:
             conn = sqlite3.connect(str(db_path))
@@ -489,7 +506,20 @@ def _load_retrieval_usage_map(output_dir: Optional[Path]) -> Dict[str, Tuple[int
                 for fp, hc, lh in conn.execute(
                     "SELECT file_path, hit_count, last_hit FROM retrieval_stats"
                 ).fetchall():
-                    usage[str(fp)] = (int(hc or 0), str(lh) if lh else None)
+                    usage[str(fp)] = (int(hc or 0), str(lh) if lh else None, 0)
+                # Adoption aggregation (P1 A-line) — same db, so the shared
+                # mtime cache above still invalidates when either table is
+                # written. Old dbs without the table keep adopted=0.
+                try:
+                    for fp, cnt in conn.execute(
+                        "SELECT doc_path, COUNT(*) FROM adoption_events "
+                        "GROUP BY doc_path"
+                    ).fetchall():
+                        entry = usage.get(str(fp))
+                        if entry is not None:
+                            usage[str(fp)] = (entry[0], entry[1], int(cnt))
+                except sqlite3.Error:
+                    pass
             finally:
                 conn.close()
         except Exception as e:
@@ -1440,8 +1470,11 @@ class AnalysisCache:
             score *= auth
             # Usage-signal heat (U1): multiply exactly where authority does —
             # AFTER BM25, BEFORE the title floor.
-            u_hits, u_last = usage_map.get(dk, (0, None))
-            heat = compute_usage_heat(u_hits, u_last, usage_cfg) if heat_on else 1.0
+            u_hits, u_last, u_adopted = usage_map.get(dk, (0, None, 0))
+            heat = (
+                compute_usage_heat(u_hits, u_last, usage_cfg, adopted_count=u_adopted)
+                if heat_on else 1.0
+            )
             score *= heat
             # Developer notes are short; BM25 scores are naturally low and would
             # be filtered by the generic threshold even when the title matches
@@ -1469,7 +1502,7 @@ class AnalysisCache:
                         snippet = _extract_snippet(raw, qts)[:300]
                     except OSError:
                         pass
-            u_hits, u_last = usage_map.get(dk, (0, None))
+            u_hits, u_last, u_adopted = usage_map.get(dk, (0, None, 0))
             entry: Dict[str, Any] = {
                 "file": dk,
                 "title": doc_row["title"] if doc_row else dk,
@@ -1478,7 +1511,11 @@ class AnalysisCache:
                 "relevance_score": round(s, 4),
                 "authority": round(auth, 2),
                 "matched_tokens": doc_matched,
-                "usage": {"hit_count": u_hits, "last_hit": u_last},
+                "usage": {
+                    "hit_count": u_hits,
+                    "last_hit": u_last,
+                    "adopted_count": u_adopted,
+                },
             }
             # Attach related pages from link graph
             related = self.get_related_pages(dk, limit=5)
@@ -1513,9 +1550,11 @@ class AnalysisCache:
                             pass
                 ex_auth = float(doc_row["authority"] or 1.0) if apply_authority else 1.0
                 # Heat applies wherever authority applies (U1: same position).
-                ex_hits, ex_last = usage_map.get(ex["file"], (0, None))
+                ex_hits, ex_last, ex_adopted = usage_map.get(ex["file"], (0, None, 0))
                 ex_heat = (
-                    compute_usage_heat(ex_hits, ex_last, usage_cfg) if heat_on else 1.0
+                    compute_usage_heat(
+                        ex_hits, ex_last, usage_cfg, adopted_count=ex_adopted
+                    ) if heat_on else 1.0
                 )
                 results.append({
                     "file": ex["file"],
@@ -1524,7 +1563,11 @@ class AnalysisCache:
                     "snippet": snippet,
                     "relevance_score": round(ex["score"] * ex_auth * ex_heat, 4),
                     "authority": round(ex_auth, 2),
-                    "usage": {"hit_count": ex_hits, "last_hit": ex_last},
+                    "usage": {
+                        "hit_count": ex_hits,
+                        "last_hit": ex_last,
+                        "adopted_count": ex_adopted,
+                    },
                     "hop": ex["hop"],
                     "via": ex["via"],
                 })

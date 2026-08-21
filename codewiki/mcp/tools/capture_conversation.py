@@ -648,6 +648,32 @@ def handle_capture_conversation(
     # lightweight (no schema.yaml reads here). The score only feeds frontmatter
     # metadata + the returned JSON; it never gates the capture itself.
     friction = score_friction(turns)
+    # Adoption extraction (P1 A-line): parse ``codewiki:referenced-docs``
+    # declarations from assistant turns and persist them into the shared
+    # retrieval-stats db. Zero-IO fast path when nothing was declared.
+    from codewiki.mcp.tools.adoption import (
+        extract_adopted_docs,
+        looks_like_search_happened,
+        record_adoption_events,
+    )
+    adopted_docs = extract_adopted_docs(
+        turns, existing=lambda rel: (output_dir / rel).exists()
+    )
+    adoption_inserted = 0
+    if adopted_docs:
+        # capture_key: stable per session (source_session_id); manual captures
+        # without an id fall back to the content hash so an identical re-capture
+        # stays idempotent while a changed transcript counts its new claims.
+        capture_key = source_session_id or f"hash-{content_hash[:24]}"
+        from codewiki.mcp.tools.knowledge_loop import _get_stats_db_path
+        adoption_inserted = record_adoption_events(
+            _get_stats_db_path(output_dir), capture_key, adopted_docs,
+            now.strftime("%Y-%m-%d"),
+        )
+    adoption_nudge = bool(
+        not adopted_docs
+        and looks_like_search_happened(turns)
+    )
     meta = {
         "captured_at": now_iso,
         "content_hash": content_hash,
@@ -735,4 +761,10 @@ def handle_capture_conversation(
         "task_source": task_source,
         # K-line friction readout (hook may print it to the IDE log).
         "friction": friction,
+        # P1 A-line adoption readout: declared docs (persisted to
+        # adoption_events) + a one-shot nudge when search traces exist but
+        # nothing was declared.
+        **({"adopted_docs": adopted_docs} if adopted_docs else {}),
+        **({"adoption_inserted": adoption_inserted} if adopted_docs else {}),
+        **({"adoption_nudge": True} if adoption_nudge else {}),
     }, indent=2, ensure_ascii=False)

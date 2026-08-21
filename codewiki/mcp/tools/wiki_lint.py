@@ -30,6 +30,8 @@ _ALL_CHECKS = {
     "okf_conformance",
     # P2 (team-memory fusion): L2 scene block hygiene
     "scenario_capacity", "scenario_orphan",
+    # P1 B-line: hot-but-never-adopted notes (usage utility dimension)
+    "low_adoption",
 }
 
 # OKF v0.2 lifecycle vocabulary (see okf/SPEC.md §5)
@@ -1052,6 +1054,150 @@ def _check_stale_notes(
     return issues
 
 
+def _check_low_adoption(
+    output_dir: Path,
+    min_hits: Optional[int] = None,
+    max_adopted: Optional[int] = None,
+    recent_days: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Flag stable notes that are recalled often but never adopted.
+
+    P1 B-line (docs/知识飞轮增强设计方案-P1三项.md §3).  This is the
+    *utility* dimension of note quality: ``hit_count`` measures exposure,
+    ``adopted_count`` (adoption_events written by capture_conversation when
+    the agent declares the docs it actually used) measures usefulness.  A
+    note that keeps getting recalled and never gets adopted is likely
+    *relevant but not actionable*.
+
+    Trigger (all must hold, per stable/confirmed note):
+      - hit_count >= min_hits (default 5, from retrieval_stats);
+      - adopted_count <= max_adopted (default 0 — never adopted);
+      - last_hit within recent_days (default 60) — "was hot, now dead"
+        belongs to stale_notes instead.
+
+    Cold-start guard (critical): when the adoption_events table is missing
+    or the whole bundle has zero adoption records, the check silently
+    returns no issues — right after the A-line ships nobody has declared
+    anything yet, and flagging every hot note would be pure noise.
+
+    Config precedence: explicit parameters > schema ``conventions.
+    usage_ranking.low_adoption`` > hardcoded defaults (5 / 0 / 60) —
+    dispatch passes no parameters, same posture as _check_stale_notes.
+    """
+    import sqlite3
+    from datetime import datetime, timedelta
+
+    issues: List[Dict[str, Any]] = []
+
+    # Config from schema.yaml (fallback chain handled below).
+    try:
+        from codewiki.mcp.tools.page_router import load_schema
+        schema = load_schema(str(output_dir))
+    except Exception:
+        schema = {}
+    cfg: Dict[str, Any] = {}
+    if isinstance(schema, dict):
+        usage = schema.get("conventions", {}).get("usage_ranking")
+        if isinstance(usage, dict) and isinstance(usage.get("low_adoption"), dict):
+            cfg = usage["low_adoption"]
+
+    def _param(name: str, default: int, override: Optional[int]) -> int:
+        if override is not None:
+            return int(override)
+        try:
+            return int(cfg.get(name, default))
+        except (TypeError, ValueError):
+            return default
+
+    min_hits = _param("min_hits", 5, min_hits)
+    max_adopted = _param("max_adopted", 0, max_adopted)
+    recent_days = _param("recent_days", 60, recent_days)
+
+    # Cold-start guard: no adoption_events table / zero adoption records
+    # anywhere in the bundle → the adoption signal is not in use yet, skip.
+    from codewiki.mcp.tools.adoption import load_adoption_counts
+    adoption_counts = load_adoption_counts(output_dir)
+    if not adoption_counts:
+        return issues
+
+    from codewiki.src.config import NOTES_DIR
+    notes_dir = output_dir / NOTES_DIR
+    if not notes_dir.is_dir():
+        return issues
+
+    # Retrieval stats (same source stale_notes uses).
+    stats_db = output_dir / ".meta" / "retrieval_stats.db"
+    if not stats_db.exists():
+        return issues
+    hit_map: Dict[str, Tuple[int, str]] = {}  # file_path -> (hit_count, last_hit)
+    try:
+        conn = sqlite3.connect(str(stats_db))
+        try:
+            rows = conn.execute(
+                "SELECT file_path, hit_count, last_hit FROM retrieval_stats"
+            ).fetchall()
+            for fp, hc, lh in rows:
+                hit_map[str(fp).replace("\\", "/")] = (int(hc or 0), str(lh or ""))
+        finally:
+            conn.close()
+    except Exception:
+        return issues
+
+    cutoff = datetime.now() - timedelta(days=recent_days)
+
+    for note_file in sorted(notes_dir.glob("*.md")):
+        fm = _parse_note_frontmatter(note_file)
+        if not fm:
+            continue
+
+        # Only stable/confirmed notes are judged (legacy + OKF v0.2 vocabulary)
+        status = str(fm.get("status", "")).lower()
+        if status not in ("stable", "confirmed"):
+            continue
+
+        rel_path = str(note_file.relative_to(output_dir)).replace("\\", "/")
+        alt_key = f"notes/{note_file.name}"
+        entry = hit_map.get(rel_path) or hit_map.get(alt_key)
+        if not entry:
+            continue
+        hit_count, last_hit = entry
+
+        if hit_count < min_hits:
+            continue
+        # Recency: last_hit must be inside the window, otherwise the note
+        # "was hot but is dead now" — that case belongs to stale_notes.
+        try:
+            last_hit_dt = datetime.fromisoformat(last_hit[:10])
+        except ValueError:
+            continue  # no / unparseable last_hit → not verifiably recent
+        if last_hit_dt < cutoff:
+            continue
+
+        adopted = int(adoption_counts.get(rel_path, adoption_counts.get(alt_key, 0)))
+        if adopted > max_adopted:
+            continue
+
+        title = fm.get("title", note_file.stem)
+        issues.append({
+            "check": "low_adoption",
+            "severity": "warning",
+            "message": (
+                f"Note '{title}' was recalled {hit_count} times recently "
+                f"but adopted {adopted} time(s) — content is likely relevant "
+                f"but not actionable enough"
+            ),
+            "file": rel_path,
+            "suggestion": (
+                "高频召回但零采纳：内容相关但可能不够 actionable。建议重写为更"
+                "可执行的形式（补充具体步骤/命令/预期结果），可用 "
+                "distill_conversation 产出草稿后 confirm_note，或用 "
+                f"edit_doc_file 直接更新 {rel_path}。"
+            ),
+        })
+
+    return issues
+
+
 def _check_note_clusters(
     output_dir: Path,
     cluster_threshold: int = 3,
@@ -1591,6 +1737,11 @@ def handle_lint_wiki(
 
     if "note_clusters" in checks and output_dir:
         all_issues.extend(_check_note_clusters(output_dir))
+
+    if "low_adoption" in checks and output_dir:
+        # Config (min_hits/max_adopted/recent_days) is read from schema.yaml
+        # inside the check; dispatch passes no hardcoded values.
+        all_issues.extend(_check_low_adoption(output_dir))
 
     if "scenario_capacity" in checks and output_dir:
         all_issues.extend(_check_scenario_capacity(output_dir))
