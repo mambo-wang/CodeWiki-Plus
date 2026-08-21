@@ -15,6 +15,7 @@ from codewiki.mcp.cache import (
     _STOPWORDS, _K1, _B, _build_indexable_text,
     _tokenize, _extract_snippet,
     _load_ontology, _expand_with_ontology,
+    _doc_authority,
 )
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,8 @@ class _IndexData:
         if not tokens: return
         tf = {}
         for t in tokens: tf[t] = tf.get(t,0) + 1
-        self.docs[fk] = {"title": title, "source": source, "doc_len": len(tokens), "term_freq": tf}
+        self.docs[fk] = {"title": title, "source": source, "doc_len": len(tokens),
+                         "term_freq": tf, "authority": _doc_authority(fk, source, content)}
         if not batch: self._recompute()
     def finalize(self): self._recompute()
     def remove(self, fk):
@@ -282,8 +284,13 @@ def remove_file(output_dir, filepath):
 
 def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
            score_threshold=0.1, expand_terms=None, session=None, type_filter=None,
-           hop=0, decay=0.5):
-    """BM25 search. Uses SQLite cache if session available."""
+           hop=0, decay=0.5, apply_authority=True):
+    """BM25 search. Uses SQLite cache if session available.
+
+    ``apply_authority=False`` exempts a call from authority weighting —
+    used by similarity-oriented consumers (e.g. distill dedup recall) where
+    review status must not influence duplicate detection.
+    """
     od = Path(output_dir); max_results = min(20, max(1, max_results))
 
     # Try SQLite cache first (active session)
@@ -292,7 +299,8 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
                                           max_results=max_results, score_threshold=score_threshold,
                                           output_dir=od, type_filter=type_filter,
                                           hop=hop, decay=decay,
-                                          expand_terms=expand_terms)
+                                          expand_terms=expand_terms,
+                                          apply_authority=apply_authority)
         except Exception as e: logger.warning("SQLite search failed: %s", e)
 
     # Try standalone SQLite (no active session, DB persisted on disk)
@@ -305,7 +313,8 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
                                              max_results=max_results, score_threshold=score_threshold,
                                              output_dir=od, type_filter=type_filter,
                                              hop=hop, decay=decay,
-                                             expand_terms=expand_terms)
+                                             expand_terms=expand_terms,
+                                             apply_authority=apply_authority)
                 _standalone.close()
                 return results
             except Exception as e:
@@ -341,6 +350,9 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
             tf = tfm[qt]; df = idx.doc_freq.get(qt,1)
             idf = max(0.0, math.log((n - df + 0.5)/(df + 0.5) + 1.0))
             s += idf * (tf * (_K1 + 1)) / (tf + _K1 * (1 - _B + _B * dl / avg_dl))
+        # Authority weighting: multiply AFTER BM25, BEFORE the title floor.
+        auth = float(di.get("authority") or 1.0) if apply_authority else 1.0
+        s *= auth
         # Developer notes are short; BM25 scores are naturally low and would be
         # filtered out by the generic threshold even when the title matches the
         # query. Treat any title-token match on a note as relevant so distilled
@@ -349,10 +361,11 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
             title_tokens = set(_tokenize(di.get("title", "")))
             if title_tokens & set(qts) and s > 0:
                 s = max(s, score_threshold)
-        if s >= score_threshold: scored.append((s, fk))
+        if s >= score_threshold: scored.append((s, fk, auth))
     scored.sort(key=lambda x: x[0], reverse=True); scored = scored[:max_results]
     return [{"file": fk, "title": idx.docs.get(fk,{}).get("title",fk),
              "source": idx.docs.get(fk,{}).get("source","doc"),
              "snippet": (_extract_snippet((od/fk).read_text(encoding="utf-8",errors="replace"), qts)
                          if (od/fk).exists() else "")[:300],
-             "relevance_score": round(s,4)} for s, fk in scored]
+             "relevance_score": round(s,4),
+             "authority": round(auth,2)} for s, fk, auth in scored]

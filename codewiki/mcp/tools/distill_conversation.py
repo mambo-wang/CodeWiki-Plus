@@ -505,6 +505,10 @@ def _bm25_recall_candidates(
         hits = _search(
             output_dir, query, scope="notes", include_notes=True,
             max_results=_BM25_RECALL_TOPK, score_threshold=0.1,
+            # Dedup is a similarity judgment, not a ranking one: exempt from
+            # authority weighting so draft candidates can't sink below the
+            # conflict floor just because they are unreviewed.
+            apply_authority=False,
         )
     except Exception:  # index absent / search failure must never block distill
         return []

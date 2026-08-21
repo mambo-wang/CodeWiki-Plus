@@ -294,6 +294,65 @@ def _build_indexable_text(content: str, page_type: Optional[str] = None) -> str:
     return "\n".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# Authority-aware ranking (P0, borrowed from ai-memory PageAuthority).
+#
+# A deterministic multiplicative factor applied to the BM25 score AFTER
+# scoring (not via token duplication), so reviewed/authoritative knowledge
+# outranks ephemeral evidence without distorting term-frequency semantics.
+# Computed at index time from frontmatter + path; clamped to keep ordering
+# sane. Notes: note_type boost + status gate; wiki docs: L2 scenario / L3
+# doctrine boost; raw/sources: penalised (unreviewed third-party material).
+# ---------------------------------------------------------------------------
+
+_NOTE_TYPE_AUTHORITY: Dict[str, float] = {
+    "decision": 0.15,
+    "pitfall": 0.12,
+    "lesson": 0.10,
+    "architecture": 0.10,
+    "workaround": 0.05,
+}
+_STATUS_AUTHORITY: Dict[str, float] = {
+    "draft": -0.25,       # unreviewed knowledge sinks below verified content
+    "stable": 0.05,
+    "deprecated": -0.35,
+}
+_SCENARIO_AUTHORITY = 0.15   # L2 scenario blocks (wiki/scenarios/)
+_DOCTRINE_AUTHORITY = 0.20   # L3 project doctrine (doctrine.md)
+_SOURCE_AUTHORITY = -0.20    # raw/sources/ third-party material
+_AUTHORITY_MIN, _AUTHORITY_MAX = 0.7, 1.3
+
+
+def _doc_authority(doc_key: str, source: str, content: str = "") -> float:
+    """Return the authority multiplier for a document (clamped 0.7-1.3).
+
+    Pure rules, no IO beyond the already-loaded *content*:
+    - notes: ``type``/``note_type`` boost (decision > pitfall >
+      lesson/architecture > workaround) combined with the OKF ``status``
+      gate (draft -0.25, stable +0.05, deprecated -0.35);
+    - wiki docs: doctrine.md +0.20, scenarios/ pages +0.15;
+    - raw/sources: -0.20 regardless of frontmatter.
+    """
+    offset = 0.0
+    dk = doc_key.replace("\\", "/").lower()
+    if source == "source" or dk.startswith("raw/sources/"):
+        offset += _SOURCE_AUTHORITY
+    elif source == "note" or dk.startswith("notes/"):
+        fm = _parse_frontmatter_dict(content) if content else {}
+        meta = fm.get("metadata") if isinstance(fm.get("metadata"), dict) else {}
+        note_type = str(fm.get("type") or fm.get("note_type")
+                        or meta.get("type") or meta.get("note_type") or "").strip().lower()
+        status = str(fm.get("status") or meta.get("status") or "").strip().lower()
+        offset += _NOTE_TYPE_AUTHORITY.get(note_type, 0.0)
+        offset += _STATUS_AUTHORITY.get(status, 0.0)
+    else:
+        if dk.endswith("doctrine.md"):
+            offset += _DOCTRINE_AUTHORITY
+        elif "/scenarios/" in f"/{dk}":
+            offset += _SCENARIO_AUTHORITY
+    return max(_AUTHORITY_MIN, min(_AUTHORITY_MAX, 1.0 + offset))
+
+
 # ------------------------------------------------------------------ ComponentMeta / LazyStore
 
 @dataclass
@@ -394,7 +453,8 @@ class AnalysisCache:
             CREATE INDEX IF NOT EXISTS ix_deps_target ON dependencies(target_id);
             CREATE TABLE IF NOT EXISTS search_index (
                 doc_key TEXT PRIMARY KEY, title TEXT DEFAULT '',
-                source TEXT DEFAULT 'doc', doc_len INTEGER DEFAULT 0, term_freq TEXT DEFAULT '{}');
+                source TEXT DEFAULT 'doc', doc_len INTEGER DEFAULT 0, term_freq TEXT DEFAULT '{}',
+                authority REAL NOT NULL DEFAULT 1.0);
             CREATE TABLE IF NOT EXISTS search_token_index (
                 token TEXT NOT NULL, doc_key TEXT NOT NULL, tf INTEGER DEFAULT 1,
                 PRIMARY KEY(token, doc_key));
@@ -428,6 +488,13 @@ class AnalysisCache:
         # Migration: add content_hash column for existing databases (Roadmap 2.4)
         try:
             self.conn.execute("ALTER TABLE components ADD COLUMN content_hash TEXT DEFAULT ''")
+            self.conn.commit()
+        except Exception:
+            pass  # Column already exists
+        # Migration: add authority column for existing databases (P0 authority ranking)
+        try:
+            self.conn.execute(
+                "ALTER TABLE search_index ADD COLUMN authority REAL NOT NULL DEFAULT 1.0")
             self.conn.commit()
         except Exception:
             pass  # Column already exists
@@ -969,8 +1036,8 @@ class AnalysisCache:
                 tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
                 try: fk = str(md.relative_to(od)).replace("\\", "/")
                 except ValueError: fk = md.name
-                c.execute("INSERT OR REPLACE INTO search_index VALUES(?,?,?,?,?)",
-                          (fk, title, "doc", len(tokens), json.dumps(tf)))
+                c.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                          (fk, title, "doc", len(tokens), json.dumps(tf), _doc_authority(fk, "doc", ct)))
                 for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
                 dc += 1
 
@@ -986,8 +1053,8 @@ class AnalysisCache:
             tokens = _tokenize(_build_indexable_text(ct))
             if not tokens: continue
             tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
-            c.execute("INSERT OR REPLACE INTO search_index VALUES(?,?,?,?,?)",
-                      (md.name, title, "doc", len(tokens), json.dumps(tf)))
+            c.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                      (md.name, title, "doc", len(tokens), json.dumps(tf), _doc_authority(md.name, "doc", ct)))
             for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, md.name, f))
             dc += 1
 
@@ -1004,8 +1071,8 @@ class AnalysisCache:
                 if not tokens: continue
                 tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
                 fk = f"notes/{nf.name}"
-                c.execute("INSERT OR REPLACE INTO search_index VALUES(?,?,?,?,?)",
-                          (fk, title, "note", len(tokens), json.dumps(tf)))
+                c.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                          (fk, title, "note", len(tokens), json.dumps(tf), _doc_authority(fk, "note", ct)))
                 for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
                 nc += 1
 
@@ -1023,8 +1090,8 @@ class AnalysisCache:
                 if not tokens: continue
                 tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
                 fk = f"raw/sources/{sf.name}"
-                c.execute("INSERT OR REPLACE INTO search_index VALUES(?,?,?,?,?)",
-                          (fk, title, "source", len(tokens), json.dumps(tf)))
+                c.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                          (fk, title, "source", len(tokens), json.dumps(tf), _doc_authority(fk, "source", ct)))
                 for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
                 sc += 1
 
@@ -1050,7 +1117,8 @@ class AnalysisCache:
                output_dir: Optional[Path] = None,
                type_filter: Optional[str] = None,
                hop: int = 0, decay: float = 0.5,
-               expand_terms: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+               expand_terms: Optional[List[str]] = None,
+               apply_authority: bool = True) -> List[Dict[str, Any]]:
         c = self.conn
         r = c.execute(
             "SELECT value FROM search_stats WHERE key='total_docs'"
@@ -1125,9 +1193,9 @@ class AnalysisCache:
                         and not path_lower.startswith(scope_norm + "/")
                         and f"/{scope_norm}/" not in f"/{path_lower}"):
                     continue
-            # Single merged query: title, source, doc_len
+            # Single merged query: title, source, doc_len, authority
             doc_row = c.execute(
-                "SELECT title, source, doc_len FROM search_index WHERE doc_key=?",
+                "SELECT title, source, doc_len, authority FROM search_index WHERE doc_key=?",
                 (dk,),
             ).fetchone()
             if not doc_row:
@@ -1154,6 +1222,10 @@ class AnalysisCache:
                 score += idf * (tfr["tf"] * (_K1 + 1)) / (
                     tfr["tf"] + _K1 * (1 - _B + _B * dl / avg_dl)
                 )
+            # Authority weighting: multiply AFTER BM25, BEFORE the title floor
+            # (otherwise the floor would rescue penalised draft notes).
+            auth = float(doc_row["authority"] or 1.0) if apply_authority else 1.0
+            score *= auth
             # Developer notes are short; BM25 scores are naturally low and would
             # be filtered by the generic threshold even when the title matches
             # the query. Treat any title-token match on a note as relevant.
@@ -1162,12 +1234,12 @@ class AnalysisCache:
                 if title_tokens & set(qts) and score > 0:
                     score = max(score, score_threshold)
             if score >= score_threshold:
-                scored.append((score, dk))
+                scored.append((score, dk, auth))
 
         scored.sort(key=lambda x: x[0], reverse=True)
 
         results: List[Dict[str, Any]] = []
-        for s, dk in scored[:max_results]:
+        for s, dk, auth in scored[:max_results]:
             doc_row = c.execute(
                 "SELECT title, source FROM search_index WHERE doc_key=?", (dk,)
             ).fetchone()
@@ -1186,6 +1258,7 @@ class AnalysisCache:
                 "source": doc_row["source"] if doc_row else "doc",
                 "snippet": snippet,
                 "relevance_score": round(s, 4),
+                "authority": round(auth, 2),
             }
             # Attach related pages from link graph
             related = self.get_related_pages(dk, limit=5)
@@ -1195,14 +1268,14 @@ class AnalysisCache:
 
         # Graph expansion: discover related docs beyond BM25 hits
         if hop > 0 and scored:
-            seed_docs = [(dk, s) for s, dk in scored[:max_results]]
+            seed_docs = [(dk, s) for s, dk, _a in scored[:max_results]]
             expanded = self.graph_expand(seed_docs, hop=hop, decay=decay)
             existing_keys = {r["file"] for r in results}
             for ex in expanded:
                 if ex["file"] in existing_keys:
                     continue
                 doc_row = c.execute(
-                    "SELECT title, source FROM search_index WHERE doc_key=?",
+                    "SELECT title, source, authority FROM search_index WHERE doc_key=?",
                     (ex["file"],),
                 ).fetchone()
                 if not doc_row:
@@ -1218,12 +1291,14 @@ class AnalysisCache:
                             snippet = _extract_snippet(raw, qts)[:300]
                         except OSError:
                             pass
+                ex_auth = float(doc_row["authority"] or 1.0) if apply_authority else 1.0
                 results.append({
                     "file": ex["file"],
                     "title": doc_row["title"],
                     "source": doc_row["source"],
                     "snippet": snippet,
-                    "relevance_score": ex["score"],
+                    "relevance_score": round(ex["score"] * ex_auth, 4),
+                    "authority": round(ex_auth, 2),
                     "hop": ex["hop"],
                     "via": ex["via"],
                 })
@@ -1247,8 +1322,8 @@ class AnalysisCache:
         self.conn.execute("DELETE FROM search_token_index WHERE doc_key=?",(fk,))
         if tokens:
             tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
-            self.conn.execute("INSERT OR REPLACE INTO search_index VALUES(?,?,?,?,?)",
-                              (fk, filepath.stem, src, len(tokens), json.dumps(tf)))
+            self.conn.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                              (fk, filepath.stem, src, len(tokens), json.dumps(tf), _doc_authority(fk, src, ct)))
             for t, f in tf.items(): self.conn.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
         self.conn.commit()
 
