@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib, json, logging, math, os, re, sqlite3, time
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -351,6 +352,202 @@ def _doc_authority(doc_key: str, source: str, content: str = "") -> float:
         elif "/scenarios/" in f"/{dk}":
             offset += _SCENARIO_AUTHORITY
     return max(_AUTHORITY_MIN, min(_AUTHORITY_MAX, 1.0 + offset))
+
+
+# ---------------------------------------------------------------------------
+# Usage-signal heat ranking (U1, docs/知识飞轮增强设计方案-P0三项.md §3).
+#
+# retrieval_stats.db (written by query_wiki after every search) feeds a
+# conservative multiplicative heat factor applied exactly where authority is:
+# AFTER the BM25 score, BEFORE the note title floor:
+#
+#   heat = 1 + min(boost_cap, 0.03 * ln(1 + hit_count))     # log-saturating
+#          - cold_penalty    (only when hit_count >= cold_min_hits AND
+#                             last_hit older than cold_days), floored at 0.8
+#   final = BM25 * authority * heat
+#
+# Docs with no retrieval record stay neutral at 1.0 (new docs are never
+# punished — avoids the rank-low → never-hit → rank-lower Matthew loop).
+# These helpers live in cache.py (the low-level module both BM25 paths
+# import from) for the same reason _doc_authority does; wiki_search.py
+# reuses them for the legacy JSON path so the two paths cannot drift.
+# ---------------------------------------------------------------------------
+
+USAGE_RANKING_DEFAULTS: Dict[str, Any] = {
+    "enabled": True,
+    "boost_cap": 0.15,
+    "cold_penalty": 0.2,
+    "cold_days": 180,
+    "cold_min_hits": 3,
+}
+_USAGE_HEAT_FLOOR = 0.8
+
+
+def load_usage_ranking_config(schema: Optional[dict]) -> Dict[str, Any]:
+    """Resolve ``conventions.usage_ranking`` from a loaded schema.yaml.
+
+    Fallback chain: schema ``conventions.usage_ranking`` → hardcoded
+    defaults (``USAGE_RANKING_DEFAULTS``).  Bundles without the block get
+    the defaults, so search behaviour only changes when the schema opts in
+    or overrides parameters.  Malformed values fall back per-key.
+    """
+    cfg = dict(USAGE_RANKING_DEFAULTS)
+    conv = (schema or {}).get("conventions") or {}
+    block = conv.get("usage_ranking") or {}
+    if not isinstance(block, dict):
+        return cfg
+    for key in ("boost_cap", "cold_penalty"):
+        try:
+            cfg[key] = float(block.get(key, cfg[key]))
+        except (TypeError, ValueError):
+            pass
+    for key in ("cold_days", "cold_min_hits"):
+        try:
+            cfg[key] = int(block.get(key, cfg[key]))
+        except (TypeError, ValueError):
+            pass
+    enabled = block.get("enabled")
+    if isinstance(enabled, bool):
+        cfg["enabled"] = enabled
+    return cfg
+
+
+def compute_usage_heat(
+    hit_count: Any,
+    last_hit: Any,
+    cfg: Optional[Dict[str, Any]] = None,
+    today: Optional[date] = None,
+) -> float:
+    """heat(doc) per the usage-ranking model. Pure function, no IO.
+
+    - no retrieval record (hit_count falsy/<=0) → 1.0 (neutral);
+    - boost: ``1 + min(boost_cap, 0.03 * ln(1 + hit_count))``;
+    - cold penalty: only for docs that were hot before (hit_count >=
+      cold_min_hits) whose last_hit is more than cold_days ago — subtract
+      cold_penalty, floored at 0.8.  Unparseable last_hit counts as not
+      cold (fail-safe: never punish on bad data).
+    """
+    cfg = cfg or USAGE_RANKING_DEFAULTS
+    try:
+        hits = int(hit_count or 0)
+    except (TypeError, ValueError):
+        hits = 0
+    if hits <= 0:
+        return 1.0
+    heat = 1.0 + min(
+        float(cfg.get("boost_cap", 0.15)), 0.03 * math.log(1 + hits)
+    )
+    if hits >= int(cfg.get("cold_min_hits", 3)) and last_hit:
+        try:
+            last = datetime.strptime(str(last_hit).strip()[:10], "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            last = None
+        if last is not None:
+            if today is None:
+                today = date.today()
+            if (today - last).days > int(cfg.get("cold_days", 180)):
+                heat = max(
+                    _USAGE_HEAT_FLOOR,
+                    heat - float(cfg.get("cold_penalty", 0.2)),
+                )
+    return heat
+
+
+# file_path -> (hit_count, last_hit) per retrieval_stats.db, cached by the
+# db file's mtime so repeated searches don't reopen the database (the file
+# is rewritten by query_wiki after every call — mtime bump forces a reload).
+_retrieval_usage_cache: Dict[str, Tuple[Optional[float], Dict[str, Tuple[int, Optional[str]]]]] = {}
+
+
+def _load_retrieval_usage_map(output_dir: Optional[Path]) -> Dict[str, Tuple[int, Optional[str]]]:
+    """Load ``file_path → (hit_count, last_hit)`` from .meta/retrieval_stats.db.
+
+    Missing db → empty mapping.  Read failures degrade silently to an empty
+    mapping (usage signals must never break the search path).
+    """
+    if output_dir is None:
+        return {}
+    od = Path(output_dir)
+    try:
+        from codewiki.src.config import META_DIR
+        db_path = od / META_DIR / "retrieval_stats.db"
+    except Exception:
+        db_path = od / ".meta" / "retrieval_stats.db"
+    try:
+        mtime: Optional[float] = db_path.stat().st_mtime if db_path.exists() else None
+    except OSError:
+        mtime = None
+    key = str(db_path)
+    cached = _retrieval_usage_cache.get(key)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    usage: Dict[str, Tuple[int, Optional[str]]] = {}
+    if mtime is not None:
+        try:
+            conn = sqlite3.connect(str(db_path))
+            try:
+                for fp, hc, lh in conn.execute(
+                    "SELECT file_path, hit_count, last_hit FROM retrieval_stats"
+                ).fetchall():
+                    usage[str(fp)] = (int(hc or 0), str(lh) if lh else None)
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.debug("Failed to load retrieval stats: %s", e)
+            usage = {}
+    _retrieval_usage_cache[key] = (mtime, usage)
+    return usage
+
+
+# Bundle schema.yaml as needed by usage ranking, cached by file mtime.
+_usage_schema_cache: Dict[str, Tuple[Optional[float], dict]] = {}
+
+
+def _load_usage_schema(output_dir: Optional[Path]) -> dict:
+    """Load the bundle schema.yaml dict for usage-ranking config (mtime-cached)."""
+    if output_dir is None:
+        return {}
+    try:
+        from codewiki.src.config import SCHEMA_FILENAME
+        name = SCHEMA_FILENAME
+    except Exception:
+        name = "schema.yaml"
+    p = Path(output_dir) / name
+    key = str(p)
+    try:
+        mtime: Optional[float] = p.stat().st_mtime if p.exists() else None
+    except OSError:
+        mtime = None
+    cached = _usage_schema_cache.get(key)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    data: dict = {}
+    if mtime is not None:
+        try:
+            import yaml
+            with open(p, "r", encoding="utf-8") as fh:
+                loaded = yaml.safe_load(fh) or {}
+            if isinstance(loaded, dict):
+                data = loaded
+        except Exception as e:
+            logger.debug("Failed to load schema for usage ranking: %s", e)
+    _usage_schema_cache[key] = (mtime, data)
+    return data
+
+
+def _usage_context(
+    output_dir: Optional[Path], apply_usage: bool
+) -> Tuple[Dict[str, Any], Dict[str, Tuple[int, Optional[str]]], bool]:
+    """(config, usage map, heat_enabled) for one search call.
+
+    The usage map is ALWAYS loaded — result entries carry a ``usage`` field
+    even when heat weighting is disabled or exempted — but heat only
+    multiplies the score when *apply_usage* is True AND the schema enables
+    it (``conventions.usage_ranking.enabled``, default true).
+    """
+    usage_map = _load_retrieval_usage_map(output_dir)
+    cfg = load_usage_ranking_config(_load_usage_schema(output_dir))
+    return cfg, usage_map, bool(apply_usage and cfg.get("enabled", True))
 
 
 # ------------------------------------------------------------------ ComponentMeta / LazyStore
@@ -1118,7 +1315,16 @@ class AnalysisCache:
                type_filter: Optional[str] = None,
                hop: int = 0, decay: float = 0.5,
                expand_terms: Optional[List[str]] = None,
-               apply_authority: bool = True) -> List[Dict[str, Any]]:
+               apply_authority: bool = True,
+               apply_usage: bool = True) -> List[Dict[str, Any]]:
+        """BM25 search with authority and usage-heat weighting.
+
+        ``apply_authority=False`` / ``apply_usage=False`` exempt a call from
+        the respective weighting — used by similarity-oriented consumers
+        (e.g. distill dedup recall) where review status or retrieval
+        popularity must not influence duplicate detection.  Result entries
+        still carry the ``authority`` / ``usage`` fields for transparency.
+        """
         c = self.conn
         r = c.execute(
             "SELECT value FROM search_stats WHERE key='total_docs'"
@@ -1130,6 +1336,10 @@ class AnalysisCache:
             "SELECT value FROM search_stats WHERE key='avg_doc_len'"
         ).fetchone()
         avg_dl = float(r["value"]) if r else 1.0
+
+        # Usage-signal context (U1): always loaded (results expose a `usage`
+        # field); heat multiplies the score only when enabled + not exempted.
+        usage_cfg, usage_map, heat_on = _usage_context(output_dir, apply_usage)
 
         qts = _tokenize(query)
         if expand_terms:
@@ -1210,6 +1420,7 @@ class AnalysisCache:
             dl = doc_row["doc_len"] or 1
 
             score = 0.0
+            doc_matched: List[str] = []
             for qt in qts:
                 tfr = c.execute(
                     "SELECT tf FROM search_token_index WHERE token=? AND doc_key=?",
@@ -1217,6 +1428,7 @@ class AnalysisCache:
                 ).fetchone()
                 if not tfr:
                     continue
+                doc_matched.append(qt)
                 df = df_cache.get(qt, 1)
                 idf = max(0.0, math.log((n - df + 0.5) / (df + 0.5) + 1.0))
                 score += idf * (tfr["tf"] * (_K1 + 1)) / (
@@ -1226,6 +1438,11 @@ class AnalysisCache:
             # (otherwise the floor would rescue penalised draft notes).
             auth = float(doc_row["authority"] or 1.0) if apply_authority else 1.0
             score *= auth
+            # Usage-signal heat (U1): multiply exactly where authority does —
+            # AFTER BM25, BEFORE the title floor.
+            u_hits, u_last = usage_map.get(dk, (0, None))
+            heat = compute_usage_heat(u_hits, u_last, usage_cfg) if heat_on else 1.0
+            score *= heat
             # Developer notes are short; BM25 scores are naturally low and would
             # be filtered by the generic threshold even when the title matches
             # the query. Treat any title-token match on a note as relevant.
@@ -1234,12 +1451,12 @@ class AnalysisCache:
                 if title_tokens & set(qts) and score > 0:
                     score = max(score, score_threshold)
             if score >= score_threshold:
-                scored.append((score, dk, auth))
+                scored.append((score, dk, auth, doc_matched))
 
         scored.sort(key=lambda x: x[0], reverse=True)
 
         results: List[Dict[str, Any]] = []
-        for s, dk, auth in scored[:max_results]:
+        for s, dk, auth, doc_matched in scored[:max_results]:
             doc_row = c.execute(
                 "SELECT title, source FROM search_index WHERE doc_key=?", (dk,)
             ).fetchone()
@@ -1252,6 +1469,7 @@ class AnalysisCache:
                         snippet = _extract_snippet(raw, qts)[:300]
                     except OSError:
                         pass
+            u_hits, u_last = usage_map.get(dk, (0, None))
             entry: Dict[str, Any] = {
                 "file": dk,
                 "title": doc_row["title"] if doc_row else dk,
@@ -1259,6 +1477,8 @@ class AnalysisCache:
                 "snippet": snippet,
                 "relevance_score": round(s, 4),
                 "authority": round(auth, 2),
+                "matched_tokens": doc_matched,
+                "usage": {"hit_count": u_hits, "last_hit": u_last},
             }
             # Attach related pages from link graph
             related = self.get_related_pages(dk, limit=5)
@@ -1268,7 +1488,7 @@ class AnalysisCache:
 
         # Graph expansion: discover related docs beyond BM25 hits
         if hop > 0 and scored:
-            seed_docs = [(dk, s) for s, dk, _a in scored[:max_results]]
+            seed_docs = [(dk, s) for s, dk, _a, _m in scored[:max_results]]
             expanded = self.graph_expand(seed_docs, hop=hop, decay=decay)
             existing_keys = {r["file"] for r in results}
             for ex in expanded:
@@ -1292,13 +1512,19 @@ class AnalysisCache:
                         except OSError:
                             pass
                 ex_auth = float(doc_row["authority"] or 1.0) if apply_authority else 1.0
+                # Heat applies wherever authority applies (U1: same position).
+                ex_hits, ex_last = usage_map.get(ex["file"], (0, None))
+                ex_heat = (
+                    compute_usage_heat(ex_hits, ex_last, usage_cfg) if heat_on else 1.0
+                )
                 results.append({
                     "file": ex["file"],
                     "title": doc_row["title"],
                     "source": doc_row["source"],
                     "snippet": snippet,
-                    "relevance_score": round(ex["score"] * ex_auth, 4),
+                    "relevance_score": round(ex["score"] * ex_auth * ex_heat, 4),
                     "authority": round(ex_auth, 2),
+                    "usage": {"hit_count": ex_hits, "last_hit": ex_last},
                     "hop": ex["hop"],
                     "via": ex["via"],
                 })

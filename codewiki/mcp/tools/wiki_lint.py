@@ -967,17 +967,21 @@ def _check_stale_notes(
     if retrieval_gap_days is not None:
         cfg = {**cfg, "retrieval_defer_days": int(retrieval_gap_days)}
 
-    # Load retrieval stats if available (activity exemption source)
+    # Load retrieval stats if available (activity exemption source).
+    # U2 复核联动: hit_count is also surfaced in the message and drives the
+    # review-priority ordering (most overdue + least recently retrieved first).
     stats_db = output_dir / ".meta" / "retrieval_stats.db"
     retrieval_map: Dict[str, str] = {}  # file_path -> last_hit date string
+    hit_count_map: Dict[str, int] = {}  # file_path -> hit_count (U2)
     if stats_db.exists():
         try:
             conn = sqlite3.connect(str(stats_db))
             try:
                 rows = conn.execute(
-                    "SELECT file_path, last_hit FROM retrieval_stats"
+                    "SELECT file_path, hit_count, last_hit FROM retrieval_stats"
                 ).fetchall()
-                for fp, lh in rows:
+                for fp, hc, lh in rows:
+                    hit_count_map[fp] = int(hc or 0)
                     if lh:
                         retrieval_map[fp] = lh
             finally:
@@ -986,6 +990,8 @@ def _check_stale_notes(
             pass
 
     today = datetime.now()
+    # (overdue_days desc, last_hit asc, issue) — populated in the loop below.
+    ranked: List[Tuple[int, str, Dict[str, Any]]] = []
 
     for note_file in sorted(notes_dir.glob("*.md")):
         fm = _parse_note_frontmatter(note_file)
@@ -1016,14 +1022,18 @@ def _check_stale_notes(
             overdue_days = 0
         title = fm.get("title", note_file.stem)
         note_type = fm.get("type", "general")
+        hit_count = hit_count_map.get(
+            rel_path, hit_count_map.get(f"notes/{note_file.name}", 0)
+        )
 
-        issues.append({
+        issue = {
             "check": "stale_notes",
             "severity": "warning",
             "message": (
                 f"Note '{title}' ({note_type}) passed its review deadline "
                 f"({due_date}) {overdue_days} day(s) ago and has not been "
-                f"retrieved in {cfg['retrieval_defer_days']}+ days"
+                f"retrieved in {cfg['retrieval_defer_days']}+ days "
+                f"(retrieved {hit_count} times total)"
             ),
             "file": rel_path,
             "suggestion": (
@@ -1031,8 +1041,14 @@ def _check_stale_notes(
                 f"confirm_note(note_file=\"{rel_path}\") 续期"
                 f"（将按类型窗口刷新 stale_after），已过时用 reject_note 退役。"
             ),
-        })
+        }
+        # U2: never-retrieved notes sort before any retrieved date ("").
+        ranked.append((overdue_days, last_hit_str or "", issue))
 
+    # U2 复核联动: review priority — most overdue first, then least recently
+    # retrieved ("超期最久且最没人查"的先复核). Judgment above is unchanged.
+    ranked.sort(key=lambda x: (-x[0], x[1]))
+    issues.extend(issue for _od, _lh, issue in ranked)
     return issues
 
 

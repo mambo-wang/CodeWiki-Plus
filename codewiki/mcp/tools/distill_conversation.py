@@ -250,12 +250,30 @@ def _resolve_raw_path(arguments: Dict[str, Any], output_dir: Path) -> Optional[P
     return None  # batch mode: caller decides scope
 
 
+def _friction_score_of(text: str) -> int:
+    """Read the top-level ``friction_score:`` frontmatter value (0 when absent).
+
+    Rides the same line-scan convention as ``status:``/``task_id:`` — capture
+    writes the key via ``json.dumps`` so an int renders bare (no quotes).
+    """
+    m = re.search(r"^friction_score:\s*(-?\d+)", text, re.MULTILINE)
+    if not m:
+        return 0
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return 0
+
+
 def _iter_raw_files(raw_dir: Path) -> List[Path]:
     if not raw_dir.exists():
         return []
     files = [p for p in raw_dir.glob("conv-*.md")]
-    # Only not-yet-distilled files
-    out = []
+    # Only not-yet-distilled files, ordered by friction score DESC (K-line):
+    # conversations with visible friction (corrections/interrupts/repeats) are
+    # the most likely to yield valuable lesson notes, so they surface first in
+    # the prepare listing. Missing friction_score (pre-K-line captures) → 0.
+    scored = []
     for p in sorted(files):
         try:
             text = p.read_text(encoding="utf-8")
@@ -264,8 +282,9 @@ def _iter_raw_files(raw_dir: Path) -> List[Path]:
         m = re.search(r"^status:\s*(\w+)", text, re.MULTILINE)
         if m and m.group(1) == "distilled":
             continue
-        out.append(p)
-    return out
+        scored.append((_friction_score_of(text), p))
+    scored.sort(key=lambda item: -item[0])
+    return [p for _score, p in scored]
 
 
 # --------------------------------------------------------------------------- #
@@ -509,6 +528,9 @@ def _bm25_recall_candidates(
             # authority weighting so draft candidates can't sink below the
             # conflict floor just because they are unreviewed.
             apply_authority=False,
+            # U1: retrieval popularity must not distort similarity either —
+            # a hot note is not a more likely duplicate of this draft.
+            apply_usage=False,
         )
     except Exception:  # index absent / search failure must never block distill
         return []
@@ -1359,6 +1381,10 @@ def handle_distill_conversation(
             if built is None:
                 continue
             meta = built["meta"]
+            try:
+                friction_score = int(str(meta.get("friction_score", "")).strip() or 0)
+            except (TypeError, ValueError):
+                friction_score = 0
             captures.append({
                 "conversation_id": p.stem,
                 "path": str(p.relative_to(output_dir)) if _safe_rel(p, output_dir) else str(p),
@@ -1369,6 +1395,9 @@ def handle_distill_conversation(
                 "turn_count": meta.get("turn_count", ""),
                 "link_to": _unquote_fm(meta.get("link_to", "")),
                 "task_id": _unquote_fm(meta.get("task_id", "")),
+                # K-line: friction score for distillation prioritisation. The
+                # listing itself is already friction-DESC via _iter_raw_files.
+                "friction_score": friction_score,
                 # 短预览仅用于初筛（这条对话有没有可蒸馏的知识），不是完整正文。
                 "preview": built["transcript"][:preview_chars],
             })
@@ -1378,7 +1407,7 @@ def handle_distill_conversation(
                 "message": "No readable pending conversations.",
                 "captures": [],
             })
-        return json.dumps({
+        ret: Dict[str, Any] = {
             "status": "prepared",
             "mode": "prepare",
             "system_prompt": _DISTILL_SYSTEM,
@@ -1402,7 +1431,15 @@ def handle_distill_conversation(
                 "(5) only then move to the next capture, dropping the previous "
                 "transcript from working memory."
             ),
-        }, indent=2, ensure_ascii=False)
+        }
+        # K-line hint (additive key — existing consumers unaffected). Only
+        # surfaced when at least one pending conversation shows friction.
+        if any(c.get("friction_score", 0) >= 20 for c in captures):
+            ret["friction_hint"] = (
+                "提示：friction_score ≥ 20 的会话含明显摩擦信号（纠正/打断/重复），"
+                "优先蒸馏更可能产出有价值的经验笔记（清单已按 friction_score 降序排列）。"
+            )
+        return json.dumps(ret, indent=2, ensure_ascii=False)
 
     if mode == "submit":
         distilled_map = arguments.get("distilled")

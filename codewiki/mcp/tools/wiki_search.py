@@ -16,6 +16,7 @@ from codewiki.mcp.cache import (
     _tokenize, _extract_snippet,
     _load_ontology, _expand_with_ontology,
     _doc_authority,
+    compute_usage_heat, load_usage_ranking_config, _usage_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -284,12 +285,14 @@ def remove_file(output_dir, filepath):
 
 def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
            score_threshold=0.1, expand_terms=None, session=None, type_filter=None,
-           hop=0, decay=0.5, apply_authority=True):
+           hop=0, decay=0.5, apply_authority=True, apply_usage=True):
     """BM25 search. Uses SQLite cache if session available.
 
-    ``apply_authority=False`` exempts a call from authority weighting —
-    used by similarity-oriented consumers (e.g. distill dedup recall) where
-    review status must not influence duplicate detection.
+    ``apply_authority=False`` / ``apply_usage=False`` exempt a call from the
+    respective weighting — used by similarity-oriented consumers (e.g.
+    distill dedup recall) where review status or retrieval popularity must
+    not influence duplicate detection.  Result entries still carry the
+    ``authority`` / ``usage`` fields for transparency.
     """
     od = Path(output_dir); max_results = min(20, max(1, max_results))
 
@@ -300,7 +303,8 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
                                           output_dir=od, type_filter=type_filter,
                                           hop=hop, decay=decay,
                                           expand_terms=expand_terms,
-                                          apply_authority=apply_authority)
+                                          apply_authority=apply_authority,
+                                          apply_usage=apply_usage)
         except Exception as e: logger.warning("SQLite search failed: %s", e)
 
     # Try standalone SQLite (no active session, DB persisted on disk)
@@ -314,7 +318,8 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
                                              output_dir=od, type_filter=type_filter,
                                              hop=hop, decay=decay,
                                              expand_terms=expand_terms,
-                                             apply_authority=apply_authority)
+                                             apply_authority=apply_authority,
+                                             apply_usage=apply_usage)
                 _standalone.close()
                 return results
             except Exception as e:
@@ -333,6 +338,10 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
     if not qts: return []
     idx = _load_index(od)
     if idx.total_docs == 0: return []
+    # Usage-signal context (U1): shared helpers from cache.py so the JSON and
+    # SQLite paths apply identical heat semantics.  Always loaded (results
+    # expose a `usage` field); heat only multiplies when enabled + not exempt.
+    usage_cfg, usage_map, heat_on = _usage_context(od, apply_usage)
     scored = []; n = idx.total_docs; avg_dl = idx.avg_doc_len or 1.0
     for fk, di in idx.docs.items():
         if scope:
@@ -353,6 +362,11 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
         # Authority weighting: multiply AFTER BM25, BEFORE the title floor.
         auth = float(di.get("authority") or 1.0) if apply_authority else 1.0
         s *= auth
+        # Usage-signal heat (U1): multiply exactly where authority does —
+        # AFTER BM25, BEFORE the title floor.
+        u_hits, u_last = usage_map.get(fk, (0, None))
+        heat = compute_usage_heat(u_hits, u_last, usage_cfg) if heat_on else 1.0
+        s *= heat
         # Developer notes are short; BM25 scores are naturally low and would be
         # filtered out by the generic threshold even when the title matches the
         # query. Treat any title-token match on a note as relevant so distilled
@@ -363,9 +377,90 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
                 s = max(s, score_threshold)
         if s >= score_threshold: scored.append((s, fk, auth))
     scored.sort(key=lambda x: x[0], reverse=True); scored = scored[:max_results]
-    return [{"file": fk, "title": idx.docs.get(fk,{}).get("title",fk),
-             "source": idx.docs.get(fk,{}).get("source","doc"),
-             "snippet": (_extract_snippet((od/fk).read_text(encoding="utf-8",errors="replace"), qts)
-                         if (od/fk).exists() else "")[:300],
-             "relevance_score": round(s,4),
-             "authority": round(auth,2)} for s, fk, auth in scored]
+    out = []
+    for s, fk, auth in scored:
+        u_hits, u_last = usage_map.get(fk, (0, None))
+        out.append({"file": fk, "title": idx.docs.get(fk,{}).get("title",fk),
+                    "source": idx.docs.get(fk,{}).get("source","doc"),
+                    "snippet": (_extract_snippet((od/fk).read_text(encoding="utf-8",errors="replace"), qts)
+                                if (od/fk).exists() else "")[:300],
+                    "relevance_score": round(s,4),
+                    "authority": round(auth,2),
+                    "matched_tokens": _matched_for_doc(idx.docs.get(fk,{}).get("term_freq",{}), qts),
+                    "usage": {"hit_count": u_hits, "last_hit": u_last}})
+    return out
+
+
+def _matched_for_doc(tfm, qts):
+    """T1 (检索透明化): tokens from the query that actually occur in this doc."""
+    return [qt for qt in qts if qt in tfm]
+
+
+def query_coverage(output_dir, query, expand_terms=None, session=None):
+    """T1 (检索透明化): corpus-level coverage of the query tokens.
+
+    Returns {"tokens": [...], "matched": [...], "missing": [...]} where
+    ``missing`` lists query tokens that do NOT occur in ANY indexed document
+    (df == 0). Expanded terms (expand_terms / ontology) are annotated with a
+    trailing "(expanded)" marker in ``tokens``. Consumers should treat a
+    result whose key distinguishing terms are all in ``missing`` as
+    topically-adjacent rather than an answer.
+    """
+    od = Path(output_dir)
+    base_qts = _tokenize(query)
+    expanded = []
+    if expand_terms:
+        for t in expand_terms:
+            for tt in _tokenize(t):
+                if tt not in base_qts:
+                    expanded.append(tt)
+    ontology = _load_ontology(od)
+    onto_extra = []
+    if ontology:
+        for qt in list(base_qts) + expanded:
+            for tt in _expand_with_ontology([qt], ontology):
+                if tt not in base_qts and tt not in expanded and tt not in onto_extra:
+                    onto_extra.append(tt)
+
+    def _df_json(tok):
+        idx = _load_index(od)
+        return idx.doc_freq.get(tok, 0)
+
+    def _df_sqlite(tok, conn):
+        row = conn.execute(
+            "SELECT COUNT(*) AS c FROM search_token_index WHERE token=?", (tok,)
+        ).fetchone()
+        return int(row["c"]) if row else 0
+
+    conn = None
+    _standalone = None
+    if session is not None and getattr(session, "cache", None) is not None:
+        try:
+            conn = session.cache.conn
+        except Exception:
+            conn = None
+    if conn is None:
+        # _open_standalone_cache returns an AnalysisCache wrapper, not a raw
+        # connection — unwrap .conn for the df queries below.
+        _standalone = _open_standalone_cache(od, readonly=True)
+        if _standalone is not None:
+            try:
+                conn = _standalone.conn
+            except Exception:
+                conn = None
+
+    matched, missing = [], []
+    try:
+        for tok in base_qts:
+            df = _df_sqlite(tok, conn) if conn is not None else _df_json(tok)
+            (matched if df > 0 else missing).append(tok)
+        for tok in expanded + onto_extra:
+            df = _df_sqlite(tok, conn) if conn is not None else _df_json(tok)
+            (matched if df > 0 else missing).append(tok + " (expanded)")
+    finally:
+        if _standalone is not None:
+            try:
+                _standalone.close()
+            except Exception:
+                pass
+    return {"tokens": base_qts, "matched": matched, "missing": missing}

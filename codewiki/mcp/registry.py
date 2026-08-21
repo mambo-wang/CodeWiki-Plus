@@ -825,19 +825,32 @@ _register(
                 "expand": {
                     "type": "boolean",
                     "description": (
-                        "When true, return full page content (up to 3000 chars) in a "
-                        "'content' field instead of just snippets. Use for deep reading "
-                        "after identifying relevant pages with a normal search."
+                        "When true, return full page content (up to max_chars, "
+                        "default 3000) in a 'content' field instead of just snippets. "
+                        "Use for deep reading after identifying relevant pages with "
+                        "a normal search."
+                    ),
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "description": (
+                        "Content budget in characters for expand=true "
+                        "(default: 3000, max: 20000). Use 12000-20000 for "
+                        "full-page deep reading of complex pages; keep 3000 "
+                        "for quick verification."
                     ),
                 },
                 "mode": {
                     "type": "string",
-                    "enum": ["overview", "directory", "detail"],
+                    "enum": ["overview", "directory", "detail", "check"],
                     "description": (
                         "Progressive reading mode. "
                         "'overview': returns overview.md + page frontmatter list (lightweight orientation). "
                         "'directory': returns Component Constraint Index sections from matching pages. "
                         "'detail': returns full content of a specific page/section (requires 'page' param). "
+                        "'check': lightweight relevance pre-check — returns relevant flag, top score "
+                        "and top-3 titles WITHOUT snippets or stats recording. Use it before deciding "
+                        "whether a full search is worth the tokens. "
                         "Omit for standard BM25 search."
                     ),
                 },
