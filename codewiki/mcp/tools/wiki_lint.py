@@ -915,18 +915,28 @@ def _parse_note_frontmatter(note_path: Path) -> Optional[Dict[str, Any]]:
 
 def _check_stale_notes(
     output_dir: Path,
-    stale_days: int = 90,
-    retrieval_gap_days: int = 60,
+    stale_days: Optional[int] = None,
+    retrieval_gap_days: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    """Flag confirmed notes that are old and haven't been retrieved recently.
+    """Flag stable/confirmed notes whose re-verification deadline has passed.
 
-    A note is considered stale when ALL of:
-      - status == "confirmed"
-      - note age > stale_days (default 90)
-      - last retrieval hit > retrieval_gap_days ago (or never hit)
+    新鲜度机制专项 (docs/新鲜度机制设计方案.md).  Judgment basis is the
+    frontmatter ``stale_after`` rolling review deadline (renewed by
+    confirm_note) — NOT the creation date.  The legacy implementation read
+    ``metadata.date`` with a flat age threshold, so confirming a note never
+    affected its staleness (stale_after was write-only).
 
-    This helps prevent knowledge rot: confirmed notes that nobody queries
-    may be outdated or superseded by newer understanding.
+    Judgment cascade per note (v2, via ``evaluate_note_freshness``):
+      - due date = ``stale_after``; fallback when absent =
+        ``metadata.date`` + the note's type window (legacy behaviour);
+      - due date passed → warning「复核期已过」, unless the note was
+        retrieved within ``retrieval_defer_days`` → deferred (activity
+        exemption preserved);
+      - otherwise fresh.
+
+    Config precedence: explicit parameters > schema ``conventions.freshness``
+    > hardcoded defaults (90/60) — dispatch passes no parameters, so bundles
+    with a freshness block now actually get their configured windows.
     """
     import sqlite3
     from datetime import datetime, timedelta
@@ -938,7 +948,26 @@ def _check_stale_notes(
     if not notes_dir.is_dir():
         return issues
 
-    # Load retrieval stats if available
+    # Freshness config from schema.yaml (fallback chain handled inside).
+    try:
+        from codewiki.mcp.tools.page_router import load_schema
+        schema = load_schema(str(output_dir))
+    except Exception:
+        schema = {}
+    try:
+        from codewiki.mcp.tools.knowledge_loop import (
+            evaluate_note_freshness,
+            load_freshness_config,
+        )
+    except Exception:
+        return issues
+    cfg = load_freshness_config(schema)
+    if stale_days is not None:
+        cfg = {**cfg, "default_window_days": int(stale_days)}
+    if retrieval_gap_days is not None:
+        cfg = {**cfg, "retrieval_defer_days": int(retrieval_gap_days)}
+
+    # Load retrieval stats if available (activity exemption source)
     stats_db = output_dir / ".meta" / "retrieval_stats.db"
     retrieval_map: Dict[str, str] = {}  # file_path -> last_hit date string
     if stats_db.exists():
@@ -957,8 +986,6 @@ def _check_stale_notes(
             pass
 
     today = datetime.now()
-    stale_threshold = today - timedelta(days=stale_days)
-    retrieval_threshold = today - timedelta(days=retrieval_gap_days)
 
     for note_file in sorted(notes_dir.glob("*.md")):
         fm = _parse_note_frontmatter(note_file)
@@ -970,34 +997,23 @@ def _check_stale_notes(
         if status not in ("confirmed", "stable"):
             continue
 
-        # Parse note date
-        date_str = fm.get("date", "")
-        try:
-            note_date = datetime.strptime(date_str, "%Y-%m-%d")
-        except (ValueError, TypeError):
+        rel_path = str(note_file.relative_to(output_dir)).replace("\\", "/")
+        last_hit_str = (
+            retrieval_map.get(rel_path)
+            or retrieval_map.get(f"notes/{note_file.name}")
+        )
+
+        verdict = evaluate_note_freshness(fm, cfg, today=today, last_hit=last_hit_str)
+        if verdict["state"] != "due":
             continue
 
-        # Check age
-        if note_date > stale_threshold:
-            continue  # not old enough
-
-        # Check retrieval recency
-        rel_path = str(note_file.relative_to(output_dir)).replace("\\", "/")
-        # Also try with notes/ prefix variations
-        last_hit_str = retrieval_map.get(rel_path) or retrieval_map.get(f"notes/{note_file.name}")
-        recently_hit = False
-        if last_hit_str:
-            try:
-                last_hit = datetime.strptime(last_hit_str, "%Y-%m-%d")
-                if last_hit > retrieval_threshold:
-                    recently_hit = True
-            except (ValueError, TypeError):
-                pass
-
-        if recently_hit:
-            continue  # still being actively retrieved
-
-        age_days = (today - note_date).days
+        due_date = verdict["due_date"] or "?"
+        try:
+            overdue_days = (
+                today - datetime.strptime(due_date, "%Y-%m-%d")
+            ).days
+        except (ValueError, TypeError):
+            overdue_days = 0
         title = fm.get("title", note_file.stem)
         note_type = fm.get("type", "general")
 
@@ -1005,14 +1021,15 @@ def _check_stale_notes(
             "check": "stale_notes",
             "severity": "warning",
             "message": (
-                f"Confirmed note '{title}' ({note_type}) is {age_days} days old "
-                f"and has not been retrieved in {retrieval_gap_days}+ days"
+                f"Note '{title}' ({note_type}) passed its review deadline "
+                f"({due_date}) {overdue_days} day(s) ago and has not been "
+                f"retrieved in {cfg['retrieval_defer_days']}+ days"
             ),
             "file": rel_path,
             "suggestion": (
-                f"Review whether this {note_type} note is still accurate. "
-                f"Use confirm_note to re-validate, reject_note to retire, "
-                f"or update the content if the knowledge has evolved."
+                f"超过 {overdue_days} 天未验证。确认仍然准确用 "
+                f"confirm_note(note_file=\"{rel_path}\") 续期"
+                f"（将按类型窗口刷新 stale_after），已过时用 reject_note 退役。"
             ),
         })
 
@@ -1227,6 +1244,7 @@ def _check_scenario_orphan(
 
 def _check_okf_conformance(
     output_dir: Path,
+    skip_notes_staleness: bool = False,
 ) -> List[Dict[str, Any]]:
     """Audit the bundle against the OKF v0.2 specification.
 
@@ -1248,6 +1266,7 @@ def _check_okf_conformance(
     from codewiki.src.config import (
         INDEX_FILENAME,
         META_DIR,
+        NOTES_DIR,
         RAW_DIR,
         WIKI_DIR,
     )
@@ -1408,17 +1427,24 @@ def _check_okf_conformance(
         stale_after = fm.get("stale_after")
         if stale_after:
             sa = str(stale_after)[:10]
+            # Notes are judged by the dedicated type-aware stale_notes check
+            # (with retrieval-defer + per-type windows); skip them here to
+            # avoid double-reporting when that check also runs.
+            is_note = NOTES_DIR in md_file.parts
             if re.match(r"^\d{4}-\d{2}-\d{2}$", sa) and sa < today_str:
-                issues.append({
-                    "check": "okf_conformance",
-                    "severity": "warning",
-                    "message": f"stale_after ({sa}) has passed — knowledge may be outdated",
-                    "file": rel_path,
-                    "suggestion": (
-                        "Verify the content is still accurate, then regenerate or "
-                        "update the page to renew stale_after."
-                    ),
-                })
+                if skip_notes_staleness and is_note:
+                    pass  # handled by _check_stale_notes
+                else:
+                    issues.append({
+                        "check": "okf_conformance",
+                        "severity": "warning",
+                        "message": f"stale_after ({sa}) has passed — knowledge may be outdated",
+                        "file": rel_path,
+                        "suggestion": (
+                            "Verify the content is still accurate, then regenerate or "
+                            "update the page to renew stale_after."
+                        ),
+                    })
 
     # §12: wiki/index.md should declare okf_version
     index_path = output_dir / WIKI_DIR / INDEX_FILENAME
@@ -1543,6 +1569,8 @@ def handle_lint_wiki(
         all_issues.extend(_check_unsupported_claims(output_dir))
 
     if "stale_notes" in checks and output_dir:
+        # Config (type-aware windows + retrieval-defer) is read from
+        # schema.yaml inside the check; dispatch passes no hardcoded values.
         all_issues.extend(_check_stale_notes(output_dir))
 
     if "note_clusters" in checks and output_dir:
@@ -1555,7 +1583,10 @@ def handle_lint_wiki(
         all_issues.extend(_check_scenario_orphan(output_dir))
 
     if "okf_conformance" in checks and output_dir:
-        all_issues.extend(_check_okf_conformance(output_dir))
+        all_issues.extend(_check_okf_conformance(
+            output_dir,
+            skip_notes_staleness=("stale_notes" in checks),
+        ))
 
     # Deduplicate: if a link is already reported as stale_refs, don't also
     # report it as broken_links (same file + line = same underlying problem).

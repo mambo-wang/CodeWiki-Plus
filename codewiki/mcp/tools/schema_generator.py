@@ -31,6 +31,22 @@ _DEFAULT_CONVENTIONS = {
     "okf_frontmatter": True,
     "okf_version": "0.2",
     "default_stale_days": 90,
+    # 类型感知新鲜度窗口（新鲜度机制专项）：笔记 stale_after 按 note_type 查表，
+    # 回退链 by_type[type] → default_window_days → default_stale_days → 90。
+    "freshness": {
+        "default_window_days": 180,
+        "retrieval_defer_days": 60,
+        "by_type": {
+            "workaround": 45,
+            "known_issue": 60,
+            "general": 120,
+            "pitfall": 180,
+            "lesson": 180,
+            "bug_fix": 180,
+            "decision": 365,
+            "architecture": 365,
+        },
+    },
     # 默认 tags 不再为空：schema.yaml 里 okf_tags 为 [] 时，
     # frontmatter 注入 helper 会回落到此默认值。
     "okf_tags": ["codewiki", "auto-generated"],
