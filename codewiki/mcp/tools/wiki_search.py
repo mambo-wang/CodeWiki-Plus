@@ -364,8 +364,11 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
         s *= auth
         # Usage-signal heat (U1): multiply exactly where authority does —
         # AFTER BM25, BEFORE the title floor.
-        u_hits, u_last = usage_map.get(fk, (0, None))
-        heat = compute_usage_heat(u_hits, u_last, usage_cfg) if heat_on else 1.0
+        u_hits, u_last, u_adopted = usage_map.get(fk, (0, None, 0))
+        heat = (
+            compute_usage_heat(u_hits, u_last, usage_cfg, adopted_count=u_adopted)
+            if heat_on else 1.0
+        )
         s *= heat
         # Developer notes are short; BM25 scores are naturally low and would be
         # filtered out by the generic threshold even when the title matches the
@@ -379,7 +382,7 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
     scored.sort(key=lambda x: x[0], reverse=True); scored = scored[:max_results]
     out = []
     for s, fk, auth in scored:
-        u_hits, u_last = usage_map.get(fk, (0, None))
+        u_hits, u_last, u_adopted = usage_map.get(fk, (0, None, 0))
         out.append({"file": fk, "title": idx.docs.get(fk,{}).get("title",fk),
                     "source": idx.docs.get(fk,{}).get("source","doc"),
                     "snippet": (_extract_snippet((od/fk).read_text(encoding="utf-8",errors="replace"), qts)
@@ -387,7 +390,8 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
                     "relevance_score": round(s,4),
                     "authority": round(auth,2),
                     "matched_tokens": _matched_for_doc(idx.docs.get(fk,{}).get("term_freq",{}), qts),
-                    "usage": {"hit_count": u_hits, "last_hit": u_last}})
+                    "usage": {"hit_count": u_hits, "last_hit": u_last,
+                              "adopted_count": u_adopted}})
     return out
 
 

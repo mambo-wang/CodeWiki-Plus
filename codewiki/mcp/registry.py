@@ -603,7 +603,7 @@ _register(
         name="lint_wiki",
         description=(
             "Check documentation-code consistency. Works with or without an active session. "
-            "Runs 16 available checks: stale_refs (docs reference deleted components), "
+            "Runs 18 available checks: stale_refs (docs reference deleted components), "
             "broken_links (markdown links to non-existent pages), "
             "undocumented (high-impact components without docs), "
             "cycles (circular module dependencies), coverage (documentation coverage gaps), "
@@ -616,8 +616,15 @@ _register(
             "stale_notes (stable/confirmed notes whose type-aware stale_after review "
             "deadline has passed without a recent retrieval; confirm_note renews), "
             "note_clusters (modules with 3+ same-type notes suggesting consolidation), "
+            "low_adoption (stable notes recalled 5+ times within the recent window yet "
+            "never adopted — relevant but not actionable; rewrite with concrete "
+            "steps/commands/expected results via the distill/edit flow), "
             "okf_conformance (OKF v0.2 audit: missing type/frontmatter, legacy statuses, "
-            "malformed verified, expired stale_after, missing okf_version). "
+            "malformed verified, expired stale_after, missing okf_version), "
+            "scenario_capacity (L2 scene blocks at/over the consolidation cap — "
+            "merge similar scenes before adding more), "
+            "scenario_orphan (scene blocks with no source_notes provenance and no "
+            "recent retrieval — possibly redundant or outdated). "
             "Run checks=['all'] for a comprehensive audit. "
             "After fixing issues, use flag_issue to track remaining problems. "
             "MANDATORY FINAL STEP: after lint passes (or issues are tracked), you MUST call "
@@ -644,7 +651,8 @@ _register(
                             "cycles", "coverage", "orphan_pages", "no_outlinks",
                             "missing_aliases", "stale_sources", "superseded_pages",
                             "isolated_components", "overview_stale", "unsupported_claims",
-                            "stale_notes", "note_clusters", "okf_conformance",
+                            "stale_notes", "note_clusters", "low_adoption",
+                            "okf_conformance",
                             "scenario_capacity", "scenario_orphan",
                         ],
                     },

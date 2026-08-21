@@ -93,6 +93,15 @@ conventions:
     cold_penalty: 0.2    # 冷文档惩罚幅度（heat 下界 0.8）
     cold_days: 180       # 距最近一次命中的天数超过此值视为冷
     cold_min_hits: 3     # 只有「热过后来冷」的文档才受罚
+    adopted_weight: 0.06 # 采纳权重（实际引用 vs 单纯召回，2 倍关系；设 0 关闭采纳影响）
+    low_adoption:        # lint low_adoption 检查：高频召回却零采纳的笔记
+      min_hits: 5          # 触发检查的最低召回次数
+      max_adopted: 0       # 采纳次数上限（超过则视为已满足需求）
+      recent_days: 60      # 仅统计近期仍被检索的（历史冷文档归 stale_notes 管）
+  # P1 C 线：笔记晋升正式 wiki 页面的门槛（wiki_stats.promotion_candidates 判定用）
+  promotion:
+    min_adopted: 3      # 被采纳次数下限
+    min_age_days: 14    # 笔记树龄下限（防新笔记速通）
   # 全局默认标签列表，会自动追加到每个文档的 frontmatter tags 中。
   # 例如 [project-x, v2] 会让所有文档带上这些标签，便于跨项目检索
   okf_tags: []

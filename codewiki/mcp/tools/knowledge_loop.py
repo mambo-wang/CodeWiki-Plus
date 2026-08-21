@@ -1803,6 +1803,15 @@ def handle_query_wiki(
         **({"query_coverage": coverage} if coverage else {}),
         "results": results,
         "context_package": context_package,
+        # P1 A-line: adoption convention reminder — a lower-bound usefulness
+        # signal. Agents that actually use a result should declare it.
+        "adoption_hint": (
+            "If you actually used any result above, include this single-line "
+            "comment in your final reply (paths exactly as returned): "
+            "<!-- codewiki:referenced-docs: [\"<file>\", ...] -->. "
+            "Declared docs earn adoption credit which boosts their future "
+            "ranking (usage.adopted_count)."
+        ),
     }, indent=2, ensure_ascii=False)
 
 
@@ -2019,6 +2028,16 @@ def handle_wiki_stats(
     except Exception:
         cold = None
 
+    # P1 C 线: notes that have earned promotion to a formal wiki page —
+    # stable + repeatedly adopted + old enough + not yet promoted.
+    # (Mounted on the main return only: without a stats db there is no
+    # adoption data either, so the early-return branch would always be [].)
+    promotion = None
+    try:
+        promotion = _promotion_candidates(output_dir)
+    except Exception:
+        promotion = None
+
     return json.dumps({
         "total_distinct_queries": total_queries,
         "returned": len(stats),
@@ -2029,6 +2048,7 @@ def handle_wiki_stats(
         **({"aggregation": aggregation} if aggregation else {}),
         **({"freshness": freshness} if freshness else {}),
         **({"cold_candidates": cold} if cold else {}),
+        **({"promotion_candidates": promotion} if promotion else {}),
     }, indent=2, ensure_ascii=False)
 
 
@@ -2087,6 +2107,121 @@ def _cold_candidates(output_dir: Path) -> Optional[List[Dict[str, Any]]]:
                 "days_since_last_hit": (today - lh_dt).days,
             })
     out.sort(key=lambda x: -x["days_since_last_hit"])
+    return out
+
+
+# P1 C-line (docs/知识飞轮增强设计方案-P1三项.md §4.3): note → wiki page
+# promotion routing.  The default target page_type per note type; an empty
+# string leaves the choice to the agent (mapping is a default, not a mandate).
+_PROMOTION_PAGE_TYPES: Dict[str, str] = {
+    "pitfall": "query",
+    "bug_fix": "query",
+    "workaround": "query",
+    "lesson": "concept",
+    "decision": "concept",
+    "architecture": "concept",
+    "general": "",
+}
+
+
+def _note_age_days(fm: Dict[str, Any], today: datetime) -> int:
+    """Age in days from ``metadata.date``, falling back to ``verified[-1].at``.
+
+    ``verified`` may be a bare mapping or a YAML list of ``{by, at}`` entries
+    (§5.2).  Parse failures yield 0 — an undatable note is treated as newborn,
+    which is the safe direction for the min_age_days gate.
+    """
+    created = None
+    meta = fm.get("metadata")
+    if isinstance(meta, dict):
+        created = _parse_day(meta.get("date"))
+    if created is None:
+        verified = fm.get("verified")
+        if isinstance(verified, dict):
+            verified = [verified]
+        if isinstance(verified, list) and verified:
+            last = verified[-1]
+            if isinstance(last, dict):
+                created = _parse_day(last.get("at"))
+    if created is None:
+        return 0
+    return max(0, (today - created).days)
+
+
+def _promotion_candidates(output_dir: Path) -> Optional[List[Dict[str, Any]]]:
+    """P1 C-line: notes that have earned promotion to a formal wiki page.
+
+    Candidate = stable note, adopted_count >= min_adopted (default 3),
+    age >= min_age_days (default 14, from metadata.date or verified[-1].at),
+    and NOT already marked metadata.promoted_to.
+
+    Frontmatter is parsed structurally via :func:`_extract_frontmatter_block`
+    (yaml.safe_load), so the nested ``metadata:`` block — whether emitted as
+    indented ``key: value`` rows or flow style — and the ``verified`` list are
+    read as real YAML structures, not line-level guesses.  Returns ``None``
+    when the bundle has no notes/ directory; otherwise a (possibly empty)
+    list sorted by adopted_count desc, each entry carrying
+    file/title/type/adopted_count/age_days/suggested_page_type.
+    """
+    from codewiki.src.config import NOTES_DIR
+
+    notes_dir = output_dir / NOTES_DIR
+    if not notes_dir.is_dir():
+        return None
+
+    # Thresholds from schema.yaml conventions.promotion (cold-candidates style)
+    min_adopted, min_age_days = 3, 14
+    try:
+        from codewiki.mcp.tools.page_router import load_schema
+        schema = load_schema(str(output_dir)) or {}
+        promo = (schema.get("conventions") or {}).get("promotion") or {}
+        min_adopted = int(promo.get("min_adopted", min_adopted))
+        min_age_days = int(promo.get("min_age_days", min_age_days))
+    except Exception:
+        pass
+
+    # A-line adoption counts: missing db/table → {} → nothing can qualify.
+    try:
+        from codewiki.mcp.tools.adoption import load_adoption_counts
+        adopted_counts = load_adoption_counts(Path(output_dir))
+    except Exception as e:
+        logger.debug("promotion_candidates adoption load failed: %s", e)
+        return []
+
+    today = datetime.now()
+    out: List[Dict[str, Any]] = []
+    for note_file in sorted(notes_dir.glob("*.md")):
+        try:
+            text = note_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        fm = _extract_frontmatter_block(text)
+        if not fm:
+            continue
+        # Only confirmed notes are promotion material.
+        if _norm_status(fm.get("status")) != "stable":
+            continue
+        rel_path = str(note_file.relative_to(output_dir)).replace("\\", "/")
+        adopted = adopted_counts.get(rel_path, 0)
+        if adopted < min_adopted:
+            continue
+        # Already promoted — the note stays as an audit anchor; never re-promote.
+        meta = fm.get("metadata")
+        if isinstance(meta, dict) and meta.get("promoted_to"):
+            continue
+        age = _note_age_days(fm, today)
+        if age < min_age_days:
+            continue
+        note_type = str(fm.get("type", "")).strip().lower()
+        out.append({
+            "file": rel_path,
+            "title": fm.get("title", note_file.stem),
+            "type": note_type,
+            "adopted_count": adopted,
+            "age_days": age,
+            "suggested_page_type": _PROMOTION_PAGE_TYPES.get(note_type, ""),
+        })
+    out.sort(key=lambda x: -x["adopted_count"])
     return out
 
 

@@ -1035,6 +1035,62 @@ def _prompt_consolidate_knowledge(args: dict[str, str]) -> str:
 用户拒绝则到此为止，不再追问。"""
 
 
+def _prompt_promote_note(args: dict[str, str]) -> str:
+    note_file = (args.get("note_file") or "").strip()
+    output_dir = (args.get("output_dir") or "").strip() or "<repo>/repowiki"
+    target = note_file or "<候选笔记相对路径，如 notes/2026-08-01-port-conflict.md>"
+    return f"""笔记晋升工作流（P1 C 线，docs/知识飞轮增强设计方案-P1三项.md §4）。当 wiki_stats 返回的 `promotion_candidates` 出现候选笔记（status=stable、被 Agent 声明采纳达到门槛、树龄足够），或用户要求"把某条笔记晋升为正式 wiki 页面"时，使用本流程把反复被采纳的笔记 AI 重写为正式 wiki 页面，打通 notes → wiki 的断层。
+
+## 前置：确定晋升对象
+- 未指定笔记时：调用 `wiki_stats(output_dir="{output_dir}")`，读取 `promotion_candidates` 列表，向用户展示候选（file/title/type/adopted_count/age_days/suggested_page_type），由用户选定要晋升哪一条
+- 已指定笔记（本次目标：`{target}`）时：直接进入执行步骤
+
+## 类型路由（笔记 → 目标页面类型）
+| 笔记类型 | 默认目标 page_type | 重写方向 |
+|----------|-------------------|----------|
+| pitfall / bug_fix / workaround | `query`（排查记录页） | 结构化为"症状→根因→排查步骤→修复方案"，补命令与预期输出 |
+| lesson | `concept`（概念页） | 从个案抽象为通用机制描述，补适用边界 |
+| decision / architecture | `concept` | 补决策上下文（当时备选、取舍理由），去一次性事件细节 |
+| general | 自行判断 | 按内容判断更适合 query 还是 concept |
+
+映射是默认值不是硬约束，可按内容微调。
+
+## 重写规则（去个人化原则）
+- **抹掉具体日期、人名、一次性事件**："上周三那个订单超时" → "支付超时的典型根因"
+- **保留所有可验证的技术事实**：命令、路径、版本号、根因结论一个不丢
+- **结构化**：query 页按"症状→根因→排查步骤→修复方案"组织；concept 页补机制描述与适用边界
+- **长度不超过原笔记**（去个人化是压缩，不是扩写）
+- **原笔记的 aliases 并入新页面 frontmatter** 的 aliases 字段，保持检索连续性
+
+## 执行步骤
+1. 读取原笔记全文（`view_repo_file` 或直接读 `{output_dir}/{target}`），确认其类型并按映射表选定 page_type
+2. 按重写规则完成去个人化重写，调用 `write_doc_file`（page_type 按映射表取）：
+   ```json
+   {{
+     "output_dir": "{output_dir}",
+     "page_type": "<query|concept>",
+     "file_name": "<新页面文件名>",
+     "title": "<去个人化后的标题>",
+     "description": "<一句话摘要>",
+     "content": "<重写后的正文>",
+     "status": "draft"
+   }}
+   ```
+   **新页面必须写 status=draft**——晋升产物走既有评审闸门，写完后提醒用户用 `confirm_note(note_file=...)` 确认后才成为正式知识
+3. 回标原笔记（防重复晋升 + 审计轨迹）：用 `edit_doc_file` 修改原笔记 frontmatter，在 `metadata:` 嵌套段下加一行：
+   ```yaml
+   metadata:
+     promoted_to: wiki/queries/<新页面文件名>
+   ```
+   （值为新页面相对 output_dir 的路径。**⚠ promoted_to 必须写在 `metadata:` 嵌套段下（缩进两格），不能写成顶层键**——OKF v0.2 顶层键白名单不含 promoted_to，顶层直写会触发 okf_conformance lint 告警）
+4. **原笔记不删除、不降级状态**——它是审计轨迹与 source_ref 链路的锚点，仅加 promoted_to 标记
+
+## 参数说明
+- **note_file**（可选）：要晋升的笔记相对路径（如 notes/xxx.md）
+- **output_dir**（可选）：Wiki 输出目录，默认 `<repo>/repowiki`
+- **repo_path**（可选）：仓库根目录，用于推导 output_dir"""
+
+
 def register(server):
     """Register prompt handlers on the given MCP Server instance."""
     from mcp.types import Prompt, PromptArgument
@@ -1323,6 +1379,34 @@ def register(server):
                     ),
                 ],
             ),
+            Prompt(
+                name="promote-note",
+                title="笔记晋升为正式 wiki 页面",
+                description=(
+                    "把反复被采纳的 stable 笔记（wiki_stats.promotion_candidates 候选）"
+                    "去个人化重写为正式 wiki 页面：类型路由（pitfall/bug_fix/workaround → query，"
+                    "lesson/decision/architecture → concept）→ write_doc_file 写新页面（必须 draft 状态，"
+                    "写完提醒 confirm）→ edit_doc_file 回标原笔记 metadata.promoted_to。"
+                    "原笔记不删除不降级，保留作审计轨迹锚点。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="note_file",
+                        description="要晋升的笔记相对路径（如 notes/xxx.md）；留空则从 wiki_stats 的 promotion_candidates 中由用户选定",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="output_dir",
+                        description="Wiki 输出目录（默认: <repo>/repowiki）",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="repo_path",
+                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                ],
+            ),
         ]
 
     @server.get_prompt()
@@ -1348,6 +1432,7 @@ def register(server):
             "distill-conversations": _prompt_distill_conversations,
             "task-workflow": _prompt_task_workflow,
             "consolidate-knowledge": _prompt_consolidate_knowledge,
+            "promote-note": _prompt_promote_note,
         }
 
         handler = prompts_map.get(name)
