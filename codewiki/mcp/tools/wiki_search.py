@@ -7,7 +7,7 @@ the legacy JSON file index otherwise.
 
 from __future__ import annotations
 
-import json, logging, math, os, re, threading
+import json, logging, math, os, re, threading, time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -28,7 +28,14 @@ _build_lock = threading.Lock()
 
 
 def _resolve_db_path(output_dir: Path) -> Optional[Path]:
-    """Resolve analysis_cache.db path from project.json or standard layout."""
+    """Resolve analysis_cache.db path from project.json or standard layout.
+
+    project.json entries may be relative (T1b: portable across machines —
+    cache_db is repo-root-relative, output_dir is repo-relative) or absolute
+    (legacy). Relative cache_db resolves against the output_dir's parent
+    (i.e. the repo root for the standard <repo>/repowiki layout). A missing
+    absolute path falls through to the standard layout, never errors.
+    """
     from codewiki.mcp.cache import _CACHE_DIR, _DB_FILENAME
     from codewiki.src.config import meta_resolve, PROJECT_FILENAME
 
@@ -39,8 +46,14 @@ def _resolve_db_path(output_dir: Path) -> Optional[Path]:
         if pj.exists():
             info = json.loads(pj.read_text(encoding="utf-8"))
             candidate = info.get("cache_db")
-            if candidate and Path(candidate).exists():
-                return Path(candidate)
+            if candidate:
+                cand = Path(candidate)
+                if not cand.is_absolute():
+                    # relative → resolve against the repo root (= output_dir.parent
+                    # for the standard layout; falls back to output_dir itself)
+                    cand = (od.parent / cand)
+                if cand.exists():
+                    return cand
     except Exception:
         pass
     # 2. Standard layout fallback
@@ -79,14 +92,17 @@ class _IndexData:
     def __init__(self):
         self.version = 1; self.total_docs = 0; self.avg_doc_len = 0.0
         self.doc_freq: Dict[str, int] = {}; self.docs: Dict[str, Dict] = {}
+        self.built_at: float = 0.0   # T1a: build timestamp for mtime-sampling freshness
     def to_dict(self):
         return {"version": self.version, "total_docs": self.total_docs,
-                "avg_doc_len": round(self.avg_doc_len,2), "doc_freq": self.doc_freq, "docs": self.docs}
+                "avg_doc_len": round(self.avg_doc_len,2), "doc_freq": self.doc_freq,
+                "docs": self.docs,
+                "built_at": self.built_at or time.time()}
     @classmethod
     def from_dict(cls, d):
         i = cls(); i.version = d.get("version",1); i.total_docs = d.get("total_docs",0)
         i.avg_doc_len = d.get("avg_doc_len",0.0); i.doc_freq = d.get("doc_freq",{})
-        i.docs = d.get("docs",{}); return i
+        i.docs = d.get("docs",{}); i.built_at = float(d.get("built_at") or 0.0); return i
     def _recompute(self):
         self.total_docs = len(self.docs)
         tl = sum(d.get("doc_len",0) for d in self.docs.values())
@@ -239,7 +255,9 @@ def build_full_index(output_dir, session=None):
                 title = sf.stem.replace("_", " ").replace("-", " ").title()
                 idx.upsert(f"raw/sources/{sf.name}", title, "source", ct, batch=True); sc += 1
 
-        idx.finalize(); _save_index(od, idx)
+        idx.finalize()
+        idx.built_at = time.time()   # T1a: freshness mtime baseline
+        _save_index(od, idx)
     return {"docs_indexed": dc, "notes_indexed": nc, "sources_indexed": sc,
             "total_docs": idx.total_docs,
             "avg_doc_len": round(idx.avg_doc_len,1), "vocabulary_size": len(idx.doc_freq)}
@@ -295,6 +313,16 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
     ``authority`` / ``usage`` fields for transparency.
     """
     od = Path(output_dir); max_results = min(20, max(1, max_results))
+
+    # T1a: freshness self-heal (sessionless path only — an active session
+    # holds its own cache and close_session rebuilds it). Throttled to one
+    # inventory scan per minute; a stale index triggers a transparent rebuild.
+    if session is None:
+        try:
+            from codewiki.mcp.tools.index_freshness import ensure_fresh
+            ensure_fresh(od)
+        except Exception as e:
+            logger.debug("freshness check skipped: %s", e)
 
     # Try SQLite cache first (active session)
     if session is not None and getattr(session, "cache", None) is not None:

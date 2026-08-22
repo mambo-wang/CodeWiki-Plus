@@ -357,7 +357,8 @@ def _doc_authority(doc_key: str, source: str, content: str = "") -> float:
 # ---------------------------------------------------------------------------
 # Usage-signal heat ranking (U1, docs/知识飞轮增强设计方案-P0三项.md §3).
 #
-# retrieval_stats.db (written by query_wiki after every search) feeds a
+# telemetry jsonl events (written by query_wiki after every search, T2:
+# docs/团队知识库支持优化设计方案.md §4.2) feed a
 # conservative multiplicative heat factor applied exactly where authority is:
 # AFTER the BM25 score, BEFORE the note title floor:
 #
@@ -465,11 +466,11 @@ def compute_usage_heat(
     return heat
 
 
-# file_path -> (hit_count, last_hit, adopted_count) per retrieval_stats.db,
-# cached by the db file's mtime so repeated searches don't reopen the database
-# (the file is rewritten by query_wiki / capture adoption recording after every
-# call — mtime bump forces a reload).
-_retrieval_usage_cache: Dict[str, Tuple[Optional[float], Dict[str, Tuple[int, Optional[str], int]]]] = {}
+# file_path -> (hit_count, last_hit, adopted_count), aggregated from the
+# per-user telemetry event streams (T2, docs/团队知识库支持优化设计方案.md
+# §4.2) written by query_wiki / capture adoption recording. The mtime
+# snapshot cache lives inside telemetry.aggregate_usage — any event file
+# changing forces a rescan, so no separate caching is needed here.
 
 
 def _load_retrieval_usage_map(
@@ -477,56 +478,32 @@ def _load_retrieval_usage_map(
 ) -> Dict[str, Tuple[int, Optional[str], int]]:
     """Load ``file_path → (hit_count, last_hit, adopted_count)``.
 
-    hit/last_hit come from ``retrieval_stats``; adopted_count aggregates the
-    ``adoption_events`` table (P1 A-line) in the same db. Missing db or
-    missing adoption table → adopted=0 everywhere. Read failures degrade
-    silently to an empty mapping (usage signals must never break search).
+    All three numbers are team-wide aggregates over every user's
+    ``.meta/telemetry/*.jsonl`` (plus the gitignored telemetry-local
+    fallback directory): hit/last_hit from ``hit`` events, adopted_count
+    from distinct-key ``adopted`` events. No telemetry data or read
+    failures degrade silently to an empty mapping (usage signals must
+    never break search).
     """
     if output_dir is None:
         return {}
-    od = Path(output_dir)
     try:
-        from codewiki.src.config import META_DIR
-        db_path = od / META_DIR / "retrieval_stats.db"
-    except Exception:
-        db_path = od / ".meta" / "retrieval_stats.db"
-    try:
-        mtime: Optional[float] = db_path.stat().st_mtime if db_path.exists() else None
-    except OSError:
-        mtime = None
-    key = str(db_path)
-    cached = _retrieval_usage_cache.get(key)
-    if cached is not None and cached[0] == mtime:
-        return cached[1]
-    usage: Dict[str, Tuple[int, Optional[str], int]] = {}
-    if mtime is not None:
+        from codewiki.mcp.tools import telemetry
+        usage = telemetry.aggregate_usage(Path(output_dir))
+    except Exception as e:
+        logger.debug("Failed to load telemetry usage: %s", e)
+        return {}
+    out: Dict[str, Tuple[int, Optional[str], int]] = {}
+    for fp, entry in usage.items():
         try:
-            conn = sqlite3.connect(str(db_path))
-            try:
-                for fp, hc, lh in conn.execute(
-                    "SELECT file_path, hit_count, last_hit FROM retrieval_stats"
-                ).fetchall():
-                    usage[str(fp)] = (int(hc or 0), str(lh) if lh else None, 0)
-                # Adoption aggregation (P1 A-line) — same db, so the shared
-                # mtime cache above still invalidates when either table is
-                # written. Old dbs without the table keep adopted=0.
-                try:
-                    for fp, cnt in conn.execute(
-                        "SELECT doc_path, COUNT(*) FROM adoption_events "
-                        "GROUP BY doc_path"
-                    ).fetchall():
-                        entry = usage.get(str(fp))
-                        if entry is not None:
-                            usage[str(fp)] = (entry[0], entry[1], int(cnt))
-                except sqlite3.Error:
-                    pass
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.debug("Failed to load retrieval stats: %s", e)
-            usage = {}
-    _retrieval_usage_cache[key] = (mtime, usage)
-    return usage
+            out[str(fp)] = (
+                int(entry.get("hits", 0) or 0),
+                entry.get("last_hit"),
+                int(entry.get("adopted", 0) or 0),
+            )
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 # Bundle schema.yaml as needed by usage ranking, cached by file mtime.
@@ -1327,6 +1304,14 @@ class AnalysisCache:
             avg = (c.execute("SELECT SUM(doc_len) FROM search_index").fetchone()[0] or 0) / td
             c.execute("INSERT INTO search_stats VALUES('total_docs',?)", (str(td),))
             c.execute("INSERT INTO search_stats VALUES('avg_doc_len',?)", (str(avg),))
+        # T1a: build timestamp — the mtime-sampling freshness baseline
+        # (index_freshness.ensure_fresh compares sampled file mtimes to this)
+        try:
+            import time as _time
+            c.execute("INSERT INTO search_stats VALUES('index_built_at',?)",
+                      (str(_time.time()),))
+        except Exception:
+            pass
         self.conn.commit()
 
         # Build inter-page link graph alongside the search index
