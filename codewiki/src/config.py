@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 import argparse
 import os
+import re
 import sys
 from dotenv import load_dotenv
 load_dotenv()
@@ -66,6 +67,73 @@ def actor_id() -> str:
     """Return the OKF actor id for this tool, e.g. ``codewiki/5.2.0`` (§7)."""
     from codewiki import __version__
     return f"{ACTOR_NAME}/{__version__}"
+
+
+# --------------------------------------------------------------------------- #
+# T2 identity (docs/团队知识库支持优化设计方案.md §4.1)
+# --------------------------------------------------------------------------- #
+
+# Per-user git identity is process-stable: resolve it once. The env override
+# (CODEWIKI_USER) is checked live on every call so pseudonyms apply immediately.
+_GIT_USER_NAME_CACHE: Optional[str] = None
+
+# Filename-safe charset for the telemetry namespace: alphanumerics, dash,
+# underscore. Everything else (spaces, CJK, dots...) collapses to a dash.
+_USER_ID_UNSAFE_RE = re.compile(r"[^A-Za-z0-9_-]+")
+
+
+def _git_user_name() -> str:
+    """Global ``git config user.name`` (cwd-independent); '' when unset/failing."""
+    global _GIT_USER_NAME_CACHE
+    if _GIT_USER_NAME_CACHE is not None:
+        return _GIT_USER_NAME_CACHE
+    name = ""
+    try:
+        import subprocess
+        proc = subprocess.run(
+            ["git", "config", "user.name"],
+            capture_output=True, text=True, timeout=5,
+            encoding="utf-8", errors="replace",
+        )
+        if proc.returncode == 0:
+            name = (proc.stdout or "").strip()
+    except Exception:
+        name = ""
+    _GIT_USER_NAME_CACHE = name
+    return name
+
+
+def _login_name() -> str:
+    """OS login name; '' when unavailable (services / some CI sandboxes)."""
+    try:
+        return os.getlogin() or ""
+    except Exception:
+        return ""
+
+
+def _sanitize_user_id(raw: str) -> str:
+    """Filename-safe form of *raw*: [A-Za-z0-9_-] only, truncated to 40 chars."""
+    safe = _USER_ID_UNSAFE_RE.sub("-", (raw or "").strip()).strip("-")
+    if not safe:
+        return "local"
+    return safe[:40]
+
+
+def user_id() -> str:
+    """Stable per-user identity for telemetry namespacing.
+    Priority: CODEWIKI_USER env (explicit override, allows pseudonyms)
+    > git config user.name > os.getlogin(). Falls back to 'local'.
+    Not an auth mechanism — namespace only (trust model = confirm gate).
+    """
+    env = os.getenv("CODEWIKI_USER", "").strip()
+    if env:
+        return _sanitize_user_id(env)
+    raw = _git_user_name()
+    if not raw:
+        raw = _login_name()
+    if not raw:
+        return "local"
+    return _sanitize_user_id(raw)
 
 
 def meta_join(base_dir, filename):

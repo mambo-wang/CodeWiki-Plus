@@ -649,8 +649,8 @@ def handle_capture_conversation(
     # metadata + the returned JSON; it never gates the capture itself.
     friction = score_friction(turns)
     # Adoption extraction (P1 A-line): parse ``codewiki:referenced-docs``
-    # declarations from assistant turns and persist them into the shared
-    # retrieval-stats db. Zero-IO fast path when nothing was declared.
+    # declarations from assistant turns and persist them into the per-user
+    # telemetry event stream. Zero-IO fast path when nothing was declared.
     from codewiki.mcp.tools.adoption import (
         extract_adopted_docs,
         looks_like_search_happened,
@@ -661,13 +661,14 @@ def handle_capture_conversation(
     )
     adoption_inserted = 0
     if adopted_docs:
-        # capture_key: stable per session (source_session_id); manual captures
-        # without an id fall back to the content hash so an identical re-capture
-        # stays idempotent while a changed transcript counts its new claims.
-        capture_key = source_session_id or f"hash-{content_hash[:24]}"
-        from codewiki.mcp.tools.knowledge_loop import _get_stats_db_path
+        # capture_key (T2): namespaced by user_id so the same session id on
+        # two machines never collides. Manual captures without an id fall
+        # back to the content hash so an identical re-capture stays
+        # idempotent while a changed transcript counts its new claims.
+        from codewiki.src.config import user_id
+        capture_key = f"{user_id()}/{source_session_id or f'hash-{content_hash[:24]}'}"
         adoption_inserted = record_adoption_events(
-            _get_stats_db_path(output_dir), capture_key, adopted_docs,
+            output_dir, capture_key, adopted_docs,
             now.strftime("%Y-%m-%d"),
         )
     adoption_nudge = bool(

@@ -10,8 +10,9 @@ a single-line HTML comment convention:
 This module contains ONLY pure functions (no IO beyond optional path
 existence checks supplied by the caller): parsing the convention out of
 conversation turns and normalising the claimed paths.  Persistence lives in
-``capture_conversation`` (adoption_events table), and consumption lives in the
-usage-heat ranking (``cache.compute_usage_heat``).
+the per-user telemetry event stream (``telemetry.record_adopted``, written
+by ``capture_conversation``), and consumption lives in the usage-heat
+ranking (``cache.compute_usage_heat``).
 
 Design posture (mirrors friction.py): the signal is a *lower bound* — agents
 forget to declare (misses happen) but rarely declare docs they did not use
@@ -23,7 +24,6 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -133,79 +133,64 @@ def looks_like_search_happened(turns: List[Dict[str, str]]) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# Persistence: adoption_events table (same SQLite db as retrieval_stats)
+# Persistence: per-user telemetry event stream (T2, docs/团队知识库支持
+# 优化设计方案.md §4.2). The old adoption_events SQLite table is retired;
+# ``.meta/telemetry/<user>.jsonl`` is the single source of truth.
 # --------------------------------------------------------------------------- #
 
-_ADOPTION_TABLE_DDL = """
-CREATE TABLE IF NOT EXISTS adoption_events (
-    capture_key TEXT NOT NULL,
-    doc_path    TEXT NOT NULL,
-    adopted_at  TEXT NOT NULL,
-    PRIMARY KEY (capture_key, doc_path)
-)
-"""
-
-
 def record_adoption_events(
-    stats_db: Path,
+    output_dir: Path,
     capture_key: str,
     doc_paths: List[str],
-    adopted_at: str,
+    adopted_at: str = "",
 ) -> int:
-    """Persist adoption claims into ``adoption_events`` (idempotent upsert).
+    """Persist adoption claims as ``adopted`` telemetry events.
 
-    The primary key ``(capture_key, doc_path)`` makes re-capturing the same
-    session a no-op (``INSERT OR IGNORE``): a supersede re-capture does not
-    double-count, while a *newly declared* doc under the same key still
-    counts once — semantically correct, that is a new adoption.
+    Write-side de-duplication mirrors the old ``(capture_key, doc_path)``
+    primary key: docs already recorded under *capture_key* in the current
+    user's event file are skipped, so a supersede re-capture does not
+    double-count (nor even append a duplicate line), while a *newly
+    declared* doc under the same key still counts once — semantically
+    correct, that is a new adoption. Full idempotency is also enforced at
+    aggregation time (``aggregate_usage`` de-duplicates on key), so even a
+    duplicated line across files cannot double-count.
 
     Best-effort: any failure is swallowed and 0 is returned — adoption stats
     must never break the capture path (same posture as retrieval stats).
-    Returns the number of rows actually inserted.
+    Returns the number of events actually appended.
     """
     if not doc_paths or not capture_key:
         return 0
     try:
-        conn = sqlite3.connect(str(stats_db))
-        try:
-            conn.execute(_ADOPTION_TABLE_DDL)
-            before = conn.total_changes
-            conn.executemany(
-                "INSERT OR IGNORE INTO adoption_events "
-                "(capture_key, doc_path, adopted_at) VALUES (?, ?, ?)",
-                [(capture_key, p, adopted_at) for p in doc_paths],
-            )
-            conn.commit()
-            return conn.total_changes - before
-        finally:
-            conn.close()
+        from codewiki.mcp.tools import telemetry
+        existing = telemetry.adopted_docs_for_key(output_dir, capture_key)
+        inserted = 0
+        for p in doc_paths:
+            if p in existing:
+                continue
+            telemetry.record_adopted(output_dir, p, capture_key)
+            inserted += 1
+        return inserted
     except Exception:
         return 0
 
 
 def load_adoption_counts(output_dir: Path) -> Dict[str, int]:
-    """Aggregate ``doc_path → adopted_count`` from adoption_events.
+    """Aggregate ``doc_path → adopted_count`` from telemetry events.
 
-    Missing table/db → empty mapping (callers treat "no data" as adopted=0,
-    never as an error). Not mtime-cached: this is used by low-frequency paths
-    (lint / wiki_stats); the hot search path reuses the combined loader in
-    cache.py instead.
+    Counts distinct capture keys per doc across ALL users' event files
+    (team-wide adoption — two people each adopting once counts twice).
+    No telemetry data → empty mapping (callers treat "no data" as
+    adopted=0, never as an error). The mtime snapshot cache inside
+    ``aggregate_usage`` keeps repeated lint/wiki_stats calls cheap.
     """
-    from codewiki.src.config import META_DIR
-    db = Path(output_dir) / META_DIR / "retrieval_stats.db"
-    counts: Dict[str, int] = {}
-    if not db.exists():
-        return counts
     try:
-        conn = sqlite3.connect(str(db))
-        try:
-            conn.execute(_ADOPTION_TABLE_DDL)  # ensure before SELECT (old dbs)
-            for path, cnt in conn.execute(
-                "SELECT doc_path, COUNT(*) FROM adoption_events GROUP BY doc_path"
-            ).fetchall():
-                counts[str(path)] = int(cnt)
-        finally:
-            conn.close()
+        from codewiki.mcp.tools import telemetry
+        usage = telemetry.aggregate_usage(Path(output_dir))
+        return {
+            doc: int(entry.get("adopted", 0))
+            for doc, entry in usage.items()
+            if entry.get("adopted")
+        }
     except Exception:
         return {}
-    return counts
