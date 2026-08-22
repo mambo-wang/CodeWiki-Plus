@@ -255,7 +255,118 @@ L3 的触发除了自己的计数器（默认 50 条确认笔记），还有一�
 
 ---
 
-## 七、总结：设计哲学与团队价值
+## 七、使用示例：把金字塔跑一遍
+
+机制讲完了，落到日常是什么手感？下面五个场景按真实 MCP 工具参数写，在任何接了 CodeWiki 工具链的 Agent 里照抄就能跑。整条链路只有一种节奏：**准备（工具交材料）→ Agent 动脑子 → 提交（工具记账）**。
+
+### 场景 1 · 采集：一场有沉淀价值的对话结束
+
+```jsonc
+capture_conversation({
+  "conversation": "<本次对话 transcript>",
+  "task_id": "cache-governance"      // 可选：挂到长线任务上
+})
+```
+
+对话落进 `raw/` 暂存区（`conv-<id>.md`，status 待蒸馏），工具顺手打个摩擦分——被纠正过、返工过的对话分数更高，蒸馏时排在前面。**此时它不进检索、不打扰任何人**，只是安静排队。
+
+### 场景 2 · 蒸馏：Agent 亲自当 LLM，两次往返
+
+第一次往返，取材料和纪律：
+
+```jsonc
+distill_conversation({ "mode": "prepare" })
+// → 待蒸馏清单（conversation_id + 预览，按摩擦分降序）+ 蒸馏系统提示词（五条纪律）
+```
+
+Agent 通读 transcript，按纪律提取；第二次往返交卷：
+
+```jsonc
+distill_conversation({
+  "mode": "submit",
+  "distilled": {
+    "conv-20260815-143022": {
+      "notes": [{
+        "title": "缓存击穿须用互斥锁重建，热点探测先行",
+        "note_type": "pitfall",
+        "priority": 88,
+        "scene": "缓存治理",
+        "related_modules": ["cache"],
+        "content": "## Background\n……\n## 正确做法\n……"
+      }],
+      "memories": ["完成缓存击穿互斥锁重建方案，压测待补"]
+    }
+  }
+})
+```
+
+接下来全是工具的确定性簿记：priority<70 的条目直接丢弃；两段式去重召回疑似重复时挂起、等 Agent 四选一裁决；幸存笔记以 **draft** 入库，任务进度进任务记忆暂存区等确认；原始对话搬家到 `conversations/` 永久归档，笔记的 source_ref 同步改写到归档路径。明确标注隐私的对话传 `"drop_raw": true`，蒸馏完即销毁、不入档。
+
+### 场景 3 · 评审：草稿变成正式知识
+
+```jsonc
+confirm_note({ "note_file": "notes/cache-breakdown-mutex.md", "by": "human:zhangsan" })
+// → status 升为 stable，追加 verified 事件，stale_after 按类型窗口刷新
+```
+
+不够格就 `reject_note` 并给理由，评审意见一并留痕。每次确认让聚合计数器加一——**越线时工具会在响应里举手提醒，但动不动手永远等你拍板。**
+
+### 场景 4 · 聚合：计数器举手之后
+
+同样是 Mode C 两段协议：
+
+```jsonc
+consolidate_notes({ "mode": "prepare" })
+// → 待聚合笔记 + 现有卷宗索引 + 容量红绿灯 + 聚合系统提示词
+```
+
+Agent 通读笔记、撰写或更新卷宗，然后提交动作报告：
+
+```jsonc
+consolidate_notes({
+  "mode": "submit",
+  "report": { /* CREATE / UPDATE / MERGE 动作清单 */ }
+})
+```
+
+工具校验容量（红灯拒绝新建）、落盘卷宗、记双向溯源（source_notes ⇄ consolidated_into）、被完全吸收的旧笔记软删退役，最后计数器清零。
+
+### 场景 5 · 刷新 Doctrine，然后消费
+
+```jsonc
+refresh_doctrine({ "mode": "prepare" })
+// → 现行 Doctrine + 近期变化的场景 + 六维度提炼提示词
+
+refresh_doctrine({
+  "mode": "submit",
+  "content": "<Agent 重写后的 Doctrine 全文，≤1200 字>",
+  "by": "human:zhangsan"
+})
+```
+
+消费端则零成本——新 Agent 进场的第一次检索就自带读档：
+
+```jsonc
+query_wiki({ "query": "缓存", "mode": "overview" })
+// → Doctrine 全文 + 场景导航（每卷宗一行摘要）+ 命中的知识层，按需下钻
+```
+
+五个场景对应的触发节奏，一张表收拢：
+
+| 场景 | 工具 | 什么时候做 |
+|---|---|---|
+| 采集 | `capture_conversation` | 有沉淀价值的对话结束后，随手一次 |
+| 蒸馏 | `distill_conversation` | 显式执行；建议每日/每周批量 |
+| 评审 | `confirm_note` / `reject_note` | 蒸馏完成后逐条过目 |
+| 聚合 | `consolidate_notes` | 计数器提醒时（默认 10 条确认笔记） |
+| Doctrine | `refresh_doctrine` | 计数器提醒时（默认 50 条）或聚合级联提醒 |
+| 消费 | `query_wiki(mode="overview")` | 每个新会话开场 |
+
+注意整条链路里工具只干两种活——**交材料、记账本**；判断全在 Agent，启动权全在用户。五个调用打完，金字塔就转完了一圈。
+
+---
+
+## 八、总结：设计哲学与团队价值
 
 照例把全文机制按"业务问题 → 设计决策 → 拿到什么"收个尾：
 
