@@ -102,6 +102,14 @@ conventions:
   promotion:
     min_adopted: 3      # 被采纳次数下限
     min_age_days: 14    # 笔记树龄下限（防新笔记速通）
+  # T2 团队遥测：per-user 使用信号事件流（.meta/telemetry/<user_id>.jsonl，入库共享）。
+  # query_wiki 的检索命中与采纳记录以 user_id（优先 CODEWIKI_USER 环境变量，回退
+  # git config user.name / 系统登录名）署名写入，聚合（热度排序/采纳计数/冷启动检查）
+  # 纯内存进行。enabled=false 时写入切到 .meta/telemetry-local/（gitignore，纯本机
+  # 退化模式），聚合逻辑不变（两个目录都会扫描）。user_id 不鉴权，仅作命名空间；
+  # 不愿以 git 真名署名的成员可用 CODEWIKI_USER 设置花名。
+  telemetry:
+    enabled: true
   # 全局默认标签列表，会自动追加到每个文档的 frontmatter tags 中。
   # 例如 [project-x, v2] 会让所有文档带上这些标签，便于跨项目检索
   okf_tags: []

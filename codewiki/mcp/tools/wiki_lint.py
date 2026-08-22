@@ -940,7 +940,6 @@ def _check_stale_notes(
     > hardcoded defaults (90/60) — dispatch passes no parameters, so bundles
     with a freshness block now actually get their configured windows.
     """
-    import sqlite3
     from datetime import datetime, timedelta
 
     issues: List[Dict[str, Any]] = []
@@ -969,27 +968,20 @@ def _check_stale_notes(
     if retrieval_gap_days is not None:
         cfg = {**cfg, "retrieval_defer_days": int(retrieval_gap_days)}
 
-    # Load retrieval stats if available (activity exemption source).
+    # Telemetry usage aggregate (T2) if available (activity exemption source).
     # U2 复核联动: hit_count is also surfaced in the message and drives the
     # review-priority ordering (most overdue + least recently retrieved first).
-    stats_db = output_dir / ".meta" / "retrieval_stats.db"
     retrieval_map: Dict[str, str] = {}  # file_path -> last_hit date string
     hit_count_map: Dict[str, int] = {}  # file_path -> hit_count (U2)
-    if stats_db.exists():
-        try:
-            conn = sqlite3.connect(str(stats_db))
-            try:
-                rows = conn.execute(
-                    "SELECT file_path, hit_count, last_hit FROM retrieval_stats"
-                ).fetchall()
-                for fp, hc, lh in rows:
-                    hit_count_map[fp] = int(hc or 0)
-                    if lh:
-                        retrieval_map[fp] = lh
-            finally:
-                conn.close()
-        except Exception:
-            pass
+    try:
+        from codewiki.mcp.tools import telemetry
+        for fp, entry in telemetry.aggregate_usage(output_dir).items():
+            hit_count_map[str(fp)] = int(entry.get("hits", 0) or 0)
+            lh = entry.get("last_hit")
+            if lh:
+                retrieval_map[str(fp)] = str(lh)
+    except Exception:
+        pass
 
     today = datetime.now()
     # (overdue_days desc, last_hit asc, issue) — populated in the loop below.
@@ -1064,19 +1056,19 @@ def _check_low_adoption(
 
     P1 B-line (docs/知识飞轮增强设计方案-P1三项.md §3).  This is the
     *utility* dimension of note quality: ``hit_count`` measures exposure,
-    ``adopted_count`` (adoption_events written by capture_conversation when
-    the agent declares the docs it actually used) measures usefulness.  A
-    note that keeps getting recalled and never gets adopted is likely
-    *relevant but not actionable*.
+    ``adopted_count`` (``adopted`` telemetry events written by
+    capture_conversation when the agent declares the docs it actually
+    used) measures usefulness.  A note that keeps getting recalled and
+    never gets adopted is likely *relevant but not actionable*.
 
     Trigger (all must hold, per stable/confirmed note):
-      - hit_count >= min_hits (default 5, from retrieval_stats);
+      - hit_count >= min_hits (default 5, from the telemetry aggregate);
       - adopted_count <= max_adopted (default 0 — never adopted);
       - last_hit within recent_days (default 60) — "was hot, now dead"
         belongs to stale_notes instead.
 
-    Cold-start guard (critical): when the adoption_events table is missing
-    or the whole bundle has zero adoption records, the check silently
+    Cold-start guard (critical): when the bundle has zero adopted events
+    anywhere, the check silently
     returns no issues — right after the A-line ships nobody has declared
     anything yet, and flagging every hot note would be pure noise.
 
@@ -1084,7 +1076,6 @@ def _check_low_adoption(
     usage_ranking.low_adoption`` > hardcoded defaults (5 / 0 / 60) —
     dispatch passes no parameters, same posture as _check_stale_notes.
     """
-    import sqlite3
     from datetime import datetime, timedelta
 
     issues: List[Dict[str, Any]] = []
@@ -1113,8 +1104,8 @@ def _check_low_adoption(
     max_adopted = _param("max_adopted", 0, max_adopted)
     recent_days = _param("recent_days", 60, recent_days)
 
-    # Cold-start guard: no adoption_events table / zero adoption records
-    # anywhere in the bundle → the adoption signal is not in use yet, skip.
+    # Cold-start guard: no adopted events anywhere in the bundle → the
+    # adoption signal is not in use yet, skip.
     from codewiki.mcp.tools.adoption import load_adoption_counts
     adoption_counts = load_adoption_counts(output_dir)
     if not adoption_counts:
@@ -1125,23 +1116,20 @@ def _check_low_adoption(
     if not notes_dir.is_dir():
         return issues
 
-    # Retrieval stats (same source stale_notes uses).
-    stats_db = output_dir / ".meta" / "retrieval_stats.db"
-    if not stats_db.exists():
-        return issues
-    hit_map: Dict[str, Tuple[int, str]] = {}  # file_path -> (hit_count, last_hit)
+    # Usage signals from the telemetry aggregate (T2; same source
+    # stale_notes uses — one call carries hit_count / last_hit / adopted).
     try:
-        conn = sqlite3.connect(str(stats_db))
-        try:
-            rows = conn.execute(
-                "SELECT file_path, hit_count, last_hit FROM retrieval_stats"
-            ).fetchall()
-            for fp, hc, lh in rows:
-                hit_map[str(fp).replace("\\", "/")] = (int(hc or 0), str(lh or ""))
-        finally:
-            conn.close()
+        from codewiki.mcp.tools import telemetry
+        usage_agg = telemetry.aggregate_usage(output_dir)
     except Exception:
         return issues
+    if not usage_agg:
+        return issues
+    hit_map: Dict[str, Tuple[int, str]] = {}  # file_path -> (hit_count, last_hit)
+    for fp, entry in usage_agg.items():
+        hit_map[str(fp).replace("\\", "/")] = (
+            int(entry.get("hits", 0) or 0), str(entry.get("last_hit") or ""),
+        )
 
     cutoff = datetime.now() - timedelta(days=recent_days)
 
@@ -1334,7 +1322,6 @@ def _check_scenario_orphan(
     to the notes it was consolidated from) AND has not been retrieved for
     retrieval_gap_days (or ever). Such blocks may be redundant or outdated.
     """
-    import sqlite3
     from datetime import datetime, timedelta
 
     issues: List[Dict[str, Any]] = []
@@ -1349,23 +1336,16 @@ def _check_scenario_orphan(
     if not scenarios:
         return issues
 
-    # Retrieval stats (same source stale_notes uses)
-    stats_db = output_dir / ".meta" / "retrieval_stats.db"
+    # Telemetry usage aggregate (T2; same source stale_notes uses)
     retrieval_map: Dict[str, str] = {}
-    if stats_db.exists():
-        try:
-            conn = sqlite3.connect(str(stats_db))
-            try:
-                rows = conn.execute(
-                    "SELECT file_path, last_hit FROM retrieval_stats"
-                ).fetchall()
-                for fp, lh in rows:
-                    if lh:
-                        retrieval_map[str(fp).replace("\\", "/")] = lh
-            finally:
-                conn.close()
-        except Exception:
-            pass
+    try:
+        from codewiki.mcp.tools import telemetry
+        for fp, entry in telemetry.aggregate_usage(output_dir).items():
+            lh = entry.get("last_hit")
+            if lh:
+                retrieval_map[str(fp).replace("\\", "/")] = str(lh)
+    except Exception:
+        pass
 
     retrieval_threshold = datetime.now() - timedelta(days=retrieval_gap_days)
     for sc in scenarios:

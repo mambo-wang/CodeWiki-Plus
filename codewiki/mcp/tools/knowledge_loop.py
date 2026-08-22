@@ -15,7 +15,6 @@ import json
 import logging
 import os
 import re
-import sqlite3
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -447,20 +446,14 @@ def _freshness_distribution(output_dir: Path) -> Optional[Dict[str, Any]]:
     cfg = load_freshness_config(schema)
 
     retrieval_map: Dict[str, str] = {}
-    stats_db = _get_stats_db_path(output_dir)
-    if stats_db.exists():
-        try:
-            conn = sqlite3.connect(str(stats_db))
-            try:
-                for fp, lh in conn.execute(
-                    "SELECT file_path, last_hit FROM retrieval_stats"
-                ).fetchall():
-                    if lh:
-                        retrieval_map[fp] = lh
-            finally:
-                conn.close()
-        except Exception:
-            pass
+    try:
+        from codewiki.mcp.tools import telemetry
+        for fp, entry in telemetry.aggregate_usage(output_dir).items():
+            lh = entry.get("last_hit")
+            if lh:
+                retrieval_map[str(fp)] = str(lh)
+    except Exception:
+        pass
 
     try:
         from codewiki.mcp.tools.wiki_lint import _parse_note_frontmatter
@@ -1816,35 +1809,8 @@ def handle_query_wiki(
 
 
 # ------------------------------------------------------------------
-#  Retrieval statistics (SQLite-backed)
+#  Retrieval statistics (T2: per-user telemetry event stream)
 # ------------------------------------------------------------------
-
-
-def _get_stats_db_path(output_dir: Path) -> Path:
-    """Return the path to the retrieval stats SQLite database."""
-    meta_dir = output_dir / ".meta"
-    meta_dir.mkdir(parents=True, exist_ok=True)
-    return meta_dir / "retrieval_stats.db"
-
-
-def _ensure_stats_table(db_path: Path) -> None:
-    """Create the retrieval_stats table if it does not exist."""
-    conn = sqlite3.connect(str(db_path))
-    try:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS retrieval_stats (
-                file_path  TEXT PRIMARY KEY,
-                hit_count  INTEGER NOT NULL DEFAULT 0,
-                last_query TEXT,
-                last_hit   TEXT,
-                first_hit  TEXT
-            )
-            """
-        )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def _record_retrieval_stats(
@@ -1852,38 +1818,26 @@ def _record_retrieval_stats(
 ) -> None:
     """Record which files were returned by a query_wiki call.
 
-    Upserts hit_count and last_query/last_hit for each result file.
-    Called on every query_wiki invocation; failures are logged and swallowed
-    so stats never break the search path.
+    T2 (docs/团队知识库支持优化设计方案.md §4.2): the SQLite
+    retrieval_stats table is retired; each hit appends (or same-day-merges)
+    one event line into ``.meta/telemetry/<user_id>.jsonl`` via
+    ``telemetry.record_hit``. Aggregation is a pure in-memory fold
+    (``telemetry.aggregate_usage``) consumed by the usage-heat ranking,
+    lint checks and wiki_stats.
+
+    Called on every query_wiki invocation; failures are logged and
+    swallowed so stats never break the search path.
     """
     if not results:
         return
     try:
-        db_path = _get_stats_db_path(output_dir)
-        _ensure_stats_table(db_path)
-        now = datetime.now().strftime("%Y-%m-%d")
-        conn = sqlite3.connect(str(db_path))
-        try:
-            for r in results:
-                # Prefer 'file' field (relative path); fall back to 'title'
-                file_path = r.get("file") or r.get("title") or r.get("path", "")
-                if not file_path:
-                    continue
-                conn.execute(
-                    """
-                    INSERT INTO retrieval_stats
-                        (file_path, hit_count, last_query, last_hit, first_hit)
-                    VALUES (?, 1, ?, ?, ?)
-                    ON CONFLICT(file_path) DO UPDATE SET
-                        hit_count = hit_count + 1,
-                        last_query = excluded.last_query,
-                        last_hit   = excluded.last_hit
-                    """,
-                    (file_path, query, now, now),
-                )
-            conn.commit()
-        finally:
-            conn.close()
+        from codewiki.mcp.tools import telemetry
+        for r in results:
+            # Prefer 'file' field (relative path); fall back to 'title'
+            file_path = r.get("file") or r.get("title") or r.get("path", "")
+            if not file_path:
+                continue
+            telemetry.record_hit(output_dir, str(file_path))
     except Exception as e:
         logger.debug("Failed to record retrieval stats: %s", e)
 
@@ -1894,7 +1848,9 @@ def handle_wiki_stats(
 ) -> str:
     """Return per-document retrieval statistics (hit count ranking).
 
-    Reads from the SQLite retrieval_stats table. Supports optional
+    T2: reads the team-wide telemetry aggregate
+    (``telemetry.aggregate_usage`` over all users' jsonl event streams)
+    instead of the retired SQLite retrieval_stats table. Supports optional
     sorting, limit, and include_zero_hit (cross-references with the
     file system to find documents that were never retrieved).
     """
@@ -1913,8 +1869,9 @@ def handle_wiki_stats(
         else:
             return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
 
-    db_path = _get_stats_db_path(output_dir)
-    if not db_path.exists():
+    from codewiki.mcp.tools import telemetry
+    usage = telemetry.aggregate_usage(output_dir)
+    if not usage:
         # P2: aggregation counters stay visible even before any query stats exist.
         try:
             from codewiki.mcp.tools import aggregation_state as agg
@@ -1927,8 +1884,8 @@ def handle_wiki_stats(
         except Exception:
             _fresh = None
         return json.dumps({
-            "error": "No retrieval stats database found. Run query_wiki first to generate stats.",
-            "db_path": str(db_path),
+            "error": "No retrieval stats found. Run query_wiki first to generate stats.",
+            "telemetry_dir": str(output_dir / ".meta" / "telemetry"),
             **({"aggregation": _agg} if _agg else {}),
             **({"freshness": _fresh} if _fresh else {}),
         })
@@ -1939,71 +1896,57 @@ def handle_wiki_stats(
     include_zero_hit = arguments.get("include_zero_hit", False)
     min_hits = arguments.get("min_hits", 0)
 
-    # Validate sort column
-    sort_col = {
-        "hit_count": "hit_count",
-        "last_hit": "last_hit",
-        "first_hit": "first_hit",
-        "file_path": "file_path",
-    }.get(sort_by, "hit_count")
-    sort_dir = "DESC" if order == "desc" else "ASC"
+    # Validate sort column (file_path / hit_count / last_hit / first_hit;
+    # the legacy last_query ordering key is gone — events carry no query text).
+    def _sort_value(fp: str):
+        entry = usage.get(fp, {})
+        return {
+            "hit_count": entry.get("hits", 0),
+            "last_hit": entry.get("last_hit") or "",
+            "first_hit": entry.get("first_hit") or "",
+            "file_path": fp,
+        }.get(sort_by, entry.get("hits", 0))
 
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    try:
-        # Get total query count (distinct last_query values is a rough proxy;
-        # for exact count we'd need a separate query log, but hit_count sums
-        # across files give us the total queries that had results)
-        total_queries_row = conn.execute(
-            "SELECT COUNT(DISTINCT last_query) AS cnt FROM retrieval_stats"
-        ).fetchone()
-        total_queries = total_queries_row["cnt"] if total_queries_row else 0
+    eligible = [fp for fp, e in usage.items() if int(e.get("hits", 0)) >= int(min_hits)]
+    eligible.sort(
+        key=_sort_value,
+        reverse=(order != "asc"),
+    )
+    # total query count proxy: distinct days on which any hit event was
+    # recorded (the exact query log is gone with the SQLite table).
+    total_queries = len(set().union(
+        *(e.get("hit_days") or set() for e in usage.values())
+    )) if usage else 0
 
-        # Fetch ranked stats
-        rows = conn.execute(
-            f"""
-            SELECT file_path, hit_count, last_query, last_hit, first_hit
-            FROM retrieval_stats
-            WHERE hit_count >= ?
-            ORDER BY {sort_col} {sort_dir}
-            LIMIT ?
-            """,
-            (min_hits, limit),
-        ).fetchall()
+    stats = []
+    for fp in eligible[:limit]:
+        e = usage[fp]
+        stats.append({
+            "file_path": fp,
+            "hit_count": int(e.get("hits", 0)),
+            "last_hit": e.get("last_hit"),
+            "first_hit": e.get("first_hit"),
+            "hit_rate": (
+                round(int(e.get("hits", 0)) / total_queries, 4)
+                if total_queries > 0 else 0
+            ),
+        })
 
-        stats = [
-            {
-                "file_path": row["file_path"],
-                "hit_count": row["hit_count"],
-                "last_query": row["last_query"],
-                "last_hit": row["last_hit"],
-                "first_hit": row["first_hit"],
-                "hit_rate": (
-                    round(row["hit_count"] / total_queries, 4)
-                    if total_queries > 0 else 0
-                ),
-            }
-            for row in rows
-        ]
+    # Optionally include zero-hit documents (files on disk with no events)
+    zero_hit = []
+    if include_zero_hit:
+        # Scan wiki/ and notes/ for all .md files
+        all_files = set()
+        for subdir in ["wiki", "notes"]:
+            scan_dir = output_dir / subdir
+            if scan_dir.exists():
+                for md_file in scan_dir.rglob("*.md"):
+                    rel = str(md_file.relative_to(output_dir)).replace("\\", "/")
+                    all_files.add(rel)
 
-        # Optionally include zero-hit documents (files on disk not in stats table)
-        zero_hit = []
-        if include_zero_hit:
-            # Scan wiki/ and notes/ for all .md files
-            all_files = set()
-            for subdir in ["wiki", "notes"]:
-                scan_dir = output_dir / subdir
-                if scan_dir.exists():
-                    for md_file in scan_dir.rglob("*.md"):
-                        rel = str(md_file.relative_to(output_dir)).replace("\\", "/")
-                        all_files.add(rel)
-
-            hit_files = {row["file_path"] for row in rows}
-            for f in sorted(all_files - hit_files):
-                zero_hit.append({"file_path": f, "hit_count": 0})
-
-    finally:
-        conn.close()
+        hit_files = set(usage.keys())
+        for f in sorted(all_files - hit_files):
+            zero_hit.append({"file_path": f, "hit_count": 0})
 
     # P2 (§4.5): expose aggregation counters so agents/users can see when
     # consolidation is due without waiting for a threshold-crossing hint.
@@ -2057,10 +2000,11 @@ def _cold_candidates(output_dir: Path) -> Optional[List[Dict[str, Any]]]:
     (hit_count >= cold_min_hits) but have not been retrieved for more than
     cold_days. Mirrors the usage_ranking cold-penalty definition in the BM25
     paths so the stats view and the ranking behaviour never diverge.
-    Returns None when no stats db exists or nothing is cold.
+    Returns None when no telemetry data exists or nothing is cold.
     """
-    db_path = output_dir / ".meta" / "retrieval_stats.db"
-    if not db_path.exists():
+    from codewiki.mcp.tools import telemetry
+    usage = telemetry.aggregate_usage(output_dir)
+    if not usage:
         return None
 
     cold_days, cold_min_hits = 180, 3
@@ -2073,37 +2017,27 @@ def _cold_candidates(output_dir: Path) -> Optional[List[Dict[str, Any]]]:
     except Exception:
         pass
 
-    import sqlite3
     from datetime import datetime, timedelta
 
-    try:
-        conn = sqlite3.connect(str(db_path))
-        conn.row_factory = sqlite3.Row
-        try:
-            rows = conn.execute(
-                "SELECT file_path, hit_count, last_hit FROM retrieval_stats "
-                "WHERE hit_count >= ?",
-                (cold_min_hits,),
-            ).fetchall()
-        finally:
-            conn.close()
-    except Exception as e:
-        logger.debug("cold_candidates query failed: %s", e)
-        return None
+    rows = [
+        (fp, int(entry.get("hits", 0)), entry.get("last_hit"))
+        for fp, entry in usage.items()
+        if int(entry.get("hits", 0)) >= cold_min_hits and entry.get("last_hit")
+    ]
 
     today = datetime.now()
     cutoff = today - timedelta(days=cold_days)
     out: List[Dict[str, Any]] = []
-    for row in rows:
+    for fp, hit_count, last_hit in rows:
         try:
-            lh_dt = datetime.strptime(str(row["last_hit"]), "%Y-%m-%d")
+            lh_dt = datetime.strptime(str(last_hit)[:10], "%Y-%m-%d")
         except (TypeError, ValueError):
             continue
         if lh_dt < cutoff:
             out.append({
-                "file_path": row["file_path"],
-                "hit_count": row["hit_count"],
-                "last_hit": row["last_hit"],
+                "file_path": fp,
+                "hit_count": hit_count,
+                "last_hit": last_hit,
                 "days_since_last_hit": (today - lh_dt).days,
             })
     out.sort(key=lambda x: -x["days_since_last_hit"])
