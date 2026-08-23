@@ -202,7 +202,7 @@ def _latest_friction_hint(repo_path: str) -> str:
                 corr = f"（纠正 {correction} 次）" if correction is not None else ""
                 return (
                     f"[codewiki] 上次会话摩擦分 {score}{corr}，"
-                    "建议先 distill_conversation 补蒸馏再开始新任务"
+                    "建议优先委托蒸馏 worker subagent 补蒸馏（不阻塞本次工作）"
                 )
             return ""  # newest pending capture is calm — don't disturb
     except Exception:
@@ -225,9 +225,9 @@ def _build_message(event: dict, repo_path: str) -> str:
     lines.append("")
     lines.append(
         "【硬性执行顺序】无论用户第一条消息问什么（哪怕是关于代码、文件、bug 的具体问题），"
-        "本会话的第一个动作都必须是下面这个任务关联弹框流程；弹框、绑定、拉取上下文"
-        "（以及有积压时的补蒸馏）全部完成后，才允许开始读文件/搜索代码/回答用户提问。"
-        "严禁先探索代码或直接回答，事后再补弹任务关联框。"
+        "本会话的第一个动作都必须是下面这个任务关联弹框流程；弹框、绑定、拉取上下文完成后，"
+        "才允许开始读文件/搜索代码/回答用户提问（有积压时补蒸馏委托 subagent 后台执行，"
+        "见下方「补蒸馏」段落，不阻塞回答）。严禁先探索代码或直接回答，事后再补弹任务关联框。"
     )
     lines.append("")
     lines.append(
@@ -256,8 +256,8 @@ def _build_message(event: dict, repo_path: str) -> str:
     lines.append("")
     lines.append(
         "关联完成后调用 get_task_context(task_id=<选中任务>) 拉取该任务上下文继续工作。"
-        "返回中的 pending_raw_count 是本任务尚未蒸馏的历史对话数：若大于 0，必须先按下方"
-        "「补蒸馏」流程处理完积压，再开始回答用户提问。"
+        "返回中的 pending_raw_count 是本任务尚未蒸馏的历史对话数：若大于 0，按下方"
+        "「补蒸馏」委托蒸馏 subagent 后台执行（无需等待，直接开始回答用户提问）。"
         "若用户明确表示本次会话与任何任务无关，可跳过本提示。"
     )
 
@@ -272,7 +272,10 @@ def _build_message(event: dict, repo_path: str) -> str:
             label = f"任务 {tid}" if tid else "未关联任务"
             lines.append(f"  - {label}: {n} 条")
         lines.append(
-            "绑定任务之后、开始回答用户提问之前，对已绑定任务执行补蒸馏："
+            "绑定任务之后，立即用 Task 工具 spawn「蒸馏 worker」subagent "
+            "（.codebuddy/agents/distill-worker.md，已授权 codewiki MCP）后台执行补蒸馏；"
+            "主 Agent 不要亲自 read_file raw 原文、也不等蒸馏完成，直接开始回答用户提问。"
+            "蒸馏 worker 走 Mode C（纯 MCP JSON）流程："
         )
         lines.append(
             "  1. distill_conversation(mode=\"prepare\", task_id=<绑定的任务id>) "
@@ -286,13 +289,14 @@ def _build_message(event: dict, repo_path: str) -> str:
             "产出为草稿笔记与待确认记忆"
         )
         lines.append(
-            "  4. 重新 get_task_context 拉取最新上下文（新产出的待确认记忆/草稿笔记会一并注入）"
+            "  4. 蒸馏完成后，主 Agent 在自然停顿点（任务告一段落/用户空闲时）重新 "
+            "get_task_context 拉取最新上下文（新产出的待确认记忆/草稿笔记会一并注入）"
         )
         lines.append(
             "  5. 向用户展示待确认项，经 confirm_task_memories / confirm_note 确认后才正式落盘"
         )
         lines.append(
-            "若用户明确表示紧急，可先回答提问，但必须在会话结束前完成补蒸馏。"
+            "若用户明确表示紧急，可先回答提问，蒸馏结果在会话结束前展示确认即可。"
             "注意：pending 记忆与 draft 笔记在确认前只能作为只读参考，不得当作已定论的结论引用。"
         )
 

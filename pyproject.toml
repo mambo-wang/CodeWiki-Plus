@@ -114,7 +114,7 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-codewiki = ["templates/**/*", "py.typed"]
+codewiki = ["templates/**/*", "py.typed", "agents/*.md"]
 
 [tool.black]
 line-length = 100

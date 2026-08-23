@@ -48,7 +48,7 @@ _TASK_MEMORY_AGENTS_SECTION = f"""{_TASK_MEMORY_AGENTS_START}
    - **跳过**：本次会话不做任务关联
    新建任务两步弹框：选择「新建任务」后**必须**再次调用 `ask_followup_question` 弹出第二个输入框（标题「新建任务」，问题「请输入新任务名称」，带 2 个占位选项）。弹框自带输入框，用户可自由输入任务名后回车；以输入文字为准，立即调用 `create_task(title=<任务名>)` 创建并关联。若用户只点了占位选项，用文字追问确认真实任务名
 3. `get_task_context(task_id=<任务id>)` 拉取任务描述 + 记忆 + 关联笔记，作为继续工作的上下文
-4. **补蒸馏**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），在回答用户提问之前先执行 `distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)` → 重新 `get_task_context` 把新产出的待确认记忆/草稿笔记注入上下文 → 向用户展示待确认项（`confirm_task_memories` / `confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、会话结束前补蒸馏
+4. **补蒸馏（委托 subagent，不阻塞）**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn「蒸馏 worker」subagent（`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP）后台执行：`distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)`，然后**直接开始回答用户提问**。在自然停顿点（任务告一段落/用户空闲）重新 `get_task_context` 把新产出的待确认记忆/草稿笔记注入上下文 → 向用户展示待确认项（`confirm_task_memories` / `confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、蒸馏结果在会话结束前展示确认即可
 
 **工具入口：**
 - `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context`
@@ -74,21 +74,24 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
         hook_block = f"""## 步骤 2: 启用任务管理（跨会话任务记忆 + 对话采集）
 为支持跨会话任务记忆，启用 CodeBuddy 的 SessionEnd hook 使会话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成），并向 AGENTS.md 写入任务引导段，使新建会话时 Agent 提示用户关联已有任务或输入任务名新建。
 
-**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。
+**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本与 distill-worker subagent 定义到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。
 
-1. **确保两个 hook 脚本就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。用以下命令解析 CodeWiki 自带的源脚本路径，并**强制复制**到目标目录（务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
+1. **确保两个 hook 脚本与 distill-worker subagent 就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。用以下命令解析 CodeWiki 自带的源文件路径，并**强制复制**到目标目录（务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
 
    ```powershell
-   # 源脚本随 codewiki 包发布，位于 codewiki/hooks/ 下的两个文件
+   # 源文件随 codewiki 包发布：codewiki/hooks/ 下两个 hook 脚本 + codewiki/agents/distill-worker.md
    $pkg = python -c "import codewiki, os; print(os.path.dirname(codewiki.__file__).replace('\\\\','/'))"
    $destDir = Join-Path '{repo_path}' '.codebuddy/hooks'
+   $agentDir = Join-Path '{repo_path}' '.codebuddy/agents'
    New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+   New-Item -ItemType Directory -Force -Path $agentDir | Out-Null
    Copy-Item (Join-Path $pkg 'hooks/capture_session_end.py') (Join-Path $destDir 'capture_session_end.py') -Force
    Copy-Item (Join-Path $pkg 'hooks/task_session_start.py') (Join-Path $destDir 'task_session_start.py') -Force
-   python -c "import ast; ast.parse(open(r'$destDir/capture_session_end.py', encoding='utf-8').read()); ast.parse(open(r'$destDir/task_session_start.py', encoding='utf-8').read()); print('hook scripts copied OK')"
+   Copy-Item (Join-Path $pkg 'agents/distill-worker.md') (Join-Path $agentDir 'distill-worker.md') -Force
+   python -c "import ast; ast.parse(open(r'$destDir/capture_session_end.py', encoding='utf-8').read()); ast.parse(open(r'$destDir/task_session_start.py', encoding='utf-8').read()); assert open(r'$agentDir/distill-worker.md', encoding='utf-8').read().startswith('---'), 'distill-worker.md missing'; print('hook scripts + distill-worker.md copied OK')"
    ```
 
-   若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从 `CODEWIKI_HOME` 环境变量指向的 checkout 取 `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本，同样 Copy-Item 到 `$destDir`。兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
+   若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从 `CODEWIKI_HOME` 环境变量指向的 checkout 取 `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本与 `$env:CODEWIKI_HOME/codewiki/agents/distill-worker.md`，同样 Copy-Item 到 `$destDir` / `$agentDir`。兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
 
 2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置）：
 
@@ -828,25 +831,29 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 - **未启用**：文件不存在，或缺少任一条目，或任一脚本文件缺失
 
 ## 步骤 2A: 启用
-1. **确保两个 hook 脚本就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。
-   **不论目标是否已存在，每次启用都要从 CodeWiki 自带的源脚本重新复制覆盖**，
+1. **确保两个 hook 脚本与 distill-worker subagent 就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。
+   **不论目标是否已存在，每次启用都要从 CodeWiki 自带的源文件重新复制覆盖**，
    以保证与目标 `codewiki` 包版本一致（不要因为"已存在"就跳过，否则升级包后会残留旧脚本）：
-   用以下命令解析 CodeWiki 自带的源脚本路径，并**强制复制**到目标目录
+   用以下命令解析 CodeWiki 自带的源文件路径，并**强制复制**到目标目录
    （务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
 
      ```powershell
-     # 源脚本随 codewiki 包发布，位于 codewiki/hooks/ 下的两个文件
+     # 源文件随 codewiki 包发布：codewiki/hooks/ 下两个 hook 脚本 + codewiki/agents/distill-worker.md
      $pkg = python -c "import codewiki, os; print(os.path.dirname(codewiki.__file__).replace('\\\\','/'))"
      $destDir = Join-Path '{repo_path}' '.codebuddy/hooks'
+     $agentDir = Join-Path '{repo_path}' '.codebuddy/agents'
      New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+     New-Item -ItemType Directory -Force -Path $agentDir | Out-Null
      Copy-Item (Join-Path $pkg 'hooks/capture_session_end.py') (Join-Path $destDir 'capture_session_end.py') -Force
      Copy-Item (Join-Path $pkg 'hooks/task_session_start.py') (Join-Path $destDir 'task_session_start.py') -Force
-     python -c "import ast; ast.parse(open(r'$destDir/capture_session_end.py', encoding='utf-8').read()); ast.parse(open(r'$destDir/task_session_start.py', encoding='utf-8').read()); print('hook scripts copied OK')"
+     Copy-Item (Join-Path $pkg 'agents/distill-worker.md') (Join-Path $agentDir 'distill-worker.md') -Force
+     python -c "import ast; ast.parse(open(r'$destDir/capture_session_end.py', encoding='utf-8').read()); ast.parse(open(r'$destDir/task_session_start.py', encoding='utf-8').read()); assert open(r'$agentDir/distill-worker.md', encoding='utf-8').read().startswith('---'), 'distill-worker.md missing'; print('hook scripts + distill-worker.md copied OK')"
      ```
 
      若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从
      `CODEWIKI_HOME` 环境变量指向的 checkout 取
-     `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本，同样 Copy-Item 到 `$destDir`。
+     `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本与
+     `$env:CODEWIKI_HOME/codewiki/agents/distill-worker.md`，同样 Copy-Item 到 `$destDir` / `$agentDir`。
      兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
 2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置）：
 
@@ -892,7 +899,7 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 1. 从 `{repo_path}/.codebuddy/settings.json` 移除 SessionStart 与 SessionEnd 两个条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
 2. 从 `{repo_path}/AGENTS.md` 移除任务记忆会话引导段：删除 `{_TASK_MEMORY_AGENTS_START}` 到 `{_TASK_MEMORY_AGENTS_END}` 之间的整段（含两行注释标记本身）；若不存在该标记块则无需处理，其余内容保持不动
 3. 已采集的 raw 文件保留在 `repowiki/raw/`，之后仍可蒸馏；关闭采集不会删除它们
-4. hook 脚本 `capture_session_end.py` 与 `task_session_start.py` 可保留也可删除；重新启用时步骤 2A 会自动补回
+4. hook 脚本 `capture_session_end.py`、`task_session_start.py` 与 subagent 定义 `distill-worker.md` 可保留也可删除；重新启用时步骤 2A 会自动补回
 
 ## 注意事项
 - Hook 是 CodeBuddy 专属机制。其他运行时（Trae、CLI agent 等）请改用 `capture_conversation` MCP 工具手动采集
@@ -967,13 +974,12 @@ def _prompt_task_workflow(args: dict[str, str]) -> str:
    - **新建任务**：先调用 `ask_followup_question` 弹出输入框（标题「新建任务」，问题「请输入新任务名称」）让用户输入任务名（可再补充一句描述），调用 `create_task(title=<新任务名>, description=<可选>)` 创建后即关联该新任务
 3. 关联后：`set_session_task(source_session_id=<当前会话id>, task_id=<选中任务>)` 建立绑定，之后本会话采集的对话会自动带上 task_id
 4. `get_task_context(task_id=<选中任务>)` 拉取该任务的描述 + 记忆 + 关联笔记，作为继续工作的上下文
-5. **补蒸馏**：检查返回的 `pending_raw_count`（本任务未蒸馏的历史对话数）。若 > 0，在回答用户提问之前先补蒸馏：
-   - `distill_conversation(mode="prepare", task_id=<选中任务>)` 获取该任务的积压对话清单
-   - 按清单逐条 read_file 阅读 raw 文件，提取 `notes`（通用经验）与 `memories`（任务进度）
-   - `distill_conversation(mode="submit", distilled=<提取结果>)` 提交（产出草稿笔记 + 待确认记忆）
-   - 重新 `get_task_context` 拉取最新上下文（新产出的待确认记忆/草稿笔记会一并注入）
+5. **补蒸馏（委托 subagent，不阻塞）**：检查返回的 `pending_raw_count`（本任务未蒸馏的历史对话数）。若 > 0，**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn「蒸馏 worker」subagent（`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP）后台执行：
+   - subagent 执行：`distill_conversation(mode="prepare", task_id=<选中任务>)` 获取该任务的积压对话清单 → 按清单逐条 read_file 阅读 raw 文件，提取 `notes`（通用经验）与 `memories`（任务进度）→ `distill_conversation(mode="submit", distilled=<提取结果>)` 提交（产出草稿笔记 + 待确认记忆）
+   - 主 Agent **不等蒸馏完成，直接开始回答用户提问**
+   - 在自然停顿点（任务告一段落/用户空闲时）重新 `get_task_context` 拉取最新上下文（新产出的待确认记忆/草稿笔记会一并注入）
    - 向用户展示待确认项：`confirm_task_memories` / `confirm_note` 确认后才正式落盘
-   - 用户明确表示紧急时可先答复提问，但会话结束前必须完成补蒸馏
+   - 用户明确表示紧急时可先答复提问，蒸馏结果在会话结束前展示确认即可
 
 ## 会话进行中
 - 采集对话时带上 `task_id`（capture_conversation 的 task_id 参数，或经 set_session_task 绑定后自动带）

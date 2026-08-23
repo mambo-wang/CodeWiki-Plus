@@ -62,6 +62,7 @@ _OKF_LEGACY_TOP_LEVEL_KEYS = frozenset({
     "source_refs", "chunk_refs",
     "related_modules", "related_components", "source_ref",
     "summary", "keywords", "date",
+    "reject_reason",  # knowledge_loop reject() 写入的拒绝原因（migrate_okf --fold-private 会折叠进 metadata）
 })
 
 # Regex patterns for markdown links
@@ -81,8 +82,11 @@ def _strip_code_blocks(content: str) -> str:
     def _blank_fenced(m: re.Match) -> str:
         return "\n" * m.group(0).count("\n")
     stripped = re.sub(r"(?ms)^[ \t]*(?:```|~~~).*?^[ \t]*(?:```|~~~)", _blank_fenced, content)
-    # Drop inline code spans (`...`)
-    stripped = re.sub(r"`[^`]*`", "", stripped)
+    # Drop inline code spans (`...`).  `[^`\n]*` is single-line scoped: a lone
+    # unmatched backtick in prose (e.g. a truncated code ref) must never swallow
+    # the rest of the file across newlines, which would silently drop real
+    # links and produce false orphan/broken-link reports.
+    stripped = re.sub(r"`[^`\n]*`", "", stripped)
     return stripped
 
 
@@ -256,6 +260,13 @@ def _check_stale_refs(
         except OSError:
             continue
 
+        # raw/sources/ 是外部同步的源文档层，其内部相对链接指向源仓库
+        # 的其他文件（CHANGELOG.md、docs/*.md 等），这些目标文件不会同步进
+        # repowiki，检查 stale refs 会把它们全部误报。源文档层的链接语义
+        # 不属于 wiki 文档一致性审计范围，整层跳过。
+        if "sources" in md_file.parts and "raw" in md_file.parts:
+            continue
+
         # Ignore markdown links / wikilinks that appear inside code spans
         scan = _strip_code_blocks(content)
         for line_no, line in enumerate(scan.splitlines(), 1):
@@ -306,6 +317,13 @@ def _check_broken_links(
         try:
             content = md_file.read_text(encoding="utf-8")
         except OSError:
+            continue
+
+        # raw/sources/ 是外部同步的源文档层，其内部相对链接指向源仓库的
+        # 其他文件（CHANGELOG.md、docs/*.md 等），这些目标文件不会同步进
+        # repowiki，检查 broken links 会把它们全部误报。与 _check_stale_refs
+        # 保持一致，整层跳过。
+        if "sources" in md_file.parts and "raw" in md_file.parts:
             continue
 
         scan = _strip_code_blocks(content)
@@ -547,21 +565,28 @@ def _check_orphan_pages(
     wiki_dir = output_dir / WIKI_DIR
     scan_root = wiki_dir if wiki_dir.is_dir() else output_dir
 
-    # Collect all .md files and their relative paths
+    # Collect all .md files and their relative paths.  System files such as
+    # index.md act as the entry hub — they ARE a valid source of incoming
+    # links, so they must be scanned for links; they are only excluded from
+    # the set of pages that need to RECEIVE links.
+    link_sources: List[Tuple[str, Path]] = []
     all_pages: Dict[str, Path] = {}
     for md_file in scan_root.rglob("*.md"):
-        if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
+        if not md_file.is_file():
             continue
         rel = str(md_file.relative_to(output_dir))
-        all_pages[rel] = md_file
+        link_sources.append((rel, md_file))
+        if md_file.name not in WIKI_SYSTEM_FILES:
+            all_pages[rel] = md_file
 
     if not all_pages:
         return issues
 
     # Build incoming link set — standard links, explicit wikilinks, and bare
-    # [[Name]] wikilinks resolved via the anchor map.
+    # [[Name]] wikilinks resolved via the anchor map.  Scan ALL files including
+    # system files (index.md links count as incoming links).
     linked_targets: Set[str] = set()
-    for md_file in all_pages.values():
+    for _rel, md_file in link_sources:
         try:
             content = md_file.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -598,6 +623,11 @@ def _check_no_outlinks(
         if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
             continue
         rel_path = str(md_file.relative_to(output_dir))
+        # conversations/ 蒸馏归档层、tasks/ 任务记忆层、raw/ 暂存区（待蒸馏对话
+        # 与 sources 外部同步文档）是系统生成/同步层：归档与暂存文件无需（也不应）
+        # 向 wiki 页面出链，豁免 no_outlinks。
+        if any(k in md_file.parts for k in ("conversations", "tasks", "raw")):
+            continue
         try:
             content = md_file.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -1406,10 +1436,12 @@ def _check_okf_conformance(
     from datetime import date
 
     from codewiki.src.config import (
+        CONVERSATIONS_DIR,
         INDEX_FILENAME,
         META_DIR,
         NOTES_DIR,
         RAW_DIR,
+        TASKS_DIR,
         WIKI_DIR,
     )
 
@@ -1421,7 +1453,13 @@ def _check_okf_conformance(
     # scratch/staging directories (.meta/, .trash/, .hook-debug/) and the raw/
     # capture staging layer (conv-*.md from capture_conversation).  raw/sources/
     # is exempt: it holds the ingested source documents that still get audited.
+    #
+    # System-generated layers are exempt from OKF conformance: tasks/ (task.md
+    # + memories.md, 由 task_manager 维护，frontmatter 由任务系统自行管理) 和
+    # conversations/ (L0 蒸馏归档层，conv-*.md 的 frontmatter 由蒸馏管线写入,
+    # 含 captured_at/content_hash 等私有键)。
     _scratch_dirs = {META_DIR, ".trash", ".hook-debug"}
+    _system_layers = {TASKS_DIR, CONVERSATIONS_DIR}
     targets: List[Path] = []
     for _md in output_dir.rglob("*.md"):
         parts = _md.parts
@@ -1430,6 +1468,9 @@ def _check_okf_conformance(
         if RAW_DIR in parts and "sources" not in parts:
             continue
         if any(_part in _scratch_dirs for _part in parts):
+            continue
+        # 系统生成层（任务记忆、蒸馏归档）不要求 OKF 合规
+        if any(_part in _system_layers for _part in parts):
             continue
         targets.append(_md)
 

@@ -7,6 +7,7 @@ Produces a markdown reading guide in the wiki output directory.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -68,8 +69,17 @@ def generate_reading_guide(
         # Sort by score descending
         ranked = sorted(scores.items(), key=lambda x: -x[1])[:top_n]
 
-        # Build markdown
+        # Build markdown. 带 OKF 兼容 frontmatter：本文件由 close_session 自动重建，
+        # 若无 type 字段会被 lint 的 okf_conformance 检查标记为缺失 frontmatter。
+        generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         lines: List[str] = [
+            "---",
+            "type: Concept",
+            "title: \"阅读指南\"",
+            f"generated: {{ by: codewiki/reading_guide.py, at: {generated_at} }}",
+            "stale_after: 2099-12-31",
+            "description: \"> 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。\"",
+            "---",
             "# 阅读指南",
             "",
             "> 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。",
