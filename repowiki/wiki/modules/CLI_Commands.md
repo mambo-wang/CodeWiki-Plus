@@ -23,7 +23,7 @@ description: "CLI_Commands 是 CodeWiki 的命令行入口层，基于 Click 框
 # CLI_Commands 模块文档
 
 ## 概述
-CLI_Commands 是 CodeWiki 的命令行入口层，基于 Click 框架构建。它把用户意图转化为对底层生成管线、配置管理与 MCP 服务的调用。模块分为三块源文件：`main.py`（CLI 根与进程入口）、`commands/config.py`（配置子命令组）、`commands/generate.py`（文档生成命令与增量更新辅助函数）。共 15 个组件，涵盖根组定义、版本/入口、MCP 启动、配置读写校验、模式解析、以及生成命令与变更检测逻辑。
+CLI_Commands 是 CodeWiki 的命令行入口层，基于 Click 框架构建。它把用户意图转化为对底层生成管线、配置管理与 MCP 服务的调用。模块分为四块源文件：`main.py`（CLI 根与进程入口）、`commands/config.py`（配置子命令组）、`commands/generate.py`（文档生成命令与增量更新辅助函数）、`commands/install_hooks.py` + `cli/utils/ide_config.py`（多 IDE hook 接线）。共 16+ 个组件，涵盖根组定义、版本/入口、MCP 启动、配置读写校验、模式解析、生成命令与变更检测逻辑、以及 team-memory hook 自动检测接线。
 
 ## 组件清单
 | 组件 | 类型 | 文件 | 职责 |
@@ -122,6 +122,11 @@ codewiki generate --create-branch --github-pages
 # MCP 与版本
 codewiki mcp
 codewiki version
+
+# 多 IDE hook 接线（自动检测 .codebuddy/.qoder/.claude，检测到哪些就为哪些接线）
+codewiki install-hooks --repo-path .
+# 或指定单个 IDE
+codewiki install-hooks --repo-path . --ide qoder
 ```
 
 ## 扩展点

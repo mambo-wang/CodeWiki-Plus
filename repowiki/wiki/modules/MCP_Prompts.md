@@ -45,7 +45,7 @@ MCP_Prompts 是 CodeWiki MCP Server 的**提示词（Prompt）叶子模块**，�
 | `_prompt_architecture_review` | 函数 | codewiki/mcp/prompts.py | 依赖图驱动的架构层次/热点/耦合分析指引 |
 | `_prompt_init_wiki` | 函数 | codewiki/mcp/prompts.py | 初始化 Wiki 仓库（索引/总览/AGENTS.md 注入 + 启用任务记忆 hook）指引 |
 | `_prompt_ingest_note` | 函数 | codewiki/mcp/prompts.py | 知识笔记归档（note_type 路由到 notes/ 或 docs/）指引 |
-| `_prompt_team_memory_hook` | 函数 | codewiki/mcp/prompts.py | 启用/关闭会话采集 hook（capture_session_end + task_session_start + distill-worker subagent）指引 |
+| `_prompt_team_memory_hook` | 函数 | codewiki/mcp/prompts.py | 启用/关闭会话采集 hook（支持 CodeBuddy/Qoder/Claude Code，首选 `codewiki install-hooks` 自动检测接线）指引 |
 | `_prompt_distill_conversations` | 函数 | codewiki/mcp/prompts.py | 对话蒸馏工作流（prepare → 提取 → submit → 评审）指引 |
 | `_prompt_task_workflow` | 函数 | codewiki/mcp/prompts.py | 任务记忆全流程（关联任务→采集→蒸馏→确认）指引，补蒸馏委托 subagent 不阻塞 |
 | `_prompt_consolidate_knowledge` | 函数 | codewiki/mcp/prompts.py | 草稿笔记合并/精炼（批量 confirm/reject 评审）指引 |
@@ -65,7 +65,7 @@ MCP_Prompts 是 CodeWiki MCP Server 的**提示词（Prompt）叶子模块**，�
 - **检索与质检**：`_prompt_search_wiki`（三层：BM25 `query_wiki` → 图谱 hop 扩展 → 深度阅读 `expand=true`；含 scope/type_filter 技巧）、`_prompt_quality_check`（`lint_wiki` 七类检查 error/warning/info 分级 + `flag_issue` 追踪）。
 - **结构与影响**：`_prompt_code_analysis`（纯 Tree-sitter 分析，缓 SQLite，无 LLM）、`_prompt_impact_review`（BFS 传递性，自动判别 `::` 组件 ID vs 文件路径，正向 depended_by / 反向 depends_on，爆炸半径 10/50 阈值）、`_prompt_architecture_review`（高 depended_by=核心层、leaf=应用层、循环依赖识别，输出 Mermaid 层次图）。
 - **跨服务（Workspace）**：`_prompt_workspace_analysis`（扫描多 git 仓库、[RouteNode](../../../codewiki/src/be/dependency_analyzer/models/cross_service.py) 跨服务匹配、[InfraScanner](../../../codewiki/src/be/dependency_analyzer/analysis/infra_scanner.py)、Mermaid 拓扑 + 可接 CBM/CodeGraph）、`_prompt_cross_service_trace`（从根服务 trace 调用链，多维切片 by_method/by_path/by_service，CBM `trace_path(mode='cross_service')` 增强，架构诊断 + `ingest_note` 归档）。
-- **任务记忆与团队记忆**：`_prompt_task_workflow`（关联任务 → 采集 → 蒸馏 → 确认全流程；**补蒸馏委托 distill-worker subagent 后台执行、不阻塞主回答**）、`_prompt_team_memory_hook`（启用/关闭采集 hook：capture_session_end + task_session_start + distill-worker.md）、`_prompt_distill_conversations`（Mode A/B/C 三种蒸馏形态 + keep_raw）、`_prompt_consolidate_knowledge`（批量 confirm/reject 评审）、`_prompt_promote_note`（draft → 正式页 wikilink 重写）。
+- **任务记忆与团队记忆**：`_prompt_task_workflow`（关联任务 → 采集 → 蒸馏 → 确认全流程；**补蒸馏委托 distill-worker subagent 后台执行、不阻塞主回答**）、`_prompt_team_memory_hook`（启用/关闭采集 hook：支持 CodeBuddy/`.codebuddy`、Qoder/`.qoder`、Claude Code/`.claude`，首选 `codewiki install-hooks --repo-path` 自动检测根目录 IDE 接线，CLI 不可用时回退手动步骤）、`_prompt_distill_conversations`（Mode A/B/C 三种蒸馏形态 + keep_raw）、`_prompt_consolidate_knowledge`（批量 confirm/reject 评审）、`_prompt_promote_note`（draft → 正式页 wikilink 重写）。
 
 ### 3. 参数约定
 - 可选参数默认空串（`""`），缺失时回退当前目录；必填参数缺失时 `_prompt_extract_knowledge` 用占位符 `<source_path>`，`_prompt_search_wiki` 用 `<query>`，`_prompt_impact_review` 用 `<target>`。
