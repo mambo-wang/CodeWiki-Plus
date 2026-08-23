@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from codewiki.mcp.session import SessionState, SessionStore
+from codewiki.mcp.tools.friction import format_friction_signals, score_friction
 
 logger = logging.getLogger(__name__)
 
@@ -642,6 +643,38 @@ def handle_capture_conversation(
         actor = "codewiki"
 
     body = _transcript_text(turns)
+    # Friction scoring (K-line): pure-function signal detection on the already
+    # filtered dialogue turns. Default config on purpose — capture must stay
+    # lightweight (no schema.yaml reads here). The score only feeds frontmatter
+    # metadata + the returned JSON; it never gates the capture itself.
+    friction = score_friction(turns)
+    # Adoption extraction (P1 A-line): parse ``codewiki:referenced-docs``
+    # declarations from assistant turns and persist them into the per-user
+    # telemetry event stream. Zero-IO fast path when nothing was declared.
+    from codewiki.mcp.tools.adoption import (
+        extract_adopted_docs,
+        looks_like_search_happened,
+        record_adoption_events,
+    )
+    adopted_docs = extract_adopted_docs(
+        turns, existing=lambda rel: (output_dir / rel).exists()
+    )
+    adoption_inserted = 0
+    if adopted_docs:
+        # capture_key (T2): namespaced by user_id so the same session id on
+        # two machines never collides. Manual captures without an id fall
+        # back to the content hash so an identical re-capture stays
+        # idempotent while a changed transcript counts its new claims.
+        from codewiki.src.config import user_id
+        capture_key = f"{user_id()}/{source_session_id or f'hash-{content_hash[:24]}'}"
+        adoption_inserted = record_adoption_events(
+            output_dir, capture_key, adopted_docs,
+            now.strftime("%Y-%m-%d"),
+        )
+    adoption_nudge = bool(
+        not adopted_docs
+        and looks_like_search_happened(turns)
+    )
     meta = {
         "captured_at": now_iso,
         "content_hash": content_hash,
@@ -649,6 +682,12 @@ def handle_capture_conversation(
         "link_to": link_to,
         "source_session": source_session_id,
         "keep_raw": keep_raw,
+        # K-line friction signals: top-level single-line keys so the stdlib-only
+        # line scanners (distill_conversation / session-start hook) can read
+        # them back. A 0 score is written too — "no friction" is information.
+        # Values use the comma+equals format, YAML-special-char free.
+        "friction_score": friction["score"],
+        "friction_signals": format_friction_signals(friction["signals"]),
     }
     # task_id must stay top-level (like source_session) so distill_conversation's
     # simple line parser can read it back; only add when present to avoid an
@@ -721,4 +760,12 @@ def handle_capture_conversation(
         "keep_raw": keep_raw,
         "task_id": task_id,
         "task_source": task_source,
+        # K-line friction readout (hook may print it to the IDE log).
+        "friction": friction,
+        # P1 A-line adoption readout: declared docs (persisted to
+        # adoption_events) + a one-shot nudge when search traces exist but
+        # nothing was declared.
+        **({"adopted_docs": adopted_docs} if adopted_docs else {}),
+        **({"adoption_inserted": adoption_inserted} if adopted_docs else {}),
+        **({"adoption_nudge": True} if adoption_nudge else {}),
     }, indent=2, ensure_ascii=False)

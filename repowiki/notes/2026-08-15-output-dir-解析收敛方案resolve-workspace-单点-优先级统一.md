@@ -14,7 +14,9 @@ metadata:
   - distill_conversation
   - knowledge_loop
   source_ref: raw\conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in.md
-status: stable
+  consolidated_into:
+  - wiki/scenarios/MCP-Server薄壳架构与参数约定.md
+status: deprecated
 generated:
   by: codewiki/5.2.2
   at: 2026-08-15 13:13:50+00:00
@@ -23,6 +25,7 @@ origin: conversation
 verified:
 - by: codewiki/5.2.2
   at: '2026-08-15T13:26:08Z'
+reject_reason: consolidated into MCP-Server薄壳架构与参数约定
 ---
 
 ## 背景

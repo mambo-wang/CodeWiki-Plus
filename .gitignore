@@ -52,6 +52,12 @@ src/output/
 repo_data/
 docs/.cache/
 repowiki/.meta/retrieval_stats.db
+# T2 (团队方案): 共享遥测事件流 .meta/telemetry/ 默认入库；本机退化模式
+# (conventions.telemetry.enabled: false) 的写入位置不入库
+repowiki/.meta/telemetry-local/
+# T3 (团队方案): search_index.json 是秒级可重建的本机派生索引——
+# 入库只会制造最大的全量重写冲突面，且可能固化过期索引（T1 自愈兜底重建）
+repowiki/.meta/search_index.json
 # team-memory fusion: raw/ is a transient staging area for captured
 # conversations (deleted after distillation) — never commit it.
 repowiki/raw/

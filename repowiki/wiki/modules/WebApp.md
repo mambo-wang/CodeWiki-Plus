@@ -18,6 +18,7 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
+description: "`Frontend/WebApp` 是 CodeWiki 的 Web 入口层，基于 FastAPI 提供图形化界面，让用户提交 GitHub 仓库 URL 即可异步生成完整文档。它由 7 个源文件、15 个组件组成，核心职责是：接收仓库提交、排队后台生成任务、缓存结果、跟踪任务状态、以及将生成的 Markdown 文档"
 ---
 
 # WebApp 模块文档

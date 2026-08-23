@@ -15,7 +15,6 @@ import json
 import logging
 import os
 import re
-import sqlite3
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -56,6 +55,40 @@ def _okf_actor(by: Optional[str] = None) -> str:
         return actor_id()
     except Exception:
         return "codewiki"
+
+
+def _note_source_ref(output_dir: Path, rel_file: str) -> Optional[str]:
+    """Return a note's metadata.source_ref (link to its L0 source conversation).
+
+    Link-first L0 provenance (团队记忆融合 §9): search results expose this so
+    agents can trace distilled knowledge back to the archived original dialogue
+    and read it on demand. Best-effort: any parse/read failure returns None.
+    """
+    try:
+        text = (Path(output_dir) / rel_file).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if not text.startswith("---"):
+        return None
+    end = text.find("---", 3)
+    if end < 0:
+        return None
+    try:
+        import yaml
+        fm = yaml.safe_load(text[3:end])
+    except Exception:
+        return None
+    if not isinstance(fm, dict):
+        return None
+    meta = fm.get("metadata")
+    value = None
+    if isinstance(meta, dict):
+        value = meta.get("source_ref")
+    if value is None:
+        value = fm.get("source_ref")
+    if not value:
+        return None
+    return str(value).replace("\\", "/")
 
 
 def _trust_tier(verified) -> str:
@@ -257,6 +290,214 @@ def _inject_symbol_links(content: str, output_dir: Path, depth: int = 2, session
     return text
 
 
+# ---------------------------------------------------------------------------
+#  Freshness windows (新鲜度机制专项 — docs/新鲜度机制设计方案.md)
+#
+#  Type-aware re-verification windows replace the flat 90-day age check.
+#  Fallback chain: conventions.freshness.by_type[type] →
+#  freshness.default_window_days → conventions.default_stale_days → 90.
+#  Zero new frontmatter fields: only the existing ``stale_after`` is
+#  activated (written at ingest/confirm, actually read by lint).
+# ---------------------------------------------------------------------------
+
+_FRESHNESS_FALLBACK_WINDOW_DAYS = 90
+_FRESHNESS_FALLBACK_RETRIEVAL_DEFER_DAYS = 60
+
+
+def load_freshness_config(schema: Optional[dict]) -> Dict[str, Any]:
+    """Resolve freshness settings from a loaded schema.yaml with fallbacks.
+
+    Returns ``{"default_window_days": int, "retrieval_defer_days": int,
+    "by_type": {note_type: days}}``.  Missing sections fall back to
+    ``conventions.default_stale_days`` and then to hardcoded defaults, so
+    bundles without a ``freshness`` block behave exactly as before.
+    """
+    conv = (schema or {}).get("conventions") or {}
+    fresh = conv.get("freshness") or {}
+    if not isinstance(fresh, dict):
+        fresh = {}
+
+    def _int(value: Any, fallback: int) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return fallback
+
+    legacy_default = _int(
+        conv.get("default_stale_days"), _FRESHNESS_FALLBACK_WINDOW_DAYS
+    )
+    default_window = _int(
+        fresh.get("default_window_days"), legacy_default
+    )
+    retrieval_defer = _int(
+        fresh.get("retrieval_defer_days"),
+        _FRESHNESS_FALLBACK_RETRIEVAL_DEFER_DAYS,
+    )
+    # V4（note_types 权威表）：仅当 schema 显式声明 conventions.note_types
+    # 时才从表派生窗口；否则回退 freshness.by_type——避免默认表覆盖存量
+    # schema 的自定义 by_type（向后兼容，无表时行为逐字节不变）。
+    by_type: Dict[str, int] = {}
+    if isinstance(conv.get("note_types"), dict) and conv["note_types"]:
+        try:
+            from codewiki.mcp.tools.note_types import freshness_windows
+            by_type = dict(freshness_windows(schema))
+        except Exception as e:  # table load must never break freshness resolution
+            logger.debug("note_types derive skipped: %s", e)
+    if not by_type:
+        raw_by_type = fresh.get("by_type") or {}
+        if isinstance(raw_by_type, dict):
+            for key, value in raw_by_type.items():
+                days = _int(value, default_window)
+                by_type[str(key).strip().lower()] = days
+
+    return {
+        "default_window_days": default_window,
+        "retrieval_defer_days": retrieval_defer,
+        "by_type": by_type,
+    }
+
+
+def freshness_window_days(note_type: Any, schema: Optional[dict]) -> int:
+    """Freshness window (days) for *note_type*, per schema freshness config."""
+    cfg = load_freshness_config(schema)
+    key = str(note_type or "").strip().lower()
+    return cfg["by_type"].get(key, cfg["default_window_days"])
+
+
+def _parse_day(value: Any) -> Optional[datetime]:
+    """Parse ``YYYY-MM-DD`` (ignoring any time suffix) into a datetime."""
+    if value is None:
+        return None
+    text = str(value).strip()[:10]
+    try:
+        return datetime.strptime(text, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return None
+
+
+def evaluate_note_freshness(
+    fm: Dict[str, Any],
+    cfg: Optional[Dict[str, Any]] = None,
+    today: Optional[datetime] = None,
+    last_hit: Any = None,
+) -> Dict[str, Any]:
+    """Judge one stable/confirmed note's freshness from its frontmatter.
+
+    Judgment cascade (设计方案 §2, v2):
+      1. due date = ``stale_after``; if absent, fall back to
+         ``metadata.date`` + the note's type window (legacy behaviour);
+      2. due date passed → ``due`` (review deadline missed), unless the note
+         was retrieved within ``retrieval_defer_days`` → deferred → ``fresh``;
+      3. otherwise → ``fresh``.
+
+    *last_hit* is the retrieval-stats ``last_hit`` value (date string or
+    None).  Returns ``{"state": "fresh"|"due", "due_date": "YYYY-MM-DD"|None,
+    "deferred": bool}``.  Notes with neither ``stale_after`` nor ``date``
+    carry no freshness signal and are reported ``fresh`` (nothing to judge).
+    """
+    cfg = cfg or load_freshness_config(None)
+    today = today or datetime.now()
+
+    due = _parse_day(fm.get("stale_after"))
+    if due is None:
+        note_date = _parse_day(fm.get("date"))
+        if note_date is None:
+            return {"state": "fresh", "due_date": None, "deferred": False}
+        window = freshness_window_days(fm.get("type"), {"conventions": {
+            "freshness": {
+                "default_window_days": cfg["default_window_days"],
+                "by_type": cfg["by_type"],
+            }
+        }})
+        due = note_date + timedelta(days=window)
+
+    if due >= today.replace(hour=0, minute=0, second=0, microsecond=0):
+        return {
+            "state": "fresh",
+            "due_date": due.strftime("%Y-%m-%d"),
+            "deferred": False,
+        }
+
+    # Past due — retrieval-defer exemption (existing activity rule)
+    hit = _parse_day(last_hit)
+    if hit is not None:
+        defer_floor = today - timedelta(days=cfg["retrieval_defer_days"])
+        if hit > defer_floor:
+            return {
+                "state": "fresh",
+                "due_date": due.strftime("%Y-%m-%d"),
+                "deferred": True,
+            }
+
+    return {"state": "due", "due_date": due.strftime("%Y-%m-%d"), "deferred": False}
+
+
+def _freshness_distribution(output_dir: Path) -> Optional[Dict[str, Any]]:
+    """Count stable/confirmed notes by freshness state for wiki_stats.
+
+    Reuses :func:`evaluate_note_freshness` — the exact same judgment as
+    lint's ``stale_notes`` check — so the health indicator and the lint
+    report can never drift apart (设计方案 §6: 复用判定函数，避免两套逻辑).
+
+    Returns ``{"due": n, "fresh": m, "due_notes": [up to 20 rel paths]}``
+    or ``None`` when the bundle has no notes/ directory.
+    """
+    from codewiki.src.config import NOTES_DIR
+
+    notes_dir = output_dir / NOTES_DIR
+    if not notes_dir.is_dir():
+        return None
+
+    try:
+        from codewiki.mcp.tools.page_router import load_schema
+        schema = load_schema(str(output_dir))
+    except Exception:
+        schema = {}
+    cfg = load_freshness_config(schema)
+
+    retrieval_map: Dict[str, str] = {}
+    try:
+        from codewiki.mcp.tools import telemetry
+        for fp, entry in telemetry.aggregate_usage(output_dir).items():
+            lh = entry.get("last_hit")
+            if lh:
+                retrieval_map[str(fp)] = str(lh)
+    except Exception:
+        pass
+
+    try:
+        from codewiki.mcp.tools.wiki_lint import _parse_note_frontmatter
+    except Exception:
+        return None
+
+    today = datetime.now()
+    due_notes: List[str] = []
+    fresh_count = 0
+
+    for note_file in sorted(notes_dir.glob("*.md")):
+        fm = _parse_note_frontmatter(note_file)
+        if not fm:
+            continue
+        if str(fm.get("status", "")).lower() not in ("confirmed", "stable"):
+            continue
+        rel_path = str(note_file.relative_to(output_dir)).replace("\\", "/")
+        last_hit = (
+            retrieval_map.get(rel_path)
+            or retrieval_map.get(f"notes/{note_file.name}")
+        )
+        verdict = evaluate_note_freshness(fm, cfg, today=today, last_hit=last_hit)
+        if verdict["state"] == "due":
+            due_notes.append(rel_path)
+        else:
+            fresh_count += 1
+
+    return {
+        "due": len(due_notes),
+        "fresh": fresh_count,
+        "due_notes": due_notes[:20],
+    }
+
+
 def handle_ingest_note(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -295,6 +536,9 @@ def handle_ingest_note(
     severity = arguments.get("severity")
     root_cause = arguments.get("root_cause")
     source_ref = arguments.get("source_ref")
+    # P1 (team-memory fusion): scene label distilled from conversations — a
+    # grouping hint for future L2 consolidation (设计方案 §4.1)。
+    scene = str(arguments.get("scene") or "").strip()
     aliases = arguments.get("aliases", [])
     # Roadmap 2.2: knowledge flywheel status
     # OKF v0.2 §5.4: write the spec vocabulary (draft|stable|deprecated);
@@ -360,6 +604,8 @@ def handle_ingest_note(
         metadata_lines.append(f"  root_cause: {json.dumps(root_cause, ensure_ascii=False)}")
     if source_ref:
         metadata_lines.append(f"  source_ref: {json.dumps(source_ref, ensure_ascii=False)}")
+    if scene:
+        metadata_lines.append(f"  scene: {json.dumps(scene, ensure_ascii=False)}")
     frontmatter_lines.append("metadata:")
     frontmatter_lines.extend(metadata_lines)
     frontmatter_lines.append(f"status: {note_status}")
@@ -367,13 +613,15 @@ def handle_ingest_note(
     frontmatter_lines.append(
         f"generated: {{ by: {_okf_actor(arguments.get('author'))}, at: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')} }}"
     )
+    # OKF v0.2 §5.5: stale_after from the note's TYPE-AWARE freshness window
+    # (新鲜度机制专项: conventions.freshness.by_type → default_window_days →
+    # default_stale_days → 90), not the flat default_stale_days.
     try:
-        from datetime import timedelta
         from codewiki.mcp.tools.page_router import load_schema
         _schema = load_schema(str(output_dir))
-        _stale_days = int(_schema.get("conventions", {}).get("default_stale_days", 90))
     except Exception:
-        _stale_days = 90
+        _schema = {}
+    _stale_days = freshness_window_days(note_type, _schema)
     frontmatter_lines.append(
         f"stale_after: {(datetime.now() + timedelta(days=_stale_days)).strftime('%Y-%m-%d')}"
     )
@@ -518,9 +766,12 @@ def _apply_status_to_file(path: Path, output_dir: Path, new_status: str,
         try:
             from codewiki.mcp.tools.page_router import load_schema
             _schema = load_schema(str(output_dir))
-            _stale_days = int(_schema.get("conventions", {}).get("default_stale_days", 90))
         except Exception:
-            _stale_days = 90
+            _schema = {}
+        # Type-aware renewal (新鲜度机制专项): the note's own ``type`` field
+        # selects the window; re-confirmation re-guarantees freshness for a
+        # type-appropriate period (OKF §5.5).
+        _stale_days = freshness_window_days(data.get("type"), _schema)
         data["stale_after"] = (datetime.now() + timedelta(days=_stale_days)).strftime("%Y-%m-%d")
 
     import yaml as _yaml
@@ -586,11 +837,37 @@ def _update_note_status(output_dir: Path, note_file: str, new_status: str,
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
+def _maybe_attach_aggregation_hint(result_json: str, output_dir: Path, count: int) -> str:
+    """P2 (§4.5.2): after a successful confirmation, bump the aggregation
+    counters and attach a proactive ``aggregation_hint`` when a threshold is
+    crossed. Best-effort — any failure returns the original response so the
+    confirmation itself is never affected. The hint only REMINDS: the host
+    agent must ask the user before running consolidate_notes.
+    """
+    try:
+        data = json.loads(result_json)
+    except (json.JSONDecodeError, TypeError):
+        return result_json
+    if not isinstance(data, dict) or "error" in data:
+        return result_json
+    try:
+        from codewiki.mcp.tools import aggregation_state as agg
+        state = agg.record_confirmations(output_dir, count)
+        hint = agg.build_aggregation_hint(output_dir, state)
+        if hint is not None:
+            data["aggregation_hint"] = hint
+            return json.dumps(data, indent=2, ensure_ascii=False)
+    except Exception as e:  # counters must never break confirmations
+        logger.debug("aggregation hint skipped: %s", e)
+    return result_json
+
+
 def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     """Confirm a draft note, promoting it to stable (verified) domain knowledge.
 
     OKF v0.2: appends a ``verified`` entry (``human:<id>`` when ``by`` is
     passed, else ``codewiki/<version>``) and renews ``stale_after``.
+    P2: bumps aggregation counters and may attach ``aggregation_hint`` (§4.5.2).
     """
     from codewiki.mcp.tools.workspace_result import resolve_session
     session = resolve_session(arguments, store)
@@ -612,11 +889,12 @@ def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     if not note_file:
         return json.dumps({"error": "note_file is required (relative path within notes/)."})
 
-    return _update_note_status(
+    result_json = _update_note_status(
         output_dir, note_file, "stable",
         verified_by=_okf_actor(arguments.get("by")),
         renew_stale_after=True,
     )
+    return _maybe_attach_aggregation_hint(result_json, output_dir, count=1)
 
 
 def handle_reject_note(arguments: Dict[str, Any], store: SessionStore) -> str:
@@ -775,13 +1053,18 @@ def handle_batch_set_status(arguments: Dict[str, Any], store: SessionStore) -> s
            f"Batch-completed: {summary['updated']} document(s) promoted to {target}.")
     if errors:
         msg += f" {len(errors)} error(s) encountered."
-    return json.dumps({
+    result_json = json.dumps({
         **summary,
         "updated": updated,
         "skipped": skipped,
         "errors": errors,
         "message": msg,
     }, indent=2, ensure_ascii=False)
+    # P2 (§4.5.2): batch confirmations drive the same aggregation counters.
+    n_promoted = summary["updated"]
+    if target == "stable" and not dry_run and n_promoted > 0:
+        result_json = _maybe_attach_aggregation_hint(result_json, output_dir, count=n_promoted)
+    return result_json
 
 
 # ---------------------------------------------------------------------------
@@ -922,6 +1205,37 @@ def _query_mode_overview(
     from codewiki.src.config import WIKI_DIR, OVERVIEW_FILENAME, WIKI_SYSTEM_FILES
 
     result: Dict[str, Any] = {"mode": "overview", "query": query}
+
+    # P3 (§4.4): inject the L3 Project Operating Doctrine + scene navigation.
+    # The doctrine is the stable, always-on orientation layer: any agent
+    # touching the project starts with its principles; scene blocks stay
+    # progressive (navigation only, read on demand).
+    doctrine_path = output_dir / WIKI_DIR / "doctrine.md"
+    if doctrine_path.is_file():
+        try:
+            doc_text = doctrine_path.read_text(encoding="utf-8", errors="replace")
+            if doc_text.startswith("---"):
+                end = doc_text.find("---", 3)
+                if end > 0:
+                    doc_text = doc_text[end + 3:]
+            result["doctrine"] = doc_text[:1300].strip()
+        except OSError:
+            pass
+    try:
+        from codewiki.mcp.tools.note_consolidation import _scan_scenarios
+        scenes = sorted(_scan_scenarios(output_dir), key=lambda s: -s["heat"])
+        if scenes:
+            nav_lines = []
+            for sc in scenes:
+                heat = "🔥" * min(5, max(1, sc["heat"])) if sc["heat"] else ""
+                summary = sc["summary"] or ""
+                nav_lines.append(f"- {sc['file']} {heat} — {sc['title']}: {summary}".rstrip(" —:"))
+            result["scene_navigation"] = (
+                "🗺️ Scene Navigation (work-method scene blocks; read on demand "
+                "via view_repo_file):\n" + "\n".join(nav_lines)
+            )
+    except Exception:
+        pass  # doctrine injection must never break overview mode
 
     # 1. Include overview.md content (truncated)
     overview_path = output_dir / OVERVIEW_FILENAME
@@ -1106,6 +1420,71 @@ def _query_mode_detail(
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
+def _query_mode_check(
+    output_dir: Path,
+    query: str,
+    scope: Optional[str],
+    type_filter: Optional[str],
+    session,
+    include_notes: bool,
+    include_sources: bool,
+) -> str:
+    """Mode=check: lightweight relevance pre-check.
+
+    Runs a capped BM25 search (top 3, no snippets, no graph expansion) and
+    returns a relevance verdict with top scores/titles only — enough for an
+    agent to decide whether a full search is worth the tokens. Deliberately
+    does NOT record retrieval stats: a pre-check is not a consumption event
+    and must not pollute the usage/heat signals (U-line feedback loop).
+    """
+    results: List[Dict[str, Any]] = []
+    try:
+        from codewiki.mcp.tools.wiki_search import (
+            search as bm25_search,
+            build_full_index,
+        )
+        from codewiki.src.config import SEARCH_INDEX_FILENAME, META_DIR
+
+        meta_idx = output_dir / META_DIR / SEARCH_INDEX_FILENAME
+        root_idx = output_dir / SEARCH_INDEX_FILENAME
+        idx_path = meta_idx if meta_idx.exists() else root_idx
+        if not idx_path.exists() or session is not None:
+            build_full_index(output_dir, session=session)
+
+        raw = bm25_search(
+            output_dir, query, scope=scope, include_notes=include_notes,
+            max_results=3, expand_terms=None, session=session,
+            type_filter=type_filter, hop=0,
+        )
+        for r in raw:
+            # Mirror the main path's include_sources semantics.
+            if not include_sources and r["file"].startswith("raw/sources/"):
+                continue
+            results.append({
+                "file": r["file"],
+                "title": r["title"],
+                "relevance_score": r["relevance_score"],
+            })
+    except Exception as e:
+        logger.warning("check-mode search failed: %s", e)
+
+    top_score = results[0]["relevance_score"] if results else 0.0
+    verdict = {
+        "mode": "check",
+        "relevant": bool(results),
+        "top_score": top_score,
+        "top_results": results,
+        "hint": (
+            "relevant=true means at least one doc matched above the BM25 "
+            "threshold. Judge strength by top_score; if your key distinguishing "
+            "terms do not appear in any returned title, a full search is "
+            "unlikely to find the answer — consider contributing the knowledge "
+            "via ingest_note instead."
+        ),
+    }
+    return json.dumps(verdict, indent=2, ensure_ascii=False)
+
+
 def handle_query_wiki(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -1133,7 +1512,10 @@ def handle_query_wiki(
             return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
 
     query = arguments.get("query", "")
-    if not query:
+    mode = arguments.get("mode")  # progressive reading: overview | directory | detail
+    # Progressive reading modes are orientation, not keyword search — query
+    # stays optional there (P3: overview mode is the doctrine injection entry).
+    if not query and mode not in ("overview", "directory", "detail"):
         return json.dumps({"error": "query is required."})
 
     scope = arguments.get("scope")  # optional module name or directory prefix
@@ -1145,7 +1527,9 @@ def handle_query_wiki(
     type_filter = arguments.get("type_filter")  # optional page type filter
     hop = min(3, max(0, arguments.get("hop", 0)))  # graph expansion hops (0-3)
     expand = arguments.get("expand", False)  # return full content instead of snippet
-    mode = arguments.get("mode")  # progressive reading: overview | directory | detail
+    # Content budget for expand mode (default 3000 keeps legacy behaviour;
+    # agents may raise it up to 20000 for full-page deep reading).
+    max_chars = min(20000, max(500, int(arguments.get("max_chars", 3000))))
     # T5: team-memory fusion — distinguish distilled notes from LLM-generated ones
     origin_filter = arguments.get("origin_filter")  # optional: "conversation" | "generated" | "any"
     # Task routing: restrict results to notes stamped with a given task_id.
@@ -1161,6 +1545,12 @@ def handle_query_wiki(
         page = arguments.get("page", "")
         section = arguments.get("section")
         return _query_mode_detail(output_dir, page, section)
+    if mode == "check":
+        # Lightweight relevance pre-check: top score + titles only, no
+        # snippets, no retrieval-stats recording (a pre-check is not a real
+        # consumption event and must not pollute usage/heat signals).
+        return _query_mode_check(output_dir, query, scope, type_filter, session,
+                                 include_notes, include_sources)
 
     # Load module tree for component mapping
     module_tree = None
@@ -1178,6 +1568,7 @@ def handle_query_wiki(
     # --- BM25 search (preferred) ---
     results: List[Dict[str, Any]] = []
     search_method = "bm25"
+    coverage = None  # T1: corpus-level query-token coverage (BM25 path only)
     try:
         from codewiki.mcp.tools.wiki_search import (
             search as bm25_search,
@@ -1204,6 +1595,19 @@ def handle_query_wiki(
             hop=hop,
         )
 
+        # T1 (检索透明化): corpus-level coverage of the query tokens. If the
+        # query's key distinguishing terms are all in `missing`, results are
+        # topically adjacent rather than answers — the caller must judge,
+        # scores alone cannot express it.
+        try:
+            from codewiki.mcp.tools.wiki_search import query_coverage
+            coverage = query_coverage(
+                output_dir, query, expand_terms=expand_terms, session=session
+            )
+        except Exception as e:
+            logger.debug("query_coverage unavailable: %s", e)
+            coverage = None
+
         for r in raw_results:
             # Filter by include_sources: skip raw/sources/ entries when disabled
             if not include_sources and r["file"].startswith("raw/sources/"):
@@ -1216,10 +1620,21 @@ def handle_query_wiki(
                 "snippet": r["snippet"],
                 "relevance_score": r["relevance_score"],
             }
+            # T1: per-doc matched tokens + U1: usage signals — pass through.
+            if r.get("matched_tokens"):
+                entry["matched_tokens"] = r["matched_tokens"]
+            if r.get("usage") is not None:
+                entry["usage"] = r["usage"]
             # Source type annotation (Roadmap 1.4)
             _fpath = r["file"]
             if _fpath.startswith("notes/"):
                 entry["source_type"] = "developer_note"
+                # L0 link-first provenance (团队记忆融合 §9): surface the link to
+                # the archived source conversation so agents can trace a note
+                # back to the original dialogue on demand (view_repo_file).
+                _sref = _note_source_ref(output_dir, _fpath)
+                if _sref:
+                    entry["source_ref"] = _sref
             elif _fpath.startswith("raw/sources/"):
                 entry["source_type"] = "ingested_source"
             else:
@@ -1239,9 +1654,10 @@ def handle_query_wiki(
                         full_text = file_path.read_text(encoding="utf-8", errors="replace")
                         if "<!-- crosslinks" in full_text:
                             full_text = full_text.split("<!-- crosslinks")[0]
-                        entry["content"] = full_text[:3000].strip()
-                        if len(full_text) > 3000:
+                        entry["content"] = full_text[:max_chars].strip()
+                        if len(full_text) > max_chars:
                             entry["content_truncated"] = True
+                            entry["content_budget"] = max_chars
                     except OSError:
                         pass
             if r["source"] == "note":
@@ -1380,6 +1796,17 @@ def handle_query_wiki(
     # Extract keywords for the response (informational)
     keywords = _extract_keywords(query)
 
+    # V2 (injection budget): degrade snippets beyond the configured character
+    # budget to one-line pointers (file/score/description). 0 = off (legacy
+    # behaviour). Failures must never break the search path.
+    degraded_count = 0
+    try:
+        from codewiki.mcp.tools.page_router import load_schema as _ls
+        from codewiki.mcp.tools.injection_budget import apply_snippet_budget
+        degraded_count = apply_snippet_budget(results, output_dir, _ls(str(output_dir)))
+    except Exception as e:
+        logger.debug("injection budget skipped: %s", e)
+
     # Record retrieval stats (which files were hit by this query)
     _record_retrieval_stats(output_dir, query, results)
 
@@ -1387,41 +1814,25 @@ def handle_query_wiki(
         "query": query,
         "keywords": keywords,
         "search_method": search_method,
+        **({"query_coverage": coverage} if coverage else {}),
+        **({"budget_degraded": degraded_count} if degraded_count else {}),
         "results": results,
         "context_package": context_package,
+        # P1 A-line: adoption convention reminder — a lower-bound usefulness
+        # signal. Agents that actually use a result should declare it.
+        "adoption_hint": (
+            "If you actually used any result above, include this single-line "
+            "comment in your final reply (paths exactly as returned): "
+            "<!-- codewiki:referenced-docs: [\"<file>\", ...] -->. "
+            "Declared docs earn adoption credit which boosts their future "
+            "ranking (usage.adopted_count)."
+        ),
     }, indent=2, ensure_ascii=False)
 
 
 # ------------------------------------------------------------------
-#  Retrieval statistics (SQLite-backed)
+#  Retrieval statistics (T2: per-user telemetry event stream)
 # ------------------------------------------------------------------
-
-
-def _get_stats_db_path(output_dir: Path) -> Path:
-    """Return the path to the retrieval stats SQLite database."""
-    meta_dir = output_dir / ".meta"
-    meta_dir.mkdir(parents=True, exist_ok=True)
-    return meta_dir / "retrieval_stats.db"
-
-
-def _ensure_stats_table(db_path: Path) -> None:
-    """Create the retrieval_stats table if it does not exist."""
-    conn = sqlite3.connect(str(db_path))
-    try:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS retrieval_stats (
-                file_path  TEXT PRIMARY KEY,
-                hit_count  INTEGER NOT NULL DEFAULT 0,
-                last_query TEXT,
-                last_hit   TEXT,
-                first_hit  TEXT
-            )
-            """
-        )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def _record_retrieval_stats(
@@ -1429,38 +1840,26 @@ def _record_retrieval_stats(
 ) -> None:
     """Record which files were returned by a query_wiki call.
 
-    Upserts hit_count and last_query/last_hit for each result file.
-    Called on every query_wiki invocation; failures are logged and swallowed
-    so stats never break the search path.
+    T2 (docs/团队知识库支持优化设计方案.md §4.2): the SQLite
+    retrieval_stats table is retired; each hit appends (or same-day-merges)
+    one event line into ``.meta/telemetry/<user_id>.jsonl`` via
+    ``telemetry.record_hit``. Aggregation is a pure in-memory fold
+    (``telemetry.aggregate_usage``) consumed by the usage-heat ranking,
+    lint checks and wiki_stats.
+
+    Called on every query_wiki invocation; failures are logged and
+    swallowed so stats never break the search path.
     """
     if not results:
         return
     try:
-        db_path = _get_stats_db_path(output_dir)
-        _ensure_stats_table(db_path)
-        now = datetime.now().strftime("%Y-%m-%d")
-        conn = sqlite3.connect(str(db_path))
-        try:
-            for r in results:
-                # Prefer 'file' field (relative path); fall back to 'title'
-                file_path = r.get("file") or r.get("title") or r.get("path", "")
-                if not file_path:
-                    continue
-                conn.execute(
-                    """
-                    INSERT INTO retrieval_stats
-                        (file_path, hit_count, last_query, last_hit, first_hit)
-                    VALUES (?, 1, ?, ?, ?)
-                    ON CONFLICT(file_path) DO UPDATE SET
-                        hit_count = hit_count + 1,
-                        last_query = excluded.last_query,
-                        last_hit   = excluded.last_hit
-                    """,
-                    (file_path, query, now, now),
-                )
-            conn.commit()
-        finally:
-            conn.close()
+        from codewiki.mcp.tools import telemetry
+        for r in results:
+            # Prefer 'file' field (relative path); fall back to 'title'
+            file_path = r.get("file") or r.get("title") or r.get("path", "")
+            if not file_path:
+                continue
+            telemetry.record_hit(output_dir, str(file_path))
     except Exception as e:
         logger.debug("Failed to record retrieval stats: %s", e)
 
@@ -1471,7 +1870,9 @@ def handle_wiki_stats(
 ) -> str:
     """Return per-document retrieval statistics (hit count ranking).
 
-    Reads from the SQLite retrieval_stats table. Supports optional
+    T2: reads the team-wide telemetry aggregate
+    (``telemetry.aggregate_usage`` over all users' jsonl event streams)
+    instead of the retired SQLite retrieval_stats table. Supports optional
     sorting, limit, and include_zero_hit (cross-references with the
     file system to find documents that were never retrieved).
     """
@@ -1490,11 +1891,25 @@ def handle_wiki_stats(
         else:
             return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
 
-    db_path = _get_stats_db_path(output_dir)
-    if not db_path.exists():
+    from codewiki.mcp.tools import telemetry
+    usage = telemetry.aggregate_usage(output_dir)
+    if not usage:
+        # P2: aggregation counters stay visible even before any query stats exist.
+        try:
+            from codewiki.mcp.tools import aggregation_state as agg
+            _agg = agg.aggregation_summary(output_dir)
+        except Exception:
+            _agg = None
+        # 新鲜度分布不依赖检索统计，照常给出（健康度指标）。
+        try:
+            _fresh = _freshness_distribution(output_dir)
+        except Exception:
+            _fresh = None
         return json.dumps({
-            "error": "No retrieval stats database found. Run query_wiki first to generate stats.",
-            "db_path": str(db_path),
+            "error": "No retrieval stats found. Run query_wiki first to generate stats.",
+            "telemetry_dir": str(output_dir / ".meta" / "telemetry"),
+            **({"aggregation": _agg} if _agg else {}),
+            **({"freshness": _fresh} if _fresh else {}),
         })
 
     sort_by = arguments.get("sort_by", "hit_count")
@@ -1503,71 +1918,90 @@ def handle_wiki_stats(
     include_zero_hit = arguments.get("include_zero_hit", False)
     min_hits = arguments.get("min_hits", 0)
 
-    # Validate sort column
-    sort_col = {
-        "hit_count": "hit_count",
-        "last_hit": "last_hit",
-        "first_hit": "first_hit",
-        "file_path": "file_path",
-    }.get(sort_by, "hit_count")
-    sort_dir = "DESC" if order == "desc" else "ASC"
+    # Validate sort column (file_path / hit_count / last_hit / first_hit;
+    # the legacy last_query ordering key is gone — events carry no query text).
+    def _sort_value(fp: str):
+        entry = usage.get(fp, {})
+        return {
+            "hit_count": entry.get("hits", 0),
+            "last_hit": entry.get("last_hit") or "",
+            "first_hit": entry.get("first_hit") or "",
+            "file_path": fp,
+        }.get(sort_by, entry.get("hits", 0))
 
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
+    eligible = [fp for fp, e in usage.items() if int(e.get("hits", 0)) >= int(min_hits)]
+    eligible.sort(
+        key=_sort_value,
+        reverse=(order != "asc"),
+    )
+    # total query count proxy: distinct days on which any hit event was
+    # recorded (the exact query log is gone with the SQLite table).
+    total_queries = len(set().union(
+        *(e.get("hit_days") or set() for e in usage.values())
+    )) if usage else 0
+
+    stats = []
+    for fp in eligible[:limit]:
+        e = usage[fp]
+        stats.append({
+            "file_path": fp,
+            "hit_count": int(e.get("hits", 0)),
+            "last_hit": e.get("last_hit"),
+            "first_hit": e.get("first_hit"),
+            "hit_rate": (
+                round(int(e.get("hits", 0)) / total_queries, 4)
+                if total_queries > 0 else 0
+            ),
+        })
+
+    # Optionally include zero-hit documents (files on disk with no events)
+    zero_hit = []
+    if include_zero_hit:
+        # Scan wiki/ and notes/ for all .md files
+        all_files = set()
+        for subdir in ["wiki", "notes"]:
+            scan_dir = output_dir / subdir
+            if scan_dir.exists():
+                for md_file in scan_dir.rglob("*.md"):
+                    rel = str(md_file.relative_to(output_dir)).replace("\\", "/")
+                    all_files.add(rel)
+
+        hit_files = set(usage.keys())
+        for f in sorted(all_files - hit_files):
+            zero_hit.append({"file_path": f, "hit_count": 0})
+
+    # P2 (§4.5): expose aggregation counters so agents/users can see when
+    # consolidation is due without waiting for a threshold-crossing hint.
+    aggregation = None
     try:
-        # Get total query count (distinct last_query values is a rough proxy;
-        # for exact count we'd need a separate query log, but hit_count sums
-        # across files give us the total queries that had results)
-        total_queries_row = conn.execute(
-            "SELECT COUNT(DISTINCT last_query) AS cnt FROM retrieval_stats"
-        ).fetchone()
-        total_queries = total_queries_row["cnt"] if total_queries_row else 0
+        from codewiki.mcp.tools import aggregation_state as agg
+        aggregation = agg.aggregation_summary(output_dir)
+    except Exception:
+        pass
 
-        # Fetch ranked stats
-        rows = conn.execute(
-            f"""
-            SELECT file_path, hit_count, last_query, last_hit, first_hit
-            FROM retrieval_stats
-            WHERE hit_count >= ?
-            ORDER BY {sort_col} {sort_dir}
-            LIMIT ?
-            """,
-            (min_hits, limit),
-        ).fetchall()
+    # 新鲜度机制专项: due/fresh distribution (same judgment as lint stale_notes)
+    freshness = None
+    try:
+        freshness = _freshness_distribution(output_dir)
+    except Exception:
+        freshness = None
 
-        stats = [
-            {
-                "file_path": row["file_path"],
-                "hit_count": row["hit_count"],
-                "last_query": row["last_query"],
-                "last_hit": row["last_hit"],
-                "first_hit": row["first_hit"],
-                "hit_rate": (
-                    round(row["hit_count"] / total_queries, 4)
-                    if total_queries > 0 else 0
-                ),
-            }
-            for row in rows
-        ]
+    # 使用信号反馈 (U 线): once-hot-now-cold docs — retrieval health signal.
+    cold = None
+    try:
+        cold = _cold_candidates(output_dir)
+    except Exception:
+        cold = None
 
-        # Optionally include zero-hit documents (files on disk not in stats table)
-        zero_hit = []
-        if include_zero_hit:
-            # Scan wiki/ and notes/ for all .md files
-            all_files = set()
-            for subdir in ["wiki", "notes"]:
-                scan_dir = output_dir / subdir
-                if scan_dir.exists():
-                    for md_file in scan_dir.rglob("*.md"):
-                        rel = str(md_file.relative_to(output_dir)).replace("\\", "/")
-                        all_files.add(rel)
-
-            hit_files = {row["file_path"] for row in rows}
-            for f in sorted(all_files - hit_files):
-                zero_hit.append({"file_path": f, "hit_count": 0})
-
-    finally:
-        conn.close()
+    # P1 C 线: notes that have earned promotion to a formal wiki page —
+    # stable + repeatedly adopted + old enough + not yet promoted.
+    # (Mounted on the main return only: without a stats db there is no
+    # adoption data either, so the early-return branch would always be [].)
+    promotion = None
+    try:
+        promotion = _promotion_candidates(output_dir)
+    except Exception:
+        promotion = None
 
     return json.dumps({
         "total_distinct_queries": total_queries,
@@ -1576,7 +2010,178 @@ def handle_wiki_stats(
         "order": order,
         "stats": stats,
         **({"zero_hit_files": zero_hit} if include_zero_hit else {}),
+        **({"aggregation": aggregation} if aggregation else {}),
+        **({"freshness": freshness} if freshness else {}),
+        **({"cold_candidates": cold} if cold else {}),
+        **({"promotion_candidates": promotion} if promotion else {}),
     }, indent=2, ensure_ascii=False)
+
+
+def _cold_candidates(output_dir: Path) -> Optional[List[Dict[str, Any]]]:
+    """Usage-signal health metric (U-line): docs that were hot
+    (hit_count >= cold_min_hits) but have not been retrieved for more than
+    cold_days. Mirrors the usage_ranking cold-penalty definition in the BM25
+    paths so the stats view and the ranking behaviour never diverge.
+    Returns None when no telemetry data exists or nothing is cold.
+    """
+    from codewiki.mcp.tools import telemetry
+    usage = telemetry.aggregate_usage(output_dir)
+    if not usage:
+        return None
+
+    cold_days, cold_min_hits = 180, 3
+    try:
+        from codewiki.mcp.tools.page_router import load_schema
+        schema = load_schema(str(output_dir)) or {}
+        ur = (schema.get("conventions") or {}).get("usage_ranking") or {}
+        cold_days = int(ur.get("cold_days", cold_days))
+        cold_min_hits = int(ur.get("cold_min_hits", cold_min_hits))
+    except Exception:
+        pass
+
+    from datetime import datetime, timedelta
+
+    rows = [
+        (fp, int(entry.get("hits", 0)), entry.get("last_hit"))
+        for fp, entry in usage.items()
+        if int(entry.get("hits", 0)) >= cold_min_hits and entry.get("last_hit")
+    ]
+
+    today = datetime.now()
+    cutoff = today - timedelta(days=cold_days)
+    out: List[Dict[str, Any]] = []
+    for fp, hit_count, last_hit in rows:
+        try:
+            lh_dt = datetime.strptime(str(last_hit)[:10], "%Y-%m-%d")
+        except (TypeError, ValueError):
+            continue
+        if lh_dt < cutoff:
+            out.append({
+                "file_path": fp,
+                "hit_count": hit_count,
+                "last_hit": last_hit,
+                "days_since_last_hit": (today - lh_dt).days,
+            })
+    out.sort(key=lambda x: -x["days_since_last_hit"])
+    return out
+
+
+# P1 C-line (docs/知识飞轮增强设计方案-P1三项.md §4.3): note → wiki page
+# promotion routing.  The default target page_type per note type; an empty
+# string leaves the choice to the agent (mapping is a default, not a mandate).
+# V4: derived from the authoritative note_types table (note_types.py);
+# schema-level overrides are resolved at the consumption site via
+# ``note_types.promotion_targets``.
+_PROMOTION_PAGE_TYPES: Dict[str, str] = {}  # filled below from the table
+
+from codewiki.mcp.tools.note_types import (  # noqa: E402
+    DEFAULT_NOTE_TYPES as _NT_TABLE,
+)
+
+_PROMOTION_PAGE_TYPES.update({
+    t: str(spec.get("promote_to") or "") for t, spec in _NT_TABLE.items()
+})
+
+
+def _note_age_days(fm: Dict[str, Any], today: datetime) -> int:
+    """Age in days from ``metadata.date``, falling back to ``verified[-1].at``.
+
+    ``verified`` may be a bare mapping or a YAML list of ``{by, at}`` entries
+    (§5.2).  Parse failures yield 0 — an undatable note is treated as newborn,
+    which is the safe direction for the min_age_days gate.
+    """
+    created = None
+    meta = fm.get("metadata")
+    if isinstance(meta, dict):
+        created = _parse_day(meta.get("date"))
+    if created is None:
+        verified = fm.get("verified")
+        if isinstance(verified, dict):
+            verified = [verified]
+        if isinstance(verified, list) and verified:
+            last = verified[-1]
+            if isinstance(last, dict):
+                created = _parse_day(last.get("at"))
+    if created is None:
+        return 0
+    return max(0, (today - created).days)
+
+
+def _promotion_candidates(output_dir: Path) -> Optional[List[Dict[str, Any]]]:
+    """P1 C-line: notes that have earned promotion to a formal wiki page.
+
+    Candidate = stable note, adopted_count >= min_adopted (default 3),
+    age >= min_age_days (default 14, from metadata.date or verified[-1].at),
+    and NOT already marked metadata.promoted_to.
+
+    Frontmatter is parsed structurally via :func:`_extract_frontmatter_block`
+    (yaml.safe_load), so the nested ``metadata:`` block — whether emitted as
+    indented ``key: value`` rows or flow style — and the ``verified`` list are
+    read as real YAML structures, not line-level guesses.  Returns ``None``
+    when the bundle has no notes/ directory; otherwise a (possibly empty)
+    list sorted by adopted_count desc, each entry carrying
+    file/title/type/adopted_count/age_days/suggested_page_type.
+    """
+    from codewiki.src.config import NOTES_DIR
+
+    notes_dir = output_dir / NOTES_DIR
+    if not notes_dir.is_dir():
+        return None
+
+    # Thresholds from schema.yaml conventions.promotion (cold-candidates style)
+    min_adopted, min_age_days = 3, 14
+    try:
+        from codewiki.mcp.tools.page_router import load_schema
+        schema = load_schema(str(output_dir)) or {}
+        promo = (schema.get("conventions") or {}).get("promotion") or {}
+        min_adopted = int(promo.get("min_adopted", min_adopted))
+        min_age_days = int(promo.get("min_age_days", min_age_days))
+    except Exception:
+        pass
+
+    # A-line adoption counts: missing db/table → {} → nothing can qualify.
+    try:
+        from codewiki.mcp.tools.adoption import load_adoption_counts
+        adopted_counts = load_adoption_counts(Path(output_dir))
+    except Exception as e:
+        logger.debug("promotion_candidates adoption load failed: %s", e)
+        return []
+
+    today = datetime.now()
+    out: List[Dict[str, Any]] = []
+    for note_file in sorted(notes_dir.glob("*.md")):
+        try:
+            text = note_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        fm = _extract_frontmatter_block(text)
+        if not fm:
+            continue
+        # Only confirmed notes are promotion material.
+        if _norm_status(fm.get("status")) != "stable":
+            continue
+        rel_path = str(note_file.relative_to(output_dir)).replace("\\", "/")
+        adopted = adopted_counts.get(rel_path, 0)
+        if adopted < min_adopted:
+            continue
+        # Already promoted — the note stays as an audit anchor; never re-promote.
+        meta = fm.get("metadata")
+        if isinstance(meta, dict) and meta.get("promoted_to"):
+            continue
+        age = _note_age_days(fm, today)
+        if age < min_age_days:
+            continue
+        note_type = str(fm.get("type", "")).strip().lower()
+        out.append({
+            "file": rel_path,
+            "title": fm.get("title", note_file.stem),
+            "type": note_type,
+            "adopted_count": adopted,
+            "age_days": age,
+            "suggested_page_type": _PROMOTION_PAGE_TYPES.get(note_type, ""),
+        })
+    out.sort(key=lambda x: -x["adopted_count"])
+    return out
 
 
 def _legacy_keyword_search(

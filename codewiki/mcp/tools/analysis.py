@@ -223,11 +223,17 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         from codewiki.src.config import meta_join, PROJECT_FILENAME
         meta_dir = Path(meta_join(output_dir, ""))
         meta_dir.mkdir(parents=True, exist_ok=True)
+        # T1b: relative paths so project.json stays valid on teammates'
+        # machines / other checkouts. Absolute paths would silently break
+        # anywhere except the machine that wrote them (stale-session hijack).
+        try:
+            _rel_output = str(output_dir.resolve().relative_to(repo_path.resolve()))
+        except ValueError:
+            _rel_output = output_dir.name  # output_dir outside repo — best effort
         project_info = {
-            "repo_path": str(repo_path),
-            "output_dir": str(output_dir),
             "repo_name": repo_path.name,
-            "cache_db": str(cache.db_path),
+            "output_dir": _rel_output.replace("\\", "/"),
+            "cache_db": ".codewiki/analysis_cache.db",  # relative to repo root
         }
         Path(meta_join(output_dir, PROJECT_FILENAME)).write_text(
             json.dumps(project_info, ensure_ascii=False, indent=2), encoding="utf-8")

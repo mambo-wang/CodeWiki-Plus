@@ -42,6 +42,7 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
+description: "`LLM_Backend` 是 CodeWiki 的文档生成后端引擎（位于 `codewiki/src/be/`），是整个工具的核心能力提供方。它把「依赖分析 → 模块聚类 → 逐模块 LLM 文档生成 → 缓存/落盘」串成可复用的能力，被 [[CLI_Adapter]]、[[MCP_Server]]、[[WebApp"
 ---
 
 # LLM_Backend 模块文档

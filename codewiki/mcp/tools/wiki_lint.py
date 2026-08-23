@@ -28,6 +28,10 @@ _ALL_CHECKS = {
     "superseded_pages", "overview_stale", "unsupported_claims",
     "isolated_components", "stale_notes", "note_clusters",
     "okf_conformance",
+    # P2 (team-memory fusion): L2 scene block hygiene
+    "scenario_capacity", "scenario_orphan",
+    # P1 B-line: hot-but-never-adopted notes (usage utility dimension)
+    "low_adoption",
 }
 
 # OKF v0.2 lifecycle vocabulary (see okf/SPEC.md §5)
@@ -58,6 +62,7 @@ _OKF_LEGACY_TOP_LEVEL_KEYS = frozenset({
     "source_refs", "chunk_refs",
     "related_modules", "related_components", "source_ref",
     "summary", "keywords", "date",
+    "reject_reason",  # knowledge_loop reject() 写入的拒绝原因（migrate_okf --fold-private 会折叠进 metadata）
 })
 
 # Regex patterns for markdown links
@@ -77,8 +82,11 @@ def _strip_code_blocks(content: str) -> str:
     def _blank_fenced(m: re.Match) -> str:
         return "\n" * m.group(0).count("\n")
     stripped = re.sub(r"(?ms)^[ \t]*(?:```|~~~).*?^[ \t]*(?:```|~~~)", _blank_fenced, content)
-    # Drop inline code spans (`...`)
-    stripped = re.sub(r"`[^`]*`", "", stripped)
+    # Drop inline code spans (`...`).  `[^`\n]*` is single-line scoped: a lone
+    # unmatched backtick in prose (e.g. a truncated code ref) must never swallow
+    # the rest of the file across newlines, which would silently drop real
+    # links and produce false orphan/broken-link reports.
+    stripped = re.sub(r"`[^`\n]*`", "", stripped)
     return stripped
 
 
@@ -252,6 +260,13 @@ def _check_stale_refs(
         except OSError:
             continue
 
+        # raw/sources/ 是外部同步的源文档层，其内部相对链接指向源仓库
+        # 的其他文件（CHANGELOG.md、docs/*.md 等），这些目标文件不会同步进
+        # repowiki，检查 stale refs 会把它们全部误报。源文档层的链接语义
+        # 不属于 wiki 文档一致性审计范围，整层跳过。
+        if "sources" in md_file.parts and "raw" in md_file.parts:
+            continue
+
         # Ignore markdown links / wikilinks that appear inside code spans
         scan = _strip_code_blocks(content)
         for line_no, line in enumerate(scan.splitlines(), 1):
@@ -302,6 +317,13 @@ def _check_broken_links(
         try:
             content = md_file.read_text(encoding="utf-8")
         except OSError:
+            continue
+
+        # raw/sources/ 是外部同步的源文档层，其内部相对链接指向源仓库的
+        # 其他文件（CHANGELOG.md、docs/*.md 等），这些目标文件不会同步进
+        # repowiki，检查 broken links 会把它们全部误报。与 _check_stale_refs
+        # 保持一致，整层跳过。
+        if "sources" in md_file.parts and "raw" in md_file.parts:
             continue
 
         scan = _strip_code_blocks(content)
@@ -543,21 +565,28 @@ def _check_orphan_pages(
     wiki_dir = output_dir / WIKI_DIR
     scan_root = wiki_dir if wiki_dir.is_dir() else output_dir
 
-    # Collect all .md files and their relative paths
+    # Collect all .md files and their relative paths.  System files such as
+    # index.md act as the entry hub — they ARE a valid source of incoming
+    # links, so they must be scanned for links; they are only excluded from
+    # the set of pages that need to RECEIVE links.
+    link_sources: List[Tuple[str, Path]] = []
     all_pages: Dict[str, Path] = {}
     for md_file in scan_root.rglob("*.md"):
-        if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
+        if not md_file.is_file():
             continue
         rel = str(md_file.relative_to(output_dir))
-        all_pages[rel] = md_file
+        link_sources.append((rel, md_file))
+        if md_file.name not in WIKI_SYSTEM_FILES:
+            all_pages[rel] = md_file
 
     if not all_pages:
         return issues
 
     # Build incoming link set — standard links, explicit wikilinks, and bare
-    # [[Name]] wikilinks resolved via the anchor map.
+    # [[Name]] wikilinks resolved via the anchor map.  Scan ALL files including
+    # system files (index.md links count as incoming links).
     linked_targets: Set[str] = set()
-    for md_file in all_pages.values():
+    for _rel, md_file in link_sources:
         try:
             content = md_file.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -594,6 +623,11 @@ def _check_no_outlinks(
         if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
             continue
         rel_path = str(md_file.relative_to(output_dir))
+        # conversations/ 蒸馏归档层、tasks/ 任务记忆层、raw/ 暂存区（待蒸馏对话
+        # 与 sources 外部同步文档）是系统生成/同步层：归档与暂存文件无需（也不应）
+        # 向 wiki 页面出链，豁免 no_outlinks。
+        if any(k in md_file.parts for k in ("conversations", "tasks", "raw")):
+            continue
         try:
             content = md_file.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -913,20 +947,29 @@ def _parse_note_frontmatter(note_path: Path) -> Optional[Dict[str, Any]]:
 
 def _check_stale_notes(
     output_dir: Path,
-    stale_days: int = 90,
-    retrieval_gap_days: int = 60,
+    stale_days: Optional[int] = None,
+    retrieval_gap_days: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    """Flag confirmed notes that are old and haven't been retrieved recently.
+    """Flag stable/confirmed notes whose re-verification deadline has passed.
 
-    A note is considered stale when ALL of:
-      - status == "confirmed"
-      - note age > stale_days (default 90)
-      - last retrieval hit > retrieval_gap_days ago (or never hit)
+    新鲜度机制专项 (docs/新鲜度机制设计方案.md).  Judgment basis is the
+    frontmatter ``stale_after`` rolling review deadline (renewed by
+    confirm_note) — NOT the creation date.  The legacy implementation read
+    ``metadata.date`` with a flat age threshold, so confirming a note never
+    affected its staleness (stale_after was write-only).
 
-    This helps prevent knowledge rot: confirmed notes that nobody queries
-    may be outdated or superseded by newer understanding.
+    Judgment cascade per note (v2, via ``evaluate_note_freshness``):
+      - due date = ``stale_after``; fallback when absent =
+        ``metadata.date`` + the note's type window (legacy behaviour);
+      - due date passed → warning「复核期已过」, unless the note was
+        retrieved within ``retrieval_defer_days`` → deferred (activity
+        exemption preserved);
+      - otherwise fresh.
+
+    Config precedence: explicit parameters > schema ``conventions.freshness``
+    > hardcoded defaults (90/60) — dispatch passes no parameters, so bundles
+    with a freshness block now actually get their configured windows.
     """
-    import sqlite3
     from datetime import datetime, timedelta
 
     issues: List[Dict[str, Any]] = []
@@ -936,27 +979,43 @@ def _check_stale_notes(
     if not notes_dir.is_dir():
         return issues
 
-    # Load retrieval stats if available
-    stats_db = output_dir / ".meta" / "retrieval_stats.db"
+    # Freshness config from schema.yaml (fallback chain handled inside).
+    try:
+        from codewiki.mcp.tools.page_router import load_schema
+        schema = load_schema(str(output_dir))
+    except Exception:
+        schema = {}
+    try:
+        from codewiki.mcp.tools.knowledge_loop import (
+            evaluate_note_freshness,
+            load_freshness_config,
+        )
+    except Exception:
+        return issues
+    cfg = load_freshness_config(schema)
+    if stale_days is not None:
+        cfg = {**cfg, "default_window_days": int(stale_days)}
+    if retrieval_gap_days is not None:
+        cfg = {**cfg, "retrieval_defer_days": int(retrieval_gap_days)}
+
+    # Telemetry usage aggregate (T2) if available (activity exemption source).
+    # U2 复核联动: hit_count is also surfaced in the message and drives the
+    # review-priority ordering (most overdue + least recently retrieved first).
     retrieval_map: Dict[str, str] = {}  # file_path -> last_hit date string
-    if stats_db.exists():
-        try:
-            conn = sqlite3.connect(str(stats_db))
-            try:
-                rows = conn.execute(
-                    "SELECT file_path, last_hit FROM retrieval_stats"
-                ).fetchall()
-                for fp, lh in rows:
-                    if lh:
-                        retrieval_map[fp] = lh
-            finally:
-                conn.close()
-        except Exception:
-            pass
+    hit_count_map: Dict[str, int] = {}  # file_path -> hit_count (U2)
+    try:
+        from codewiki.mcp.tools import telemetry
+        for fp, entry in telemetry.aggregate_usage(output_dir).items():
+            hit_count_map[str(fp)] = int(entry.get("hits", 0) or 0)
+            lh = entry.get("last_hit")
+            if lh:
+                retrieval_map[str(fp)] = str(lh)
+    except Exception:
+        pass
 
     today = datetime.now()
-    stale_threshold = today - timedelta(days=stale_days)
-    retrieval_threshold = today - timedelta(days=retrieval_gap_days)
+    # (overdue_days desc, last_hit asc, issue) — populated in the loop below.
+    ranked: List[Tuple[int, str, Dict[str, Any]]] = []
 
     for note_file in sorted(notes_dir.glob("*.md")):
         fm = _parse_note_frontmatter(note_file)
@@ -968,49 +1027,189 @@ def _check_stale_notes(
         if status not in ("confirmed", "stable"):
             continue
 
-        # Parse note date
-        date_str = fm.get("date", "")
-        try:
-            note_date = datetime.strptime(date_str, "%Y-%m-%d")
-        except (ValueError, TypeError):
+        rel_path = str(note_file.relative_to(output_dir)).replace("\\", "/")
+        last_hit_str = (
+            retrieval_map.get(rel_path)
+            or retrieval_map.get(f"notes/{note_file.name}")
+        )
+
+        verdict = evaluate_note_freshness(fm, cfg, today=today, last_hit=last_hit_str)
+        if verdict["state"] != "due":
             continue
 
-        # Check age
-        if note_date > stale_threshold:
-            continue  # not old enough
-
-        # Check retrieval recency
-        rel_path = str(note_file.relative_to(output_dir)).replace("\\", "/")
-        # Also try with notes/ prefix variations
-        last_hit_str = retrieval_map.get(rel_path) or retrieval_map.get(f"notes/{note_file.name}")
-        recently_hit = False
-        if last_hit_str:
-            try:
-                last_hit = datetime.strptime(last_hit_str, "%Y-%m-%d")
-                if last_hit > retrieval_threshold:
-                    recently_hit = True
-            except (ValueError, TypeError):
-                pass
-
-        if recently_hit:
-            continue  # still being actively retrieved
-
-        age_days = (today - note_date).days
+        due_date = verdict["due_date"] or "?"
+        try:
+            overdue_days = (
+                today - datetime.strptime(due_date, "%Y-%m-%d")
+            ).days
+        except (ValueError, TypeError):
+            overdue_days = 0
         title = fm.get("title", note_file.stem)
         note_type = fm.get("type", "general")
+        hit_count = hit_count_map.get(
+            rel_path, hit_count_map.get(f"notes/{note_file.name}", 0)
+        )
 
-        issues.append({
+        issue = {
             "check": "stale_notes",
             "severity": "warning",
             "message": (
-                f"Confirmed note '{title}' ({note_type}) is {age_days} days old "
-                f"and has not been retrieved in {retrieval_gap_days}+ days"
+                f"Note '{title}' ({note_type}) passed its review deadline "
+                f"({due_date}) {overdue_days} day(s) ago and has not been "
+                f"retrieved in {cfg['retrieval_defer_days']}+ days "
+                f"(retrieved {hit_count} times total)"
             ),
             "file": rel_path,
             "suggestion": (
-                f"Review whether this {note_type} note is still accurate. "
-                f"Use confirm_note to re-validate, reject_note to retire, "
-                f"or update the content if the knowledge has evolved."
+                f"超过 {overdue_days} 天未验证。确认仍然准确用 "
+                f"confirm_note(note_file=\"{rel_path}\") 续期"
+                f"（将按类型窗口刷新 stale_after），已过时用 reject_note 退役。"
+            ),
+        }
+        # U2: never-retrieved notes sort before any retrieved date ("").
+        ranked.append((overdue_days, last_hit_str or "", issue))
+
+    # U2 复核联动: review priority — most overdue first, then least recently
+    # retrieved ("超期最久且最没人查"的先复核). Judgment above is unchanged.
+    ranked.sort(key=lambda x: (-x[0], x[1]))
+    issues.extend(issue for _od, _lh, issue in ranked)
+    return issues
+
+
+def _check_low_adoption(
+    output_dir: Path,
+    min_hits: Optional[int] = None,
+    max_adopted: Optional[int] = None,
+    recent_days: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Flag stable notes that are recalled often but never adopted.
+
+    P1 B-line (docs/知识飞轮增强设计方案-P1三项.md §3).  This is the
+    *utility* dimension of note quality: ``hit_count`` measures exposure,
+    ``adopted_count`` (``adopted`` telemetry events written by
+    capture_conversation when the agent declares the docs it actually
+    used) measures usefulness.  A note that keeps getting recalled and
+    never gets adopted is likely *relevant but not actionable*.
+
+    Trigger (all must hold, per stable/confirmed note):
+      - hit_count >= min_hits (default 5, from the telemetry aggregate);
+      - adopted_count <= max_adopted (default 0 — never adopted);
+      - last_hit within recent_days (default 60) — "was hot, now dead"
+        belongs to stale_notes instead.
+
+    Cold-start guard (critical): when the bundle has zero adopted events
+    anywhere, the check silently
+    returns no issues — right after the A-line ships nobody has declared
+    anything yet, and flagging every hot note would be pure noise.
+
+    Config precedence: explicit parameters > schema ``conventions.
+    usage_ranking.low_adoption`` > hardcoded defaults (5 / 0 / 60) —
+    dispatch passes no parameters, same posture as _check_stale_notes.
+    """
+    from datetime import datetime, timedelta
+
+    issues: List[Dict[str, Any]] = []
+
+    # Config from schema.yaml (fallback chain handled below).
+    try:
+        from codewiki.mcp.tools.page_router import load_schema
+        schema = load_schema(str(output_dir))
+    except Exception:
+        schema = {}
+    cfg: Dict[str, Any] = {}
+    if isinstance(schema, dict):
+        usage = schema.get("conventions", {}).get("usage_ranking")
+        if isinstance(usage, dict) and isinstance(usage.get("low_adoption"), dict):
+            cfg = usage["low_adoption"]
+
+    def _param(name: str, default: int, override: Optional[int]) -> int:
+        if override is not None:
+            return int(override)
+        try:
+            return int(cfg.get(name, default))
+        except (TypeError, ValueError):
+            return default
+
+    min_hits = _param("min_hits", 5, min_hits)
+    max_adopted = _param("max_adopted", 0, max_adopted)
+    recent_days = _param("recent_days", 60, recent_days)
+
+    # Cold-start guard: no adopted events anywhere in the bundle → the
+    # adoption signal is not in use yet, skip.
+    from codewiki.mcp.tools.adoption import load_adoption_counts
+    adoption_counts = load_adoption_counts(output_dir)
+    if not adoption_counts:
+        return issues
+
+    from codewiki.src.config import NOTES_DIR
+    notes_dir = output_dir / NOTES_DIR
+    if not notes_dir.is_dir():
+        return issues
+
+    # Usage signals from the telemetry aggregate (T2; same source
+    # stale_notes uses — one call carries hit_count / last_hit / adopted).
+    try:
+        from codewiki.mcp.tools import telemetry
+        usage_agg = telemetry.aggregate_usage(output_dir)
+    except Exception:
+        return issues
+    if not usage_agg:
+        return issues
+    hit_map: Dict[str, Tuple[int, str]] = {}  # file_path -> (hit_count, last_hit)
+    for fp, entry in usage_agg.items():
+        hit_map[str(fp).replace("\\", "/")] = (
+            int(entry.get("hits", 0) or 0), str(entry.get("last_hit") or ""),
+        )
+
+    cutoff = datetime.now() - timedelta(days=recent_days)
+
+    for note_file in sorted(notes_dir.glob("*.md")):
+        fm = _parse_note_frontmatter(note_file)
+        if not fm:
+            continue
+
+        # Only stable/confirmed notes are judged (legacy + OKF v0.2 vocabulary)
+        status = str(fm.get("status", "")).lower()
+        if status not in ("stable", "confirmed"):
+            continue
+
+        rel_path = str(note_file.relative_to(output_dir)).replace("\\", "/")
+        alt_key = f"notes/{note_file.name}"
+        entry = hit_map.get(rel_path) or hit_map.get(alt_key)
+        if not entry:
+            continue
+        hit_count, last_hit = entry
+
+        if hit_count < min_hits:
+            continue
+        # Recency: last_hit must be inside the window, otherwise the note
+        # "was hot but is dead now" — that case belongs to stale_notes.
+        try:
+            last_hit_dt = datetime.fromisoformat(last_hit[:10])
+        except ValueError:
+            continue  # no / unparseable last_hit → not verifiably recent
+        if last_hit_dt < cutoff:
+            continue
+
+        adopted = int(adoption_counts.get(rel_path, adoption_counts.get(alt_key, 0)))
+        if adopted > max_adopted:
+            continue
+
+        title = fm.get("title", note_file.stem)
+        issues.append({
+            "check": "low_adoption",
+            "severity": "warning",
+            "message": (
+                f"Note '{title}' was recalled {hit_count} times recently "
+                f"but adopted {adopted} time(s) — content is likely relevant "
+                f"but not actionable enough"
+            ),
+            "file": rel_path,
+            "suggestion": (
+                "高频召回但零采纳：内容相关但可能不够 actionable。建议重写为更"
+                "可执行的形式（补充具体步骤/命令/预期结果），可用 "
+                "distill_conversation 产出草稿后 confirm_note，或用 "
+                f"edit_doc_file 直接更新 {rel_path}。"
             ),
         })
 
@@ -1093,11 +1292,131 @@ def _check_note_clusters(
 
 
 # ---------------------------------------------------------------------------
+#  P2: L2 scene block hygiene (team-memory fusion 设计方案 §4.3.4)
+# ---------------------------------------------------------------------------
+
+def _check_scenario_capacity(
+    output_dir: Path,
+) -> List[Dict[str, Any]]:
+    """Error/warning when live scene blocks reach or exceed the capacity cap.
+
+    The consolidation protocol (UPDATE > MERGE > CREATE with graded warnings)
+    exists precisely to keep the scenario set bounded; lint backstops it in
+    case a submit slipped through or files were written outside the tool.
+    """
+    issues: List[Dict[str, Any]] = []
+    try:
+        from codewiki.mcp.tools.note_consolidation import _scan_scenarios
+        from codewiki.mcp.tools.aggregation_state import read_config
+        live = _scan_scenarios(output_dir)
+        max_scenes = read_config(output_dir)["max_scenarios"]
+    except Exception:
+        return issues
+    if not live:
+        return issues
+    if len(live) > max_scenes:
+        issues.append({
+            "check": "scenario_capacity",
+            "severity": "error",
+            "message": (
+                f"Scenario blocks exceed the cap: {len(live)}/{max_scenes}. "
+                "MERGE similar scenes (mark losers [DELETED]) before adding more."
+            ),
+            "file": "wiki/scenarios/",
+            "suggestion": (
+                "Run consolidate_notes(mode='prepare') and follow the RED "
+                "capacity protocol: merge first, then re-submit."
+            ),
+        })
+    elif len(live) == max_scenes:
+        issues.append({
+            "check": "scenario_capacity",
+            "severity": "warning",
+            "message": (
+                f"Scenario blocks at capacity: {len(live)}/{max_scenes}. "
+                "Only UPDATE is allowed until a merge frees a slot."
+            ),
+            "file": "wiki/scenarios/",
+            "suggestion": "Prefer UPDATE/MERGE on the next consolidate_notes run.",
+        })
+    return issues
+
+
+def _check_scenario_orphan(
+    output_dir: Path,
+    retrieval_gap_days: int = 90,
+) -> List[Dict[str, Any]]:
+    """Info-level flag for scene blocks with no provenance and no retrieval use.
+
+    A scenario is an orphan when it has no metadata.source_notes (never linked
+    to the notes it was consolidated from) AND has not been retrieved for
+    retrieval_gap_days (or ever). Such blocks may be redundant or outdated.
+    """
+    from datetime import datetime, timedelta
+
+    issues: List[Dict[str, Any]] = []
+    try:
+        from codewiki.mcp.tools.note_consolidation import (
+            _scan_scenarios, _read_frontmatter,
+        )
+    except Exception:
+        return issues
+
+    scenarios = _scan_scenarios(output_dir)
+    if not scenarios:
+        return issues
+
+    # Telemetry usage aggregate (T2; same source stale_notes uses)
+    retrieval_map: Dict[str, str] = {}
+    try:
+        from codewiki.mcp.tools import telemetry
+        for fp, entry in telemetry.aggregate_usage(output_dir).items():
+            lh = entry.get("last_hit")
+            if lh:
+                retrieval_map[str(fp).replace("\\", "/")] = str(lh)
+    except Exception:
+        pass
+
+    retrieval_threshold = datetime.now() - timedelta(days=retrieval_gap_days)
+    for sc in scenarios:
+        path = output_dir / sc["file"]
+        fm = _read_frontmatter(path) or {}
+        meta = fm.get("metadata") if isinstance(fm.get("metadata"), dict) else {}
+        if meta.get("source_notes"):
+            continue  # provenance present — not an orphan
+        last_hit = retrieval_map.get(sc["file"].replace("\\", "/"))
+        recently_used = False
+        if last_hit:
+            try:
+                recently_used = datetime.fromisoformat(last_hit) >= retrieval_threshold
+            except ValueError:
+                recently_used = True  # unparseable timestamp: be conservative
+        if recently_used:
+            continue
+        issues.append({
+            "check": "scenario_orphan",
+            "severity": "info",
+            "message": (
+                f"Scene block '{sc['title']}' has no source_notes provenance and "
+                f"has not been retrieved for {retrieval_gap_days}+ days — "
+                "consider reviewing, merging, or retiring it."
+            ),
+            "file": sc["file"],
+            "suggestion": (
+                "Verify the block is still valid; retire via [DELETED] on the "
+                "next consolidate_notes run if superseded."
+            ),
+        })
+    return issues
+
+
+# ---------------------------------------------------------------------------
 #  OKF v0.2 conformance (§11 / §12)
 # ---------------------------------------------------------------------------
 
 def _check_okf_conformance(
     output_dir: Path,
+    skip_notes_staleness: bool = False,
 ) -> List[Dict[str, Any]]:
     """Audit the bundle against the OKF v0.2 specification.
 
@@ -1117,9 +1436,12 @@ def _check_okf_conformance(
     from datetime import date
 
     from codewiki.src.config import (
+        CONVERSATIONS_DIR,
         INDEX_FILENAME,
         META_DIR,
+        NOTES_DIR,
         RAW_DIR,
+        TASKS_DIR,
         WIKI_DIR,
     )
 
@@ -1131,7 +1453,13 @@ def _check_okf_conformance(
     # scratch/staging directories (.meta/, .trash/, .hook-debug/) and the raw/
     # capture staging layer (conv-*.md from capture_conversation).  raw/sources/
     # is exempt: it holds the ingested source documents that still get audited.
+    #
+    # System-generated layers are exempt from OKF conformance: tasks/ (task.md
+    # + memories.md, 由 task_manager 维护，frontmatter 由任务系统自行管理) 和
+    # conversations/ (L0 蒸馏归档层，conv-*.md 的 frontmatter 由蒸馏管线写入,
+    # 含 captured_at/content_hash 等私有键)。
     _scratch_dirs = {META_DIR, ".trash", ".hook-debug"}
+    _system_layers = {TASKS_DIR, CONVERSATIONS_DIR}
     targets: List[Path] = []
     for _md in output_dir.rglob("*.md"):
         parts = _md.parts
@@ -1140,6 +1468,9 @@ def _check_okf_conformance(
         if RAW_DIR in parts and "sources" not in parts:
             continue
         if any(_part in _scratch_dirs for _part in parts):
+            continue
+        # 系统生成层（任务记忆、蒸馏归档）不要求 OKF 合规
+        if any(_part in _system_layers for _part in parts):
             continue
         targets.append(_md)
 
@@ -1279,17 +1610,24 @@ def _check_okf_conformance(
         stale_after = fm.get("stale_after")
         if stale_after:
             sa = str(stale_after)[:10]
+            # Notes are judged by the dedicated type-aware stale_notes check
+            # (with retrieval-defer + per-type windows); skip them here to
+            # avoid double-reporting when that check also runs.
+            is_note = NOTES_DIR in md_file.parts
             if re.match(r"^\d{4}-\d{2}-\d{2}$", sa) and sa < today_str:
-                issues.append({
-                    "check": "okf_conformance",
-                    "severity": "warning",
-                    "message": f"stale_after ({sa}) has passed — knowledge may be outdated",
-                    "file": rel_path,
-                    "suggestion": (
-                        "Verify the content is still accurate, then regenerate or "
-                        "update the page to renew stale_after."
-                    ),
-                })
+                if skip_notes_staleness and is_note:
+                    pass  # handled by _check_stale_notes
+                else:
+                    issues.append({
+                        "check": "okf_conformance",
+                        "severity": "warning",
+                        "message": f"stale_after ({sa}) has passed — knowledge may be outdated",
+                        "file": rel_path,
+                        "suggestion": (
+                            "Verify the content is still accurate, then regenerate or "
+                            "update the page to renew stale_after."
+                        ),
+                    })
 
     # §12: wiki/index.md should declare okf_version
     index_path = output_dir / WIKI_DIR / INDEX_FILENAME
@@ -1414,13 +1752,29 @@ def handle_lint_wiki(
         all_issues.extend(_check_unsupported_claims(output_dir))
 
     if "stale_notes" in checks and output_dir:
+        # Config (type-aware windows + retrieval-defer) is read from
+        # schema.yaml inside the check; dispatch passes no hardcoded values.
         all_issues.extend(_check_stale_notes(output_dir))
 
     if "note_clusters" in checks and output_dir:
         all_issues.extend(_check_note_clusters(output_dir))
 
+    if "low_adoption" in checks and output_dir:
+        # Config (min_hits/max_adopted/recent_days) is read from schema.yaml
+        # inside the check; dispatch passes no hardcoded values.
+        all_issues.extend(_check_low_adoption(output_dir))
+
+    if "scenario_capacity" in checks and output_dir:
+        all_issues.extend(_check_scenario_capacity(output_dir))
+
+    if "scenario_orphan" in checks and output_dir:
+        all_issues.extend(_check_scenario_orphan(output_dir))
+
     if "okf_conformance" in checks and output_dir:
-        all_issues.extend(_check_okf_conformance(output_dir))
+        all_issues.extend(_check_okf_conformance(
+            output_dir,
+            skip_notes_staleness=("stale_notes" in checks),
+        ))
 
     # Deduplicate: if a link is already reported as stale_refs, don't also
     # report it as broken_links (same file + line = same underlying problem).

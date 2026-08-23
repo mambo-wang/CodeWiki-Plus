@@ -87,10 +87,28 @@ def rebuild_index(output_dir: str | Path) -> None:
         type_entries: Dict[str, List[Dict[str, str]]] = {
             pt: [] for pt in PAGE_TYPE_DIRS
         }
+        # Root-level wiki/ files (doctrine.md, reading-guide.md, ...) — not a
+        # subdirectory page type, but real pages that must appear in the index
+        # so they are reachable (and not flagged as orphans).
+        root_entries: List[Dict[str, str]] = []
         note_entries: List[Dict[str, str]] = []
 
         # Scan wiki/ subdirectories
         if wiki_dir.is_dir():
+            # wiki/ 根下的页面文件（非系统文件、非子目录）
+            for md_file in sorted(wiki_dir.iterdir()):
+                if not md_file.is_file() or md_file.suffix != ".md":
+                    continue
+                if md_file.name in _EXCLUDED_FROM_INDEX:
+                    continue
+                title, summary = _extract_doc_title_and_summary(md_file)
+                root_entries.append(
+                    {
+                        "title": title,
+                        "summary": summary,
+                        "relpath": md_file.name,
+                    }
+                )
             for page_type, dir_name in PAGE_TYPE_DIRS.items():
                 type_dir = wiki_dir / dir_name
                 if not type_dir.is_dir():
@@ -135,7 +153,7 @@ def rebuild_index(output_dir: str | Path) -> None:
         health_score = _compute_health_score(output_dir)
 
         now = datetime.now(_TZ_CST).strftime("%Y-%m-%dT%H:%M:%S+08:00")
-        content = _render_index(type_entries, note_entries, now, health_score)
+        content = _render_index(type_entries, note_entries, now, health_score, root_entries)
         _atomic_write(index_path, content)
         logger.debug("Rebuilt %s", index_path)
 
@@ -369,6 +387,7 @@ _PAGE_TYPE_LABELS = {
     "source": "外部文档",
     "comparison": "对比分析",
     "query": "研究查询",
+    "scenario": "场景方法",
 }
 
 
@@ -377,6 +396,7 @@ def _render_index(
     note_entries: List[Dict[str, str]],
     generated_at: str,
     health_score: int = 100,
+    root_entries: Optional[List[Dict[str, str]]] = None,
 ) -> str:
     """Produce the full index.md markdown string (OKF v0.2 §8 format).
 
@@ -399,6 +419,16 @@ def _render_index(
         "# 项目文档索引",
         "",
     ]
+
+    # Root-level pages (wiki/doctrine.md, wiki/reading-guide.md, ...)
+    if root_entries:
+        parts.append("## 入门指引")
+        parts.append("")
+        for entry in root_entries:
+            parts.append(
+                f"* [{entry['title']}]({entry['relpath']}) - {entry['summary']}"
+            )
+        parts.append("")
 
     # Render each page type section (§8 bullet lists)
     for page_type, label in _PAGE_TYPE_LABELS.items():

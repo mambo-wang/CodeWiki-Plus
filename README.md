@@ -70,7 +70,7 @@ CodeWiki-Plus 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/Code
 | 任务记忆 | 无 | 跨会话任务上下文 + 任务记忆暂存确认 |
 | 搜索能力 | 无 | BM25 + wikilink 图谱多跳 + 渐进式阅读 |
 | 跨服务分析 | 无 | Monorepo 子服务检测 + 跨服务调用追踪 |
-| 质量保障 | 无 | 16 项 lint 检查 + health score + 问题追踪 |
+| 质量保障 | 无 | 18 项 lint 检查 + health score + 问题追踪 |
 
 ### 前置条件
 
@@ -233,7 +233,7 @@ repowiki/
 
 | 工具 | 用途 |
 |------|------|
-| `lint_wiki` | 文档-代码一致性检查：**16 项检查**（含 unsupported_claims 无证据断言检测） |
+| `lint_wiki` | 文档-代码一致性检查：**18 项检查**（含 unsupported_claims 无证据断言检测、low_adoption 低采纳检测） |
 | `flag_issue` | 标记 Wiki 质量问题，驱动 health score 计算 |
 
 **跨服务分析（1 个）：**
@@ -383,6 +383,9 @@ LLM 发现跨功能约束
 - 自动采集 Hook 只落 raw，永不自动蒸馏；蒸馏须显式调用 `distill_conversation`。
 - `repowiki/raw/` 是暂存区，不进 `query_wiki` 检索；蒸馏完成后由工具自动清理（除非 `keep_raw`）。
 - 触发形态为 **both**：手动命令（主）+ IDE Hook（可选）。
+- 自动采集/任务引导 Hook 接线支持 **CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`）**，启用时运行 `codewiki install-hooks --repo-path <repo>` 自动检测项目根目录存在哪些 IDE 配置目录，检测到哪些就为哪些接线（拷贝 hook 脚本与 distill-worker subagent、幂等合并 settings.json、写入 AGENTS.md 引导段）；采集脚本对事件载荷做了通用化处理。
+
+**隐私语义（T2 团队遥测）：** `query_wiki` 的检索命中与 `capture_conversation` 的采纳记录会以 `user_id`（优先 `CODEWIKI_USER` 环境变量，回退 `git config user.name` / 系统登录名）署名写入 `repowiki/.meta/telemetry/<user_id>.jsonl` 并随仓库共享——此前这是 gitignore 的本机私有数据。`user_id` 不做鉴权（信任模型与 confirm 闸门一致：能提交即团队可信成员），仅作命名空间；不愿以 git 真名署名的成员可用 `CODEWIKI_USER` 设置花名，或在 `schema.yaml` 中设 `conventions.telemetry.enabled: false` 退回纯本机模式（写入 `repowiki/.meta/telemetry-local/`，已 gitignore，聚合逻辑不变）。
 
 ### 任务记忆（Task Memory）
 
@@ -395,7 +398,7 @@ LLM 发现跨功能约束
   list_tasks(status="active") → 选择关联已有任务或新建
   → set_session_task 绑定会话（后续采集自动携带 task_id）
   → get_task_context 拉取任务描述 + 记忆 + 关联笔记
-  → 若 pending_raw_count > 0：补蒸馏历史对话后再开始工作
+  → 若 pending_raw_count > 0：委托「蒸馏 worker」subagent 后台补蒸馏，不阻塞开始工作
 
 会话过程中：
   distill_conversation 双轨产出：
@@ -516,7 +519,7 @@ CodeWiki-Plus 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 
 #### 文档健康检查
 
-`lint_wiki` 提供 **16 项检查**，覆盖结构完整性和内容质量：
+`lint_wiki` 提供 **18 项检查**，覆盖结构完整性和内容质量：
 
 | 检查项 | 说明 |
 |--------|------|
@@ -535,7 +538,10 @@ CodeWiki-Plus 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 | `isolated_components` | 零依赖零被依赖的孤立组件 |
 | `stale_notes` | 超过 90 天且 60 天内未被检索的已确认笔记 |
 | `note_clusters` | 同模块同类型笔记 ≥3 条，建议合并 |
+| `low_adoption` | 高频召回（≥5 次）但零采纳的 stable 笔记——内容相关但不够 actionable，建议按「步骤/命令/预期结果」重写 |
 | `okf_conformance` | OKF v0.2 合规审计：缺失 type/frontmatter、旧版状态词、verified 格式错误、stale_after 过期、缺 okf_version |
+| `scenario_capacity` | L2 场景块数量达到/超过容量上限（error/warning 分级），需先 MERGE 腾位再新增 |
+| `scenario_orphan` | 无来源标注（metadata.source_notes）且长期未被检索的孤儿场景块，可能冗余或过时 |
 
 `lint_wiki` 返回 **health_score**（0-100），计算方式为 `100 - Σ(error×10 + warning×3 + info×1)`。
 
@@ -599,7 +605,7 @@ MCP Server 内置 **19 个工作流 Prompt**，在 AI IDE 中通过 Prompt 面�
 | `architecture-review` | 架构审查与热点分析 | 依赖图分析 → 核心层/服务层/应用层识别 → Top 5 热点 → 耦合风险 → 入口点 |
 | `extract-knowledge` | 外部文档知识提取 | ingest_source 导入 → extraction_scan 候选提取 → 实体/概念页面生成 → wikilink 图谱 |
 | `search-wiki` | 知识库搜索策略指引 | query_wiki（BM25）→ 图谱多跳扩展 → 渐进式阅读（overview → directory → detail） |
-| `quality-check` | Wiki 质量全面检查 | lint_wiki（16 项检查）→ health_score → flag_issue 标记 → 修复建议 |
+| `quality-check` | Wiki 质量全面检查 | lint_wiki（18 项检查）→ health_score → flag_issue 标记 → 修复建议 |
 | `ingest-note` | 经验知识归档 | ingest_note（8 种类型）→ candidate 状态 → confirm/reject 流转 → BM25 索引 |
 | `team-memory-hook` | 对话自动采集管理 | 检查状态 → 启用（注册 SessionEnd 事件）/ 关闭 → 验证 |
 | `distill-conversations` | 对话蒸馏提取经验 | prepare 取 transcript → Agent 提取知识 → submit 去重入库 → confirm/reject 评审 |
@@ -657,7 +663,7 @@ Agent 调用 `confirm_note(note_file="pitfall-redis-connection-pool.md")`，升�
 检查一下 Wiki 文档的健康状况。
 ```
 
-Agent 调用 `lint_wiki`，返回 16 项诊断报告和 health_score。
+Agent 调用 `lint_wiki`，返回 18 项诊断报告和 health_score。
 
 **场景 8：跨服务调用分析**
 
@@ -673,7 +679,7 @@ Agent 调用 `analyze_repo`（自动检测子服务）→ `query_cross_service(f
 继续上次的"支付重构"任务。
 ```
 
-Agent 调用 `list_tasks` 找到任务 → `set_session_task` 绑定会话 → `get_task_context` 恢复上下文（做了什么、下一步），若有未蒸馏对话先补蒸馏，然后无缝继续工作。
+Agent 调用 `list_tasks` 找到任务 → `set_session_task` 绑定会话 → `get_task_context` 恢复上下文（做了什么、下一步），若有未蒸馏对话委托「蒸馏 worker」subagent 后台补蒸馏（不阻塞），然后无缝继续工作。
 
 ### 支持的其他 AI IDE
 
@@ -772,7 +778,7 @@ After:
 | Task memory | None | Cross-session task context + pending-confirm task memories |
 | Search | None | BM25 + wikilink graph multi-hop + progressive reading |
 | Cross-service | None | Monorepo sub-service detection + call tracing |
-| Quality assurance | None | 16 lint checks + health score + issue tracking |
+| Quality assurance | None | 17 lint checks + health score + issue tracking |
 
 ### Prerequisites
 
@@ -886,7 +892,7 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP. The serve
 
 | Tool | Purpose |
 |------|---------|
-| `lint_wiki` | Doc-code consistency: **16 checks** (incl. unsupported_claims evidence detection) |
+| `lint_wiki` | Doc-code consistency: **18 checks** (incl. unsupported_claims evidence detection, low_adoption utility check, and L2 scenario hygiene) |
 | `flag_issue` | Flag quality issues, drives health score |
 
 **Cross-Service Analysis (1):**
@@ -991,6 +997,9 @@ Inspired by Team-Agent-Memory's "extract retrievable experience from conversatio
 - The automatic capture hook only writes raw; it never distills. Distillation must be invoked explicitly via `distill_conversation`.
 - `repowiki/raw/` is a staging area excluded from `query_wiki`; it is cleaned up after distillation automatically (unless `keep_raw`).
 - Trigger form is **both**: manual command (primary) + IDE hook (optional).
+- The capture / task-guidance hooks are wired for **CodeBuddy (`.codebuddy/`), Qoder (`.qoder/`) and Claude Code (`.claude/`)**. To enable, run `codewiki install-hooks --repo-path <repo>`: it auto-detects which IDE config dirs exist in the project root and wires each one found (copies the hook scripts and the distill-worker subagent, idempotently merges `settings.json` hook registrations, and upserts the AGENTS.md task-guidance section). The capture script parses generic event payloads.
+
+**Privacy semantics (T2 team telemetry):** `query_wiki` retrieval hits and `capture_conversation` adoption records are written to `repowiki/.meta/telemetry/<user_id>.jsonl` (committed to the repo) under a `user_id` resolved from the `CODEWIKI_USER` env var, falling back to `git config user.name` / the OS login name — this data used to be a gitignored local file. The `user_id` is not an auth mechanism (trust model equals the confirm gate: anyone who can commit is a trusted teammate), it is a namespace only. Members who prefer not to sign telemetry with their git name can set a pseudonym via `CODEWIKI_USER`, or set `conventions.telemetry.enabled: false` in `schema.yaml` to fall back to local-only mode (written to `repowiki/.meta/telemetry-local/`, gitignored; aggregation is unchanged).
 
 ### Task Memory
 
@@ -1056,7 +1065,7 @@ The MCP server includes **19 built-in workflow prompts** that can be triggered f
 | `architecture-review` | Architecture review & hotspot analysis | Dependency graph → layer identification → Top 5 hotspots → coupling risks → entry points |
 | `extract-knowledge` | External document knowledge extraction | ingest_source → extraction_scan → entity/concept pages → wikilink graph |
 | `search-wiki` | Knowledge base search strategy | query_wiki (BM25) → graph multi-hop expansion → progressive reading |
-| `quality-check` | Comprehensive Wiki quality check | lint_wiki (16 checks) → health_score → flag_issue → fix suggestions |
+| `quality-check` | Comprehensive Wiki quality check | lint_wiki (18 checks) → health_score → flag_issue → fix suggestions |
 | `ingest-note` | Experience knowledge archiving | ingest_note (8 types) → candidate status → confirm/reject → BM25 index |
 | `team-memory-hook` | Conversation capture hook management | Check status → enable (register SessionEnd event) / disable → verify |
 | `distill-conversations` | Conversation distillation | prepare fetch transcripts → Agent extracts → submit ingest → confirm/reject review |

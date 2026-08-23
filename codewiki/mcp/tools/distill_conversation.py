@@ -44,14 +44,18 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# note_type values accepted by ingest_note (see agents_md.py routing table)
-_VALID_NOTE_TYPES = {
-    "decision", "lesson", "pitfall", "architecture",
-    "workaround", "known_issue", "general",
-}
+# note_type values accepted by ingest_note (see agents_md.py routing table).
+# V4: single source of truth is the note_types declaration table
+# (codewiki/mcp/tools/note_types.py) — the registry inputSchema enum and
+# knowledge_loop promotion routing derive from the same table.
+from codewiki.mcp.tools.note_types import valid_note_types as _nt_valid
+
+_VALID_NOTE_TYPES = _nt_valid()
 
 # System prompt: instruct the LLM to emit one JSON object with a list of notes,
 # each following OKF note shape (## sections, title, note_type, related_modules).
+# P1: five extraction disciplines (borrowed from TAM work-mode L1 prompt) and
+# the optional priority / scene fields were added to raise distillation quality.
 _DISTILL_SYSTEM = (
     "You are a knowledge distillation engine for a software project wiki.\n"
     "Given a raw conversation transcript between a user and an assistant, extract "
@@ -63,6 +67,21 @@ _DISTILL_SYSTEM = (
     "  - pitfalls (gotchas, easy-to-misuse APIs)\n"
     "  - architecture (non-obvious structural facts)\n"
     "  - workarounds (temporary fixes + recovery condition)\n\n"
+    "EXTRACTION DISCIPLINES (mandatory):\n"
+    "1. Self-contained: every note MUST be understandable outside this "
+    "conversation. Include clear subject, object, conclusion or method; never "
+    "use context-dependent references like 'this', 'that', 'mentioned above'.\n"
+    "2. Accurate attribution: a suggestion or concern raised by someone is NOT "
+    "a project decision. Only write a definitive conclusion when it was "
+    "explicitly confirmed/adopted/verified; otherwise phrase it as 'under "
+    "discussion' or 'pending confirmation'.\n"
+    "3. Merge, don't fragment: strongly related turns about one conclusion "
+    "must be merged into a single note; different topics/modules/methods stay "
+    "separate.\n"
+    "4. AI outputs: an assistant-generated plan or analysis is extractable only "
+    "when the user adopted/confirmed it or it was validated in practice.\n"
+    "5. Drop low value: greetings, one-shot requests ('just fix this formatting "
+    "for now'), and anything obvious from the code must NOT be extracted.\n\n"
     "Return ONLY a single JSON object (no markdown fences) shaped exactly as:\n"
     "{\n"
     '  "notes": [\n'
@@ -71,6 +90,8 @@ _DISTILL_SYSTEM = (
     '      "note_type": "decision | lesson | pitfall | architecture | workaround",\n'
     '      "related_modules": ["module_slug"],\n'
     '      "tags": ["optional", "keywords"],\n'
+    '      "priority": 85,\n'
+    '      "scene": "optional short scene label, e.g. the work context this knowledge belongs to",\n'
     '      "content": "Full OKF note body in Markdown. Use H2 (##) sections such as '
     '## Background, ## Decision/正确做法, ## Rationale, ## Root cause, ## Recovery. '
     'Reuse exact names, paths, and code snippets from the conversation."\n'
@@ -81,6 +102,12 @@ _DISTILL_SYSTEM = (
     '    "string"\n'
     "  ]\n"
     "}\n"
+    "The optional 'priority' field is an integer 0-100: use 90-100 for core "
+    "decisions / long-term constraints / critical pitfalls, 70-89 for generally "
+    "reusable knowledge. Notes with priority below 70 are dropped by the "
+    "system — when in doubt about a note's durable value, do not emit it at "
+    "all. The optional 'scene' field labels the work context (e.g. the module "
+    "or topic the discussion revolves around) and helps later consolidation.\n"
     'The "memories" array captures task-scoped progress knowledge: what was '
     "accomplished this session, what remains, decisions reached, and next-step "
     "context relevant to the *task at hand* (not general reusable wiki knowledge, "
@@ -149,6 +176,23 @@ _DEDUP_THRESHOLD = 0.6
 # lower BM25 score.
 _TITLE_SIMILARITY_THRESHOLD = 0.5
 
+# --------------------------------------------------------------------------- #
+# P1: priority gate + two-stage dedup constants.
+# 设计见 docs/团队记忆融合-L2场景聚合与L3-Doctrine设计方案.md §4.1/§4.2：
+#   - priority < _PRIORITY_MIN 的蒸馏笔记在 submit 时确定性丢弃（对齐 TAM
+#     work 模式 "<70 直接丢弃" 分档）；
+#   - 强重复信号（_find_existing_note 的 Jaccard 规则）沿用 dedup= 语义直接
+#     判定，保持幂等；弱信号（标题相似度处于弱区间，或 BM25 召回命中）转为
+#     conflict，交给宿主 agent 用 dedup_action 四操作（store/skip/update/merge）
+#     裁决——agent 本身就是 LLM，精判零成本。
+# --------------------------------------------------------------------------- #
+_PRIORITY_MIN = 70        # below this value a distilled note is dropped
+_PRIORITY_HIGH = 90       # >= maps to severity=high; 70-89 maps to medium
+_CONFLICT_TITLE_FLOOR = 0.35   # weak-band lower bound for title Jaccard
+_CONFLICT_BM25_FLOOR = 2.5     # BM25 recall score considered a conflict hint
+_BM25_RECALL_TOPK = 3
+_VALID_DEDUP_ACTIONS = ("store", "skip", "update", "merge")
+
 
 # --------------------------------------------------------------------------- #
 # Argument / path resolution
@@ -208,12 +252,30 @@ def _resolve_raw_path(arguments: Dict[str, Any], output_dir: Path) -> Optional[P
     return None  # batch mode: caller decides scope
 
 
+def _friction_score_of(text: str) -> int:
+    """Read the top-level ``friction_score:`` frontmatter value (0 when absent).
+
+    Rides the same line-scan convention as ``status:``/``task_id:`` — capture
+    writes the key via ``json.dumps`` so an int renders bare (no quotes).
+    """
+    m = re.search(r"^friction_score:\s*(-?\d+)", text, re.MULTILINE)
+    if not m:
+        return 0
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return 0
+
+
 def _iter_raw_files(raw_dir: Path) -> List[Path]:
     if not raw_dir.exists():
         return []
     files = [p for p in raw_dir.glob("conv-*.md")]
-    # Only not-yet-distilled files
-    out = []
+    # Only not-yet-distilled files, ordered by friction score DESC (K-line):
+    # conversations with visible friction (corrections/interrupts/repeats) are
+    # the most likely to yield valuable lesson notes, so they surface first in
+    # the prepare listing. Missing friction_score (pre-K-line captures) → 0.
+    scored = []
     for p in sorted(files):
         try:
             text = p.read_text(encoding="utf-8")
@@ -222,8 +284,9 @@ def _iter_raw_files(raw_dir: Path) -> List[Path]:
         m = re.search(r"^status:\s*(\w+)", text, re.MULTILINE)
         if m and m.group(1) == "distilled":
             continue
-        out.append(p)
-    return out
+        scored.append((_friction_score_of(text), p))
+    scored.sort(key=lambda item: -item[0])
+    return [p for _score, p in scored]
 
 
 # --------------------------------------------------------------------------- #
@@ -333,7 +396,9 @@ def _find_existing_note(
             fm = _parse_frontmatter(note_path)
         except Exception:
             continue
-        title = fm.get("title", "") or note_path.stem
+        # ingest_note writes the title JSON-quoted; unquote so Jaccard tokens
+        # are not polluted by the surrounding quotes.
+        title = _unquote_fm(fm.get("title", "")) or note_path.stem
         note_type = fm.get("type") or fm.get("note_type") or ""
         title_sim = _title_similarity(candidate_title, title)
         same_type = (note_type == candidate_type)
@@ -420,6 +485,230 @@ def _patch_note_origin(note_path: Path) -> None:
         note_path.write_text(new_text, encoding="utf-8")
     except OSError:
         pass
+
+
+# --------------------------------------------------------------------------- #
+# P1 helpers: priority gate + two-stage dedup (recall stage & adjudication)
+# --------------------------------------------------------------------------- #
+def _parse_priority(value: Any) -> Optional[int]:
+    """Clamp the optional distilled-note priority to an int in [0, 100].
+
+    Returns None for missing/invalid values (treated as "unspecified": the
+    note passes the gate without a severity mapping).
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        p = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0, min(100, p))
+
+
+def _bm25_recall_candidates(
+    title: str,
+    content: str,
+    output_dir: Path,
+) -> List[Dict[str, Any]]:
+    """Two-stage dedup, recall stage: BM25 top-K similar existing notes.
+
+    Reuses the existing zero-dependency wiki_search index (scope=notes) — no
+    embeddings, per the project constraint. Best-effort: a missing index or a
+    failed search yields [] so the draft falls back to title-similarity-only
+    dedup instead of being blocked.
+    """
+    first_line = (content or "").strip().split("\n", 1)[0][:200]
+    query = f"{title} {first_line}".strip()
+    if not query:
+        return []
+    try:
+        from codewiki.mcp.tools.wiki_search import search as _search
+        hits = _search(
+            output_dir, query, scope="notes", include_notes=True,
+            max_results=_BM25_RECALL_TOPK, score_threshold=0.1,
+            # Dedup is a similarity judgment, not a ranking one: exempt from
+            # authority weighting so draft candidates can't sink below the
+            # conflict floor just because they are unreviewed.
+            apply_authority=False,
+            # U1: retrieval popularity must not distort similarity either —
+            # a hot note is not a more likely duplicate of this draft.
+            apply_usage=False,
+        )
+    except Exception:  # index absent / search failure must never block distill
+        return []
+    out: List[Dict[str, Any]] = []
+    for h in hits or []:
+        score = float(h.get("relevance_score") or 0.0)
+        if score < _CONFLICT_BM25_FLOOR:
+            continue
+        out.append({
+            "file": h.get("file", ""),
+            "title": h.get("title", ""),
+            "score": round(score, 3),
+            "signal": "bm25",
+        })
+    return out
+
+
+def _find_weak_conflicts(
+    candidate_title: str,
+    candidate_content: str,
+    candidate_type: str,
+    output_dir: Path,
+) -> List[Dict[str, Any]]:
+    """Detect WEAK duplicate signals that warrant agent adjudication.
+
+    Strong duplicates are already handled by ``_find_existing_note`` (and keep
+    the legacy dedup= semantics for idempotent re-distillation). This function
+    only returns the weak band: title similarity in
+    [_CONFLICT_TITLE_FLOOR, strong-threshold) plus BM25 recall hits. An empty
+    list means "no conflict — ingest directly".
+    """
+    candidates: List[Dict[str, Any]] = []
+    notes_dir = output_dir / "notes"
+    if notes_dir.is_dir():
+        for note_path in notes_dir.glob("*.md"):
+            try:
+                fm = _parse_frontmatter(note_path)
+            except Exception:
+                continue
+            title = _unquote_fm(fm.get("title", "")) or note_path.stem
+            note_type = fm.get("type") or fm.get("note_type") or ""
+            sim = _title_similarity(candidate_title, title)
+            if sim < _CONFLICT_TITLE_FLOOR:
+                continue
+            same_type = (note_type == candidate_type)
+            is_strong = (
+                sim >= _DEDUP_THRESHOLD
+                or (sim >= _DEDUP_THRESHOLD * 0.8 and same_type)
+                or (sim >= _TITLE_SIMILARITY_THRESHOLD and same_type)
+            )
+            if is_strong:
+                continue  # handled by _find_existing_note, not a "conflict"
+            rel = str(note_path.relative_to(output_dir))
+            candidates.append({
+                "file": rel, "title": title,
+                "score": round(sim, 3), "signal": "title_sim",
+            })
+    for hit in _bm25_recall_candidates(candidate_title, candidate_content, output_dir):
+        if hit.get("file") and not any(c["file"] == hit["file"] for c in candidates):
+            candidates.append(hit)
+    return candidates[:5]
+
+
+def _union_fm_list(
+    head: str,
+    key: str,
+    from_text: str = "",
+) -> str:
+    """V6: union a frontmatter inline-list field with extra values.
+
+    ``tags`` pulls nothing extra (caller-managed); ``related_modules`` unions
+    module-ish tokens found in *from_text* (the merged draft's content) so the
+    merged note keeps both sides' scope. Values already present are not
+    duplicated; missing field ⇒ nothing to union ⇒ head returned unchanged.
+    Inline ``key: [a, b]`` format is preserved.
+    """
+    m = re.search(rf"^[ 	]*{key}:\s*\[(.*?)\]\s*$", head, re.MULTILINE)
+    if not m:
+        return head
+    existing = [v.strip().strip("'\"") for v in m.group(1).split(",") if v.strip()]
+    extras: List[str] = []
+    if key == "related_modules" and from_text:
+        # module-ish tokens: backticked names or [[wikilinks]] in the draft
+        for tok in re.findall(r"`([\w\-\.]+)`", from_text):
+            if tok not in extras:
+                extras.append(tok)
+    merged: List[str] = list(existing)
+    for e in extras:
+        if e not in merged:
+            merged.append(e)
+    if merged == existing:
+        return head
+    line = f"{key}: [" + ", ".join(f'"{v}"' for v in merged) + "]"
+    return head[:m.start()] + line + head[m.end():]
+
+
+def _apply_dedup_action(
+    action: str,
+    target: str,
+    title: str,
+    content: str,
+    raw_rel: str,
+    output_dir: Path,
+) -> Dict[str, Any]:
+    """Execute an agent-adjudicated update/merge action on the target note.
+
+    - update: the draft supersedes the target — replace the body, keep the
+      frontmatter (bumps generated.at), append provenance.
+    - merge: complementary knowledge — append the draft as a new H2 section at
+      the end of the target body, accumulate source_conversations.
+    Returns {"status": ..., "target": rel-or-None}.
+    """
+    if action not in ("update", "merge"):
+        return {"status": "invalid_action", "target": None}
+    if not target:
+        return {"status": "target_required", "target": None}
+    note_path = (output_dir / target) if not Path(target).is_absolute() else Path(target)
+    if not note_path.is_file():
+        return {"status": "target_not_found", "target": target}
+    try:
+        text = note_path.read_text(encoding="utf-8")
+    except OSError:
+        return {"status": "target_not_found", "target": target}
+
+    head, body = "", text
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        if end != -1:
+            head, body = text[:end + 4], text[end + 4:]
+
+    if action == "update":
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        new_head = re.sub(
+            r"(generated:\s*\{[^}]*at:\s*)\d{4}-\d{2}-\d{2}T[\d:]+Z",
+            lambda m: m.group(1) + now, head, count=1,
+        )
+        new_text = new_head + "\n\n" + content.strip() + "\n"
+    else:  # merge
+        # V6 (note_merge 字段策略): merge 不再是裸 H2 追加——frontmatter 的
+        # tags / related_modules 按策略并集（union），正文追加段带来源标记。
+        # 策略从 note_types 权威表读（默认 union/append），借的是 OpenViking
+        # merge_op 的字段粒度，闸门语义不变（合并结果仍是既有笔记的更新）。
+        try:
+            from codewiki.mcp.tools.note_types import merge_fields_for
+            _fm_type = re.search(r"^(?:type|note_type):\s*(\S+)", head, re.MULTILINE)
+            strategies = merge_fields_for(
+                _fm_type.group(1) if _fm_type else "general"
+            )
+        except Exception:
+            strategies = {"body": "append", "tags": "union",
+                          "related_modules": "union", "title": "replace"}
+        # tags union 在此场景无增量来源（draft 无 frontmatter，tags 在落盘
+        # 时才生成）。related_modules 恒取 union：merge-into-target 是互补
+        # 知识合并，双方 scope 都要保留——表的 replace 策略只属于
+        # note_merge 多条对等 draft 的合并场景，语义不同。
+        head = _union_fm_list(head, "related_modules", from_text=content)
+        body_md = body.strip()
+        marker = f"> 合并自蒸馏候选：{title}\n\n" if strategies.get("body") == "append" else ""
+        section = f"\n\n## {title}\n\n{marker}{content.strip()}\n"
+        new_text = (head + ("\n\n" + body_md if body_md else "") + section)
+
+    try:
+        note_path.write_text(new_text, encoding="utf-8")
+    except OSError:
+        return {"status": "write_failed", "target": target}
+    # Provenance: accumulate the raw conversation that fed this change.
+    if raw_rel:
+        _merge_source_into_note(target, raw_rel, output_dir)
+    # Refresh the BM25 index entry for the modified note.
+    try:
+        from codewiki.mcp.tools.wiki_search import update_file
+        update_file(output_dir, note_path, session=None)
+    except Exception as e:  # indexing is best-effort; never block distillation
+        logger.warning("search index refresh failed after %s: %s", action, e)
+    rel = str(note_path.relative_to(output_dir)) if _safe_rel(note_path, output_dir) else target
+    return {"status": "updated" if action == "update" else "merged", "target": rel}
 
 
 # --------------------------------------------------------------------------- #
@@ -553,13 +842,25 @@ def _process_llm_output(
     note_type_override: Optional[str] = None,
     related_modules_override: Optional[List[str]] = None,
     dedup: str = "suppress",
+    conflict_policy: str = "auto_suppress",
+    drop_raw: bool = False,
 ) -> Dict[str, Any]:
     """Deterministic half of distillation.
 
     Takes the already-produced LLM JSON (from an injected LLM in modes A/B, or
-    from the host agent itself in mode C ``submit``) and runs: parse → dedup
-    against notes/ → ingest draft notes → mark/delete the raw file → rebuild
-    the search index.
+    from the host agent itself in mode C ``submit``) and runs: parse →
+    priority gate (P1: drop <70) → dedup against notes/ → ingest draft notes
+    → mark/delete the raw file → rebuild the search index.
+
+    P1 two-stage dedup: STRONG duplicates (title Jaccard band) keep the legacy
+    ``dedup=`` semantics so re-distillation stays idempotent. WEAK conflicts
+    (title similarity in the weak band, or BM25 recall hits) are held for agent
+    adjudication when ``conflict_policy="hold"`` (Mode C): the note is not
+    ingested, candidates are reported, and the raw file stays pending until the
+    agent re-submits with a per-note ``dedup_action``
+    (store/skip/update/merge). With ``conflict_policy="auto_suppress"``
+    (modes A/B, no agent to interact with) weak conflicts fall back to the
+    legacy suppress behaviour.
     """
     from codewiki.mcp.tools.knowledge_loop import handle_ingest_note
 
@@ -569,6 +870,8 @@ def _process_llm_output(
 
     notes = _parse_llm_notes(llm_output)
     produced: List[Dict[str, Any]] = []
+    conflicts: List[Dict[str, Any]] = []
+    unresolved_conflicts = 0
     # Traceability: source_conversation points at the raw file (relative to repowiki)
     raw_rel = str(raw_path.relative_to(output_dir)) if _safe_rel(raw_path, output_dir) else str(raw_path)
     for note in notes:
@@ -582,26 +885,91 @@ def _process_llm_output(
         if link_to and link_to not in related:
             related = related + [link_to]
 
-        # --- T3: de-duplicate against existing notes/ before creating a draft ---
-        existing = _find_existing_note(title, note_type, output_dir, store)
-        if existing is not None:
-            existing_file = existing.get("file", "")
-            if dedup == "merge":
-                _merge_source_into_note(existing_file, raw_rel, output_dir)
-                produced.append({
-                    "title": title,
-                    "note_type": note_type,
-                    "merged_into": existing_file,
-                    "status": "merged",
-                })
-            else:  # suppress (default): drop the duplicate draft
-                produced.append({
-                    "title": title,
-                    "note_type": note_type,
-                    "duplicate_of": existing_file,
-                    "status": "suppressed",
-                })
+        # --- P1: priority gate — low-value notes are deterministically dropped
+        # (对齐 TAM work 模式 "<70 直接丢弃" 分档；LLM 侧已在 prompt 中要求
+        # 宁缺毋滥，这里是确定性兜底)。
+        priority = _parse_priority(note.get("priority"))
+        if priority is not None and priority < _PRIORITY_MIN:
+            produced.append({
+                "title": title,
+                "note_type": note_type,
+                "priority": priority,
+                "status": "low_priority",
+            })
             continue
+
+        # --- P1: two-stage dedup, second submit — agent adjudication actions.
+        action = str(note.get("dedup_action") or "").strip().lower()
+        if action not in _VALID_DEDUP_ACTIONS:
+            action = ""
+        if action == "skip":
+            produced.append({
+                "title": title, "note_type": note_type, "status": "skipped",
+            })
+            continue
+        if action in ("update", "merge"):
+            applied = _apply_dedup_action(
+                action, str(note.get("target") or ""),
+                title, content, raw_rel, output_dir,
+            )
+            produced.append({
+                "title": title,
+                "note_type": note_type,
+                "target": applied.get("target"),
+                "status": applied["status"],
+            })
+            continue
+
+        # --- T3/P1 de-duplicate against existing notes/ before creating a draft.
+        # action == "store" skips dedup entirely (agent forced creation).
+        if action != "store":
+            existing = _find_existing_note(title, note_type, output_dir, store)
+            if existing is not None:
+                # STRONG duplicate: keep the legacy dedup= semantics (suppress
+                # by default, provenance-only merge when dedup="merge") so
+                # repeated distillation stays idempotent.
+                existing_file = existing.get("file", "")
+                if dedup == "merge":
+                    _merge_source_into_note(existing_file, raw_rel, output_dir)
+                    produced.append({
+                        "title": title,
+                        "note_type": note_type,
+                        "merged_into": existing_file,
+                        "status": "merged",
+                    })
+                else:  # suppress (default): drop the duplicate draft
+                    produced.append({
+                        "title": title,
+                        "note_type": note_type,
+                        "duplicate_of": existing_file,
+                        "status": "suppressed",
+                    })
+                continue
+            weak = _find_weak_conflicts(title, content, note_type, output_dir)
+            if weak:
+                if conflict_policy == "hold":
+                    # WEAK conflict (Mode C): do NOT ingest yet — report the
+                    # candidates and wait for a re-submit carrying dedup_action.
+                    entry = {
+                        "title": title,
+                        "note_type": note_type,
+                        "status": "conflict",
+                        "candidates": weak,
+                    }
+                    produced.append(entry)
+                    conflicts.append(entry)
+                    unresolved_conflicts += 1
+                    continue
+                # Modes A/B: no agent to adjudicate — fall back to suppress
+                # (legacy behaviour), but surface the candidates for auditing.
+                produced.append({
+                    "title": title,
+                    "note_type": note_type,
+                    "status": "suppressed",
+                    "fallback": "auto_suppress",
+                    "candidates": weak,
+                })
+                continue
 
         ingest_args = {
             "output_dir": str(output_dir),
@@ -613,6 +981,15 @@ def _process_llm_output(
             "status": "draft",
             "source_ref": raw_rel,  # traceability: source_conversation
         }
+        # P1: priority → severity mapping (severity already carries a 2x BM25
+        # boost in the search index, so high-value notes surface more readily).
+        if priority is not None:
+            ingest_args["severity"] = "high" if priority >= _PRIORITY_HIGH else "medium"
+        # P1: scene label → metadata.scene (grouping hint for future L2
+        # consolidation).
+        scene = str(note.get("scene") or "").strip()
+        if scene:
+            ingest_args["scene"] = scene
         # Route the note to its task so get_task_context / query_wiki(task_id=...)
         # can surface task-scoped knowledge. Omitted for taskless conversations.
         if task_id:
@@ -651,26 +1028,51 @@ def _process_llm_output(
             memories_staged = r.get("staged", 0)
             memories_pending = r.get("pending", [])
 
-    # Mark raw as distilled and conditionally delete.
-    # A raw file is only kept when explicitly requested (keep_raw) or when
-    # distillation failed to produce a verdict. Conversations that were
-    # distilled but yielded no reusable knowledge (no_knowledge) are noise and
-    # are cleaned up so they don't linger in the transient staging area.
+    # Mark raw as distilled, then apply the retention policy (L0 archive):
+    #   drop_raw (argument or frontmatter) -> delete (explicit privacy opt-out)
+    #   produced knowledge OR keep_raw     -> archive into conversations/ and
+    #                                         repoint note source_ref links
+    #   no_knowledge without keep_raw      -> delete (noise; the staging area
+    #                                         is not a warehouse)
+    # Weak conflicts still pending keep the raw in raw/ untouched so the second
+    # submit can re-read it.
+    from codewiki.src.config import RAW_DIR
+    raw_dir = output_dir / RAW_DIR
     keep_raw = str(meta.get("keep_raw", "false")).lower() == "true"
-    _mark_distilled(raw_path)
+    if not drop_raw:
+        drop_raw = str(meta.get("drop_raw", "false")).lower() == "true"
     deleted = False
-    if not keep_raw and produced is not None:
+    archived_to: Optional[str] = None
+    if unresolved_conflicts == 0:
+        _mark_distilled(raw_path)
+        produced_knowledge = bool(produced) or bool(memories_staged)
+        if drop_raw:
+            try:
+                raw_path.unlink()
+                deleted = True
+            except OSError:
+                pass
+        elif produced_knowledge or keep_raw:
+            # L0 archive: retained for provenance. Link-only layer — never
+            # indexed; reached via note source_ref (设计方案 §9 链接优先)。
+            archived_to = _archive_raw(raw_path, output_dir)
+            if archived_to:
+                _rewrite_source_refs_after_archive(
+                    output_dir, raw_path.name, archived_to
+                )
+        else:
+            # no_knowledge noise: clean up so it doesn't linger.
+            try:
+                raw_path.unlink()
+                deleted = True
+            except OSError:
+                pass
+        # Keep the raw-dir index (used by capture_conversation) in sync: the
+        # entry leaves raw/ both when deleted and when archived.
         try:
-            raw_path.unlink()
-            deleted = True
-        except OSError:
+            _sync_raw_index_on_distill(raw_dir, raw_path, deleted or bool(archived_to))
+        except Exception:  # best-effort; never block distillation
             pass
-    # Keep the raw-dir index (used by capture_conversation) in sync so it does
-    # not reference deleted files or match distilled ones for pending supersede.
-    try:
-        _sync_raw_index_on_distill(raw_dir, raw_path, deleted)
-    except Exception:  # best-effort; never block distillation
-        pass
 
     # Rebuild the BM25 search index so the freshly distilled notes become
     # immediately queryable via query_wiki. The index is cached on disk and
@@ -682,9 +1084,13 @@ def _process_llm_output(
         except Exception as _e:  # indexing is best-effort; never block distillation
             logger.warning("search index rebuild failed after distill: %s", _e)
 
-    return {
+    if unresolved_conflicts:
+        file_status = "conflicts_pending"
+    else:
+        file_status = "completed" if (produced or memories_staged) else "no_knowledge"
+    ret: Dict[str, Any] = {
         "raw_path": str(raw_path),
-        "status": "completed" if (produced or memories_staged) else "no_knowledge",
+        "status": file_status,
         "notes_created": len(produced),
         "notes": produced,
         "distilled": produced,
@@ -692,8 +1098,23 @@ def _process_llm_output(
         "memories_pending": memories_pending,
         "task_id": task_id or None,
         "deleted_raw": deleted,
+        "archived_raw": archived_to,
         "keep_raw": keep_raw,
     }
+    if conflicts:
+        ret["conflicts"] = conflicts
+        ret["conflict_next"] = (
+            "Weak duplicate candidates were found for the note(s) listed in "
+            "'conflicts'. Read each candidate note, then re-submit the SAME "
+            "conversation with a per-note 'dedup_action': "
+            "'store' (genuinely new knowledge, force create) | "
+            "'skip' (the existing note is better, drop this draft) | "
+            "'update' (same fact, newer version wins: set 'target' to the "
+            "candidate file, its body will be replaced) | "
+            "'merge' (complementary: appended as a new section into 'target'). "
+            "Notes already ingested in the first pass need not be included again."
+        )
+    return ret
 
 
 async def _distill_one(
@@ -771,6 +1192,78 @@ def _sync_raw_index_on_distill(raw_dir: Path, raw_path: Path, deleted: bool) -> 
                 tmp.unlink()
         except OSError:
             pass
+
+
+# --------------------------------------------------------------------------- #
+# L0 archive (team-memory fusion): distilled conversations are retained for
+# provenance instead of deleted. Design decision (链接优先、零索引):
+#   - archive lives in repowiki/conversations/ (flat, permanent);
+#   - it is NOT indexed for BM25 search — discovery is link-only, agents reach
+#     a conversation by following the distilled note's source_ref;
+#   - raw/ stays the pending staging queue (capture scans never see archives).
+# --------------------------------------------------------------------------- #
+def _archive_raw(raw_path: Path, output_dir: Path) -> Optional[str]:
+    """Move a distilled raw transcript into conversations/ (L0 archive).
+
+    Returns the archive path relative to output_dir (forward slashes), or None
+    when the move failed (the file then stays in raw/ marked distilled —
+    graceful degradation, provenance simply keeps pointing at raw/).
+    """
+    import shutil
+    from codewiki.src.config import CONVERSATIONS_DIR
+
+    arch_dir = Path(output_dir) / CONVERSATIONS_DIR
+    try:
+        arch_dir.mkdir(parents=True, exist_ok=True)
+        dest = arch_dir / raw_path.name
+        if dest.exists():
+            # Defensive: same name already archived (e.g. re-captured slug).
+            import hashlib
+            digest = hashlib.sha1(
+                (raw_path.name + str(raw_path.stat().st_size)).encode()
+            ).hexdigest()[:6]
+            dest = arch_dir / f"{raw_path.stem}-{digest}.md"
+        shutil.move(str(raw_path), str(dest))
+        return f"{CONVERSATIONS_DIR}/{dest.name}".replace("\\", "/")
+    except OSError as e:
+        logger.warning("L0 archive failed for %s: %s", raw_path, e)
+        return None
+
+
+def _rewrite_source_refs_after_archive(
+    output_dir: Path, raw_name: str, archive_rel: str
+) -> int:
+    """Repoint note source_ref from raw/<name> to the archived location.
+
+    Scans notes/ (bounded) rather than only this run's produced files, so
+    multi-round conflict submits converge: notes produced in an earlier round
+    (before the raw was finally archived) get repointed too.
+    """
+    from codewiki.src.config import NOTES_DIR
+
+    notes_dir = Path(output_dir) / NOTES_DIR
+    if not notes_dir.is_dir():
+        return 0
+    # Frontmatter stores the ref JSON-escaped, so the separator may appear as
+    # '/' or one/two backslashes in the raw file text.
+    pattern = re.compile(r"raw[/\\]+" + re.escape(raw_name))
+    target = archive_rel.replace("\\", "/")
+    updated = 0
+    for p in notes_dir.glob("*.md"):
+        try:
+            text = p.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if raw_name not in text:
+            continue
+        new_text = pattern.sub(target, text)
+        if new_text != text:
+            try:
+                p.write_text(new_text, encoding="utf-8")
+                updated += 1
+            except OSError:
+                pass
+    return updated
 
 
 # --------------------------------------------------------------------------- #
@@ -942,6 +1435,24 @@ def handle_distill_conversation(
             if built is None:
                 continue
             meta = built["meta"]
+            try:
+                friction_score = int(str(meta.get("friction_score", "")).strip() or 0)
+            except (TypeError, ValueError):
+                friction_score = 0
+            # V6: 库内相关笔记预给——对 capture 预览跑一次 BM25（authority/
+            # usage 豁免，相似度导向），提取时即可参照已有笔记，减少 submit
+            # 后的冲突往返（new vs 引用已有，agent 提前判断）。
+            related_notes: List[Dict[str, Any]] = []
+            try:
+                related_notes = [
+                    {"file": h.get("file", ""), "title": h.get("title", ""),
+                     "score": h.get("score", 0)}
+                    for h in _bm25_recall_candidates(
+                        p.stem, built["transcript"][:2000], output_dir
+                    )[:3]
+                ]
+            except Exception as e:  # neighbour recall must never block prepare
+                logger.debug("related_notes recall skipped: %s", e)
             captures.append({
                 "conversation_id": p.stem,
                 "path": str(p.relative_to(output_dir)) if _safe_rel(p, output_dir) else str(p),
@@ -952,6 +1463,11 @@ def handle_distill_conversation(
                 "turn_count": meta.get("turn_count", ""),
                 "link_to": _unquote_fm(meta.get("link_to", "")),
                 "task_id": _unquote_fm(meta.get("task_id", "")),
+                # K-line: friction score for distillation prioritisation. The
+                # listing itself is already friction-DESC via _iter_raw_files.
+                "friction_score": friction_score,
+                # V6: 提取前即可见的库内近邻（无则空列表）。
+                **({"related_notes": related_notes} if related_notes else {}),
                 # 短预览仅用于初筛（这条对话有没有可蒸馏的知识），不是完整正文。
                 "preview": built["transcript"][:preview_chars],
             })
@@ -961,7 +1477,7 @@ def handle_distill_conversation(
                 "message": "No readable pending conversations.",
                 "captures": [],
             })
-        return json.dumps({
+        ret: Dict[str, Any] = {
             "status": "prepared",
             "mode": "prepare",
             "system_prompt": _DISTILL_SYSTEM,
@@ -973,14 +1489,29 @@ def handle_distill_conversation(
                 "offset/limit chunks if large (transcript_chars is the total size; "
                 "preview is only a taster for deciding whether to skip); "
                 "(2) apply system_prompt to it and produce ONE JSON object shaped "
-                '{"notes": [{title, note_type, related_modules, tags, content}], '
-                '"memories": [string]}; '
+                '{"notes": [{title, note_type, related_modules, tags, content, '
+                "priority?, scene?}], \"memories\": [string]} — priority is 0-100 "
+                "(notes below 70 are dropped by the tool, so only emit notes worth "
+                "keeping); scene is a short work-context label; "
                 "(3) immediately persist it with mode='submit' and distilled="
                 "{conversation_id: <that JSON>} so it lands on disk; "
-                "(4) only then move to the next capture, dropping the previous "
-                "transcript from working memory."
+                "(4) if the submit response reports conflicts_pending, read the "
+                "listed candidate notes and re-submit the same conversation with a "
+                "per-note dedup_action (store|skip|update|merge, see conflict_next); "
+                "(5) only then move to the next capture, dropping the previous "
+                "transcript from working memory. Note: captures may carry "
+                "related_notes (V6) — existing notes the transcript touches; "
+                "prefer extending/referencing them over emitting a near-duplicate."
             ),
-        }, indent=2, ensure_ascii=False)
+        }
+        # K-line hint (additive key — existing consumers unaffected). Only
+        # surfaced when at least one pending conversation shows friction.
+        if any(c.get("friction_score", 0) >= 20 for c in captures):
+            ret["friction_hint"] = (
+                "提示：friction_score ≥ 20 的会话含明显摩擦信号（纠正/打断/重复），"
+                "优先蒸馏更可能产出有价值的经验笔记（清单已按 friction_score 降序排列）。"
+            )
+        return json.dumps(ret, indent=2, ensure_ascii=False)
 
     if mode == "submit":
         distilled_map = arguments.get("distilled")
@@ -1005,16 +1536,25 @@ def handle_distill_conversation(
                 continue
             if not isinstance(llm_output, str):
                 llm_output = json.dumps(llm_output, ensure_ascii=False)
-            res = _process_llm_output(p, llm_output, output_dir, store, note_type_ov, related_ov)
+            # P1: Mode C 启用两段式去重——弱冲突笔记挂起等待 agent 用
+            # dedup_action 裁决（agent 即 LLM，精判零成本）；raw 文件在全部
+            # 裁决完成前保留，不标记 distilled。
+            res = _process_llm_output(
+                p, llm_output, output_dir, store, note_type_ov, related_ov,
+                conflict_policy="hold",
+                drop_raw=bool(arguments.get("drop_raw", False)),
+            )
             res["conversation_id"] = key
             results.append(res)
         n_notes = sum(len(r.get("notes", [])) for r in results)
+        n_conflicts = sum(len(r.get("conflicts", [])) for r in results)
         return json.dumps({
             "status": "completed",
             "mode": "submit",
             "distilled": results,
             "raw_processed": len(results),
             "notes_created": n_notes,
+            "conflicts_pending": n_conflicts,
         }, indent=2, ensure_ascii=False)
 
     # Mode B: background

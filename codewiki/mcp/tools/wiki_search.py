@@ -7,7 +7,7 @@ the legacy JSON file index otherwise.
 
 from __future__ import annotations
 
-import json, logging, math, os, re, threading
+import json, logging, math, os, re, threading, time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -15,6 +15,8 @@ from codewiki.mcp.cache import (
     _STOPWORDS, _K1, _B, _build_indexable_text,
     _tokenize, _extract_snippet,
     _load_ontology, _expand_with_ontology,
+    _doc_authority,
+    compute_usage_heat, load_usage_ranking_config, _usage_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -26,7 +28,14 @@ _build_lock = threading.Lock()
 
 
 def _resolve_db_path(output_dir: Path) -> Optional[Path]:
-    """Resolve analysis_cache.db path from project.json or standard layout."""
+    """Resolve analysis_cache.db path from project.json or standard layout.
+
+    project.json entries may be relative (T1b: portable across machines —
+    cache_db is repo-root-relative, output_dir is repo-relative) or absolute
+    (legacy). Relative cache_db resolves against the output_dir's parent
+    (i.e. the repo root for the standard <repo>/repowiki layout). A missing
+    absolute path falls through to the standard layout, never errors.
+    """
     from codewiki.mcp.cache import _CACHE_DIR, _DB_FILENAME
     from codewiki.src.config import meta_resolve, PROJECT_FILENAME
 
@@ -37,8 +46,14 @@ def _resolve_db_path(output_dir: Path) -> Optional[Path]:
         if pj.exists():
             info = json.loads(pj.read_text(encoding="utf-8"))
             candidate = info.get("cache_db")
-            if candidate and Path(candidate).exists():
-                return Path(candidate)
+            if candidate:
+                cand = Path(candidate)
+                if not cand.is_absolute():
+                    # relative → resolve against the repo root (= output_dir.parent
+                    # for the standard layout; falls back to output_dir itself)
+                    cand = (od.parent / cand)
+                if cand.exists():
+                    return cand
     except Exception:
         pass
     # 2. Standard layout fallback
@@ -77,14 +92,17 @@ class _IndexData:
     def __init__(self):
         self.version = 1; self.total_docs = 0; self.avg_doc_len = 0.0
         self.doc_freq: Dict[str, int] = {}; self.docs: Dict[str, Dict] = {}
+        self.built_at: float = 0.0   # T1a: build timestamp for mtime-sampling freshness
     def to_dict(self):
         return {"version": self.version, "total_docs": self.total_docs,
-                "avg_doc_len": round(self.avg_doc_len,2), "doc_freq": self.doc_freq, "docs": self.docs}
+                "avg_doc_len": round(self.avg_doc_len,2), "doc_freq": self.doc_freq,
+                "docs": self.docs,
+                "built_at": self.built_at or time.time()}
     @classmethod
     def from_dict(cls, d):
         i = cls(); i.version = d.get("version",1); i.total_docs = d.get("total_docs",0)
         i.avg_doc_len = d.get("avg_doc_len",0.0); i.doc_freq = d.get("doc_freq",{})
-        i.docs = d.get("docs",{}); return i
+        i.docs = d.get("docs",{}); i.built_at = float(d.get("built_at") or 0.0); return i
     def _recompute(self):
         self.total_docs = len(self.docs)
         tl = sum(d.get("doc_len",0) for d in self.docs.values())
@@ -98,7 +116,8 @@ class _IndexData:
         if not tokens: return
         tf = {}
         for t in tokens: tf[t] = tf.get(t,0) + 1
-        self.docs[fk] = {"title": title, "source": source, "doc_len": len(tokens), "term_freq": tf}
+        self.docs[fk] = {"title": title, "source": source, "doc_len": len(tokens),
+                         "term_freq": tf, "authority": _doc_authority(fk, source, content)}
         if not batch: self._recompute()
     def finalize(self): self._recompute()
     def remove(self, fk):
@@ -236,7 +255,9 @@ def build_full_index(output_dir, session=None):
                 title = sf.stem.replace("_", " ").replace("-", " ").title()
                 idx.upsert(f"raw/sources/{sf.name}", title, "source", ct, batch=True); sc += 1
 
-        idx.finalize(); _save_index(od, idx)
+        idx.finalize()
+        idx.built_at = time.time()   # T1a: freshness mtime baseline
+        _save_index(od, idx)
     return {"docs_indexed": dc, "notes_indexed": nc, "sources_indexed": sc,
             "total_docs": idx.total_docs,
             "avg_doc_len": round(idx.avg_doc_len,1), "vocabulary_size": len(idx.doc_freq)}
@@ -282,9 +303,26 @@ def remove_file(output_dir, filepath):
 
 def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
            score_threshold=0.1, expand_terms=None, session=None, type_filter=None,
-           hop=0, decay=0.5):
-    """BM25 search. Uses SQLite cache if session available."""
+           hop=0, decay=0.5, apply_authority=True, apply_usage=True):
+    """BM25 search. Uses SQLite cache if session available.
+
+    ``apply_authority=False`` / ``apply_usage=False`` exempt a call from the
+    respective weighting — used by similarity-oriented consumers (e.g.
+    distill dedup recall) where review status or retrieval popularity must
+    not influence duplicate detection.  Result entries still carry the
+    ``authority`` / ``usage`` fields for transparency.
+    """
     od = Path(output_dir); max_results = min(20, max(1, max_results))
+
+    # T1a: freshness self-heal (sessionless path only — an active session
+    # holds its own cache and close_session rebuilds it). Throttled to one
+    # inventory scan per minute; a stale index triggers a transparent rebuild.
+    if session is None:
+        try:
+            from codewiki.mcp.tools.index_freshness import ensure_fresh
+            ensure_fresh(od)
+        except Exception as e:
+            logger.debug("freshness check skipped: %s", e)
 
     # Try SQLite cache first (active session)
     if session is not None and getattr(session, "cache", None) is not None:
@@ -292,7 +330,9 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
                                           max_results=max_results, score_threshold=score_threshold,
                                           output_dir=od, type_filter=type_filter,
                                           hop=hop, decay=decay,
-                                          expand_terms=expand_terms)
+                                          expand_terms=expand_terms,
+                                          apply_authority=apply_authority,
+                                          apply_usage=apply_usage)
         except Exception as e: logger.warning("SQLite search failed: %s", e)
 
     # Try standalone SQLite (no active session, DB persisted on disk)
@@ -305,7 +345,9 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
                                              max_results=max_results, score_threshold=score_threshold,
                                              output_dir=od, type_filter=type_filter,
                                              hop=hop, decay=decay,
-                                             expand_terms=expand_terms)
+                                             expand_terms=expand_terms,
+                                             apply_authority=apply_authority,
+                                             apply_usage=apply_usage)
                 _standalone.close()
                 return results
             except Exception as e:
@@ -324,6 +366,10 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
     if not qts: return []
     idx = _load_index(od)
     if idx.total_docs == 0: return []
+    # Usage-signal context (U1): shared helpers from cache.py so the JSON and
+    # SQLite paths apply identical heat semantics.  Always loaded (results
+    # expose a `usage` field); heat only multiplies when enabled + not exempt.
+    usage_cfg, usage_map, heat_on = _usage_context(od, apply_usage)
     scored = []; n = idx.total_docs; avg_dl = idx.avg_doc_len or 1.0
     for fk, di in idx.docs.items():
         if scope:
@@ -341,6 +387,17 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
             tf = tfm[qt]; df = idx.doc_freq.get(qt,1)
             idf = max(0.0, math.log((n - df + 0.5)/(df + 0.5) + 1.0))
             s += idf * (tf * (_K1 + 1)) / (tf + _K1 * (1 - _B + _B * dl / avg_dl))
+        # Authority weighting: multiply AFTER BM25, BEFORE the title floor.
+        auth = float(di.get("authority") or 1.0) if apply_authority else 1.0
+        s *= auth
+        # Usage-signal heat (U1): multiply exactly where authority does —
+        # AFTER BM25, BEFORE the title floor.
+        u_hits, u_last, u_adopted = usage_map.get(fk, (0, None, 0))
+        heat = (
+            compute_usage_heat(u_hits, u_last, usage_cfg, adopted_count=u_adopted)
+            if heat_on else 1.0
+        )
+        s *= heat
         # Developer notes are short; BM25 scores are naturally low and would be
         # filtered out by the generic threshold even when the title matches the
         # query. Treat any title-token match on a note as relevant so distilled
@@ -349,10 +406,93 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
             title_tokens = set(_tokenize(di.get("title", "")))
             if title_tokens & set(qts) and s > 0:
                 s = max(s, score_threshold)
-        if s >= score_threshold: scored.append((s, fk))
+        if s >= score_threshold: scored.append((s, fk, auth))
     scored.sort(key=lambda x: x[0], reverse=True); scored = scored[:max_results]
-    return [{"file": fk, "title": idx.docs.get(fk,{}).get("title",fk),
-             "source": idx.docs.get(fk,{}).get("source","doc"),
-             "snippet": (_extract_snippet((od/fk).read_text(encoding="utf-8",errors="replace"), qts)
-                         if (od/fk).exists() else "")[:300],
-             "relevance_score": round(s,4)} for s, fk in scored]
+    out = []
+    for s, fk, auth in scored:
+        u_hits, u_last, u_adopted = usage_map.get(fk, (0, None, 0))
+        out.append({"file": fk, "title": idx.docs.get(fk,{}).get("title",fk),
+                    "source": idx.docs.get(fk,{}).get("source","doc"),
+                    "snippet": (_extract_snippet((od/fk).read_text(encoding="utf-8",errors="replace"), qts)
+                                if (od/fk).exists() else "")[:300],
+                    "relevance_score": round(s,4),
+                    "authority": round(auth,2),
+                    "matched_tokens": _matched_for_doc(idx.docs.get(fk,{}).get("term_freq",{}), qts),
+                    "usage": {"hit_count": u_hits, "last_hit": u_last,
+                              "adopted_count": u_adopted}})
+    return out
+
+
+def _matched_for_doc(tfm, qts):
+    """T1 (检索透明化): tokens from the query that actually occur in this doc."""
+    return [qt for qt in qts if qt in tfm]
+
+
+def query_coverage(output_dir, query, expand_terms=None, session=None):
+    """T1 (检索透明化): corpus-level coverage of the query tokens.
+
+    Returns {"tokens": [...], "matched": [...], "missing": [...]} where
+    ``missing`` lists query tokens that do NOT occur in ANY indexed document
+    (df == 0). Expanded terms (expand_terms / ontology) are annotated with a
+    trailing "(expanded)" marker in ``tokens``. Consumers should treat a
+    result whose key distinguishing terms are all in ``missing`` as
+    topically-adjacent rather than an answer.
+    """
+    od = Path(output_dir)
+    base_qts = _tokenize(query)
+    expanded = []
+    if expand_terms:
+        for t in expand_terms:
+            for tt in _tokenize(t):
+                if tt not in base_qts:
+                    expanded.append(tt)
+    ontology = _load_ontology(od)
+    onto_extra = []
+    if ontology:
+        for qt in list(base_qts) + expanded:
+            for tt in _expand_with_ontology([qt], ontology):
+                if tt not in base_qts and tt not in expanded and tt not in onto_extra:
+                    onto_extra.append(tt)
+
+    def _df_json(tok):
+        idx = _load_index(od)
+        return idx.doc_freq.get(tok, 0)
+
+    def _df_sqlite(tok, conn):
+        row = conn.execute(
+            "SELECT COUNT(*) AS c FROM search_token_index WHERE token=?", (tok,)
+        ).fetchone()
+        return int(row["c"]) if row else 0
+
+    conn = None
+    _standalone = None
+    if session is not None and getattr(session, "cache", None) is not None:
+        try:
+            conn = session.cache.conn
+        except Exception:
+            conn = None
+    if conn is None:
+        # _open_standalone_cache returns an AnalysisCache wrapper, not a raw
+        # connection — unwrap .conn for the df queries below.
+        _standalone = _open_standalone_cache(od, readonly=True)
+        if _standalone is not None:
+            try:
+                conn = _standalone.conn
+            except Exception:
+                conn = None
+
+    matched, missing = [], []
+    try:
+        for tok in base_qts:
+            df = _df_sqlite(tok, conn) if conn is not None else _df_json(tok)
+            (matched if df > 0 else missing).append(tok)
+        for tok in expanded + onto_extra:
+            df = _df_sqlite(tok, conn) if conn is not None else _df_json(tok)
+            (matched if df > 0 else missing).append(tok + " (expanded)")
+    finally:
+        if _standalone is not None:
+            try:
+                _standalone.close()
+            except Exception:
+                pass
+    return {"tokens": base_qts, "matched": matched, "missing": missing}

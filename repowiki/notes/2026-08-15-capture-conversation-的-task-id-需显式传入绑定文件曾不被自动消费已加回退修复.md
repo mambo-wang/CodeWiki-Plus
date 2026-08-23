@@ -10,7 +10,9 @@ metadata:
   - capture_conversation
   - task_manager
   source_ref: raw\conv-@d-repos-CodeWiki-CN-repowiki-raw-conv-蒸馏的时候是如何判断某个对话时关联到哪个任.md
-status: stable
+  consolidated_into:
+  - wiki/scenarios/任务记忆系统设计方法.md
+status: deprecated
 generated:
   by: codewiki/5.2.2
   at: 2026-08-15 13:12:24+00:00
@@ -19,6 +21,7 @@ origin: conversation
 verified:
 - by: codewiki/5.2.2
   at: '2026-08-15T13:26:11Z'
+reject_reason: consolidated into 任务记忆系统设计方法
 ---
 
 ## 背景

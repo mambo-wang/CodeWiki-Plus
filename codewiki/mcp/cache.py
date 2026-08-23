@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib, json, logging, math, os, re, sqlite3, time
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -294,6 +295,268 @@ def _build_indexable_text(content: str, page_type: Optional[str] = None) -> str:
     return "\n".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# Authority-aware ranking (P0, borrowed from ai-memory PageAuthority).
+#
+# A deterministic multiplicative factor applied to the BM25 score AFTER
+# scoring (not via token duplication), so reviewed/authoritative knowledge
+# outranks ephemeral evidence without distorting term-frequency semantics.
+# Computed at index time from frontmatter + path; clamped to keep ordering
+# sane. Notes: note_type boost + status gate; wiki docs: L2 scenario / L3
+# doctrine boost; raw/sources: penalised (unreviewed third-party material).
+# ---------------------------------------------------------------------------
+
+_NOTE_TYPE_AUTHORITY: Dict[str, float] = {
+    "decision": 0.15,
+    "pitfall": 0.12,
+    "lesson": 0.10,
+    "architecture": 0.10,
+    "workaround": 0.05,
+}
+_STATUS_AUTHORITY: Dict[str, float] = {
+    "draft": -0.25,       # unreviewed knowledge sinks below verified content
+    "stable": 0.05,
+    "deprecated": -0.35,
+}
+_SCENARIO_AUTHORITY = 0.15   # L2 scenario blocks (wiki/scenarios/)
+_DOCTRINE_AUTHORITY = 0.20   # L3 project doctrine (doctrine.md)
+_SOURCE_AUTHORITY = -0.20    # raw/sources/ third-party material
+_AUTHORITY_MIN, _AUTHORITY_MAX = 0.7, 1.3
+
+
+def _doc_authority(doc_key: str, source: str, content: str = "") -> float:
+    """Return the authority multiplier for a document (clamped 0.7-1.3).
+
+    Pure rules, no IO beyond the already-loaded *content*:
+    - notes: ``type``/``note_type`` boost (decision > pitfall >
+      lesson/architecture > workaround) combined with the OKF ``status``
+      gate (draft -0.25, stable +0.05, deprecated -0.35);
+    - wiki docs: doctrine.md +0.20, scenarios/ pages +0.15;
+    - raw/sources: -0.20 regardless of frontmatter.
+    """
+    offset = 0.0
+    dk = doc_key.replace("\\", "/").lower()
+    if source == "source" or dk.startswith("raw/sources/"):
+        offset += _SOURCE_AUTHORITY
+    elif source == "note" or dk.startswith("notes/"):
+        fm = _parse_frontmatter_dict(content) if content else {}
+        meta = fm.get("metadata") if isinstance(fm.get("metadata"), dict) else {}
+        note_type = str(fm.get("type") or fm.get("note_type")
+                        or meta.get("type") or meta.get("note_type") or "").strip().lower()
+        status = str(fm.get("status") or meta.get("status") or "").strip().lower()
+        offset += _NOTE_TYPE_AUTHORITY.get(note_type, 0.0)
+        offset += _STATUS_AUTHORITY.get(status, 0.0)
+    else:
+        if dk.endswith("doctrine.md"):
+            offset += _DOCTRINE_AUTHORITY
+        elif "/scenarios/" in f"/{dk}":
+            offset += _SCENARIO_AUTHORITY
+    return max(_AUTHORITY_MIN, min(_AUTHORITY_MAX, 1.0 + offset))
+
+
+# ---------------------------------------------------------------------------
+# Usage-signal heat ranking (U1, docs/知识飞轮增强设计方案-P0三项.md §3).
+#
+# telemetry jsonl events (written by query_wiki after every search, T2:
+# docs/团队知识库支持优化设计方案.md §4.2) feed a
+# conservative multiplicative heat factor applied exactly where authority is:
+# AFTER the BM25 score, BEFORE the note title floor:
+#
+#   heat = 1 + min(boost_cap, 0.03 * ln(1 + hit_count))     # log-saturating
+#          - cold_penalty    (only when hit_count >= cold_min_hits AND
+#                             last_hit older than cold_days), floored at 0.8
+#   final = BM25 * authority * heat
+#
+# Docs with no retrieval record stay neutral at 1.0 (new docs are never
+# punished — avoids the rank-low → never-hit → rank-lower Matthew loop).
+# These helpers live in cache.py (the low-level module both BM25 paths
+# import from) for the same reason _doc_authority does; wiki_search.py
+# reuses them for the legacy JSON path so the two paths cannot drift.
+# ---------------------------------------------------------------------------
+
+USAGE_RANKING_DEFAULTS: Dict[str, Any] = {
+    "enabled": True,
+    "boost_cap": 0.15,
+    "cold_penalty": 0.2,
+    "cold_days": 180,
+    "cold_min_hits": 3,
+    # P1 A-line: adoption (actually-used) weighs 2x recall (merely-retrieved).
+    # Set 0 to disable adoption influence on ranking.
+    "adopted_weight": 0.06,
+}
+_USAGE_HEAT_FLOOR = 0.8
+
+
+def load_usage_ranking_config(schema: Optional[dict]) -> Dict[str, Any]:
+    """Resolve ``conventions.usage_ranking`` from a loaded schema.yaml.
+
+    Fallback chain: schema ``conventions.usage_ranking`` → hardcoded
+    defaults (``USAGE_RANKING_DEFAULTS``).  Bundles without the block get
+    the defaults, so search behaviour only changes when the schema opts in
+    or overrides parameters.  Malformed values fall back per-key.
+    """
+    cfg = dict(USAGE_RANKING_DEFAULTS)
+    conv = (schema or {}).get("conventions") or {}
+    block = conv.get("usage_ranking") or {}
+    if not isinstance(block, dict):
+        return cfg
+    for key in ("boost_cap", "cold_penalty", "adopted_weight"):
+        try:
+            cfg[key] = float(block.get(key, cfg[key]))
+        except (TypeError, ValueError):
+            pass
+    for key in ("cold_days", "cold_min_hits"):
+        try:
+            cfg[key] = int(block.get(key, cfg[key]))
+        except (TypeError, ValueError):
+            pass
+    enabled = block.get("enabled")
+    if isinstance(enabled, bool):
+        cfg["enabled"] = enabled
+    return cfg
+
+
+def compute_usage_heat(
+    hit_count: Any,
+    last_hit: Any,
+    cfg: Optional[Dict[str, Any]] = None,
+    today: Optional[date] = None,
+    adopted_count: Any = None,
+) -> float:
+    """heat(doc) per the usage-ranking model. Pure function, no IO.
+
+    - no retrieval record (hit_count falsy/<=0) → 1.0 (neutral);
+    - boost: ``1 + min(boost_cap, 0.03·ln(1+hits) + adopted_weight·ln(1+adopted))``
+      — adoption (actually-used) weighs 2× recall (merely-retrieved) by
+      default (``adopted_weight`` = 0.06 vs 0.03), still capped by
+      ``boost_cap`` so popularity never overrides relevance;
+    - cold penalty: only for docs that were hot before (hit_count >=
+      cold_min_hits) whose last_hit is more than cold_days ago — subtract
+      cold_penalty, floored at 0.8.  Unparseable last_hit counts as not
+      cold (fail-safe: never punish on bad data).
+    """
+    cfg = cfg or USAGE_RANKING_DEFAULTS
+    try:
+        hits = int(hit_count or 0)
+    except (TypeError, ValueError):
+        hits = 0
+    if hits <= 0:
+        return 1.0
+    try:
+        adopted = int(adopted_count or 0)
+    except (TypeError, ValueError):
+        adopted = 0
+    boost = 0.03 * math.log(1 + hits)
+    if adopted > 0:
+        boost += float(cfg.get("adopted_weight", 0.06)) * math.log(1 + adopted)
+    heat = 1.0 + min(float(cfg.get("boost_cap", 0.15)), boost)
+    if hits >= int(cfg.get("cold_min_hits", 3)) and last_hit:
+        try:
+            last = datetime.strptime(str(last_hit).strip()[:10], "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            last = None
+        if last is not None:
+            if today is None:
+                today = date.today()
+            if (today - last).days > int(cfg.get("cold_days", 180)):
+                heat = max(
+                    _USAGE_HEAT_FLOOR,
+                    heat - float(cfg.get("cold_penalty", 0.2)),
+                )
+    return heat
+
+
+# file_path -> (hit_count, last_hit, adopted_count), aggregated from the
+# per-user telemetry event streams (T2, docs/团队知识库支持优化设计方案.md
+# §4.2) written by query_wiki / capture adoption recording. The mtime
+# snapshot cache lives inside telemetry.aggregate_usage — any event file
+# changing forces a rescan, so no separate caching is needed here.
+
+
+def _load_retrieval_usage_map(
+    output_dir: Optional[Path],
+) -> Dict[str, Tuple[int, Optional[str], int]]:
+    """Load ``file_path → (hit_count, last_hit, adopted_count)``.
+
+    All three numbers are team-wide aggregates over every user's
+    ``.meta/telemetry/*.jsonl`` (plus the gitignored telemetry-local
+    fallback directory): hit/last_hit from ``hit`` events, adopted_count
+    from distinct-key ``adopted`` events. No telemetry data or read
+    failures degrade silently to an empty mapping (usage signals must
+    never break search).
+    """
+    if output_dir is None:
+        return {}
+    try:
+        from codewiki.mcp.tools import telemetry
+        usage = telemetry.aggregate_usage(Path(output_dir))
+    except Exception as e:
+        logger.debug("Failed to load telemetry usage: %s", e)
+        return {}
+    out: Dict[str, Tuple[int, Optional[str], int]] = {}
+    for fp, entry in usage.items():
+        try:
+            out[str(fp)] = (
+                int(entry.get("hits", 0) or 0),
+                entry.get("last_hit"),
+                int(entry.get("adopted", 0) or 0),
+            )
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+# Bundle schema.yaml as needed by usage ranking, cached by file mtime.
+_usage_schema_cache: Dict[str, Tuple[Optional[float], dict]] = {}
+
+
+def _load_usage_schema(output_dir: Optional[Path]) -> dict:
+    """Load the bundle schema.yaml dict for usage-ranking config (mtime-cached)."""
+    if output_dir is None:
+        return {}
+    try:
+        from codewiki.src.config import SCHEMA_FILENAME
+        name = SCHEMA_FILENAME
+    except Exception:
+        name = "schema.yaml"
+    p = Path(output_dir) / name
+    key = str(p)
+    try:
+        mtime: Optional[float] = p.stat().st_mtime if p.exists() else None
+    except OSError:
+        mtime = None
+    cached = _usage_schema_cache.get(key)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    data: dict = {}
+    if mtime is not None:
+        try:
+            import yaml
+            with open(p, "r", encoding="utf-8") as fh:
+                loaded = yaml.safe_load(fh) or {}
+            if isinstance(loaded, dict):
+                data = loaded
+        except Exception as e:
+            logger.debug("Failed to load schema for usage ranking: %s", e)
+    _usage_schema_cache[key] = (mtime, data)
+    return data
+
+
+def _usage_context(
+    output_dir: Optional[Path], apply_usage: bool
+) -> Tuple[Dict[str, Any], Dict[str, Tuple[int, Optional[str]]], bool]:
+    """(config, usage map, heat_enabled) for one search call.
+
+    The usage map is ALWAYS loaded — result entries carry a ``usage`` field
+    even when heat weighting is disabled or exempted — but heat only
+    multiplies the score when *apply_usage* is True AND the schema enables
+    it (``conventions.usage_ranking.enabled``, default true).
+    """
+    usage_map = _load_retrieval_usage_map(output_dir)
+    cfg = load_usage_ranking_config(_load_usage_schema(output_dir))
+    return cfg, usage_map, bool(apply_usage and cfg.get("enabled", True))
+
+
 # ------------------------------------------------------------------ ComponentMeta / LazyStore
 
 @dataclass
@@ -394,7 +657,8 @@ class AnalysisCache:
             CREATE INDEX IF NOT EXISTS ix_deps_target ON dependencies(target_id);
             CREATE TABLE IF NOT EXISTS search_index (
                 doc_key TEXT PRIMARY KEY, title TEXT DEFAULT '',
-                source TEXT DEFAULT 'doc', doc_len INTEGER DEFAULT 0, term_freq TEXT DEFAULT '{}');
+                source TEXT DEFAULT 'doc', doc_len INTEGER DEFAULT 0, term_freq TEXT DEFAULT '{}',
+                authority REAL NOT NULL DEFAULT 1.0);
             CREATE TABLE IF NOT EXISTS search_token_index (
                 token TEXT NOT NULL, doc_key TEXT NOT NULL, tf INTEGER DEFAULT 1,
                 PRIMARY KEY(token, doc_key));
@@ -428,6 +692,13 @@ class AnalysisCache:
         # Migration: add content_hash column for existing databases (Roadmap 2.4)
         try:
             self.conn.execute("ALTER TABLE components ADD COLUMN content_hash TEXT DEFAULT ''")
+            self.conn.commit()
+        except Exception:
+            pass  # Column already exists
+        # Migration: add authority column for existing databases (P0 authority ranking)
+        try:
+            self.conn.execute(
+                "ALTER TABLE search_index ADD COLUMN authority REAL NOT NULL DEFAULT 1.0")
             self.conn.commit()
         except Exception:
             pass  # Column already exists
@@ -969,8 +1240,8 @@ class AnalysisCache:
                 tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
                 try: fk = str(md.relative_to(od)).replace("\\", "/")
                 except ValueError: fk = md.name
-                c.execute("INSERT OR REPLACE INTO search_index VALUES(?,?,?,?,?)",
-                          (fk, title, "doc", len(tokens), json.dumps(tf)))
+                c.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                          (fk, title, "doc", len(tokens), json.dumps(tf), _doc_authority(fk, "doc", ct)))
                 for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
                 dc += 1
 
@@ -986,8 +1257,8 @@ class AnalysisCache:
             tokens = _tokenize(_build_indexable_text(ct))
             if not tokens: continue
             tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
-            c.execute("INSERT OR REPLACE INTO search_index VALUES(?,?,?,?,?)",
-                      (md.name, title, "doc", len(tokens), json.dumps(tf)))
+            c.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                      (md.name, title, "doc", len(tokens), json.dumps(tf), _doc_authority(md.name, "doc", ct)))
             for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, md.name, f))
             dc += 1
 
@@ -1004,8 +1275,8 @@ class AnalysisCache:
                 if not tokens: continue
                 tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
                 fk = f"notes/{nf.name}"
-                c.execute("INSERT OR REPLACE INTO search_index VALUES(?,?,?,?,?)",
-                          (fk, title, "note", len(tokens), json.dumps(tf)))
+                c.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                          (fk, title, "note", len(tokens), json.dumps(tf), _doc_authority(fk, "note", ct)))
                 for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
                 nc += 1
 
@@ -1023,8 +1294,8 @@ class AnalysisCache:
                 if not tokens: continue
                 tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
                 fk = f"raw/sources/{sf.name}"
-                c.execute("INSERT OR REPLACE INTO search_index VALUES(?,?,?,?,?)",
-                          (fk, title, "source", len(tokens), json.dumps(tf)))
+                c.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                          (fk, title, "source", len(tokens), json.dumps(tf), _doc_authority(fk, "source", ct)))
                 for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
                 sc += 1
 
@@ -1033,6 +1304,14 @@ class AnalysisCache:
             avg = (c.execute("SELECT SUM(doc_len) FROM search_index").fetchone()[0] or 0) / td
             c.execute("INSERT INTO search_stats VALUES('total_docs',?)", (str(td),))
             c.execute("INSERT INTO search_stats VALUES('avg_doc_len',?)", (str(avg),))
+        # T1a: build timestamp — the mtime-sampling freshness baseline
+        # (index_freshness.ensure_fresh compares sampled file mtimes to this)
+        try:
+            import time as _time
+            c.execute("INSERT INTO search_stats VALUES('index_built_at',?)",
+                      (str(_time.time()),))
+        except Exception:
+            pass
         self.conn.commit()
 
         # Build inter-page link graph alongside the search index
@@ -1050,7 +1329,17 @@ class AnalysisCache:
                output_dir: Optional[Path] = None,
                type_filter: Optional[str] = None,
                hop: int = 0, decay: float = 0.5,
-               expand_terms: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+               expand_terms: Optional[List[str]] = None,
+               apply_authority: bool = True,
+               apply_usage: bool = True) -> List[Dict[str, Any]]:
+        """BM25 search with authority and usage-heat weighting.
+
+        ``apply_authority=False`` / ``apply_usage=False`` exempt a call from
+        the respective weighting — used by similarity-oriented consumers
+        (e.g. distill dedup recall) where review status or retrieval
+        popularity must not influence duplicate detection.  Result entries
+        still carry the ``authority`` / ``usage`` fields for transparency.
+        """
         c = self.conn
         r = c.execute(
             "SELECT value FROM search_stats WHERE key='total_docs'"
@@ -1062,6 +1351,10 @@ class AnalysisCache:
             "SELECT value FROM search_stats WHERE key='avg_doc_len'"
         ).fetchone()
         avg_dl = float(r["value"]) if r else 1.0
+
+        # Usage-signal context (U1): always loaded (results expose a `usage`
+        # field); heat multiplies the score only when enabled + not exempted.
+        usage_cfg, usage_map, heat_on = _usage_context(output_dir, apply_usage)
 
         qts = _tokenize(query)
         if expand_terms:
@@ -1125,9 +1418,9 @@ class AnalysisCache:
                         and not path_lower.startswith(scope_norm + "/")
                         and f"/{scope_norm}/" not in f"/{path_lower}"):
                     continue
-            # Single merged query: title, source, doc_len
+            # Single merged query: title, source, doc_len, authority
             doc_row = c.execute(
-                "SELECT title, source, doc_len FROM search_index WHERE doc_key=?",
+                "SELECT title, source, doc_len, authority FROM search_index WHERE doc_key=?",
                 (dk,),
             ).fetchone()
             if not doc_row:
@@ -1142,6 +1435,7 @@ class AnalysisCache:
             dl = doc_row["doc_len"] or 1
 
             score = 0.0
+            doc_matched: List[str] = []
             for qt in qts:
                 tfr = c.execute(
                     "SELECT tf FROM search_token_index WHERE token=? AND doc_key=?",
@@ -1149,11 +1443,24 @@ class AnalysisCache:
                 ).fetchone()
                 if not tfr:
                     continue
+                doc_matched.append(qt)
                 df = df_cache.get(qt, 1)
                 idf = max(0.0, math.log((n - df + 0.5) / (df + 0.5) + 1.0))
                 score += idf * (tfr["tf"] * (_K1 + 1)) / (
                     tfr["tf"] + _K1 * (1 - _B + _B * dl / avg_dl)
                 )
+            # Authority weighting: multiply AFTER BM25, BEFORE the title floor
+            # (otherwise the floor would rescue penalised draft notes).
+            auth = float(doc_row["authority"] or 1.0) if apply_authority else 1.0
+            score *= auth
+            # Usage-signal heat (U1): multiply exactly where authority does —
+            # AFTER BM25, BEFORE the title floor.
+            u_hits, u_last, u_adopted = usage_map.get(dk, (0, None, 0))
+            heat = (
+                compute_usage_heat(u_hits, u_last, usage_cfg, adopted_count=u_adopted)
+                if heat_on else 1.0
+            )
+            score *= heat
             # Developer notes are short; BM25 scores are naturally low and would
             # be filtered by the generic threshold even when the title matches
             # the query. Treat any title-token match on a note as relevant.
@@ -1162,12 +1469,12 @@ class AnalysisCache:
                 if title_tokens & set(qts) and score > 0:
                     score = max(score, score_threshold)
             if score >= score_threshold:
-                scored.append((score, dk))
+                scored.append((score, dk, auth, doc_matched))
 
         scored.sort(key=lambda x: x[0], reverse=True)
 
         results: List[Dict[str, Any]] = []
-        for s, dk in scored[:max_results]:
+        for s, dk, auth, doc_matched in scored[:max_results]:
             doc_row = c.execute(
                 "SELECT title, source FROM search_index WHERE doc_key=?", (dk,)
             ).fetchone()
@@ -1180,12 +1487,20 @@ class AnalysisCache:
                         snippet = _extract_snippet(raw, qts)[:300]
                     except OSError:
                         pass
+            u_hits, u_last, u_adopted = usage_map.get(dk, (0, None, 0))
             entry: Dict[str, Any] = {
                 "file": dk,
                 "title": doc_row["title"] if doc_row else dk,
                 "source": doc_row["source"] if doc_row else "doc",
                 "snippet": snippet,
                 "relevance_score": round(s, 4),
+                "authority": round(auth, 2),
+                "matched_tokens": doc_matched,
+                "usage": {
+                    "hit_count": u_hits,
+                    "last_hit": u_last,
+                    "adopted_count": u_adopted,
+                },
             }
             # Attach related pages from link graph
             related = self.get_related_pages(dk, limit=5)
@@ -1195,14 +1510,14 @@ class AnalysisCache:
 
         # Graph expansion: discover related docs beyond BM25 hits
         if hop > 0 and scored:
-            seed_docs = [(dk, s) for s, dk in scored[:max_results]]
+            seed_docs = [(dk, s) for s, dk, _a, _m in scored[:max_results]]
             expanded = self.graph_expand(seed_docs, hop=hop, decay=decay)
             existing_keys = {r["file"] for r in results}
             for ex in expanded:
                 if ex["file"] in existing_keys:
                     continue
                 doc_row = c.execute(
-                    "SELECT title, source FROM search_index WHERE doc_key=?",
+                    "SELECT title, source, authority FROM search_index WHERE doc_key=?",
                     (ex["file"],),
                 ).fetchone()
                 if not doc_row:
@@ -1218,12 +1533,26 @@ class AnalysisCache:
                             snippet = _extract_snippet(raw, qts)[:300]
                         except OSError:
                             pass
+                ex_auth = float(doc_row["authority"] or 1.0) if apply_authority else 1.0
+                # Heat applies wherever authority applies (U1: same position).
+                ex_hits, ex_last, ex_adopted = usage_map.get(ex["file"], (0, None, 0))
+                ex_heat = (
+                    compute_usage_heat(
+                        ex_hits, ex_last, usage_cfg, adopted_count=ex_adopted
+                    ) if heat_on else 1.0
+                )
                 results.append({
                     "file": ex["file"],
                     "title": doc_row["title"],
                     "source": doc_row["source"],
                     "snippet": snippet,
-                    "relevance_score": ex["score"],
+                    "relevance_score": round(ex["score"] * ex_auth * ex_heat, 4),
+                    "authority": round(ex_auth, 2),
+                    "usage": {
+                        "hit_count": ex_hits,
+                        "last_hit": ex_last,
+                        "adopted_count": ex_adopted,
+                    },
                     "hop": ex["hop"],
                     "via": ex["via"],
                 })
@@ -1247,8 +1576,8 @@ class AnalysisCache:
         self.conn.execute("DELETE FROM search_token_index WHERE doc_key=?",(fk,))
         if tokens:
             tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
-            self.conn.execute("INSERT OR REPLACE INTO search_index VALUES(?,?,?,?,?)",
-                              (fk, filepath.stem, src, len(tokens), json.dumps(tf)))
+            self.conn.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                              (fk, filepath.stem, src, len(tokens), json.dumps(tf), _doc_authority(fk, src, ct)))
             for t, f in tf.items(): self.conn.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
         self.conn.commit()
 

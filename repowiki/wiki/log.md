@@ -2,6 +2,40 @@
 
 > 本文件为追加写入的操作记录，由系统自动维护
 
+## 2026-08-23
+* **ingest_note**: 添加笔记: hook 采集机制仅正式接线 CodeBuddy，README 措辞用「仅接线支持」
+* **lint_wiki**: 检查完成: 335 个问题
+* **ingest_note**: 添加笔记: 会话启动时的 query_wiki/蒸馏等重操作委托 subagent 执行，避免阻塞用户正常使用
+* **lint_wiki**: 检查完成: 339 个问题
+* **lint_wiki**: 检查完成: 339 个问题
+* **analyze_repo**: 分析仓库 CodeWiki-CN，1482 个组件
+* **analyze_repo**: 分析仓库 CodeWiki-CN，1482 个组件
+* **edit_doc_file**: 更新 MCP_Tools_Quality.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Tools_Quality.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Tools_Quality.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Prompts.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Prompts.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Prompts.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Prompts.md (str_replace)
+* **lint_wiki**: 检查完成: 13 个问题
+* **close_session**: 会话关闭
+* **ingest_note**: 添加笔记: distill-worker subagent 定义随包发布，hook 启用时自动拷贝到项目 .codebuddy/agents/
+* **ingest_note**: 添加笔记: 多 IDE hook 自动检测接线：IDE 注册表驱动 + codewiki install-hooks
+
+## 2026-08-21
+* **ingest_source**: 导入外部文档: tam-team-memory-practice (md)
+* **ingest_note**: 添加笔记: 下一期方向：资产置信分层与负反馈闭环（Roadmap Phase 5）
+
+## 2026-08-19
+* **ingest_note**: 添加笔记: L0 对话归档采用链接优先、零索引设计
+
+## 2026-08-18
+* **write_doc_file**: 创建 IDE-Hook采集链路方法.md
+* **write_doc_file**: 创建 对话蒸馏管线与raw暂存区.md
+* **write_doc_file**: 创建 任务记忆系统设计方法.md
+* **write_doc_file**: 创建 MCP-Server薄壳架构与参数约定.md
+* **write_doc_file**: 创建 Wiki页面生成约定与数据结构.md
+
 ## 2026-08-16
 * **ingest_note**: 添加笔记: 技术文章面向业务读者时应削减实现细节、增补业务梳理与开发思路
 

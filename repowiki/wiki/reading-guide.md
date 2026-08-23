@@ -1,8 +1,9 @@
 ---
 type: Concept
 title: "阅读指南"
-generated: { by: codewiki/5.2.2, at: 2026-08-13T15:04:37Z }
-stale_after: 2026-11-11
+generated: { by: codewiki/reading_guide.py, at: 2026-08-23T00:00:00Z }
+stale_after: 2099-12-31
+description: "> 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。"
 ---
 # 阅读指南
 
@@ -14,26 +15,26 @@ stale_after: 2026-11-11
 
 | # | 组件 | 类型 | 所属模块 | 直接被依赖数 | PageRank | 文件 |
 |---|------|------|----------|--------------|----------|------|
-| 1 | `CLILogger.debug` | method | - | 72 | 0.0189 | codewiki\cli\utils\logging.py |
-| 2 | `LazyComponentStore.items` | method | - | 91 | 0.0136 | codewiki\mcp\cache.py |
-| 3 | `TreeSitterTSAnalyzer._get_node_text` | method | - | 26 | 0.0117 | ...\be\dependency_analyzer\analyzers\typescript.py |
-| 4 | `TreeSitterTSAnalyzer._find_child_by_type` | method | - | 19 | 0.0085 | ...\be\dependency_analyzer\analyzers\typescript.py |
-| 5 | `TreeSitterJSAnalyzer._get_node_text` | method | - | 19 | 0.0073 | ...\be\dependency_analyzer\analyzers\javascript.py |
-| 6 | `CLILogger.error` | method | - | 32 | 0.0063 | codewiki\cli\utils\logging.py |
-| 7 | `NamespaceResolver.resolve` | method | - | 70 | 0.0055 | ...iki\src\be\dependency_analyzer\analyzers\php.py |
-| 8 | `TreeSitterJSAnalyzer._find_child_by_type` | method | - | 14 | 0.0050 | ...\be\dependency_analyzer\analyzers\javascript.py |
-| 9 | `CallRelationship` | class | - | 19 | 0.0047 | codewiki\src\be\dependency_analyzer\models\core.py |
-| 10 | `Node` | class | - | 19 | 0.0046 | codewiki\src\be\dependency_analyzer\models\core.py |
-| 11 | `TreeSitterJSAnalyzer._get_relative_path` | method | - | 9 | 0.0041 | ...\be\dependency_analyzer\analyzers\javascript.py |
-| 12 | `LazyComponentStore.values` | method | - | 29 | 0.0040 | codewiki\mcp\cache.py |
-| 13 | `SessionWorkspace.write_text` | method | - | 35 | 0.0039 | codewiki\mcp\workspace.py |
-| 14 | `TreeSitterTSAnalyzer._add_relationship` | method | - | 8 | 0.0039 | ...\be\dependency_analyzer\analyzers\typescript.py |
-| 15 | `TreeSitterJSAnalyzer._get_component_id` | method | - | 8 | 0.0037 | ...\be\dependency_analyzer\analyzers\javascript.py |
-| 16 | `LazyComponentStore.keys` | method | - | 24 | 0.0035 | codewiki\mcp\cache.py |
-| 17 | `meta_resolve` | function | - | 24 | 0.0032 | codewiki\src\config.py |
-| 18 | `is_cbm_enabled` | function | - | 6 | 0.0028 | codewiki\mcp\cbm_client.py |
-| 19 | `RouteNode` | class | - | 15 | 0.0027 | ...\be\dependency_analyzer\models\cross_service.py |
-| 20 | `TreeSitterPHPAnalyzer._find_child_by_type` | method | - | 10 | 0.0022 | ...iki\src\be\dependency_analyzer\analyzers\php.py |
+| 1 | `CLILogger.debug` | method | - | 90 | 0.0180 | codewiki\cli\utils\logging.py |
+| 2 | `LazyComponentStore.items` | method | - | 102 | 0.0124 | codewiki\mcp\cache.py |
+| 3 | `TreeSitterTSAnalyzer._get_node_text` | method | - | 26 | 0.0098 | ...\be\dependency_analyzer\analyzers\typescript.py |
+| 4 | `TreeSitterTSAnalyzer._find_child_by_type` | method | - | 19 | 0.0071 | ...\be\dependency_analyzer\analyzers\typescript.py |
+| 5 | `TreeSitterJSAnalyzer._get_node_text` | method | - | 19 | 0.0061 | ...\be\dependency_analyzer\analyzers\javascript.py |
+| 6 | `CLILogger.error` | method | - | 32 | 0.0053 | codewiki\cli\utils\logging.py |
+| 7 | `SessionWorkspace.write_text` | method | - | 57 | 0.0052 | codewiki\mcp\workspace.py |
+| 8 | `NamespaceResolver.resolve` | method | - | 81 | 0.0049 | ...iki\src\be\dependency_analyzer\analyzers\php.py |
+| 9 | `TreeSitterJSAnalyzer._find_child_by_type` | method | - | 14 | 0.0042 | ...\be\dependency_analyzer\analyzers\javascript.py |
+| 10 | `CallRelationship` | class | - | 19 | 0.0039 | codewiki\src\be\dependency_analyzer\models\core.py |
+| 11 | `Node` | class | - | 19 | 0.0039 | codewiki\src\be\dependency_analyzer\models\core.py |
+| 12 | `TreeSitterJSAnalyzer._get_relative_path` | method | - | 9 | 0.0035 | ...\be\dependency_analyzer\analyzers\javascript.py |
+| 13 | `LazyComponentStore.values` | method | - | 31 | 0.0034 | codewiki\mcp\cache.py |
+| 14 | `TreeSitterTSAnalyzer._add_relationship` | method | - | 8 | 0.0032 | ...\be\dependency_analyzer\analyzers\typescript.py |
+| 15 | `TreeSitterJSAnalyzer._get_component_id` | method | - | 8 | 0.0032 | ...\be\dependency_analyzer\analyzers\javascript.py |
+| 16 | `LazyComponentStore.keys` | method | - | 27 | 0.0031 | codewiki\mcp\cache.py |
+| 17 | `CrossServiceMatcher.match` | method | - | 20 | 0.0028 | ...ency_analyzer\analysis\cross_service_matcher.py |
+| 18 | `meta_resolve` | function | - | 24 | 0.0027 | codewiki\src\config.py |
+| 19 | `is_cbm_enabled` | function | - | 6 | 0.0024 | codewiki\mcp\cbm_client.py |
+| 20 | `RouteNode` | class | - | 15 | 0.0022 | ...\be\dependency_analyzer\models\cross_service.py |
 
 ---
-*基于 1248 个组件、2278 条依赖边计算。*
+*基于 1482 个组件、2757 条依赖边计算。*

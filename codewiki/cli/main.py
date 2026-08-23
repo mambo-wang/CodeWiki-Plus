@@ -33,10 +33,12 @@ def version():
 # Import commands
 from codewiki.cli.commands.config import config_group
 from codewiki.cli.commands.generate import generate_command
+from codewiki.cli.commands.install_hooks import install_hooks
 
 # Register command groups
 cli.add_command(config_group)
 cli.add_command(generate_command, name="generate")
+cli.add_command(install_hooks)
 
 
 @cli.command(name="mcp")

@@ -3,6 +3,7 @@ type: Architecture
 title: "CodeWiki-CN 架构总览"
 generated: { by: codewiki/5.2.0, at: 2026-08-02T23:41:39Z }
 stale_after: 2026-10-31
+description: "> 自动生成于 2026-07-28T18:00:00+08:00 | 本文件由系统自动维护"
 ---
 # CodeWiki-CN 架构总览
 
