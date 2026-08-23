@@ -16,6 +16,7 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
+description: "DocVisualizer（位于 `codewiki/src/fe/`）是 CodeWiki 的轻量级文档可视化前端叶子模块，负责将 LLM 生成的 Markdown 文档（`overview.md`、各模块的 `."
 ---
 
 # DocVisualizer 模块文档

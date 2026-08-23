@@ -15,6 +15,7 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
+description: "MCP_Prompts 是 CodeWiki MCP Server 的**提示词（Prompt）叶子模块**，全部实现于 `codewiki/mcp/server.py`。"
 ---
 
 # MCP_Prompts 模块文档

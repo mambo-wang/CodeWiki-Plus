@@ -1,4 +1,3 @@
----
 # ── 项目定位 ─────────────────────────────────────────────────────────────
 # 用一两句话描述项目的目标和定位，会注入到所有文档生成 prompt 中。
 # 留空则不注入。拷贝到项目后建议填写。
@@ -74,23 +73,23 @@ conventions:
   # 知识保鲜期（天）。write_doc_file / ingest_note 据此计算 stale_after 日期，
   # 过期后 lint 的 okf_conformance 检查会提示复核（§5.5）
   default_stale_days: 90
-  # 类型感知的新鲜度窗口（新鲜度机制专项，docs/新鲜度机制设计方案.md）。
-  # 笔记的 stale_after 在 ingest/confirm 时按 note_type 查表计算：
-  # confirm 之后，该类知识在窗口内视为新鲜；超窗后进入 lint 的 stale_notes
-  # 复核提醒（confirm_note 续期 或 reject_note 退役），而不是自动作废。
-  # 回退链：by_type[type] → default_window_days → default_stale_days → 90。
+  # 类型感知的新鲜度窗口（新鲜度机制专项，docs/新鲜度机制设计方案.md）。
+  # 笔记的 stale_after 在 ingest/confirm 时按 note_type 查表计算：
+  # confirm 之后，该类知识在窗口内视为新鲜；超窗后进入 lint 的 stale_notes
+  # 复核提醒（confirm_note 续期 或 reject_note 退役），而不是自动作废。
+  # 回退链：by_type[type] → default_window_days → default_stale_days → 90。
   freshness:
-    default_window_days: 180    # 全局默认窗口（by_type 缺省类型用）
-    retrieval_defer_days: 60    # 复核期过后若近期被检索过则顺延（活跃度豁免）
+    default_window_days: 180    # 全局默认窗口（by_type 缺省类型用）
+    retrieval_defer_days: 60    # 复核期过后若近期被检索过则顺延（活跃度豁免）
     by_type:
-      workaround: 45            # 临时方案天然短命
-      known_issue: 60           # 已知问题通常随修复而失效
+      workaround: 45            # 临时方案天然短命
+      known_issue: 60           # 已知问题通常随修复而失效
       general: 120
-      pitfall: 180              # 坑的保质期较长
+      pitfall: 180              # 坑的保质期较长
       lesson: 180
       bug_fix: 180
-      decision: 365             # 决策长期有效，除非被新决策推翻
-      architecture: 365         # 架构事实最长寿
+      decision: 365             # 决策长期有效，除非被新决策推翻
+      architecture: 365         # 架构事实最长寿
   # 全局默认标签列表，会自动追加到每个文档的 frontmatter tags 中。
   # 例如 [project-x, v2] 会让所有文档带上这些标签，便于跨项目检索
   okf_tags: []
@@ -98,6 +97,71 @@ conventions:
 # ── 必需章节 ─────────────────────────────────────────────────────────────
 # 叶模块文档必须包含的章节列表。get_prompt 会将其注入系统提示，
 # lint 的 coverage 检查会验证这些章节是否存在。
+  note_types:
+    workaround:
+      freshness_days: 45
+      promote_to: query
+      merge_fields:
+        body: append
+        related_modules: replace
+        title: replace
+        tags: union
+    known_issue:
+      freshness_days: 60
+      promote_to: query
+      merge_fields:
+        body: append
+        related_modules: replace
+        title: replace
+        tags: union
+    general:
+      freshness_days: 120
+      promote_to: ''
+      merge_fields:
+        body: append
+        related_modules: replace
+        title: replace
+        tags: union
+    pitfall:
+      freshness_days: 180
+      promote_to: query
+      merge_fields:
+        body: append
+        related_modules: replace
+        title: replace
+        tags: union
+    lesson:
+      freshness_days: 180
+      promote_to: concept
+      merge_fields:
+        body: append
+        related_modules: replace
+        title: replace
+        tags: union
+    bug_fix:
+      freshness_days: 180
+      promote_to: query
+      merge_fields:
+        body: append
+        related_modules: replace
+        title: replace
+        tags: union
+    decision:
+      freshness_days: 365
+      promote_to: concept
+      merge_fields:
+        body: append
+        related_modules: replace
+        title: replace
+        tags: union
+    architecture:
+      freshness_days: 365
+      promote_to: concept
+      merge_fields:
+        body: append
+        related_modules: replace
+        title: replace
+        tags: union
 required_sections:
 - title: Architecture Overview      # 架构总览，描述模块整体设计
   mermaid_diagram: true             # 此章节必须包含至少一个 Mermaid 图

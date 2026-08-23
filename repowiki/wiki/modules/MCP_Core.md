@@ -27,6 +27,7 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
+description: "MCP_Core 是 CodeWiki MCP Server（`codewiki.mcp."
 ---
 
 # MCP_Core 模块文档

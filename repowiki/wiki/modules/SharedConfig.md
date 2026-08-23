@@ -13,6 +13,7 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
+description: "`SharedConfig` 是 CodeWiki 横跨 CLI、后端分析与 MCP 服务的**共享配置与文件管理基座**（位于 `codewiki/src/`）。它仅由两个源文件、6 个组件构成，却是各模块协同的基石：`Config` 统一承载仓库路径、LLM 端点、Token 预算、运行模式等全局参数，并提供 `f"
 ---
 
 # SharedConfig 模块文档
