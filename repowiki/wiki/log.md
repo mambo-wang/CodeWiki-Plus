@@ -2,6 +2,24 @@
 
 > 本文件为追加写入的操作记录，由系统自动维护
 
+## 2026-08-23
+* **ingest_note**: 添加笔记: hook 采集机制仅正式接线 CodeBuddy，README 措辞用「仅接线支持」
+* **lint_wiki**: 检查完成: 335 个问题
+* **ingest_note**: 添加笔记: 会话启动时的 query_wiki/蒸馏等重操作委托 subagent 执行，避免阻塞用户正常使用
+* **lint_wiki**: 检查完成: 339 个问题
+* **lint_wiki**: 检查完成: 339 个问题
+* **analyze_repo**: 分析仓库 CodeWiki-CN，1482 个组件
+* **analyze_repo**: 分析仓库 CodeWiki-CN，1482 个组件
+* **edit_doc_file**: 更新 MCP_Tools_Quality.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Tools_Quality.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Tools_Quality.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Prompts.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Prompts.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Prompts.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Prompts.md (str_replace)
+* **lint_wiki**: 检查完成: 13 个问题
+* **close_session**: 会话关闭
+
 ## 2026-08-21
 * **ingest_source**: 导入外部文档: tam-team-memory-practice (md)
 * **ingest_note**: 添加笔记: 下一期方向：资产置信分层与负反馈闭环（Roadmap Phase 5）

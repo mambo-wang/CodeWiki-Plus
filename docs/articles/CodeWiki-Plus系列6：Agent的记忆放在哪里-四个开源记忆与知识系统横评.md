@@ -88,7 +88,7 @@ flowchart TB
 
 知识管理走的是**评审闸门流派**：对话先落 raw 暂存区（只落盘不蒸馏），显式蒸馏产出 status=draft 的笔记，**必须人工 confirm 才进入检索**；笔记带 OKF v0.2 frontmatter（类型、状态、生命周期），配合任务记忆（跨会话延续长线工作的上下文）、新鲜度机制（按笔记类型 45~365 天的时间窗）、采纳信号（Agent 声明"我真正引用了哪条文档"，权重两倍于单纯召回）、低采纳 lint、晋升机制（被反复采纳的笔记 AI 重写去个人化转正入 Wiki）。检索是零 embedding 依赖的 BM25 + 中文分词 + wikilink 多跳 + 类型权威加权，配合渐进式阅读协议控制 token 开销。
 
-系列 5 讲过，teamai-cli 的摩擦信号、热度回流、检索透明这三个机制已经被借鉴进来。TencentDB-Agent-Memory 的分层提炼（对应系列的 capture→distill→consolidate→doctrine 链路）和 OpenViking 的写时分层（对应渐进式阅读的演进方向）也都在 roadmap 上。
+系列 5 讲过，teamai-cli 的摩擦信号、热度回流、检索透明这三个机制已经被借鉴进来。TencentDB-Agent-Memory 的分层提炼对应的就是系列 4 落地的 capture→distill→consolidate→doctrine 链路；OpenViking 这边的借鉴也已分波落地：类型权威表、注入超预算降级为"描述+分数"一行、同主题笔记的字段级预合并都已上线，目录级 L0 摘要则在设计中——四家的机制在 CodeWiki-Plus 里几乎都找到了落点，这也是本文敢把它们放在一起横评的底气。
 
 **一句话总结**：它回答的是"Agent 读不懂这个仓库怎么办"——代码知识深度和知识可信度是两条主线。
 
@@ -103,9 +103,9 @@ flowchart TB
 | 交付形态 | 服务组件 + SDK（可分布式部署） | Server + CLI + MCP + SaaS | 纯 CLI + IDE Hooks（npm） | MCP Server + CLI（PyPI） |
 | 知识载体 | L0-L3 分层记忆 + Skill + Wiki + CodeGraph | viking:// 虚拟文件系统，L0/L1/L2 写时分层 | Git 团队仓（skills/rules/learnings/teamwiki） | repowiki/ 人读 Wiki + OKF 笔记 |
 | 记忆提取 | 全自动管线，单次 LLM 完成切分+提取 | ReAct 循环提取，直接 upsert | 摩擦信号触发 + 提示词 skill 引导 | capture→distill→**confirm 闸门** |
-| 去重/合并 | 两阶段去重（召回+LLM 精判，store/skip/update/merge） | 字段级 merge_op + 签名 dedup | 同标题/作者/内容合并 | distill 召回去重 + consolidate 整合 |
-| 检索 | BM25 + 向量 + RRF 混合 | dense+sparse 混合 + 目录递归下钻 | BM25 + 图谱加性 boost | BM25 + wikilink 多跳 + 权威加权（零 embedding） |
-| 生命周期 | 热度演化 + 场景容量分级（≤15 个，UPDATE 优先） | freshness 三态策略 + 父目录冒泡 | 投票→confidence→prune/promote/quality-update | stale_after 时间窗 + 采纳信号 + 晋升 |
+| 去重/合并 | 两阶段去重（召回+LLM 精判，store/skip/update/merge） | 字段级 merge_op + 签名 dedup | 同标题/作者/内容合并 | distill 召回去重 + 同主题 draft 字段级预合并 |
+| 检索 | BM25 + 向量 + RRF 混合 | dense+sparse 混合 + 目录递归下钻 | BM25 + 图谱加性 boost | BM25 + wikilink 多跳 + 权威加权 + 注入预算降级（零 embedding） |
+| 生命周期 | 热度演化 + 场景容量分级（≤15 个，UPDATE 优先） | freshness 三态策略 + 父目录冒泡 | 投票→confidence→prune/promote/quality-update | stale_after 时间窗 + 采纳信号 + 晋升 + 类型权威表 |
 | 代码理解 | CodeGraph（符号/调用关系） | RepoMap 式骨架（无依赖图） | 正则事实提取（无 AST） | **tree-sitter AST 依赖图/调用图/影响分析** |
 | 使用信号 | 热度/采纳率指标 | usage 审计 + Prometheus | recalled/upvoted 双票，全面驱动治理 | 采纳声明注释 + 热度回流 + 低采纳 lint |
 | 人工闸门 | 无（prompt 纪律兜底） | 无（merge 策略兜底） | learnings 无闸门，harness 资产走 MR | **有（draft→confirm 硬约束）** |
@@ -122,7 +122,7 @@ flowchart TB
 - **TencentDB-Agent-Memory：闸门交给 prompt。** 把"个人建议 ≠ 团队决策"、"AI 输出须人类采纳"、priority 分档写入提取规则的硬约束，全链路无人工介入，规模化的代价是信任模型的纪律性；
 - **OpenViking：闸门交给合并策略。** 提取直接 upsert，但每个字段有 merge_op，重复提取按字段策略合并，噪声靠结构性去重兜住；
 - **teamai-cli：闸门后移到生命周期。** 贡献即生效（低摩擦），但"召回多、采纳少"会触发重写，无人问津会被淘汰，质量靠使用信号事后收敛；
-- **CodeWiki-Plus：闸门放在入口。** 蒸馏产物一律 draft，人确认才进检索，代价是确认摩擦，收益是库里的知识天然可信、lint 和 health score 有意义。
+- **CodeWiki-Plus：闸门放在入口。** 蒸馏产物一律 draft，人确认才进检索，代价是确认摩擦，收益是库里的知识天然可信、lint 和 health score 有意义。缓解摩擦的做法是从 OpenViking 借来了字段级预合并——同主题的多条 draft 先按字段策略自动合并，人只需 confirm 一次，闸门不动、摩擦减半。
 
 这四种流派没有绝对优劣，但有适用条件：对话量大、人工不可及时，前三者是必然选择；知识要支撑高风险决策（改代码、定架构）时，入口闸门的价值凸显。我个人更认同 teamai 报告里的判断——**如果要降低闸门摩擦，必须先补上事后治理能力，否则两头落空**。
 
@@ -162,6 +162,6 @@ teamai-cli 和 CodeWiki-Plus 则把分层做成了**消费协议**：前者是 t
 
 这轮横评最想传达的一个判断是：Agent 记忆系统正在从"各家巧思"阶段进入"共识收敛"阶段——分层、信号、蒸馏、透明度已经成了标配话题；而真正的竞争将发生在共识之外的两处：**你信任谁（闸门哲学），和你理解多深（代码理解）**。
 
-下一篇会讲 OpenViking 三个低成本机制的落地：目录级 L0 摘要、注入超预算降级为 URI+score、笔记字段级 merge_op 预合并——这是横评之后的第一批借鉴产出。
+横评不是终点，是选型清单：写完这篇的同时，OpenViking 借鉴的第一批已经落地——注入超预算降级为"描述+分数"、同主题笔记字段级预合并、note 类型权威表；下一篇会讲它们的落地细节，以及仍在设计中的目录级 L0 摘要。
 
 > 关联阅读：系列 5《给知识飞轮装上传感器》（teamai-cli 三机制的落地实录）· 完整的调研报告（含源码级细节）在仓库 docs/ 目录：teamai-cli-调研与借鉴分析.md、OpenViking-调研与借鉴分析.md、TencentDB-Agent-Memory-记忆提取机制分析.md
