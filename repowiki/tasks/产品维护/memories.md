@@ -11,3 +11,15 @@
 用户提出「开始新对话触发选择任务后，query_wiki 和蒸馏操作可放 subagent 执行、别影响正常使用」，该决策已落地：创建 .codebuddy/agents/distill-worker.md，hook/AGENTS.md/prompts.py 同步「补蒸馏委托 subagent、不阻塞回答」措辞。
 
 撰写《CodeWiki-Plus系列7：Subagent机制详解-上下文隔离与专业化分工》文档（docs/articles/），以 distill-worker 的创建与使用为例介绍 subagent 机制与上下文隔离/不阻塞好处。
+
+会话启动补蒸馏委托 subagent 的决策已完整落地：task_session_start.py 双副本（codewiki/hooks + .codebuddy/hooks）、prompts.py（_TASK_MEMORY_AGENTS_SECTION + _prompt_task_workflow）、AGENTS.md、README.md 同步，新建 .codebuddy/agents/distill-worker.md，test_task_session_start.py 新增 4 条断言、friction hint 断言兼容新文案，全部 47 个测试通过。
+
+已撰写 subagent 机制介绍文档：docs/articles/CodeWiki-Plus系列7：Subagent机制详解-上下文隔离与专业化分工.md（含 distill-worker 完整实战案例与 Mermaid 时序图）。
+
+本任务 5 条待确认记忆已获用户确认落盘到 repowiki/tasks/产品维护/memories.md，pending 区已清空。
+
+distill-worker 源码化已完成：codewiki/agents/distill-worker.md 为权威版本，hook 启用（init 或 team-memory-hook）时自动拷贝到项目 .codebuddy/agents/，pyproject.toml package-data 已加入 agents/*.md。
+
+待验证点：distill-worker.md 的 frontmatter（toolsMCP 字段名、agentic 模式 Task spawn）依赖 IDE 对 subagent 定义的解析，建议下次新会话观察 hook 是否成功把蒸馏委托出去。
+
+文档质量审计（lint_wiki 全量检查）曾被任务引导打断、用户明确搁置（"不用"），后续如需可重新发起。

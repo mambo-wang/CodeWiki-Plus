@@ -72,9 +72,17 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
     enable_task_management = args.get("enable_task_management", "").strip().lower()
     if enable_task_management in ("1", "true", "yes", "on"):
         hook_block = f"""## 步骤 2: 启用任务管理（跨会话任务记忆 + 对话采集）
-为支持跨会话任务记忆，启用 CodeBuddy 的 SessionEnd hook 使会话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成），并向 AGENTS.md 写入任务引导段，使新建会话时 Agent 提示用户关联已有任务或输入任务名新建。
+为支持跨会话任务记忆，启用 SessionEnd hook 使会话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成），并向 AGENTS.md 写入任务引导段，使新建会话时 Agent 提示用户关联已有任务或输入任务名新建。
 
-**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本与 distill-worker subagent 定义到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。
+**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionStart/SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本与 distill-worker subagent 定义到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。接线支持 CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`），三个 IDE 的 settings.json 结构与事件注册完全一致，仅配置目录不同。
+
+**首选路径：运行 CLI 自动检测接线（推荐）**
+
+```powershell
+codewiki install-hooks --repo-path {repo_path}
+```
+
+CLI 自动检测项目根目录存在哪些 IDE 配置目录（`.codebuddy/` / `.qoder/` / `.claude/`），检测到哪些就为哪些自动完成全部接线（拷贝脚本与 distill-worker、幂等合并 settings.json、upsert AGENTS.md 引导段）。CLI 不可用时回退到下方手动步骤，Qoder/Claude Code 仅需把 `.codebuddy` 目录换成 `.qoder` / `.claude`。
 
 1. **确保两个 hook 脚本与 distill-worker subagent 就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。用以下命令解析 CodeWiki 自带的源文件路径，并**强制复制**到目标目录（务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
 
@@ -91,9 +99,9 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
    python -c "import ast; ast.parse(open(r'$destDir/capture_session_end.py', encoding='utf-8').read()); ast.parse(open(r'$destDir/task_session_start.py', encoding='utf-8').read()); assert open(r'$agentDir/distill-worker.md', encoding='utf-8').read().startswith('---'), 'distill-worker.md missing'; print('hook scripts + distill-worker.md copied OK')"
    ```
 
-   若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从 `CODEWIKI_HOME` 环境变量指向的 checkout 取 `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本与 `$env:CODEWIKI_HOME/codewiki/agents/distill-worker.md`，同样 Copy-Item 到 `$destDir` / `$agentDir`。兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
+   若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从 `CODEWIKI_HOME` 环境变量指向的 checkout 取 `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本与 `$env:CODEWIKI_HOME/codewiki/agents/distill-worker.md`，同样 Copy-Item 到 `$destDir` / `$agentDir`。兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。**为 Qoder/Claude Code 接线时，把 `$destDir` / `$agentDir` 中的 `.codebuddy` 换成 `.qoder` / `.claude` 即可。**
 
-2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置）：
+2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置；Qoder/Claude Code 写入 `.qoder/settings.json` / `.claude/settings.json`，command 中路径随目录变化）：
 
 ```json
 {{
@@ -118,7 +126,7 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 
 4. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）。
 
-5. 用模拟事件验证两个脚本：
+5. 用模拟事件验证两个脚本（Qoder/Claude Code 用对应目录路径替换 `.codebuddy`）：
    - SessionEnd（期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
 
 ```powershell
@@ -819,18 +827,34 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
     else:
         action_hint = ("用户未指定动作：先执行步骤 1 检查当前状态并向用户报告，"
                        "再按其意愿选择步骤 2A（启用）或步骤 2B（关闭）。")
-    return f"""管理 team-memory fusion 的对话自动采集 Hook（CodeBuddy hooks）。
+    return f"""管理 team-memory fusion 的对话自动采集 Hook（支持 CodeBuddy / Qoder / Claude Code）。
 
 {action_hint}
 
 采集 Hook 只负责把对话捕获到 `repowiki/raw/`（仅采集、不蒸馏）；蒸馏是独立的显式步骤，见 distill-conversations prompt。
 
+三个支持的 IDE 接线格式一致（`.codebuddy/`、`.qoder/`、`.claude/` 各自 `settings.json`，hooks 事件同为 SessionStart/SessionEnd），仅配置目录不同。
+
 ## 步骤 1: 检查当前状态
-读取 `{repo_path}/.codebuddy/settings.json`：
-- **已启用**：存在 hooks.SessionEnd 与 hooks.SessionStart 两个条目，且 `capture_session_end.py` 与 `task_session_start.py` 两个脚本文件都物理存在（注意：CodeBuddy hooks 不展开环境变量，命令中必须写脚本的绝对路径，不能用 `$CODEBUDDY_PROJECT_DIR`）
-- **未启用**：文件不存在，或缺少任一条目，或任一脚本文件缺失
+依次检查项目根目录下三个 IDE 配置目录 `{repo_path}/.codebuddy/`、`{repo_path}/.qoder/`、`{repo_path}/.claude/`：
+- 每个目录下读取 `settings.json`：**已启用** = 存在 hooks.SessionEnd 与 hooks.SessionStart 两个条目，且对应目录 `hooks/` 下 `capture_session_end.py` 与 `task_session_start.py` 两个脚本文件都物理存在（注意：hooks 不展开环境变量，命令中必须写脚本的绝对路径，不能用 `$CODEBUDDY_PROJECT_DIR` / `$CLAUDE_PROJECT_DIR`）
+- 向用户报告哪些 IDE 已启用、哪些未启用
 
 ## 步骤 2A: 启用
+**首选路径：运行 CLI 自动检测接线（推荐，覆盖全部已安装智能体）**
+
+```powershell
+codewiki install-hooks --repo-path {repo_path}
+```
+
+CLI 会自动检测项目根目录下存在哪些 IDE 配置目录（`.codebuddy/` / `.qoder/` / `.claude/`），检测到哪些就为哪些自动完成全部接线：
+- 强制拷贝 hook 脚本与 `distill-worker.md` 到对应 `.codebuddy|.qoder|.claude/hooks/` 与 `agents/`
+- 幂等合并 `settings.json` 的 SessionStart/SessionEnd 注册（保留已有无关配置，重复运行不产生重复条目）
+- 向 `AGENTS.md` upsert 任务记忆引导段（多 IDE 共享一份，只写一次）
+
+CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤。手动接线时以 `.codebuddy` 为例，**Qoder 与 Claude Code 仅目标目录不同**：`.codebuddy/` ↔ `.qoder/` ↔ `.claude/`（settings.json、hooks/、agents/ 的相对位置与内容完全一致）。
+
+### 手动兜底步骤
 1. **确保两个 hook 脚本与 distill-worker subagent 就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。
    **不论目标是否已存在，每次启用都要从 CodeWiki 自带的源文件重新复制覆盖**，
    以保证与目标 `codewiki` 包版本一致（不要因为"已存在"就跳过，否则升级包后会残留旧脚本）：
@@ -855,7 +879,8 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
      `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本与
      `$env:CODEWIKI_HOME/codewiki/agents/distill-worker.md`，同样 Copy-Item 到 `$destDir` / `$agentDir`。
      兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
-2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置）：
+     **为 Qoder/Claude Code 接线时，把上面 `$destDir` / `$agentDir` 中的 `.codebuddy` 换成 `.qoder` / `.claude` 即可。**
+2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置；Qoder/Claude Code 请写入 `.qoder/settings.json` / `.claude/settings.json`，command 中的路径随目录变化）：
 
 ```json
 {{
@@ -880,7 +905,7 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 {_TASK_MEMORY_AGENTS_SECTION}
 
 4. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）
-5. 用模拟事件验证两个脚本：
+5. 用模拟事件验证两个脚本（Qoder/Claude Code 用对应目录路径替换 `.codebuddy`）：
    - SessionEnd（先准备一个小的 transcript 文件，如 `[{{"role":"user","content":"测试"}}]` 存为 d:/tmp/conv.json；期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
 
 ```powershell
@@ -896,13 +921,14 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 6. 验证完成后删除测试产物：`{repo_path}/repowiki/raw/` 下 verify-1 会话生成的 conv-*.md 文件
 
 ## 步骤 2B: 关闭
-1. 从 `{repo_path}/.codebuddy/settings.json` 移除 SessionStart 与 SessionEnd 两个条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
+**首选路径：运行 `codewiki install-hooks --repo-path {repo_path} --ide <name>` 可重新接线；关闭采集时**：
+1. 依次检查三个 IDE 目录（`.codebuddy/`、`.qoder/`、`.claude/`），从对应 `settings.json` 移除 SessionStart 与 SessionEnd 两个条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
 2. 从 `{repo_path}/AGENTS.md` 移除任务记忆会话引导段：删除 `{_TASK_MEMORY_AGENTS_START}` 到 `{_TASK_MEMORY_AGENTS_END}` 之间的整段（含两行注释标记本身）；若不存在该标记块则无需处理，其余内容保持不动
 3. 已采集的 raw 文件保留在 `repowiki/raw/`，之后仍可蒸馏；关闭采集不会删除它们
 4. hook 脚本 `capture_session_end.py`、`task_session_start.py` 与 subagent 定义 `distill-worker.md` 可保留也可删除；重新启用时步骤 2A 会自动补回
 
 ## 注意事项
-- Hook 是 CodeBuddy 专属机制。其他运行时（Trae、CLI agent 等）请改用 `capture_conversation` MCP 工具手动采集
+- Hook 接线支持 CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`）。其他运行时（Trae、CLI agent 等）请改用 `capture_conversation` MCP 工具手动采集
 - 仅在会话结束时（SessionEnd）采集一次，落到 repowiki/raw/conv-*.md；会话级 supersede 去重保证每个会话只保留最新一份完整 transcript，不会膨胀
 - Hook 永不蒸馏、永不写 wiki 页面、永不使 IDE 失败（异常仅输出到 stderr，退出码保持 0）"""
 

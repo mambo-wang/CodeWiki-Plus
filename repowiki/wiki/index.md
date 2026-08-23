@@ -2,14 +2,9 @@
 okf_version: "0.2"
 ---
 
-<!-- 自动生成于 2026-08-23T18:28:10+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-23T20:29:41+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
-
-## 入门指引
-
-* [Team Operating Doctrine](doctrine.md) - > **Operating Thesis**: 工具只做确定性簿记，推理与决策永远在调用方 agent 与用户手里；一切进入知识库的内容必须经过显式确认闸门。
-* [阅读指南](reading-guide.md) - *基于 1482 个组件、2757 条依赖边计算。*
 
 ## 模块文档
 
@@ -60,18 +55,12 @@ okf_version: "0.2"
 
 * [README_CN](sources/README_CN.md) - WeKnora 中文 README（v0.7.0）源文档摘要：三大核心能力、部署方式、功能矩阵与集成生态
 
-## 场景方法
-
-* [IDE-Hook采集链路方法](scenarios/IDE-Hook采集链路方法.md) - CodeBuddy IDE hook 对话采集链路的 SOP 与禁忌：transcript 索引分片读取、同步采集异步蒸馏、双副本同步、注入可靠性
-* [MCP-Server薄壳架构与参数约定](scenarios/MCP-Server薄壳架构与参数约定.md) - MCP 薄壳分层、新增工具两处落点、output_dir 解析单点收敛、工具参数先读描述纪律
-* [Wiki页面生成约定与数据结构](scenarios/Wiki页面生成约定与数据结构.md) - status 语义分层、OKF actor 约定、module_tree 字符串引用、实体概念提取识别与举证分离四步流程
-* [任务记忆系统设计方法](scenarios/任务记忆系统设计方法.md) - 任务归属采集阶段决定、source_session_id 维度绑定、pending 确认闸门、memories 追加式原子写
-* [对话蒸馏管线与raw暂存区](scenarios/对话蒸馏管线与raw暂存区.md) - 蒸馏三模式共同落盘路径、raw 暂存区生命周期、Mode C 多文件蒸馏操作纪律
-
 ## 知识笔记
 
+* [distill-worker subagent 定义随包发布，hook 启用时自动拷贝到项目 .codebuddy/agents/](../notes/2026-08-23-distill-worker-subagent-定义随包发布hook-启用时自动拷贝到项目-codebuddyagent.md) - decision (decision, 2026-08-23)
 * [hook 采集机制仅正式接线 CodeBuddy，README 措辞用「仅接线支持」](../notes/2026-08-23-hook-采集机制仅正式接线-codebuddyreadme-措辞用仅接线支持.md) - architecture (architecture, 2026-08-23)
 * [会话启动时的 query_wiki/蒸馏等重操作委托 subagent 执行，避免阻塞用户正常使用](../notes/2026-08-23-会话启动时的-query-wiki蒸馏等重操作委托-subagent-执行避免阻塞用户正常使用.md) - decision (decision, 2026-08-23)
+* [多 IDE hook 自动检测接线：IDE 注册表驱动 + codewiki install-hooks](../notes/2026-08-23-多-ide-hook-自动检测接线ide-注册表驱动-codewiki-install-hooks.md) - decision (decision, 2026-08-23)
 * [下一期方向：资产置信分层与负反馈闭环（Roadmap Phase 5）](../notes/2026-08-21-下一期方向资产置信分层与负反馈闭环roadmap-phase-5.md) - decision (decision, 2026-08-21)
 * [L0 对话归档采用链接优先、零索引设计](../notes/2026-08-19-l0-对话归档采用链接优先零索引设计.md) - decision (decision, 2026-08-19)
 * [技术文章面向业务读者时应削减实现细节、增补业务梳理与开发思路](../notes/2026-08-16-技术文章面向业务读者时应削减实现细节增补业务梳理与开发思路.md) - lesson (lesson, 2026-08-16)

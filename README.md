@@ -383,7 +383,7 @@ LLM 发现跨功能约束
 - 自动采集 Hook 只落 raw，永不自动蒸馏；蒸馏须显式调用 `distill_conversation`。
 - `repowiki/raw/` 是暂存区，不进 `query_wiki` 检索；蒸馏完成后由工具自动清理（除非 `keep_raw`）。
 - 触发形态为 **both**：手动命令（主）+ IDE Hook（可选）。
-- 自动采集/任务引导 Hook 目前**仅接线支持 CodeBuddy**（`.codebuddy/settings.json`）；采集脚本对事件载荷做了通用化处理，但其他 IDE（如 Claude Code）的接线尚未提供。
+- 自动采集/任务引导 Hook 接线支持 **CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`）**，启用时运行 `codewiki install-hooks --repo-path <repo>` 自动检测项目根目录存在哪些 IDE 配置目录，检测到哪些就为哪些接线（拷贝 hook 脚本与 distill-worker subagent、幂等合并 settings.json、写入 AGENTS.md 引导段）；采集脚本对事件载荷做了通用化处理。
 
 **隐私语义（T2 团队遥测）：** `query_wiki` 的检索命中与 `capture_conversation` 的采纳记录会以 `user_id`（优先 `CODEWIKI_USER` 环境变量，回退 `git config user.name` / 系统登录名）署名写入 `repowiki/.meta/telemetry/<user_id>.jsonl` 并随仓库共享——此前这是 gitignore 的本机私有数据。`user_id` 不做鉴权（信任模型与 confirm 闸门一致：能提交即团队可信成员），仅作命名空间；不愿以 git 真名署名的成员可用 `CODEWIKI_USER` 设置花名，或在 `schema.yaml` 中设 `conventions.telemetry.enabled: false` 退回纯本机模式（写入 `repowiki/.meta/telemetry-local/`，已 gitignore，聚合逻辑不变）。
 
@@ -997,7 +997,7 @@ Inspired by Team-Agent-Memory's "extract retrievable experience from conversatio
 - The automatic capture hook only writes raw; it never distills. Distillation must be invoked explicitly via `distill_conversation`.
 - `repowiki/raw/` is a staging area excluded from `query_wiki`; it is cleaned up after distillation automatically (unless `keep_raw`).
 - Trigger form is **both**: manual command (primary) + IDE hook (optional).
-- The capture / task-guidance hooks are currently wired for **CodeBuddy only** (`.codebuddy/settings.json`). The capture script parses generic event payloads, but no off-the-shelf wiring is provided for other IDEs (e.g. Claude Code) yet.
+- The capture / task-guidance hooks are wired for **CodeBuddy (`.codebuddy/`), Qoder (`.qoder/`) and Claude Code (`.claude/`)**. To enable, run `codewiki install-hooks --repo-path <repo>`: it auto-detects which IDE config dirs exist in the project root and wires each one found (copies the hook scripts and the distill-worker subagent, idempotently merges `settings.json` hook registrations, and upserts the AGENTS.md task-guidance section). The capture script parses generic event payloads.
 
 **Privacy semantics (T2 team telemetry):** `query_wiki` retrieval hits and `capture_conversation` adoption records are written to `repowiki/.meta/telemetry/<user_id>.jsonl` (committed to the repo) under a `user_id` resolved from the `CODEWIKI_USER` env var, falling back to `git config user.name` / the OS login name — this data used to be a gitignored local file. The `user_id` is not an auth mechanism (trust model equals the confirm gate: anyone who can commit is a trusted teammate), it is a namespace only. Members who prefer not to sign telemetry with their git name can set a pseudonym via `CODEWIKI_USER`, or set `conventions.telemetry.enabled: false` in `schema.yaml` to fall back to local-only mode (written to `repowiki/.meta/telemetry-local/`, gitignored; aggregation is unchanged).
 

@@ -19,6 +19,8 @@
 * **edit_doc_file**: 更新 MCP_Prompts.md (str_replace)
 * **lint_wiki**: 检查完成: 13 个问题
 * **close_session**: 会话关闭
+* **ingest_note**: 添加笔记: distill-worker subagent 定义随包发布，hook 启用时自动拷贝到项目 .codebuddy/agents/
+* **ingest_note**: 添加笔记: 多 IDE hook 自动检测接线：IDE 注册表驱动 + codewiki install-hooks
 
 ## 2026-08-21
 * **ingest_source**: 导入外部文档: tam-team-memory-practice (md)
