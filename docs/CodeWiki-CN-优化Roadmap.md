@@ -384,6 +384,53 @@ CodeWiki-CN 当前定位是"代码文档生成器"——从 AST 自动生成模�
 
 ---
 
+## Phase 5：资产治理（Governance 层）
+
+> 目标：让知识"可信且可纠错"——为资产增加置信维度与纠错通道，从"越积越多"走向"越积越准"。
+> 背景：记忆分层提取（L0-L3，见系列 4）解决了知识的组织形态，authority-aware 排序（2026-08-21 落地）解决了"已验证内容排前面"，但资产仍缺少显式置信层级，错误召回也无法改变后续路由。
+> 来源：腾讯技术工程《任何错误只犯一次：TencentDB Agent Memory 的团队记忆实践》——2,600 Session 数据研究显示：22,361 条关系中仅 231 条是可执行强关系，其余只能作背景参考（关联 ≠ 复用）；卡点分布中"逻辑返工"（1,350）远超"缺少上下文"（269），错误经验比缺失经验伤害更大。
+
+### 5.1 资产置信分层（strong / weak / shadow）
+
+**问题：** 笔记只有生命周期状态（draft/stable/deprecated），没有置信维度。检索对"验证过的经验"和"未验证的背景"一视同仁，Agent 无法区分什么可以直接执行、什么只能当参考。TAM 数据表明模型容易发现"两个任务相关"，却很难判断"经验可迁移"——不分层就会把背景当指令。
+
+**方案：**
+- frontmatter 新增 `confidence_level: strong | weak | shadow`：
+  - **strong**：confirmed 且有验证证据（测试通过 / 提交引用 / 人工复核）——可进入任务计划直接执行
+  - **weak**：confirmed 但未验证——提示风险，谨慎使用
+  - **shadow**：未确认 / 被降权——只参与召回发现，不驱动执行
+- **升级路径（验证后升级）**：shadow → weak 走 confirm_note；weak → strong 需附加验证证据（test_ref / commit_ref / reviewed_by），对齐 TAM"未经验证的轨迹只是低权重背景"
+- 检索集成：扩展现有 authority 排序（已按 status/note_type 加权）纳入 confidence 维度；query_wiki 结果带 `confidence` 字段；默认上下文装配只收 strong，weak/shadow 需显式开启
+- wiki_stats 输出置信分布（strong/weak/shadow 占比），作为知识库健康度指标
+
+**验收标准：**
+- 笔记与场景块携带 confidence_level 且可流转（含 weak→strong 的证据附加）
+- 检索结果按置信标注与排序，shadow 资产默认不进任务上下文
+- wiki_stats 可见置信分布
+
+**来源：** TAM 实践 §3.2（强关系/Shadow 分层）、§6.1 原则五（资产生命周期）
+
+---
+
+### 5.2 负反馈闭环（检索纠错）
+
+**问题：** 错误召回目前只能靠 reject_note 人工事后处理，且不影响后续路由——同一条过期/错误知识会反复命中。TAM 六条设计原则明确："人的负反馈必须改变后续路由"。新鲜度问题同样无解：历史上正确的结论会因接口升级、配置迁移而失效，现有 stale_notes 只按时间粗判。
+
+**方案：**
+- **误召回标记**：新增 `flag_misrecall` 工具（或扩展 flag_issue），记录"资产 X 在任务 Y 中被误用"，累计 misrecall_count 与场景描述
+- **自动降权**：misrecall_count 达阈值 → 自动降为 weak/shadow + 进入待复核清单（lint 新增 `disputed_assets` 检查）；降权事实写回 authority 排序
+- **新鲜度字段**：frontmatter 增加 `valid_from` / `valid_to` / `last_verified_at` / 关联代码版本；stale_notes 升级为基于这些字段判定，而非仅按天龄
+- **负例学习**：误召回记录沉淀为负例库，蒸馏/聚合时相似触发条件给出提示（"此模式曾被判为不适用"）
+
+**验收标准：**
+- 负反馈可改变资产置信与检索权重（同查询不再优先命中被降权资产）
+- 过期资产基于 valid_to / last_verified_at 被自动标记
+- 误召回历史可追溯（哪个任务、什么原因、何时降权）
+
+**来源：** TAM 实践 §6.1 原则五（负反馈改变路由）、§6.2 六类工程问题（冲突/新鲜度/负反馈）
+
+---
+
 ## 依赖关系图
 
 ```
@@ -403,6 +450,11 @@ Phase 1 (Prompt/Schema)
                                                    4.2 Scenario
                                                    4.3 风险优先级 ← 依赖 3.1
                                                    4.4 多仓库
+                                                        │
+                                                        ▼
+                                                   Phase 5 (Governance)
+                                                   5.1 置信分层 ← 依赖 L0-L3 分层 + authority 排序（已落地）
+                                                   5.2 负反馈闭环 ← 依赖 5.1
 ```
 
 ---
@@ -417,6 +469,8 @@ Phase 1 (Prompt/Schema)
 | Phase 2 | 大仓库增量分析时间 | 减少 50%（方法级增量） |
 | Phase 3 | 约束发现覆盖率（对标高德案例） | proposal 得分从 baseline 提升 3x |
 | Phase 4 | Spring Boot 配置项覆盖率 | > 85% |
+| Phase 5 | 检索结果中 strong 资产占比 | > 60%（置信分布可观测） |
+| Phase 5 | 被负反馈资产的重复误召回率 | 降权后同查询命中下降 ≥ 50% |
 
 ---
 
@@ -426,3 +480,5 @@ Phase 1 (Prompt/Schema)
 - [阿里AI知识库文章-对CodeWiki-CN的借鉴分析](./阿里AI知识库文章-对CodeWiki-CN的借鉴分析.md)
 - [LLM-Wiki-扩展方案](./LLM-Wiki-扩展方案.md)
 - [跨服务调用分析-实现计划](./跨服务调用分析-实现计划.md)
+- [CodeWiki-Plus系列4：记忆分层提取——从经验碎片到团队Doctrine](./articles/CodeWiki-Plus系列4：记忆分层提取-从经验碎片到团队Doctrine.md)
+- TAM 团队记忆实践原文（已 ingest 至 `repowiki/raw/sources/tam-team-memory-practice.md`，见 source_registry）

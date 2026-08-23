@@ -13,7 +13,9 @@ metadata:
   - resources
   - close_session
   source_ref: raw\conv-user_command-commands-codewiki-增量更新-Wiki-请增量更新代码仓库的-Wiki-文档。.md
-status: stable
+  consolidated_into:
+  - wiki/scenarios/MCP-Server薄壳架构与参数约定.md
+status: deprecated
 generated:
   by: codewiki/5.2.2
   at: 2026-08-15 13:14:27+00:00
@@ -22,6 +24,7 @@ origin: conversation
 verified:
 - by: codewiki/5.2.2
   at: '2026-08-15T13:26:05Z'
+reject_reason: consolidated into MCP-Server薄壳架构与参数约定
 ---
 
 ## 背景

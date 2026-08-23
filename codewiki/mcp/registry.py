@@ -48,6 +48,14 @@ class ToolDef:
 
 REGISTRY: dict[str, ToolDef] = {}
 
+# V4 (note_types 权威表): note_type 枚举从声明表生成——一处定义，
+# registry inputSchema / distill _VALID_NOTE_TYPES / promotion 路由同源。
+# 项目 schema 的自定义类型受 MCP 静态校验所限仍走包内默认表（重启生效），
+# 已知约束记录于 docs/OpenViking借鉴详细设计方案-P3四项.md §1.2。
+from codewiki.mcp.tools.note_types import DEFAULT_NOTE_TYPES as _NOTE_TYPES
+
+_NOTE_TYPE_ENUM = sorted(_NOTE_TYPES)
+
 
 def _register(schema: Tool, handler_path: str, mode: str, takes_store: bool = True) -> None:
     """Register a tool definition in the global REGISTRY."""
@@ -193,7 +201,7 @@ _register(
                 },
                 "page_type": {
                     "type": "string",
-                    "enum": ["module", "entity", "concept", "source", "comparison", "query"],
+                    "enum": ["module", "entity", "concept", "source", "comparison", "query", "scenario"],
                     "description": "LLM Wiki page type. Determines subdirectory routing (default: module → wiki/modules/)",
                 },
                 "frontmatter_extra": {
@@ -267,7 +275,7 @@ _register(
                 },
                 "page_type": {
                     "type": "string",
-                    "enum": ["module", "entity", "concept", "source", "comparison", "query"],
+                    "enum": ["module", "entity", "concept", "source", "comparison", "query", "scenario"],
                     "description": "LLM Wiki page type for path resolution (default: module)",
                 },
                 "old_string": {
@@ -603,7 +611,7 @@ _register(
         name="lint_wiki",
         description=(
             "Check documentation-code consistency. Works with or without an active session. "
-            "Runs 16 available checks: stale_refs (docs reference deleted components), "
+            "Runs 18 available checks: stale_refs (docs reference deleted components), "
             "broken_links (markdown links to non-existent pages), "
             "undocumented (high-impact components without docs), "
             "cycles (circular module dependencies), coverage (documentation coverage gaps), "
@@ -613,10 +621,18 @@ _register(
             "isolated_components (components with zero dependencies and zero dependents), "
             "overview_stale (overview.md references modules that have changed), "
             "unsupported_claims (business assertions lacking code evidence), "
-            "stale_notes (confirmed notes not retrieved in 60+ days and older than 90 days), "
+            "stale_notes (stable/confirmed notes whose type-aware stale_after review "
+            "deadline has passed without a recent retrieval; confirm_note renews), "
             "note_clusters (modules with 3+ same-type notes suggesting consolidation), "
+            "low_adoption (stable notes recalled 5+ times within the recent window yet "
+            "never adopted — relevant but not actionable; rewrite with concrete "
+            "steps/commands/expected results via the distill/edit flow), "
             "okf_conformance (OKF v0.2 audit: missing type/frontmatter, legacy statuses, "
-            "malformed verified, expired stale_after, missing okf_version). "
+            "malformed verified, expired stale_after, missing okf_version), "
+            "scenario_capacity (L2 scene blocks at/over the consolidation cap — "
+            "merge similar scenes before adding more), "
+            "scenario_orphan (scene blocks with no source_notes provenance and no "
+            "recent retrieval — possibly redundant or outdated). "
             "Run checks=['all'] for a comprehensive audit. "
             "After fixing issues, use flag_issue to track remaining problems. "
             "MANDATORY FINAL STEP: after lint passes (or issues are tracked), you MUST call "
@@ -643,7 +659,9 @@ _register(
                             "cycles", "coverage", "orphan_pages", "no_outlinks",
                             "missing_aliases", "stale_sources", "superseded_pages",
                             "isolated_components", "overview_stale", "unsupported_claims",
-                            "stale_notes", "note_clusters", "okf_conformance",
+                            "stale_notes", "note_clusters", "low_adoption",
+                            "okf_conformance",
+                            "scenario_capacity", "scenario_orphan",
                         ],
                     },
                     "description": "Which checks to run (default: [\"all\"])",
@@ -688,10 +706,7 @@ _register(
                 },
                 "note_type": {
                     "type": "string",
-                    "enum": [
-                        "decision", "lesson", "architecture", "bug_fix", "general",
-                        "pitfall", "known_issue", "workaround",
-                    ],
+                    "enum": _NOTE_TYPE_ENUM,
                     "description": "Type of note (default: general)",
                 },
                 "title": {
@@ -823,19 +838,32 @@ _register(
                 "expand": {
                     "type": "boolean",
                     "description": (
-                        "When true, return full page content (up to 3000 chars) in a "
-                        "'content' field instead of just snippets. Use for deep reading "
-                        "after identifying relevant pages with a normal search."
+                        "When true, return full page content (up to max_chars, "
+                        "default 3000) in a 'content' field instead of just snippets. "
+                        "Use for deep reading after identifying relevant pages with "
+                        "a normal search."
+                    ),
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "description": (
+                        "Content budget in characters for expand=true "
+                        "(default: 3000, max: 20000). Use 12000-20000 for "
+                        "full-page deep reading of complex pages; keep 3000 "
+                        "for quick verification."
                     ),
                 },
                 "mode": {
                     "type": "string",
-                    "enum": ["overview", "directory", "detail"],
+                    "enum": ["overview", "directory", "detail", "check"],
                     "description": (
                         "Progressive reading mode. "
                         "'overview': returns overview.md + page frontmatter list (lightweight orientation). "
                         "'directory': returns Component Constraint Index sections from matching pages. "
                         "'detail': returns full content of a specific page/section (requires 'page' param). "
+                        "'check': lightweight relevance pre-check — returns relevant flag, top score "
+                        "and top-3 titles WITHOUT snippets or stats recording. Use it before deciding "
+                        "whether a full search is worth the tokens. "
                         "Omit for standard BM25 search."
                     ),
                 },
@@ -1161,7 +1189,12 @@ _register(
                 },
                 "keep_raw": {
                     "type": "boolean",
-                    "description": "Hint for distill_conversation to retain the raw file after distillation (default false).",
+                    "description": (
+                        "Hint for distill_conversation to retain the conversation "
+                        "even if it yields no knowledge (archived to conversations/; "
+                        "conversations that DO produce knowledge are archived by "
+                        "default). Default false."
+                    ),
                 },
                 "task_id": {
                     "type": "string",
@@ -1188,8 +1221,12 @@ _register(
             "mode='prepare' returns pending transcripts + the distillation system prompt, "
             "the host agent extracts knowledge with its own model, then mode='submit' with "
             "distilled={conversation_id: <notes JSON>} runs the deterministic half. "
-            "Produces status='draft' notes that must be promoted via confirm_note; "
-            "the raw file is deleted unless keep_raw."
+            "Produces status='draft' notes that must be promoted via confirm_note. "
+            "Raw retention (L0 archive): a conversation that produced knowledge is "
+            "ARCHIVED to repowiki/conversations/ after distillation and the notes' "
+            "source_ref is repointed there (link-first provenance, not indexed for "
+            "search); no_knowledge noise is deleted; pass drop_raw=true to delete "
+            "explicitly (privacy opt-out)."
         ),
         inputSchema={
             "type": "object",
@@ -1245,7 +1282,19 @@ _register(
                     "description": (
                         "Mode submit only: mapping of conversation_id (e.g. 'conv-20260808T113515Z') "
                         'to the extraction JSON shaped {"notes": [{title, note_type, related_modules, '
-                        "tags, content}]}. Values may be JSON strings or objects."
+                        "tags, content, priority?, scene?}]}. Optional per-note fields: "
+                        "priority (0-100; <70 is dropped deterministically), scene (short work-context "
+                        "label stored as metadata.scene), and — to resolve conflicts_pending from a "
+                        "previous submit — dedup_action (store|skip|update|merge) plus target "
+                        "(candidate note file for update/merge). Values may be JSON strings or objects."
+                    ),
+                },
+                "drop_raw": {
+                    "type": "boolean",
+                    "description": (
+                        "Privacy opt-out: delete the raw conversation after "
+                        "distillation instead of archiving it to conversations/. "
+                        "Default false (archive). Applies to mode=submit."
                     ),
                 },
                 "llm": {
@@ -1270,6 +1319,137 @@ _register(
         },
     ),
     handler_path="codewiki.mcp.tools.distill_conversation:handle_distill_conversation",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="consolidate_notes",
+        description=(
+            "Consolidate CONFIRMED (stable) notes into L2 work-method scene blocks "
+            "under wiki/scenarios/ (team-memory fusion P2). Mode C protocol — the "
+            "host agent does the consolidation reasoning, the tool does deterministic "
+            "bookkeeping. mode='prepare': returns pending confirmed notes (not yet "
+            "absorbed), the current scenarios index (file/title/summary/heat), a "
+            "graded capacity warning (red=merge first / orange=update only / "
+            "yellow=prefer update) and the consolidation system prompt. The agent "
+            "then writes scene blocks via write_doc_file(page_type='scenario'), "
+            "retires fully-absorbed source notes via reject_note, and calls "
+            "mode='submit' with report.scenarios=[{file, action, source_notes, "
+            "summary?, heat?}] (action: created|updated|merged|deleted). Submit "
+            "validates files, stamps summary/heat, records provenance "
+            "(source_notes ⇄ consolidated_into), cleans [DELETED] markers, enforces "
+            "the capacity cap and resets the aggregation counter. NEVER runs "
+            "automatically — only on explicit request; when triggered by an "
+            "aggregation_hint reminder, ask the user first."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional active session id (resolves output_dir).",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Wiki output directory (default: <repo_path>/repowiki).",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path used to derive output_dir when output_dir is absent.",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["prepare", "submit"],
+                    "description": (
+                        "prepare: return pending notes + scenarios index + capacity "
+                        "warning + system prompt. submit: record the consolidation "
+                        "report produced by the agent."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "prepare only: max pending notes to return (default 50).",
+                },
+                "report": {
+                    "type": "object",
+                    "description": (
+                        "submit only: {scenarios: [{file, action, source_notes, "
+                        "summary?, heat?}]} — file relative to output_dir "
+                        "(wiki/scenarios/...md), action in created|updated|merged|"
+                        "deleted, source_notes the absorbed note files. deleted "
+                        "requires the file body to be exactly [DELETED]."
+                    ),
+                },
+            },
+            "required": ["mode"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.note_consolidation:handle_consolidate_notes",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="refresh_doctrine",
+        description=(
+            "Regenerate the L3 Project Operating Doctrine at wiki/doctrine.md "
+            "(team-memory fusion P3) — one highly-refined (<=1200 chars) "
+            "document of cross-scenario SOPs, principles, decision logic, "
+            "boundaries, anti-patterns and agent rules. Mode C protocol: "
+            "mode='prepare' returns the current doctrine, changed scene blocks "
+            "(updated since last refresh), statistics and the doctrine system "
+            "prompt (six dimensions / five filters / five incremental "
+            "strategies / hard prohibitions). The agent compresses the changed "
+            "scenes, then mode='submit' with content=<final doctrine Markdown>: "
+            "the tool rejects over-cap content, backs up the previous version "
+            "(rolling keep-3), writes OKF frontmatter with source_scenarios "
+            "provenance, resets the doctrine counter and rebuilds the index. "
+            "The new doctrine lands as status=draft (promote via confirm_note). "
+            "Once present, query_wiki(mode='overview') injects it automatically. "
+            "NEVER runs automatically; when prompted by an aggregation_hint or "
+            "doctrine_hint reminder, ask the user first."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional active session id (resolves output_dir).",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Wiki output directory (default: <repo_path>/repowiki).",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path used to derive output_dir when output_dir is absent.",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["prepare", "submit"],
+                    "description": (
+                        "prepare: return current doctrine + changed scenes + stats "
+                        "+ system prompt. submit: write the final doctrine."
+                    ),
+                },
+                "content": {
+                    "type": "string",
+                    "description": (
+                        "submit only: the FINAL doctrine Markdown. Must be within "
+                        "the char cap (default 1200; schema.yaml "
+                        "conventions.aggregation.doctrine_max_chars overrides)."
+                    ),
+                },
+                "by": {
+                    "type": "string",
+                    "description": "Optional actor id for the OKF generated.by field (default codewiki/<version>).",
+                },
+            },
+            "required": ["mode"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.doctrine:handle_refresh_doctrine",
     mode="thread",
 )
 
@@ -1668,6 +1848,9 @@ _register(
             "low-value or stale documentation that no query ever surfaces. "
             "Stats are automatically recorded every time query_wiki runs; "
             "this tool reads them back. "
+            "The response also carries a ``freshness`` block (due/fresh counts of "
+            "stable/confirmed notes plus up to 20 due note paths), computed with the "
+            "same type-aware judgment as the lint stale_notes check. "
             "Parameters: sort_by (hit_count|last_hit|first_hit|file_path), "
             "order (desc|asc), limit (1-200), include_zero_hit (cross-reference "
             "with the file system to find documents never returned), "

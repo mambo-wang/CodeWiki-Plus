@@ -9,7 +9,9 @@ metadata:
   - module_tree
   - analyze_repo
   source_ref: raw\conv-user_command-commands-codewiki-增量更新-Wiki-请增量更新代码仓库的-Wiki-文档。.md
-status: stable
+  consolidated_into:
+  - wiki/scenarios/Wiki页面生成约定与数据结构.md
+status: deprecated
 generated:
   by: codewiki/5.2.2
   at: 2026-08-15 13:14:28+00:00
@@ -18,6 +20,7 @@ origin: conversation
 verified:
 - by: codewiki/5.2.2
   at: '2026-08-15T13:26:12Z'
+reject_reason: consolidated into Wiki页面生成约定与数据结构
 ---
 
 ## 背景

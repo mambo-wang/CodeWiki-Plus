@@ -22,6 +22,7 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
+description: "本模块是 [[MCP_Server]] 的\"分析类\"工具集合，提供仓库级与多仓库工作区级的结构解析入口。核心是 `analyze_repo`（单仓分析）与 `analyze_workspace`（多仓工作区分析）两个 MCP 工具，二者均为**纯 Tree-sitter 静态分析、不调用 LLM**，运行结果缓存进 S"
 ---
 
 # MCP_Tools_Analysis 模块文档

@@ -8,7 +8,9 @@ metadata:
   related_modules:
   - distill_conversation
   source_ref: raw\conv-codewiki蒸馏对话.md
-status: stable
+  consolidated_into:
+  - wiki/scenarios/对话蒸馏管线与raw暂存区.md
+status: deprecated
 generated:
   by: codewiki/5.2.2
   at: 2026-08-15 13:13:08+00:00
@@ -17,6 +19,7 @@ origin: conversation
 verified:
 - by: codewiki/5.2.2
   at: '2026-08-15T13:26:03Z'
+reject_reason: consolidated into 对话蒸馏管线与raw暂存区
 ---
 
 ## 背景

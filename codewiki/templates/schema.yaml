@@ -61,8 +61,55 @@ conventions:
   # 遵循的 OKF 规范版本，写入 wiki/index.md 的 okf_version 字段（§12）
   okf_version: "0.2"
   # 知识保鲜期（天）。write_doc_file / ingest_note 据此计算 stale_after 日期，
-  # 过期后 lint 的 okf_conformance 检查会提示复核（§5.5）
+  # 过期后 lint 的 okf_conformance 检查会提示复核（§5.5）。
+  # 对 notes/ 而言此值只是 freshness 未配置时的回退（见下方 freshness 节）。
   default_stale_days: 90
+  # 类型感知的新鲜度窗口（新鲜度机制专项，docs/新鲜度机制设计方案.md）。
+  # 笔记的 stale_after 在 ingest/confirm 时按 note_type 查表计算：
+  # confirm 之后，该类知识在窗口内视为新鲜；超窗后进入 lint 的 stale_notes
+  # 复核提醒（confirm_note 续期 或 reject_note 退役），而不是自动作废。
+  # 回退链：by_type[type] → default_window_days → default_stale_days → 90。
+  freshness:
+    default_window_days: 180    # 全局默认窗口（by_type 缺省类型用）
+    retrieval_defer_days: 60    # 复核期过后若近期被检索过则顺延（活跃度豁免）
+    by_type:
+      workaround: 45            # 临时方案天然短命
+      known_issue: 60           # 已知问题通常随修复而失效
+      general: 120
+      pitfall: 180              # 坑的保质期较长
+      lesson: 180
+      bug_fix: 180
+      decision: 365             # 决策长期有效，除非被新决策推翻
+      architecture: 365         # 架构事实最长寿
+  # 使用信号反馈（U 线，docs/知识飞轮增强设计方案-P0三项.md §3）：
+  # 把 retrieval_stats.db 的检索热度接入 BM25 排序（final = BM25 × authority × heat）。
+  #   heat = 1 + min(boost_cap, 0.03 × ln(1 + hit_count))
+  #          − cold_penalty（仅当 hit_count ≥ cold_min_hits 且 last_hit 超过 cold_days 天）
+  # 无检索记录的文档 heat = 1.0（新文档不受影响，规避马太效应）；
+  # enabled=false 时排序行为与关闭前完全一致（结果条目仍携带 usage 字段）。
+  usage_ranking:
+    enabled: true
+    boost_cap: 0.15      # 热度增益上限（heat 上界 ~1.15）
+    cold_penalty: 0.2    # 冷文档惩罚幅度（heat 下界 0.8）
+    cold_days: 180       # 距最近一次命中的天数超过此值视为冷
+    cold_min_hits: 3     # 只有「热过后来冷」的文档才受罚
+    adopted_weight: 0.06 # 采纳权重（实际引用 vs 单纯召回，2 倍关系；设 0 关闭采纳影响）
+    low_adoption:        # lint low_adoption 检查：高频召回却零采纳的笔记
+      min_hits: 5          # 触发检查的最低召回次数
+      max_adopted: 0       # 采纳次数上限（超过则视为已满足需求）
+      recent_days: 60      # 仅统计近期仍被检索的（历史冷文档归 stale_notes 管）
+  # P1 C 线：笔记晋升正式 wiki 页面的门槛（wiki_stats.promotion_candidates 判定用）
+  promotion:
+    min_adopted: 3      # 被采纳次数下限
+    min_age_days: 14    # 笔记树龄下限（防新笔记速通）
+  # T2 团队遥测：per-user 使用信号事件流（.meta/telemetry/<user_id>.jsonl，入库共享）。
+  # query_wiki 的检索命中与采纳记录以 user_id（优先 CODEWIKI_USER 环境变量，回退
+  # git config user.name / 系统登录名）署名写入，聚合（热度排序/采纳计数/冷启动检查）
+  # 纯内存进行。enabled=false 时写入切到 .meta/telemetry-local/（gitignore，纯本机
+  # 退化模式），聚合逻辑不变（两个目录都会扫描）。user_id 不鉴权，仅作命名空间；
+  # 不愿以 git 真名署名的成员可用 CODEWIKI_USER 设置花名。
+  telemetry:
+    enabled: true
   # 全局默认标签列表，会自动追加到每个文档的 frontmatter tags 中。
   # 例如 [project-x, v2] 会让所有文档带上这些标签，便于跨项目检索
   okf_tags: []

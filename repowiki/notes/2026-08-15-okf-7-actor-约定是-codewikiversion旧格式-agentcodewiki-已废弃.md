@@ -10,7 +10,9 @@ metadata:
   - doc_writer
   - knowledge_loop
   source_ref: raw\conv-使用codewiki-mcp扫描生成的代码wiki为什么status是draft.md
-status: stable
+  consolidated_into:
+  - wiki/scenarios/Wiki页面生成约定与数据结构.md
+status: deprecated
 generated:
   by: codewiki/5.2.2
   at: 2026-08-15 13:16:11+00:00
@@ -19,6 +21,7 @@ origin: conversation
 verified:
 - by: codewiki/5.2.2
   at: '2026-08-15T13:26:06Z'
+reject_reason: consolidated into Wiki页面生成约定与数据结构
 ---
 
 ## 背景

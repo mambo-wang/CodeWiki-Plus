@@ -48,7 +48,7 @@ _TASK_MEMORY_AGENTS_SECTION = f"""{_TASK_MEMORY_AGENTS_START}
    - **跳过**：本次会话不做任务关联
    新建任务两步弹框：选择「新建任务」后**必须**再次调用 `ask_followup_question` 弹出第二个输入框（标题「新建任务」，问题「请输入新任务名称」，带 2 个占位选项）。弹框自带输入框，用户可自由输入任务名后回车；以输入文字为准，立即调用 `create_task(title=<任务名>)` 创建并关联。若用户只点了占位选项，用文字追问确认真实任务名
 3. `get_task_context(task_id=<任务id>)` 拉取任务描述 + 记忆 + 关联笔记，作为继续工作的上下文
-4. **补蒸馏**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），在回答用户提问之前先执行 `distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)` → 重新 `get_task_context` 把新产出的待确认记忆/草稿笔记注入上下文 → 向用户展示待确认项（`confirm_task_memories` / `confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、会话结束前补蒸馏
+4. **补蒸馏（委托 subagent，不阻塞）**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn「蒸馏 worker」subagent（`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP）后台执行：`distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)`，然后**直接开始回答用户提问**。在自然停顿点（任务告一段落/用户空闲）重新 `get_task_context` 把新产出的待确认记忆/草稿笔记注入上下文 → 向用户展示待确认项（`confirm_task_memories` / `confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、蒸馏结果在会话结束前展示确认即可
 
 **工具入口：**
 - `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context`
@@ -72,25 +72,36 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
     enable_task_management = args.get("enable_task_management", "").strip().lower()
     if enable_task_management in ("1", "true", "yes", "on"):
         hook_block = f"""## 步骤 2: 启用任务管理（跨会话任务记忆 + 对话采集）
-为支持跨会话任务记忆，启用 CodeBuddy 的 SessionEnd hook 使会话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成），并向 AGENTS.md 写入任务引导段，使新建会话时 Agent 提示用户关联已有任务或输入任务名新建。
+为支持跨会话任务记忆，启用 SessionEnd hook 使会话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成），并向 AGENTS.md 写入任务引导段，使新建会话时 Agent 提示用户关联已有任务或输入任务名新建。
 
-**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。
+**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionStart/SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本与 distill-worker subagent 定义到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。接线支持 CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`），三个 IDE 的 settings.json 结构与事件注册完全一致，仅配置目录不同。
 
-1. **确保两个 hook 脚本就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。用以下命令解析 CodeWiki 自带的源脚本路径，并**强制复制**到目标目录（务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
+**首选路径：运行 CLI 自动检测接线（推荐）**
+
+```powershell
+codewiki install-hooks --repo-path {repo_path}
+```
+
+CLI 自动检测项目根目录存在哪些 IDE 配置目录（`.codebuddy/` / `.qoder/` / `.claude/`），检测到哪些就为哪些自动完成全部接线（拷贝脚本与 distill-worker、幂等合并 settings.json、upsert AGENTS.md 引导段）。CLI 不可用时回退到下方手动步骤，Qoder/Claude Code 仅需把 `.codebuddy` 目录换成 `.qoder` / `.claude`。
+
+1. **确保两个 hook 脚本与 distill-worker subagent 就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。用以下命令解析 CodeWiki 自带的源文件路径，并**强制复制**到目标目录（务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
 
    ```powershell
-   # 源脚本随 codewiki 包发布，位于 codewiki/hooks/ 下的两个文件
+   # 源文件随 codewiki 包发布：codewiki/hooks/ 下两个 hook 脚本 + codewiki/agents/distill-worker.md
    $pkg = python -c "import codewiki, os; print(os.path.dirname(codewiki.__file__).replace('\\\\','/'))"
    $destDir = Join-Path '{repo_path}' '.codebuddy/hooks'
+   $agentDir = Join-Path '{repo_path}' '.codebuddy/agents'
    New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+   New-Item -ItemType Directory -Force -Path $agentDir | Out-Null
    Copy-Item (Join-Path $pkg 'hooks/capture_session_end.py') (Join-Path $destDir 'capture_session_end.py') -Force
    Copy-Item (Join-Path $pkg 'hooks/task_session_start.py') (Join-Path $destDir 'task_session_start.py') -Force
-   python -c "import ast; ast.parse(open(r'$destDir/capture_session_end.py', encoding='utf-8').read()); ast.parse(open(r'$destDir/task_session_start.py', encoding='utf-8').read()); print('hook scripts copied OK')"
+   Copy-Item (Join-Path $pkg 'agents/distill-worker.md') (Join-Path $agentDir 'distill-worker.md') -Force
+   python -c "import ast; ast.parse(open(r'$destDir/capture_session_end.py', encoding='utf-8').read()); ast.parse(open(r'$destDir/task_session_start.py', encoding='utf-8').read()); assert open(r'$agentDir/distill-worker.md', encoding='utf-8').read().startswith('---'), 'distill-worker.md missing'; print('hook scripts + distill-worker.md copied OK')"
    ```
 
-   若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从 `CODEWIKI_HOME` 环境变量指向的 checkout 取 `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本，同样 Copy-Item 到 `$destDir`。兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
+   若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从 `CODEWIKI_HOME` 环境变量指向的 checkout 取 `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本与 `$env:CODEWIKI_HOME/codewiki/agents/distill-worker.md`，同样 Copy-Item 到 `$destDir` / `$agentDir`。兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。**为 Qoder/Claude Code 接线时，把 `$destDir` / `$agentDir` 中的 `.codebuddy` 换成 `.qoder` / `.claude` 即可。**
 
-2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置）：
+2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置；Qoder/Claude Code 写入 `.qoder/settings.json` / `.claude/settings.json`，command 中路径随目录变化）：
 
 ```json
 {{
@@ -115,7 +126,7 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 
 4. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）。
 
-5. 用模拟事件验证两个脚本：
+5. 用模拟事件验证两个脚本（Qoder/Claude Code 用对应目录路径替换 `.codebuddy`）：
    - SessionEnd（期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
 
 ```powershell
@@ -816,39 +827,60 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
     else:
         action_hint = ("用户未指定动作：先执行步骤 1 检查当前状态并向用户报告，"
                        "再按其意愿选择步骤 2A（启用）或步骤 2B（关闭）。")
-    return f"""管理 team-memory fusion 的对话自动采集 Hook（CodeBuddy hooks）。
+    return f"""管理 team-memory fusion 的对话自动采集 Hook（支持 CodeBuddy / Qoder / Claude Code）。
 
 {action_hint}
 
 采集 Hook 只负责把对话捕获到 `repowiki/raw/`（仅采集、不蒸馏）；蒸馏是独立的显式步骤，见 distill-conversations prompt。
 
+三个支持的 IDE 接线格式一致（`.codebuddy/`、`.qoder/`、`.claude/` 各自 `settings.json`，hooks 事件同为 SessionStart/SessionEnd），仅配置目录不同。
+
 ## 步骤 1: 检查当前状态
-读取 `{repo_path}/.codebuddy/settings.json`：
-- **已启用**：存在 hooks.SessionEnd 与 hooks.SessionStart 两个条目，且 `capture_session_end.py` 与 `task_session_start.py` 两个脚本文件都物理存在（注意：CodeBuddy hooks 不展开环境变量，命令中必须写脚本的绝对路径，不能用 `$CODEBUDDY_PROJECT_DIR`）
-- **未启用**：文件不存在，或缺少任一条目，或任一脚本文件缺失
+依次检查项目根目录下三个 IDE 配置目录 `{repo_path}/.codebuddy/`、`{repo_path}/.qoder/`、`{repo_path}/.claude/`：
+- 每个目录下读取 `settings.json`：**已启用** = 存在 hooks.SessionEnd 与 hooks.SessionStart 两个条目，且对应目录 `hooks/` 下 `capture_session_end.py` 与 `task_session_start.py` 两个脚本文件都物理存在（注意：hooks 不展开环境变量，命令中必须写脚本的绝对路径，不能用 `$CODEBUDDY_PROJECT_DIR` / `$CLAUDE_PROJECT_DIR`）
+- 向用户报告哪些 IDE 已启用、哪些未启用
 
 ## 步骤 2A: 启用
-1. **确保两个 hook 脚本就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。
-   **不论目标是否已存在，每次启用都要从 CodeWiki 自带的源脚本重新复制覆盖**，
+**首选路径：运行 CLI 自动检测接线（推荐，覆盖全部已安装智能体）**
+
+```powershell
+codewiki install-hooks --repo-path {repo_path}
+```
+
+CLI 会自动检测项目根目录下存在哪些 IDE 配置目录（`.codebuddy/` / `.qoder/` / `.claude/`），检测到哪些就为哪些自动完成全部接线：
+- 强制拷贝 hook 脚本与 `distill-worker.md` 到对应 `.codebuddy|.qoder|.claude/hooks/` 与 `agents/`
+- 幂等合并 `settings.json` 的 SessionStart/SessionEnd 注册（保留已有无关配置，重复运行不产生重复条目）
+- 向 `AGENTS.md` upsert 任务记忆引导段（多 IDE 共享一份，只写一次）
+
+CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤。手动接线时以 `.codebuddy` 为例，**Qoder 与 Claude Code 仅目标目录不同**：`.codebuddy/` ↔ `.qoder/` ↔ `.claude/`（settings.json、hooks/、agents/ 的相对位置与内容完全一致）。
+
+### 手动兜底步骤
+1. **确保两个 hook 脚本与 distill-worker subagent 就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。
+   **不论目标是否已存在，每次启用都要从 CodeWiki 自带的源文件重新复制覆盖**，
    以保证与目标 `codewiki` 包版本一致（不要因为"已存在"就跳过，否则升级包后会残留旧脚本）：
-   用以下命令解析 CodeWiki 自带的源脚本路径，并**强制复制**到目标目录
+   用以下命令解析 CodeWiki 自带的源文件路径，并**强制复制**到目标目录
    （务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
 
      ```powershell
-     # 源脚本随 codewiki 包发布，位于 codewiki/hooks/ 下的两个文件
+     # 源文件随 codewiki 包发布：codewiki/hooks/ 下两个 hook 脚本 + codewiki/agents/distill-worker.md
      $pkg = python -c "import codewiki, os; print(os.path.dirname(codewiki.__file__).replace('\\\\','/'))"
      $destDir = Join-Path '{repo_path}' '.codebuddy/hooks'
+     $agentDir = Join-Path '{repo_path}' '.codebuddy/agents'
      New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+     New-Item -ItemType Directory -Force -Path $agentDir | Out-Null
      Copy-Item (Join-Path $pkg 'hooks/capture_session_end.py') (Join-Path $destDir 'capture_session_end.py') -Force
      Copy-Item (Join-Path $pkg 'hooks/task_session_start.py') (Join-Path $destDir 'task_session_start.py') -Force
-     python -c "import ast; ast.parse(open(r'$destDir/capture_session_end.py', encoding='utf-8').read()); ast.parse(open(r'$destDir/task_session_start.py', encoding='utf-8').read()); print('hook scripts copied OK')"
+     Copy-Item (Join-Path $pkg 'agents/distill-worker.md') (Join-Path $agentDir 'distill-worker.md') -Force
+     python -c "import ast; ast.parse(open(r'$destDir/capture_session_end.py', encoding='utf-8').read()); ast.parse(open(r'$destDir/task_session_start.py', encoding='utf-8').read()); assert open(r'$agentDir/distill-worker.md', encoding='utf-8').read().startswith('---'), 'distill-worker.md missing'; print('hook scripts + distill-worker.md copied OK')"
      ```
 
      若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从
      `CODEWIKI_HOME` 环境变量指向的 checkout 取
-     `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本，同样 Copy-Item 到 `$destDir`。
+     `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本与
+     `$env:CODEWIKI_HOME/codewiki/agents/distill-worker.md`，同样 Copy-Item 到 `$destDir` / `$agentDir`。
      兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
-2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置）：
+     **为 Qoder/Claude Code 接线时，把上面 `$destDir` / `$agentDir` 中的 `.codebuddy` 换成 `.qoder` / `.claude` 即可。**
+2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置；Qoder/Claude Code 请写入 `.qoder/settings.json` / `.claude/settings.json`，command 中的路径随目录变化）：
 
 ```json
 {{
@@ -873,7 +905,7 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 {_TASK_MEMORY_AGENTS_SECTION}
 
 4. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）
-5. 用模拟事件验证两个脚本：
+5. 用模拟事件验证两个脚本（Qoder/Claude Code 用对应目录路径替换 `.codebuddy`）：
    - SessionEnd（先准备一个小的 transcript 文件，如 `[{{"role":"user","content":"测试"}}]` 存为 d:/tmp/conv.json；期望 stdout 的 systemMessage 中包含 `"status": "captured"`）：
 
 ```powershell
@@ -889,13 +921,14 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 6. 验证完成后删除测试产物：`{repo_path}/repowiki/raw/` 下 verify-1 会话生成的 conv-*.md 文件
 
 ## 步骤 2B: 关闭
-1. 从 `{repo_path}/.codebuddy/settings.json` 移除 SessionStart 与 SessionEnd 两个条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
+**首选路径：运行 `codewiki install-hooks --repo-path {repo_path} --ide <name>` 可重新接线；关闭采集时**：
+1. 依次检查三个 IDE 目录（`.codebuddy/`、`.qoder/`、`.claude/`），从对应 `settings.json` 移除 SessionStart 与 SessionEnd 两个条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
 2. 从 `{repo_path}/AGENTS.md` 移除任务记忆会话引导段：删除 `{_TASK_MEMORY_AGENTS_START}` 到 `{_TASK_MEMORY_AGENTS_END}` 之间的整段（含两行注释标记本身）；若不存在该标记块则无需处理，其余内容保持不动
 3. 已采集的 raw 文件保留在 `repowiki/raw/`，之后仍可蒸馏；关闭采集不会删除它们
-4. hook 脚本 `capture_session_end.py` 与 `task_session_start.py` 可保留也可删除；重新启用时步骤 2A 会自动补回
+4. hook 脚本 `capture_session_end.py`、`task_session_start.py` 与 subagent 定义 `distill-worker.md` 可保留也可删除；重新启用时步骤 2A 会自动补回
 
 ## 注意事项
-- Hook 是 CodeBuddy 专属机制。其他运行时（Trae、CLI agent 等）请改用 `capture_conversation` MCP 工具手动采集
+- Hook 接线支持 CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`）。其他运行时（Trae、CLI agent 等）请改用 `capture_conversation` MCP 工具手动采集
 - 仅在会话结束时（SessionEnd）采集一次，落到 repowiki/raw/conv-*.md；会话级 supersede 去重保证每个会话只保留最新一份完整 transcript，不会膨胀
 - Hook 永不蒸馏、永不写 wiki 页面、永不使 IDE 失败（异常仅输出到 stderr，退出码保持 0）"""
 
@@ -967,13 +1000,12 @@ def _prompt_task_workflow(args: dict[str, str]) -> str:
    - **新建任务**：先调用 `ask_followup_question` 弹出输入框（标题「新建任务」，问题「请输入新任务名称」）让用户输入任务名（可再补充一句描述），调用 `create_task(title=<新任务名>, description=<可选>)` 创建后即关联该新任务
 3. 关联后：`set_session_task(source_session_id=<当前会话id>, task_id=<选中任务>)` 建立绑定，之后本会话采集的对话会自动带上 task_id
 4. `get_task_context(task_id=<选中任务>)` 拉取该任务的描述 + 记忆 + 关联笔记，作为继续工作的上下文
-5. **补蒸馏**：检查返回的 `pending_raw_count`（本任务未蒸馏的历史对话数）。若 > 0，在回答用户提问之前先补蒸馏：
-   - `distill_conversation(mode="prepare", task_id=<选中任务>)` 获取该任务的积压对话清单
-   - 按清单逐条 read_file 阅读 raw 文件，提取 `notes`（通用经验）与 `memories`（任务进度）
-   - `distill_conversation(mode="submit", distilled=<提取结果>)` 提交（产出草稿笔记 + 待确认记忆）
-   - 重新 `get_task_context` 拉取最新上下文（新产出的待确认记忆/草稿笔记会一并注入）
+5. **补蒸馏（委托 subagent，不阻塞）**：检查返回的 `pending_raw_count`（本任务未蒸馏的历史对话数）。若 > 0，**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn「蒸馏 worker」subagent（`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP）后台执行：
+   - subagent 执行：`distill_conversation(mode="prepare", task_id=<选中任务>)` 获取该任务的积压对话清单 → 按清单逐条 read_file 阅读 raw 文件，提取 `notes`（通用经验）与 `memories`（任务进度）→ `distill_conversation(mode="submit", distilled=<提取结果>)` 提交（产出草稿笔记 + 待确认记忆）
+   - 主 Agent **不等蒸馏完成，直接开始回答用户提问**
+   - 在自然停顿点（任务告一段落/用户空闲时）重新 `get_task_context` 拉取最新上下文（新产出的待确认记忆/草稿笔记会一并注入）
    - 向用户展示待确认项：`confirm_task_memories` / `confirm_note` 确认后才正式落盘
-   - 用户明确表示紧急时可先答复提问，但会话结束前必须完成补蒸馏
+   - 用户明确表示紧急时可先答复提问，蒸馏结果在会话结束前展示确认即可
 
 ## 会话进行中
 - 采集对话时带上 `task_id`（capture_conversation 的 task_id 参数，或经 set_session_task 绑定后自动带）
@@ -991,6 +1023,104 @@ def _prompt_task_workflow(args: dict[str, str]) -> str:
 ## 约束
 - task_id 由标题生成且不可变；同名任务会被拒绝；**无重命名**（删除后重建）
 - `query_wiki` 不校验任务是否存在（任务删除后笔记仍可被 task_id 检索）"""
+
+
+def _prompt_consolidate_knowledge(args: dict[str, str]) -> str:
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    return f"""知识聚合工作流（团队记忆融合 P2）。当用户说"聚合一下笔记""整理场景块""合并重复经验"，或 confirm_note / batch_set_status / wiki_stats / get_task_context 的响应里出现 `aggregation_hint`（consolidation_due=true）时，使用本流程把已确认笔记升级为 L2 工作方法场景块。
+
+## ⛔ 行为契约（必须遵守）
+- `aggregation_hint` 只是**提醒**：先向用户说明计数器已越线并询问"是否现在聚合"，得到同意才继续；**严禁不打招呼直接执行**。
+- 用户拒绝或选择稍后：立即停止，不再追问（计数器侧已抑制重复提醒）。
+- 聚合只消费 **已确认（stable）** 笔记；不要触碰 draft/deprecated 笔记。
+
+## 步骤 1：准备
+`consolidate_notes(mode="prepare", repo_path="{repo_path}")`，关注返回中的：
+- `capacity.warning`：red = 必须先 MERGE 到上限以下；orange = 只准 UPDATE；yellow = 优先 UPDATE/MERGE
+- `pending_notes`：待聚合的已确认笔记（含 metadata.scene 分组线索）
+- `scenarios_index`：现有场景块（file/title/summary/heat）
+
+## 步骤 2：规划与撰写
+1. 逐条 `view_repo_file` 阅读 pending notes 与计划改动的场景块；按工作对象/方法体系分组（metadata.scene 相同者优先归组）
+2. 策略优先级 **UPDATE > MERGE > CREATE**；CREATE 前必须先读至少 2 个最相似场景块确认无法融入，且每批最多新建 1 个
+3. 用 `write_doc_file(page_type="scenario", ...)` 写场景块：章节为 工作场景 / 适用条件 / 核心 SOP / 判断逻辑 / 禁忌与反模式 / 关键事实依据 / 相关任务与资产 / 演化记录 / 待确认问题；单文件 ≤1500 字符；提炼**方法**而非流水账，禁止写成日报/清单/个人画像
+4. 删除场景块的唯一方式：把文件内容改写为 `[DELETED]`（submit 时工具自动清理）
+5. 新旧知识矛盾时写入"演化记录/待确认问题"，不要静默覆盖
+
+## 步骤 3：退役被吸收的笔记
+对被场景块**完全吸收**的源笔记调用 `reject_note(note_file=..., reason="consolidated into <场景块标题>")`，使其退出检索。部分吸收的笔记保留。
+
+## 步骤 4：提交报告
+`consolidate_notes(mode="submit", report={{"scenarios": [{{"file": "wiki/scenarios/xxx.md", "action": "created|updated|merged|deleted", "source_notes": ["notes/..."], "summary": "30-40 字摘要", "heat": 1}}]}})`
+- 工具侧校验文件、写入双向溯源（source_notes ⇄ consolidated_into）、清理 [DELETED]、强制容量上限并归零聚合计数器
+- 返回 `capacity_exceeded` 时：先 MERGE 再重新提交
+- 返回 `error` 时：按 errors 修正后重交
+
+## 步骤 5：验证
+`lint_wiki(checks=["scenario_capacity", "scenario_orphan"])` 确认无新增 error；向用户汇报本次聚合的场景块清单与被退役的笔记。
+
+## 步骤 6：Doctrine 级联（可选）
+若步骤 4 的 submit 响应携带 `doctrine_hint`（doctrine_due=true），说明场景刚更新且 Doctrine 计数器已越线——正是刷新 L3 项目原则的时机。向用户说明并询问是否顺带刷新；同意后执行：
+1. `refresh_doctrine(mode="prepare")` 获取现有 doctrine 与变化场景清单
+2. 阅读变化场景，按六维度/五过滤/五策略压缩（只有项目状态或低层事实时选择"不改"并跳过）
+3. `refresh_doctrine(mode="submit", content=<≤1200字终稿>)` 写入 wiki/doctrine.md（draft，需 confirm）
+用户拒绝则到此为止，不再追问。"""
+
+
+def _prompt_promote_note(args: dict[str, str]) -> str:
+    note_file = (args.get("note_file") or "").strip()
+    output_dir = (args.get("output_dir") or "").strip() or "<repo>/repowiki"
+    target = note_file or "<候选笔记相对路径，如 notes/2026-08-01-port-conflict.md>"
+    return f"""笔记晋升工作流（P1 C 线，docs/知识飞轮增强设计方案-P1三项.md §4）。当 wiki_stats 返回的 `promotion_candidates` 出现候选笔记（status=stable、被 Agent 声明采纳达到门槛、树龄足够），或用户要求"把某条笔记晋升为正式 wiki 页面"时，使用本流程把反复被采纳的笔记 AI 重写为正式 wiki 页面，打通 notes → wiki 的断层。
+
+## 前置：确定晋升对象
+- 未指定笔记时：调用 `wiki_stats(output_dir="{output_dir}")`，读取 `promotion_candidates` 列表，向用户展示候选（file/title/type/adopted_count/age_days/suggested_page_type），由用户选定要晋升哪一条
+- 已指定笔记（本次目标：`{target}`）时：直接进入执行步骤
+
+## 类型路由（笔记 → 目标页面类型）
+| 笔记类型 | 默认目标 page_type | 重写方向 |
+|----------|-------------------|----------|
+| pitfall / bug_fix / workaround | `query`（排查记录页） | 结构化为"症状→根因→排查步骤→修复方案"，补命令与预期输出 |
+| lesson | `concept`（概念页） | 从个案抽象为通用机制描述，补适用边界 |
+| decision / architecture | `concept` | 补决策上下文（当时备选、取舍理由），去一次性事件细节 |
+| general | 自行判断 | 按内容判断更适合 query 还是 concept |
+
+映射是默认值不是硬约束，可按内容微调。
+
+## 重写规则（去个人化原则）
+- **抹掉具体日期、人名、一次性事件**："上周三那个订单超时" → "支付超时的典型根因"
+- **保留所有可验证的技术事实**：命令、路径、版本号、根因结论一个不丢
+- **结构化**：query 页按"症状→根因→排查步骤→修复方案"组织；concept 页补机制描述与适用边界
+- **长度不超过原笔记**（去个人化是压缩，不是扩写）
+- **原笔记的 aliases 并入新页面 frontmatter** 的 aliases 字段，保持检索连续性
+
+## 执行步骤
+1. 读取原笔记全文（`view_repo_file` 或直接读 `{output_dir}/{target}`），确认其类型并按映射表选定 page_type
+2. 按重写规则完成去个人化重写，调用 `write_doc_file`（page_type 按映射表取）：
+   ```json
+   {{
+     "output_dir": "{output_dir}",
+     "page_type": "<query|concept>",
+     "file_name": "<新页面文件名>",
+     "title": "<去个人化后的标题>",
+     "description": "<一句话摘要>",
+     "content": "<重写后的正文>",
+     "status": "draft"
+   }}
+   ```
+   **新页面必须写 status=draft**——晋升产物走既有评审闸门，写完后提醒用户用 `confirm_note(note_file=...)` 确认后才成为正式知识
+3. 回标原笔记（防重复晋升 + 审计轨迹）：用 `edit_doc_file` 修改原笔记 frontmatter，在 `metadata:` 嵌套段下加一行：
+   ```yaml
+   metadata:
+     promoted_to: wiki/queries/<新页面文件名>
+   ```
+   （值为新页面相对 output_dir 的路径。**⚠ promoted_to 必须写在 `metadata:` 嵌套段下（缩进两格），不能写成顶层键**——OKF v0.2 顶层键白名单不含 promoted_to，顶层直写会触发 okf_conformance lint 告警）
+4. **原笔记不删除、不降级状态**——它是审计轨迹与 source_ref 链路的锚点，仅加 promoted_to 标记
+
+## 参数说明
+- **note_file**（可选）：要晋升的笔记相对路径（如 notes/xxx.md）
+- **output_dir**（可选）：Wiki 输出目录，默认 `<repo>/repowiki`
+- **repo_path**（可选）：仓库根目录，用于推导 output_dir"""
 
 
 def register(server):
@@ -1264,6 +1394,51 @@ def register(server):
                     ),
                 ],
             ),
+            Prompt(
+                name="consolidate-knowledge",
+                title="知识聚合（L2 场景块）",
+                description=(
+                    "把已确认笔记聚合为 L2 工作方法场景块（wiki/scenarios/）："
+                    "prepare 获取待聚合笔记与容量预警 → 撰写/更新场景块 → "
+                    "reject_note 退役被吸收笔记 → submit 记录溯源并归零计数器。"
+                    "适用于「聚合笔记」或 aggregation_hint 提醒触发时（须先询问用户）。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="repo_path",
+                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                ],
+            ),
+            Prompt(
+                name="promote-note",
+                title="笔记晋升为正式 wiki 页面",
+                description=(
+                    "把反复被采纳的 stable 笔记（wiki_stats.promotion_candidates 候选）"
+                    "去个人化重写为正式 wiki 页面：类型路由（pitfall/bug_fix/workaround → query，"
+                    "lesson/decision/architecture → concept）→ write_doc_file 写新页面（必须 draft 状态，"
+                    "写完提醒 confirm）→ edit_doc_file 回标原笔记 metadata.promoted_to。"
+                    "原笔记不删除不降级，保留作审计轨迹锚点。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="note_file",
+                        description="要晋升的笔记相对路径（如 notes/xxx.md）；留空则从 wiki_stats 的 promotion_candidates 中由用户选定",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="output_dir",
+                        description="Wiki 输出目录（默认: <repo>/repowiki）",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="repo_path",
+                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                ],
+            ),
         ]
 
     @server.get_prompt()
@@ -1288,6 +1463,8 @@ def register(server):
             "team-memory-hook": _prompt_team_memory_hook,
             "distill-conversations": _prompt_distill_conversations,
             "task-workflow": _prompt_task_workflow,
+            "consolidate-knowledge": _prompt_consolidate_knowledge,
+            "promote-note": _prompt_promote_note,
         }
 
         handler = prompts_map.get(name)

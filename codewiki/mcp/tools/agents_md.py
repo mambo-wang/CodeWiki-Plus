@@ -51,7 +51,7 @@ def _write_agents_md(repo_path: str, output_dir: str, module_tree: dict) -> None
     # Extract module names from the saved module tree
     modules = _extract_modules(module_tree)
 
-    section = _build_section(rel_path, modules)
+    section = _build_section(rel_path, modules, output_dir_p)
     agents_path = repo_path_p / "AGENTS.md"
 
     if agents_path.exists():
@@ -92,15 +92,30 @@ def _extract_modules(module_tree: dict) -> list[str]:
     return names
 
 
-def _build_section(rel_path: str, modules: list[str]) -> str:
+def _build_section(rel_path: str, modules: list[str], output_dir_p: Path) -> str:
     """Build the delimited Markdown section for AGENTS.md."""
 
     # Module listing with links (structured wiki layout)
     if modules:
+        # V2 (injection budget): cap the module list; overflow collapses to a
+        # pointer line so AGENTS.md stops growing linearly with module count.
+        try:
+            from codewiki.mcp.tools.page_router import load_schema
+            from codewiki.mcp.tools.injection_budget import cap_module_lines
+            capped = cap_module_lines(
+                modules, output_dir_p, load_schema(str(output_dir_p))
+            )
+        except Exception:  # budget must never break AGENTS.md injection
+            capped = {"lines": modules, "hidden_count": 0}
         module_lines = "\n".join(
-            f"- [{m}]({rel_path}/wiki/modules/{m}.md)" for m in modules
+            f"- [{m}]({rel_path}/wiki/modules/{m}.md)" for m in capped["lines"]
         )
-        modules_block = f"\n**模块列表：**\n\n{module_lines}\n"
+        hidden = int(capped.get("hidden_count") or 0)
+        overflow = (
+            f"\n（其余 {hidden} 个模块省略——用 `{rel_path}/wiki/index.md` 或 `query_wiki` 检索）"
+            if hidden else ""
+        )
+        modules_block = f"\n**模块列表：**\n\n{module_lines}{overflow}\n"
     else:
         modules_block = ""
 
@@ -123,6 +138,18 @@ def _build_section(rel_path: str, modules: list[str]) -> str:
 2. **做决策时**：用 `query_wiki` 搜索已有的 `decision` 类型笔记，避免重复讨论
 3. **完成重要决策后**：用 `ingest_note` 归档，让未来的 Agent 和团队成员都能查到
 4. **定期维护**：用 `lint_wiki` 检查文档是否过时，保持文档与代码同步
+
+### 采纳声明（检索反馈）
+
+当你通过 `query_wiki` 检索并**实际使用了**某条结果（作为决策依据、修改参照或答案来源）时，在最终回复中附带一行声明注释：
+
+```
+<!-- codewiki:referenced-docs: ["notes/pitfall-xxx.md", "wiki/modules/yyy.md"] -->
+```
+
+路径必须与 query_wiki 返回的 `file` 字段完全一致。声明过的文档会获得采纳计数（`usage.adopted_count`），在未来检索中排序提升（采纳权重是单纯召回的 2 倍）；长期高频召回却零采纳的笔记会被 `lint_wiki` 的 `low_adoption` 检查标记为"需要重写得更可操作"。
+
+**注意**：只声明真正用到的文档——这是帮助知识库学习"什么内容真正有用"的信号，不是礼貌性致谢。忘了声明没关系（漏报可容忍），但不要声明没用过的（误报不可容忍）。
 
 ### 纠正识别与经验沉淀
 

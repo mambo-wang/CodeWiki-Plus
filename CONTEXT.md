@@ -6,7 +6,16 @@
 
 ## Glossary
 
-_No terms resolved yet. Add domain concepts here as the `/domain-modeling` skill surfaces them._
+**frontmatter module** — the deep module at `codewiki/src/frontmatter.py` that owns
+repowiki page frontmatter read/write (`parse_frontmatter` / `render_frontmatter` /
+`update`) and page-type routing (`route_page_type`, backed by `PAGE_TYPE_DIRS`).
+Writer output is byte-compatible with the historical format; readers accept the union
+of all legacy formats; `parse(render(x)) == x` is the round-trip invariant. Rollout:
+readers first, then writers. Slugify / filename conventions are explicitly NOT part
+of it. Permanent interface constraint: `capture_conversation` output (`conv-*.md`)
+must keep `status` and `task_id` as top-level single-line keys — the stdlib-only hook
+`.codebuddy/hooks/task_session_start.py` line-scans for them and cannot import this
+module.
 
 ## Key decisions
 
