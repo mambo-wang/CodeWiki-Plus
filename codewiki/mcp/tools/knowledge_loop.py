@@ -333,12 +333,22 @@ def load_freshness_config(schema: Optional[dict]) -> Dict[str, Any]:
         fresh.get("retrieval_defer_days"),
         _FRESHNESS_FALLBACK_RETRIEVAL_DEFER_DAYS,
     )
+    # V4（note_types 权威表）：仅当 schema 显式声明 conventions.note_types
+    # 时才从表派生窗口；否则回退 freshness.by_type——避免默认表覆盖存量
+    # schema 的自定义 by_type（向后兼容，无表时行为逐字节不变）。
     by_type: Dict[str, int] = {}
-    raw_by_type = fresh.get("by_type") or {}
-    if isinstance(raw_by_type, dict):
-        for key, value in raw_by_type.items():
-            days = _int(value, default_window)
-            by_type[str(key).strip().lower()] = days
+    if isinstance(conv.get("note_types"), dict) and conv["note_types"]:
+        try:
+            from codewiki.mcp.tools.note_types import freshness_windows
+            by_type = dict(freshness_windows(schema))
+        except Exception as e:  # table load must never break freshness resolution
+            logger.debug("note_types derive skipped: %s", e)
+    if not by_type:
+        raw_by_type = fresh.get("by_type") or {}
+        if isinstance(raw_by_type, dict):
+            for key, value in raw_by_type.items():
+                days = _int(value, default_window)
+                by_type[str(key).strip().lower()] = days
 
     return {
         "default_window_days": default_window,
@@ -1786,6 +1796,17 @@ def handle_query_wiki(
     # Extract keywords for the response (informational)
     keywords = _extract_keywords(query)
 
+    # V2 (injection budget): degrade snippets beyond the configured character
+    # budget to one-line pointers (file/score/description). 0 = off (legacy
+    # behaviour). Failures must never break the search path.
+    degraded_count = 0
+    try:
+        from codewiki.mcp.tools.page_router import load_schema as _ls
+        from codewiki.mcp.tools.injection_budget import apply_snippet_budget
+        degraded_count = apply_snippet_budget(results, output_dir, _ls(str(output_dir)))
+    except Exception as e:
+        logger.debug("injection budget skipped: %s", e)
+
     # Record retrieval stats (which files were hit by this query)
     _record_retrieval_stats(output_dir, query, results)
 
@@ -1794,6 +1815,7 @@ def handle_query_wiki(
         "keywords": keywords,
         "search_method": search_method,
         **({"query_coverage": coverage} if coverage else {}),
+        **({"budget_degraded": degraded_count} if degraded_count else {}),
         "results": results,
         "context_package": context_package,
         # P1 A-line: adoption convention reminder — a lower-bound usefulness
@@ -2047,15 +2069,18 @@ def _cold_candidates(output_dir: Path) -> Optional[List[Dict[str, Any]]]:
 # P1 C-line (docs/知识飞轮增强设计方案-P1三项.md §4.3): note → wiki page
 # promotion routing.  The default target page_type per note type; an empty
 # string leaves the choice to the agent (mapping is a default, not a mandate).
-_PROMOTION_PAGE_TYPES: Dict[str, str] = {
-    "pitfall": "query",
-    "bug_fix": "query",
-    "workaround": "query",
-    "lesson": "concept",
-    "decision": "concept",
-    "architecture": "concept",
-    "general": "",
-}
+# V4: derived from the authoritative note_types table (note_types.py);
+# schema-level overrides are resolved at the consumption site via
+# ``note_types.promotion_targets``.
+_PROMOTION_PAGE_TYPES: Dict[str, str] = {}  # filled below from the table
+
+from codewiki.mcp.tools.note_types import (  # noqa: E402
+    DEFAULT_NOTE_TYPES as _NT_TABLE,
+)
+
+_PROMOTION_PAGE_TYPES.update({
+    t: str(spec.get("promote_to") or "") for t, spec in _NT_TABLE.items()
+})
 
 
 def _note_age_days(fm: Dict[str, Any], today: datetime) -> int:

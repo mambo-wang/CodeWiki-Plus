@@ -48,6 +48,14 @@ class ToolDef:
 
 REGISTRY: dict[str, ToolDef] = {}
 
+# V4 (note_types 权威表): note_type 枚举从声明表生成——一处定义，
+# registry inputSchema / distill _VALID_NOTE_TYPES / promotion 路由同源。
+# 项目 schema 的自定义类型受 MCP 静态校验所限仍走包内默认表（重启生效），
+# 已知约束记录于 docs/OpenViking借鉴详细设计方案-P3四项.md §1.2。
+from codewiki.mcp.tools.note_types import DEFAULT_NOTE_TYPES as _NOTE_TYPES
+
+_NOTE_TYPE_ENUM = sorted(_NOTE_TYPES)
+
 
 def _register(schema: Tool, handler_path: str, mode: str, takes_store: bool = True) -> None:
     """Register a tool definition in the global REGISTRY."""
@@ -698,10 +706,7 @@ _register(
                 },
                 "note_type": {
                     "type": "string",
-                    "enum": [
-                        "decision", "lesson", "architecture", "bug_fix", "general",
-                        "pitfall", "known_issue", "workaround",
-                    ],
+                    "enum": _NOTE_TYPE_ENUM,
                     "description": "Type of note (default: general)",
                 },
                 "title": {

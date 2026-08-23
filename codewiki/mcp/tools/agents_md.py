@@ -51,7 +51,7 @@ def _write_agents_md(repo_path: str, output_dir: str, module_tree: dict) -> None
     # Extract module names from the saved module tree
     modules = _extract_modules(module_tree)
 
-    section = _build_section(rel_path, modules)
+    section = _build_section(rel_path, modules, output_dir_p)
     agents_path = repo_path_p / "AGENTS.md"
 
     if agents_path.exists():
@@ -92,15 +92,30 @@ def _extract_modules(module_tree: dict) -> list[str]:
     return names
 
 
-def _build_section(rel_path: str, modules: list[str]) -> str:
+def _build_section(rel_path: str, modules: list[str], output_dir_p: Path) -> str:
     """Build the delimited Markdown section for AGENTS.md."""
 
     # Module listing with links (structured wiki layout)
     if modules:
+        # V2 (injection budget): cap the module list; overflow collapses to a
+        # pointer line so AGENTS.md stops growing linearly with module count.
+        try:
+            from codewiki.mcp.tools.page_router import load_schema
+            from codewiki.mcp.tools.injection_budget import cap_module_lines
+            capped = cap_module_lines(
+                modules, output_dir_p, load_schema(str(output_dir_p))
+            )
+        except Exception:  # budget must never break AGENTS.md injection
+            capped = {"lines": modules, "hidden_count": 0}
         module_lines = "\n".join(
-            f"- [{m}]({rel_path}/wiki/modules/{m}.md)" for m in modules
+            f"- [{m}]({rel_path}/wiki/modules/{m}.md)" for m in capped["lines"]
         )
-        modules_block = f"\n**模块列表：**\n\n{module_lines}\n"
+        hidden = int(capped.get("hidden_count") or 0)
+        overflow = (
+            f"\n（其余 {hidden} 个模块省略——用 `{rel_path}/wiki/index.md` 或 `query_wiki` 检索）"
+            if hidden else ""
+        )
+        modules_block = f"\n**模块列表：**\n\n{module_lines}{overflow}\n"
     else:
         modules_block = ""
 

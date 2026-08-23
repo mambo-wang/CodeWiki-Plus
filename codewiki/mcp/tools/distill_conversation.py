@@ -44,11 +44,13 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# note_type values accepted by ingest_note (see agents_md.py routing table)
-_VALID_NOTE_TYPES = {
-    "decision", "lesson", "pitfall", "architecture",
-    "workaround", "known_issue", "general",
-}
+# note_type values accepted by ingest_note (see agents_md.py routing table).
+# V4: single source of truth is the note_types declaration table
+# (codewiki/mcp/tools/note_types.py) — the registry inputSchema enum and
+# knowledge_loop promotion routing derive from the same table.
+from codewiki.mcp.tools.note_types import valid_note_types as _nt_valid
+
+_VALID_NOTE_TYPES = _nt_valid()
 
 # System prompt: instruct the LLM to emit one JSON object with a list of notes,
 # each following OKF note shape (## sections, title, note_type, related_modules).
@@ -594,6 +596,39 @@ def _find_weak_conflicts(
     return candidates[:5]
 
 
+def _union_fm_list(
+    head: str,
+    key: str,
+    from_text: str = "",
+) -> str:
+    """V6: union a frontmatter inline-list field with extra values.
+
+    ``tags`` pulls nothing extra (caller-managed); ``related_modules`` unions
+    module-ish tokens found in *from_text* (the merged draft's content) so the
+    merged note keeps both sides' scope. Values already present are not
+    duplicated; missing field ⇒ nothing to union ⇒ head returned unchanged.
+    Inline ``key: [a, b]`` format is preserved.
+    """
+    m = re.search(rf"^[ 	]*{key}:\s*\[(.*?)\]\s*$", head, re.MULTILINE)
+    if not m:
+        return head
+    existing = [v.strip().strip("'\"") for v in m.group(1).split(",") if v.strip()]
+    extras: List[str] = []
+    if key == "related_modules" and from_text:
+        # module-ish tokens: backticked names or [[wikilinks]] in the draft
+        for tok in re.findall(r"`([\w\-\.]+)`", from_text):
+            if tok not in extras:
+                extras.append(tok)
+    merged: List[str] = list(existing)
+    for e in extras:
+        if e not in merged:
+            merged.append(e)
+    if merged == existing:
+        return head
+    line = f"{key}: [" + ", ".join(f'"{v}"' for v in merged) + "]"
+    return head[:m.start()] + line + head[m.end():]
+
+
 def _apply_dedup_action(
     action: str,
     target: str,
@@ -636,8 +671,27 @@ def _apply_dedup_action(
         )
         new_text = new_head + "\n\n" + content.strip() + "\n"
     else:  # merge
+        # V6 (note_merge 字段策略): merge 不再是裸 H2 追加——frontmatter 的
+        # tags / related_modules 按策略并集（union），正文追加段带来源标记。
+        # 策略从 note_types 权威表读（默认 union/append），借的是 OpenViking
+        # merge_op 的字段粒度，闸门语义不变（合并结果仍是既有笔记的更新）。
+        try:
+            from codewiki.mcp.tools.note_types import merge_fields_for
+            _fm_type = re.search(r"^(?:type|note_type):\s*(\S+)", head, re.MULTILINE)
+            strategies = merge_fields_for(
+                _fm_type.group(1) if _fm_type else "general"
+            )
+        except Exception:
+            strategies = {"body": "append", "tags": "union",
+                          "related_modules": "union", "title": "replace"}
+        # tags union 在此场景无增量来源（draft 无 frontmatter，tags 在落盘
+        # 时才生成）。related_modules 恒取 union：merge-into-target 是互补
+        # 知识合并，双方 scope 都要保留——表的 replace 策略只属于
+        # note_merge 多条对等 draft 的合并场景，语义不同。
+        head = _union_fm_list(head, "related_modules", from_text=content)
         body_md = body.strip()
-        section = f"\n\n## {title}\n\n{content.strip()}\n"
+        marker = f"> 合并自蒸馏候选：{title}\n\n" if strategies.get("body") == "append" else ""
+        section = f"\n\n## {title}\n\n{marker}{content.strip()}\n"
         new_text = (head + ("\n\n" + body_md if body_md else "") + section)
 
     try:
@@ -1385,6 +1439,20 @@ def handle_distill_conversation(
                 friction_score = int(str(meta.get("friction_score", "")).strip() or 0)
             except (TypeError, ValueError):
                 friction_score = 0
+            # V6: 库内相关笔记预给——对 capture 预览跑一次 BM25（authority/
+            # usage 豁免，相似度导向），提取时即可参照已有笔记，减少 submit
+            # 后的冲突往返（new vs 引用已有，agent 提前判断）。
+            related_notes: List[Dict[str, Any]] = []
+            try:
+                related_notes = [
+                    {"file": h.get("file", ""), "title": h.get("title", ""),
+                     "score": h.get("score", 0)}
+                    for h in _bm25_recall_candidates(
+                        p.stem, built["transcript"][:2000], output_dir
+                    )[:3]
+                ]
+            except Exception as e:  # neighbour recall must never block prepare
+                logger.debug("related_notes recall skipped: %s", e)
             captures.append({
                 "conversation_id": p.stem,
                 "path": str(p.relative_to(output_dir)) if _safe_rel(p, output_dir) else str(p),
@@ -1398,6 +1466,8 @@ def handle_distill_conversation(
                 # K-line: friction score for distillation prioritisation. The
                 # listing itself is already friction-DESC via _iter_raw_files.
                 "friction_score": friction_score,
+                # V6: 提取前即可见的库内近邻（无则空列表）。
+                **({"related_notes": related_notes} if related_notes else {}),
                 # 短预览仅用于初筛（这条对话有没有可蒸馏的知识），不是完整正文。
                 "preview": built["transcript"][:preview_chars],
             })
@@ -1429,7 +1499,9 @@ def handle_distill_conversation(
                 "listed candidate notes and re-submit the same conversation with a "
                 "per-note dedup_action (store|skip|update|merge, see conflict_next); "
                 "(5) only then move to the next capture, dropping the previous "
-                "transcript from working memory."
+                "transcript from working memory. Note: captures may carry "
+                "related_notes (V6) — existing notes the transcript touches; "
+                "prefer extending/referencing them over emitting a near-duplicate."
             ),
         }
         # K-line hint (additive key — existing consumers unaffected). Only

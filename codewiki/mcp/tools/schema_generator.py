@@ -33,6 +33,9 @@ _DEFAULT_CONVENTIONS = {
     "default_stale_days": 90,
     # 类型感知新鲜度窗口（新鲜度机制专项）：笔记 stale_after 按 note_type 查表，
     # 回退链 by_type[type] → default_window_days → default_stale_days → 90。
+    # V4（OpenViking 借鉴 P3）：note_types 为类型权威声明表（枚举/复核窗口/
+    # 晋升路由/合并字段策略），freshness.by_type 保留作向后兼容回退——
+    # 消费方（load_freshness_config 等）优先读 note_types 派生值。
     "freshness": {
         "default_window_days": 180,
         "retrieval_defer_days": 60,
@@ -47,9 +50,19 @@ _DEFAULT_CONVENTIONS = {
             "architecture": 365,
         },
     },
+    # V4 权威类型表：单一事实源，schema.yaml 覆盖式自定义（见 note_types.py）。
+    "note_types": {},  # filled below from note_types.DEFAULT_NOTE_TYPES
     # 默认 tags 不再为空：schema.yaml 里 okf_tags 为 [] 时，
     # frontmatter 注入 helper 会回落到此默认值。
     "okf_tags": ["codewiki", "auto-generated"],
+}
+
+# V4: fill the note_types placeholder from the authoritative table (import kept
+# below _DEFAULT_CONVENTIONS to keep the dict literal readable).
+from codewiki.mcp.tools.note_types import DEFAULT_NOTE_TYPES  # noqa: E402
+
+_DEFAULT_CONVENTIONS["note_types"] = {
+    t: dict(spec) for t, spec in DEFAULT_NOTE_TYPES.items()
 }
 
 _DEFAULT_REQUIRED_SECTIONS = [

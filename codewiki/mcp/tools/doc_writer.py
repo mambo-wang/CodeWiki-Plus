@@ -1207,6 +1207,18 @@ async def handle_write_doc_file(
     except Exception as e:
         logger.warning("Search index update failed (non-fatal): %s", e)
 
+    # V7' (doc_update_notify): same reminder on creation — a brand-new module
+    # page can still intersect existing notes' related_modules declarations.
+    try:
+        from codewiki.mcp.tools.doc_update_notify import reminder_payload
+        _names = [Path(filename).stem] if page_type == "module" else []
+        if _names:
+            _rem = reminder_payload(output_dir, _names)
+            if _rem:
+                result["note_review_reminder"] = _rem
+    except Exception as e:
+        logger.debug("note review reminder skipped: %s", e)
+
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
@@ -1474,5 +1486,18 @@ async def handle_edit_doc_file(
         update_file(output_dir, doc_path, session=session)
     except Exception as e:
         logger.warning("Search index update failed (non-fatal): %s", e)
+
+    # V7' (doc_update_notify): the wiki page just changed — surface notes whose
+    # related_modules reference this module so the agent can ask the user to
+    # review them. Nudge only; never an automatic status change.
+    try:
+        from codewiki.mcp.tools.doc_update_notify import reminder_payload
+        _names = [Path(filename).stem] if page_type == "module" else []
+        if _names:
+            _rem = reminder_payload(Path(output_dir), _names)
+            if _rem:
+                result["note_review_reminder"] = _rem
+    except Exception as e:
+        logger.debug("note review reminder skipped: %s", e)
 
     return json.dumps(result, indent=2, ensure_ascii=False)
