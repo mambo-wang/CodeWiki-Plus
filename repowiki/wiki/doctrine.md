@@ -6,6 +6,7 @@ generated: { by: codewiki/5.3.0, at: 2026-08-18T01:59:02Z }
 metadata:
   source_scenarios: ["wiki/scenarios/IDE-Hook采集链路方法.md", "wiki/scenarios/MCP-Server薄壳架构与参数约定.md", "wiki/scenarios/Wiki页面生成约定与数据结构.md", "wiki/scenarios/任务记忆系统设计方法.md", "wiki/scenarios/对话蒸馏管线与raw暂存区.md"]
   notes_at_refresh: 0
+description: "> **Operating Thesis**: 工具只做确定性簿记，推理与决策永远在调用方 agent 与用户手里；一切进入知识库的内容必须经过显式确认闸门。"
 ---
 
 # Team Operating Doctrine

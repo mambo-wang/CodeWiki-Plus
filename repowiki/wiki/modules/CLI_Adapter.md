@@ -11,6 +11,7 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
+description: "`CLI_Adapter` 是命令行入口与后端文档生成引擎之间的适配层。它唯一的核心组件 `CLIDocumentationGenerator` 包裹了后端 `[[LLM_Backend]]` 中的 `DocumentationGenerator`，在不改造后端逻辑的前提下，为 CLI 场景补充了两件事："
 ---
 
 # CLI_Adapter 模块文档

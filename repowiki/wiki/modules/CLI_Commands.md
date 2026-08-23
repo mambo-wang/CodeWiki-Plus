@@ -17,6 +17,7 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
+description: "CLI_Commands 是 CodeWiki 的命令行入口层，基于 Click 框架构建。它把用户意图转化为对底层生成管线、配置管理与 MCP 服务的调用。"
 ---
 
 # CLI_Commands 模块文档
