@@ -148,8 +148,8 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
 4. **补蒸馏（委托 subagent，不阻塞）**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn「蒸馏 worker」subagent（`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP）后台执行：`distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)`，然后**直接开始回答用户提问**。在自然停顿点（任务告一段落/用户空闲）重新 `get_task_context` 把新产出的待确认记忆/草稿笔记注入上下文 → 向用户展示待确认项（`confirm_task_memories` / `confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、蒸馏结果在会话结束前展示确认即可
 
 **工具入口：**
-- `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context` / `stage_task_memories` / `list_pending_memories` / `confirm_task_memories` / `reject_task_memories`
-- 存储：`repowiki/tasks/.index.json` + `<task_id>/task.md` + `<task_id>/memories.md` + `<task_id>/pending-memories.json`；会话绑定在 `repowiki/.meta/task_bindings/`
+- `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context` / `stage_task_memories` / `list_pending_memories` / `confirm_task_memories` / `reject_task_memories` / `compact_task_memories`
+- 存储：`repowiki/tasks/.index.json` + `<task_id>/task.md` + `<task_id>/memories.md`（条目带 `### YYYY-MM-DD HH:MM` 时间戳头；压缩后头部有「早期记忆（摘要）」段）+ `<task_id>/pending-memories.json` + `<task_id>/memories-archive.md`（压缩归档，append-only、永不自动加载）；会话绑定在 `repowiki/.meta/task_bindings/`
 - `capture_conversation` / `distill_conversation` / `ingest_note` / `query_wiki` 均接受 `task_id`；蒸馏时 LLM 双轨产出 `notes`(通用知识) 与 `memories`(任务进度)，后者**先暂存 pending 待确认**（`confirm_task_memories` 落盘 `memories.md`，`reject_task_memories` 丢弃），与笔记 confirm/reject 评审闸门对齐
 - MCP prompt `task-workflow`（prompts/list）— 完整工作流指引
 
