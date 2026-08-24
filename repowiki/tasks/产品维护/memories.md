@@ -25,3 +25,99 @@ distill-worker 源码化已完成：codewiki/agents/distill-worker.md 为权威�
 文档质量审计（lint_wiki 全量检查）曾被任务引导打断、用户明确搁置（"不用"），后续如需可重新发起。
 
 多 IDE hook 自动检测接线功能已开发完成并发布 v5.4.0：CodeBuddy/Qoder/Claude Code 三类 IDE 自动检测接线，codewiki install-hooks CLI + IDE 注册表驱动；发布经 PyPI（twine --disable-progress-bar）与 GitHub Release（Invoke-RestMethod）。
+
+### 2026-08-24 23:13
+
+完成 repowiki 增量更新 Wiki：lint 110 问题全部清理（stale_refs 49 error、missing_aliases 30、orphan 7 清零；no_outlinks 56、superseded 46 确认为内容级/提示性 info）。
+
+### 2026-08-24 23:13
+
+修复 capture_conversation.py：_unq 提升模块级，_rebuild_index 与 pending_raws_by_task 统一去引号，修复 .index.json task_id 带字面引号 bug。
+
+### 2026-08-24 23:13
+
+lint_wiki 新增 fix=true 参数：stale_refs 全来自 index.md 索引失效时自动 rebuild_index 自愈，新增 test_lint_fix.py，registry schema 同步更新。
+
+### 2026-08-24 23:13
+
+修复生成路径与 patch 路径不一致：_okf_patch_defaults 补 aliases 默认键（与 _build_okf_frontmatter 对齐），存量页面用 backfill_aliases.py 回填。
+
+### 2026-08-24 23:13
+
+test_core_modules_import 因第三方库 caw 在 Windows 上 import fcntl 失败，测试加平台跳过保护（Linux 保留完整测试）。
+
+### 2026-08-24 23:13
+
+推送 develop（2 commits）期间发现对话归档含 PyPI token 已脱敏 amend；建议吊销 token、删除 raw 中的 token、清理 scripts/ 临时文件。全量 pytest 341 passed 2 skipped。
+
+### 2026-08-24 23:13
+
+完成 repowiki 增量更新 Wiki：lint 110 问题全部清理（stale_refs 49 error、missing_aliases 30、orphan 7 清零；no_outlinks 56、superseded 46 确认为内容级/提示性 info）。
+
+### 2026-08-24 23:13
+
+修复 capture_conversation.py：_unq 提升模块级，_rebuild_index 与 pending_raws_by_task 统一去引号，修复 .index.json task_id 带字面引号 bug。
+
+### 2026-08-24 23:13
+
+lint_wiki 新增 fix=true 参数：stale_refs 全来自 index.md 索引失效时自动 rebuild_index 自愈，新增 test_lint_fix.py，registry schema 同步更新。
+
+### 2026-08-24 23:13
+
+修复生成路径与 patch 路径不一致：_okf_patch_defaults 补 aliases 默认键（与 _build_okf_frontmatter 对齐），存量页面用 backfill_aliases.py 回填。
+
+### 2026-08-24 23:13
+
+test_core_modules_import 因第三方库 caw 在 Windows 上 import fcntl 失败，测试加平台跳过保护（Linux 保留完整测试）。
+
+### 2026-08-24 23:13
+
+推送 develop（2 commits）期间发现对话归档含 PyPI token 已脱敏 amend；建议吊销 token、删除 raw 中的 token、清理 scripts/ 临时文件。全量 pytest 341 passed 2 skipped。
+
+### 2026-08-24 23:14
+
+完成 repowiki 增量更新 Wiki：lint 110 问题全部清理（stale_refs 49 error、missing_aliases 30、orphan 7 清零；no_outlinks 56、superseded 46 确认为内容级/提示性 info）。
+
+### 2026-08-24 23:14
+
+修复 capture_conversation.py：_unq 提升模块级，_rebuild_index 与 pending_raws_by_task 统一去引号，修复 .index.json task_id 带字面引号 bug。
+
+### 2026-08-24 23:14
+
+lint_wiki 新增 fix=true 参数：stale_refs 全来自 index.md 索引失效时自动 rebuild_index 自愈，新增 test_lint_fix.py，registry schema 同步更新。
+
+### 2026-08-24 23:14
+
+修复生成路径与 patch 路径不一致：_okf_patch_defaults 补 aliases 默认键（与 _build_okf_frontmatter 对齐），存量页面用 backfill_aliases.py 回填。
+
+### 2026-08-24 23:14
+
+test_core_modules_import 因第三方库 caw 在 Windows 上 import fcntl 失败，测试加平台跳过保护（Linux 保留完整测试）。
+
+### 2026-08-24 23:14
+
+推送 develop（2 commits）期间发现对话归档含 PyPI token 已脱敏 amend；建议吊销 token、删除 raw 中的 token、清理 scripts/ 临时文件。全量 pytest 341 passed 2 skipped。
+
+### 2026-08-24 23:16
+
+完成 task_bindings 绑定文件生命周期改造：capture_conversation 落盘成功后自动删除绑定文件（一次性消费凭证），supersede 时继承旧 task_id 防丢归属，显式传 task_id 不消费绑定。
+
+### 2026-08-24 23:16
+
+tests/test_task_manager.py 新增 2 个测试（test_capture_deletes_binding_after_successful_write、test_explicit_task_id_does_not_consume_binding），54 个测试全过。
+
+### 2026-08-24 23:16
+
+同步更新 AGENTS.md 任务记忆段落与 codewiki/mcp/prompts.py 的 task-workflow 提示词，说明绑定生命周期语义。
+
+### 2026-08-24 23:17
+
+完成 task_bindings 绑定文件生命周期改造：capture_conversation 落盘成功后自动删除绑定文件（一次性消费凭证），supersede 时继承旧 task_id 防丢归属，显式传 task_id 不消费绑定。
+
+### 2026-08-24 23:17
+
+tests/test_task_manager.py 新增 2 个测试（test_capture_deletes_binding_after_successful_write、test_explicit_task_id_does_not_consume_binding），54 个测试全过。
+
+### 2026-08-24 23:17
+
+同步更新 AGENTS.md 任务记忆段落与 codewiki/mcp/prompts.py 的 task-workflow 提示词，说明绑定生命周期语义。

@@ -14,6 +14,46 @@
 * **close_session**: 会话关闭
 * **ingest_note**: 添加笔记: install-hooks 幂等去重在 Windows 路径分隔符下失效
 * **ingest_note**: 添加笔记: smoke test 用临时 output_dir 污染真实仓库缓存导致落盘错位
+* **ingest_note**: 添加笔记: lint_wiki 支持 fix=true 自愈过期索引
+* **ingest_note**: 添加笔记: patch 已有 frontmatter 路径缺 aliases 默认键
+* **ingest_note**: 添加笔记: 对话归档原样保留用户消息密钥导致 push 被 GitHub 密钥扫描拦截
+* **ingest_note**: 添加笔记: raw 索引 .index.json 的 task_id 带字面引号导致按任务过滤漏检
+* **ingest_note**: 添加笔记: health_score 为扣分制：error-10/warning-3/info-1
+* **ingest_note**: 添加笔记: 子代理报告「全绿」不可信：lastfailed 缓存空 ≠ 真全绿，须自己实跑验证
+* **ingest_note**: 添加笔记: telemetry 采用 per-user jsonl 文件：零冲突设计的承重墙
+* **ingest_note**: 添加笔记: 孤儿分支不是「部分文件单独分支」，.codewiki 二进制缓存救不了冲突
+* **ingest_note**: 添加笔记: 多 IDE hook 支持按家族归并：31 个智能体收敛为 3 家族 schema
+* **ingest_note**: 添加笔记: 测试多 helper 各写一次 jsonl 会互相全量覆盖，须 append-merge 且不依赖固定 user 文件名
+* **ingest_note**: 添加笔记: task_bindings 绑定文件改为一次性消费凭证：成功落盘后删除 + supersede 继承旧 task_id
+* **ingest_note**: 添加笔记: Agent 表述必须诚实区分「已知事实」与「推测」，不能把假设当依据
+* **ingest_note**: 添加笔记: 修复顺序类 bug 先看数据流时序：fix 块后置导致 broken_links 基于旧索引计算
+* **ingest_note**: 添加笔记: ruff 升级规则集变宽导致 CI 大面积红：显式 select 钉住窄默认，不顺风修宽规则
+* **ingest_note**: 添加笔记: 单次 commit 业务 review 工具选型：mattpocock code-review 走 Spec 轴，需求来源可绕 setup
+* **ingest_note**: 添加笔记: frontmatter deep module 重构四决策：路由收进 module、原地扩展、字节级兼容、先 reader 后 writer
+* **ingest_note**: 添加笔记: retrieval_stats.db 放 repowiki/.meta 而非 .codewiki 的四个理由
+* **ingest_note**: 添加笔记: OpenViking 借鉴三原则：借分层不借 LLM、借模式不借 hook、借粒度不借无闸门
+* **ingest_note**: 添加笔记: TAM L0-L3 记忆管线对照：CodeWiki 已有 L0/L1，空白在 L2 场景聚合与 L3 Doctrine
+* **edit_doc_file**: 更新 任务记忆系统设计方法.md (str_replace)
+* **edit_doc_file**: 更新 IDE-Hook采集链路方法.md (str_replace)
+* **edit_doc_file**: 更新 Wiki页面生成约定与数据结构.md (str_replace)
+* **edit_doc_file**: 更新 MCP-Server薄壳架构与参数约定.md (str_replace)
+* **edit_doc_file**: 更新 对话蒸馏管线与raw暂存区.md (str_replace)
+* **edit_doc_file**: 更新 任务记忆系统设计方法.md (str_replace)
+* **edit_doc_file**: 更新 IDE-Hook采集链路方法.md (str_replace)
+* **edit_doc_file**: 更新 Wiki页面生成约定与数据结构.md (str_replace)
+* **edit_doc_file**: 更新 MCP-Server薄壳架构与参数约定.md (str_replace)
+* **edit_doc_file**: 更新 对话蒸馏管线与raw暂存区.md (str_replace)
+* **edit_doc_file**: 更新 任务记忆系统设计方法.md (str_replace)
+* **edit_doc_file**: 更新 IDE-Hook采集链路方法.md (str_replace)
+* **edit_doc_file**: 更新 Wiki页面生成约定与数据结构.md (str_replace)
+* **edit_doc_file**: 更新 MCP-Server薄壳架构与参数约定.md (str_replace)
+* **edit_doc_file**: 更新 对话蒸馏管线与raw暂存区.md (str_replace)
+* **edit_doc_file**: 更新 任务记忆系统设计方法.md (str_replace)
+* **edit_doc_file**: 更新 IDE-Hook采集链路方法.md (str_replace)
+* **edit_doc_file**: 更新 Wiki页面生成约定与数据结构.md (str_replace)
+* **edit_doc_file**: 更新 MCP-Server薄壳架构与参数约定.md (str_replace)
+* **edit_doc_file**: 更新 对话蒸馏管线与raw暂存区.md (str_replace)
+* **write_doc_file**: 创建 发布与依赖治理方法.md
 
 ## 2026-08-23
 * **ingest_note**: 添加笔记: hook 采集机制仅正式接线 CodeBuddy，README 措辞用「仅接线支持」

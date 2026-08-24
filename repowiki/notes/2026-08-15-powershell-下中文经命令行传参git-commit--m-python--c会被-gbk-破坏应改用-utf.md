@@ -7,7 +7,9 @@ tags:
 metadata:
   date: 2026-08-15
   source_ref: raw\conv-@d-repos-CodeWiki-CN-repowiki-raw-conv-system_reminder-请注意，当.md
-status: stable
+  consolidated_into:
+  - wiki/scenarios/发布与依赖治理方法.md
+status: deprecated
 generated:
   by: codewiki/5.2.2
   at: 2026-08-15 08:57:56+00:00
@@ -16,6 +18,7 @@ origin: conversation
 verified:
 - by: codewiki/5.2.2
   at: '2026-08-15T08:58:59Z'
+reject_reason: 聚合进场景：发布与依赖治理方法
 ---
 
 ## 背景

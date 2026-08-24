@@ -4,7 +4,9 @@ Install-hooks command for CodeWiki CLI.
 用户触发创建/启用 hook 时自动检测项目根目录存在的智能体配置目录
 （.codebuddy/.qoder/.claude），检测到哪些就为哪些智能体接线——
 拷贝 hook 脚本与 distill-worker subagent、合并 settings.json hook 注册、
-写入 AGENTS.md 任务记忆引导段。
+写入 AGENTS.md 任务记忆引导段。千问办公（QwenWork）无 shell hook 机制，
+走 prompt 接线（AGENTS.md 协议段，Agent 中介捕获），仅显式 --ide qwenwork
+触发（仓库无标记目录，不参与自动检测）。
 """
 
 import sys
@@ -25,6 +27,18 @@ def _echo_summary(repo: str, results: list[dict]) -> None:
     click.echo()
     click.secho(f"Target repo: {repo}", fg="blue", bold=True)
     for r in results:
+        if r.get("wiring") == "prompt":
+            # prompt 模式（千问办公）：无目录/脚本/注册，只有 AGENTS.md 协议段
+            click.secho(f"\n[{r['ide']}] -> AGENTS.md (prompt wiring)", fg="cyan", bold=True)
+            if r.get("protocol_changed"):
+                click.secho("  [updated] AGENTS.md QwenWork capture protocol", fg="green")
+            else:
+                click.echo("  [no-change] AGENTS.md QwenWork capture protocol present")
+            if r["agents_changed"]:
+                click.secho("  [updated] AGENTS.md task-memory section", fg="green")
+            else:
+                click.echo("  [no-change] AGENTS.md task-memory section present")
+            continue
         click.secho(f"\n[{r['ide']}] -> {r['dir']}/", fg="cyan", bold=True)
         for copied in r["copied"]:
             click.echo(f"  [copied] {copied}")
@@ -45,10 +59,7 @@ def _echo_summary(repo: str, results: list[dict]) -> None:
     "--ide",
     type=click.Choice(list(IDE_SPECS), case_sensitive=False),
     default=None,
-    help=(
-        "Wire a specific IDE only, skipping auto-detection. "
-        "One of: " + ", ".join(IDE_SPECS)
-    ),
+    help=("Wire a specific IDE only, skipping auto-detection. One of: " + ", ".join(IDE_SPECS)),
 )
 @click.option(
     "--repo-path",
@@ -92,10 +103,12 @@ def install_hooks(ide: str, repo_path: str) -> None:
             )
             click.echo("Detected dirs: .codebuddy / .qoder / .claude")
             click.echo(
+                "QwenWork (prompt wiring) has no repo marker and is never"
+                " auto-detected - wire it explicitly with --ide qwenwork"
+            )
+            click.echo(
                 "To wire a specific IDE regardless, use: "
-                "codewiki install-hooks --ide <"
-                + "|".join(IDE_SPECS)
-                + ">"
+                "codewiki install-hooks --ide <" + "|".join(IDE_SPECS) + ">"
             )
             sys.exit(0)
         results = [install_for_ide(repo_path, name) for name in targets]

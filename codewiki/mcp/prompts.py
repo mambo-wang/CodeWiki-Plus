@@ -51,8 +51,8 @@ _TASK_MEMORY_AGENTS_SECTION = f"""{_TASK_MEMORY_AGENTS_START}
 4. **补蒸馏（委托 subagent，不阻塞）**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn「蒸馏 worker」subagent（`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP）后台执行：`distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)`，然后**直接开始回答用户提问**。在自然停顿点（任务告一段落/用户空闲）重新 `get_task_context` 拉取最新上下文（任务记忆已直写落盘，`memories_written` 报告条数）→ 只向用户展示待确认的草稿笔记（`confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、草稿笔记在会话结束前展示确认即可
 
 **工具入口：**
-- `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context`
-- 存储：`repowiki/tasks/.index.json` + `<task_id>/task.md` + `<task_id>/memories.md`；会话绑定在 `repowiki/.meta/task_bindings/`
+- `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context` / `compact_task_memories`
+- 存储：`repowiki/tasks/.index.json` + `<task_id>/task.md` + `<task_id>/memories.md`（条目带 `### YYYY-MM-DD HH:MM` 时间戳头；压缩后头部有「早期记忆（摘要）」段）+ `<task_id>/memories-archive.md`（压缩归档，append-only、永不自动加载）；会话绑定在 `repowiki/.meta/task_bindings/`
 - `capture_conversation` / `distill_conversation` / `ingest_note` / `query_wiki` 均接受 `task_id`；蒸馏时 LLM 双轨产出 `notes`(通用知识，draft 待确认) 与 `memories`(任务进度，直写落盘——ADR-0002：任务记忆不做确认闸门)
 - MCP prompt `task-workflow`（prompts/list）— 完整工作流指引
 
@@ -64,6 +64,31 @@ _TASK_MEMORY_AGENTS_SECTION = f"""{_TASK_MEMORY_AGENTS_START}
 - `memories.md` 追加式原子写(临时文件 + `os.replace`)，并发串行；条目带 `### YYYY-MM-DD HH:MM` 时间戳头(ADR-0001：保持 markdown 不迁 JSONL，时间戳头是切条/截断/压缩的解析边界，存量无头文件运行时空行回退解析)。
 - `get_task_context`/`get_task` 的 memories 返回**有界**：默认分别取最近 20/5 条，`memories_total`/`memories_truncated` 标记截断、`max_memories` 参数翻页；`compaction_due=true` 表示超压缩阈值(40 条/24KB)且超出保留窗口，应跑 `compact_task_memories`(两段式无状态：`mode="prepare"` 取待压条目由调用方写摘要 → `mode="submit"` 落盘；原文归档 memories-archive.md 不删，直写不走 confirm 闸门)。
 {_TASK_MEMORY_AGENTS_END}"""
+
+_QWENWORK_CAPTURE_START = "<!-- CODEWIKI-QWENWORK:START -->"
+_QWENWORK_CAPTURE_END = "<!-- CODEWIKI-QWENWORK:END -->"
+_QWENWORK_CAPTURE_SECTION = f"""{_QWENWORK_CAPTURE_START}
+### QwenWork 捕获协议（千问办公无 IDE hook，由 Agent 依本协议执行）
+
+千问办公（QwenWork）不提供 SessionStart/SessionEnd shell hook 事件，也不落
+IDE 式磁盘 transcript；任务记忆的注入与捕获改由 Agent 执行：
+
+- **会话开始**：本 AGENTS.md 随项目上下文自动加载（等价于其他 IDE 的
+  SessionStart 注入），按上方「Task memory」段完成任务关联
+  （`set_session_task`）、上下文拉取（`get_task_context`）与补蒸馏。
+- **会话捕获（自然停顿点执行：任务告一段落 / 话题切换 / 用户空闲）**：
+  1. 委托后台子代理执行，**不阻塞回答**：`qw_query` 拉取当前会话列表定位
+     本会话 chatId → `qwenwork_task_get_detail(chatId, offset 分页)` 拉全部轮次
+  2. 按轮次做要点级压缩：保留决策脉络、关键事实、结论与提交号；丢弃寒暄、
+     过程噪音与工具调用细节
+  3. 调 `capture_conversation(output_dir=<repo>/repowiki,
+     conversation=[{{"role": ..., "content": ...}}...], task_id=<绑定的任务id>,
+     source_session_id="qwenwork-<chatId>")` 走标准管线落盘
+     （frontmatter/content_hash/supersede 全套），**勿手写 raw/*.md**
+  4. 同一 source_session 重复捕获由 supersede 替换旧 raw——会话中途可安全
+     增量重捕，无重复堆积；蒸馏与补蒸馏流程与其他 IDE 一致
+     （任务记忆直写，笔记草稿待确认——ADR-0002）
+{_QWENWORK_CAPTURE_END}"""
 
 
 def _prompt_init_wiki(args: dict[str, str]) -> str:

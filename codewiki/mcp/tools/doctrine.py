@@ -16,10 +16,9 @@ Mode C protocol (agent is the LLM, tool does deterministic bookkeeping):
       strategies / hard prohibitions / output template).
 
   mode='submit'
-      validates the ≤1200-char hard cap, backs up the previous version
-      (rolling, keep 3), atomically writes wiki/doctrine.md with OKF
-      frontmatter + provenance (source_scenarios), resets the doctrine
-      counter and rebuilds the search index.
+      validates the ≤1200-char hard cap, atomically writes wiki/doctrine.md
+      with OKF frontmatter + provenance (source_scenarios), resets the
+      doctrine counter and rebuilds the search index.
 
 Constraints honoured: explicit calls only (never automatic); the produced
 doctrine lands as status=draft awaiting the normal confirmation gate.
@@ -37,8 +36,6 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 DOCTRINE_FILENAME = "doctrine.md"
-_BACKUP_DIRNAME = ".backup"
-_BACKUP_KEEP = 3
 DEFAULT_DOCTRINE_MAX_CHARS = 1200
 
 _DOCTRINE_SYSTEM = (
@@ -164,31 +161,6 @@ def _scene_updated_after(path: Path, last_doctrine_at: Optional[str]) -> bool:
         return True
 
 
-def _backup_existing(output_dir: Path) -> Optional[str]:
-    """Rolling backup of the current doctrine (keep the latest _BACKUP_KEEP)."""
-    src = _doctrine_path(output_dir)
-    if not src.is_file():
-        return None
-    from codewiki.src.config import WIKI_DIR
-    bdir = Path(output_dir) / WIKI_DIR / _BACKUP_DIRNAME
-    bdir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    dest = bdir / f"doctrine-{stamp}.md"
-    try:
-        dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
-    except OSError as e:
-        logger.warning("doctrine backup failed: %s", e)
-        return None
-    # Prune to the latest _BACKUP_KEEP backups
-    try:
-        backups = sorted(bdir.glob("doctrine-*.md"))
-        for old in backups[:-_BACKUP_KEEP]:
-            old.unlink()
-    except OSError:
-        pass
-    return str(dest.relative_to(output_dir)).replace("\\", "/")
-
-
 # --------------------------------------------------------------------------- #
 # Tool handler
 # --------------------------------------------------------------------------- #
@@ -295,8 +267,6 @@ def handle_refresh_doctrine(arguments: Dict[str, Any], store: Any) -> str:
     from codewiki.mcp.tools.note_consolidation import _scan_scenarios
     scenarios = _scan_scenarios(output_dir)
 
-    backup_rel = _backup_existing(output_dir)
-
     # OKF frontmatter (status=draft: the doctrine passes the normal
     # confirmation gate via confirm_note / batch_set_status like other pages).
     try:
@@ -346,7 +316,6 @@ def handle_refresh_doctrine(arguments: Dict[str, Any], store: Any) -> str:
         "doctrine_file": str(path.relative_to(output_dir)).replace("\\", "/"),
         "chars": len(content),
         "char_cap": cap,
-        "backup": backup_rel,
         "source_scenarios": len(scene_files),
         "counters": {
             "notes_since_last_doctrine": int(new_state.get("notes_since_last_doctrine") or 0),
