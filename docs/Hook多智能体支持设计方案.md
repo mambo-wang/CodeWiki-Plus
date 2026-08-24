@@ -1,7 +1,8 @@
 # Hook 多智能体支持设计方案（家族归并 + 检索分发包）
 
 > 来源：teamai-cli 31 agent 覆盖机制的评估（对话拷问定稿，2026-08-24）。
-> 日期：2026-08-24 · 状态：**设计定稿（未实施）** · 预计工作量：**第一步约 1 人日**
+> 日期：2026-08-24 · 状态：**已实施（H1-H6 第一步全部落地，363 passed + 2 skipped 全绿，CLI E2E 通过）** · 预计工作量：**第一步约 1 人日**
+> 实施记录：2026-08-24 完成 H1-H6——hooks.yaml 注册表（3 家族 10 智能体）+ hook_registry.py 加载/探测/矩阵；team-memory-hook prompt 注册表化（支持等级分层 + 探测结果注入 + cursor 采集降级声明）；codewiki query CLI（MCP handler 投影层，定界块输出，--check/--expand）；wiki-recall.md subagent 定义；tests/test_hook_registry.py 21 项。第二步 CLI 化 reconcile 维持触发式未动。
 > 定位：当前唯一在推进的工作项。无真实被卡用户，属预研储备——但与"遥测参数校准 / promote 数据验证"（须等数据积累）不同，本包不依赖积累，随时可做。
 
 ---

@@ -1,0 +1,95 @@
+# CodeWiki Hook 智能体支持注册表（docs/Hook多智能体支持设计方案.md）
+#
+# 家族归并：每个智能体归入一个 hook 格式家族，适配只发生在家族层。
+# 新增一个智能体 = 在 agents 里加一行（family 决定配置格式与事件名映射）。
+#
+# families.events 的事件字段为数组：一个逻辑事件的候选物理 key。
+# 当前只填已知 key；若某家族事件名变更（版本兼容），追加候选 key 即可，
+# 数据结构无需改动。
+#
+# verified 字段驱动文档与 prompt 的诚实表述：
+#   true  = 已验证支持（日常使用背书，接线指引可直接信任）
+#   false = 理论支持（家族归并推导，未经真机验证——接线后必须跑
+#           模拟事件验证，失败即反馈修订本注册表）
+
+version: 1
+
+families:
+  # Claude 格式：settings.json + PascalCase 事件 + hookSpecificOutput
+  claude:
+    config_file: settings.json
+    events:
+      session_start: [SessionStart]
+      session_end: [SessionEnd]
+
+  # Cursor 格式：hooks.json + camelCase 事件。
+  # 注意采集降级：Cursor 无 SessionEnd 等价事件，stop 不携带
+  # transcript_path —— 该家族会话采集只能落"事件信封"，
+  # 完整对话蒸馏不可用（prompt 指引须向用户显式声明）。
+  cursor:
+    config_file: hooks.json
+    events:
+      session_start: [sessionStart]
+      session_end: [stop]
+
+  # Codex 格式：hooks.json + 嵌套 matcher 结构
+  codex:
+    config_file: hooks.json
+    events:
+      session_start: [SessionStart]
+      session_end: [SessionEnd]
+
+agents:
+  # ── 已验证支持（日常使用背书）────────────────────────────
+  - id: codebuddy
+    family: claude
+    config_dir: .codebuddy
+    verified: true
+
+  - id: qoder
+    family: claude
+    config_dir: .qoder
+    verified: true
+
+  - id: claude-code
+    family: claude
+    config_dir: .claude
+    verified: true
+
+  # ── 理论支持（家族归并推导，未经真机验证）────────────────
+  - id: cursor
+    family: cursor
+    config_dir: .cursor
+    verified: false
+
+  - id: codex-cli
+    family: codex
+    config_dir: .codex
+    verified: false
+
+  # 以下 claude 家族归并为待验证假设（是否真读 settings.json +
+  # PascalCase 事件，接线时才知道）
+  - id: gemini-cli
+    family: claude
+    config_dir: .gemini
+    verified: false
+
+  - id: trae
+    family: claude
+    config_dir: .trae
+    verified: false
+
+  - id: windsurf
+    family: claude
+    config_dir: .windsurf
+    verified: false
+
+  - id: kilocode
+    family: claude
+    config_dir: .kilocode
+    verified: false
+
+  - id: opencode
+    family: claude
+    config_dir: .opencode
+    verified: false
