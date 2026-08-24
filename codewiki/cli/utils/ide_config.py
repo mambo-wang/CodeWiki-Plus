@@ -143,9 +143,13 @@ def merge_settings_json(
         if not isinstance(inner, list):
             inner = []
             target["hooks"] = inner
-        # 按 command 去重
+        # 按 command 去重。Windows 下反斜杠/正斜杠路径等价（如
+        # `d:/repos/...` 与 `d:\repos\...`），比较前归一化分隔符，
+        # 避免历史反斜杠条目与新生成的正斜杠条目被视为不同命令而重复注册。
+        norm = lambda cmd: (cmd or "").replace("\\", "/")
         if not any(
-            isinstance(h, dict) and h.get("command") == command for h in inner
+            isinstance(h, dict) and norm(h.get("command")) == norm(command)
+            for h in inner
         ):
             inner.append({"type": "command", "command": command, "timeout": timeout})
     return merged
@@ -229,8 +233,10 @@ def install_for_ide(repo: str, ide: str) -> dict:
             existing = json.loads(settings_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
             raise IdeWiringError(f"Cannot parse {settings_path}: {e}")
-    start_cmd = f'python "{ide_dir / "hooks" / "task_session_start.py"}"'
-    end_cmd = f'python "{ide_dir / "hooks" / "capture_session_end.py"}"'
+    # 统一用正斜杠路径生成命令（as_posix），与项目内既有手动配置格式一致；
+    # merge_settings_json 内部再做分隔符归一化比较，反斜杠历史条目不会重复。
+    start_cmd = f'python "{(ide_dir / "hooks" / "task_session_start.py").as_posix()}"'
+    end_cmd = f'python "{(ide_dir / "hooks" / "capture_session_end.py").as_posix()}"'
     merged = merge_settings_json(existing, start_cmd, end_cmd)
     settings_changed = merged != existing
     try:

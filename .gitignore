@@ -86,3 +86,6 @@ Thumbs.db
 .trash/
 .codewiki/
 .workbuddy/
+
+# Qoder IDE plugin skills (not part of this repo)
+.qoder/skills/

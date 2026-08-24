@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"d:\\repos\\CodeWiki-CN\\.codebuddy\\hooks\\task_session_start.py\"",
+            "command": "python \"d:\\repos\\CodeWiki-CN\\.qoder\\hooks\\task_session_start.py\"",
             "timeout": 15
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"d:\\repos\\CodeWiki-CN\\.codebuddy\\hooks\\capture_session_end.py\"",
+            "command": "python \"d:\\repos\\CodeWiki-CN\\.qoder\\hooks\\capture_session_end.py\"",
             "timeout": 30
           }
         ]
