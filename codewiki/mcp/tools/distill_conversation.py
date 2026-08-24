@@ -42,13 +42,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
-
 # note_type values accepted by ingest_note (see agents_md.py routing table).
 # V4: single source of truth is the note_types declaration table
 # (codewiki/mcp/tools/note_types.py) — the registry inputSchema enum and
 # knowledge_loop promotion routing derive from the same table.
 from codewiki.mcp.tools.note_types import valid_note_types as _nt_valid
+
+logger = logging.getLogger(__name__)
 
 _VALID_NOTE_TYPES = _nt_valid()
 
@@ -93,7 +93,7 @@ _DISTILL_SYSTEM = (
     '      "priority": 85,\n'
     '      "scene": "optional short scene label, e.g. the work context this knowledge belongs to",\n'
     '      "content": "Full OKF note body in Markdown. Use H2 (##) sections such as '
-    '## Background, ## Decision/正确做法, ## Rationale, ## Root cause, ## Recovery. '
+    "## Background, ## Decision/正确做法, ## Rationale, ## Root cause, ## Recovery. "
     'Reuse exact names, paths, and code snippets from the conversation."\n'
     "    }\n"
     "  ],\n"
@@ -114,7 +114,7 @@ _DISTILL_SYSTEM = (
     "which belongs in notes). Each entry is a concise 1-3 sentence Markdown string "
     "suitable for appending to a task memory log. Return [] when there is no "
     "task-scoped progress to record.\n"
-    "If the conversation contains no durable knowledge, return {\"notes\": [], \"memories\": []}."
+    'If the conversation contains no durable knowledge, return {"notes": [], "memories": []}.'
 )
 
 _NOTE_TYPE_HINT = "Allowed note_type values: " + ", ".join(sorted(_VALID_NOTE_TYPES)) + "."
@@ -160,7 +160,7 @@ def _filter_transcript_lines(transcript: str) -> str:
         content = line
         for prefix in _ROLE_PREFIXES:
             if line.startswith(prefix):
-                content = line[len(prefix):]
+                content = line[len(prefix) :]
                 break
         if _should_extract_l1(content):
             kept.append(line)
@@ -186,10 +186,10 @@ _TITLE_SIMILARITY_THRESHOLD = 0.5
 #     conflict，交给宿主 agent 用 dedup_action 四操作（store/skip/update/merge）
 #     裁决——agent 本身就是 LLM，精判零成本。
 # --------------------------------------------------------------------------- #
-_PRIORITY_MIN = 70        # below this value a distilled note is dropped
-_PRIORITY_HIGH = 90       # >= maps to severity=high; 70-89 maps to medium
-_CONFLICT_TITLE_FLOOR = 0.35   # weak-band lower bound for title Jaccard
-_CONFLICT_BM25_FLOOR = 2.5     # BM25 recall score considered a conflict hint
+_PRIORITY_MIN = 70  # below this value a distilled note is dropped
+_PRIORITY_HIGH = 90  # >= maps to severity=high; 70-89 maps to medium
+_CONFLICT_TITLE_FLOOR = 0.35  # weak-band lower bound for title Jaccard
+_CONFLICT_BM25_FLOOR = 2.5  # BM25 recall score considered a conflict hint
 _BM25_RECALL_TOPK = 3
 _VALID_DEDUP_ACTIONS = ("store", "skip", "update", "merge")
 
@@ -333,7 +333,7 @@ def _extract_turns(text: str) -> str:
     if text.startswith("---"):
         end = text.find("\n---", 3)
         if end != -1:
-            body = text[end + 4:]
+            body = text[end + 4 :]
         else:
             body = text
     else:
@@ -347,6 +347,7 @@ def _extract_turns(text: str) -> str:
     # human–AI dialogue. (capture_conversation should already have removed
     # these on ingest; this is a second safety net for older raw files.)
     from .capture_conversation import _strip_system_injection
+
     body = _strip_system_injection(body)
     return body
 
@@ -401,7 +402,7 @@ def _find_existing_note(
         title = _unquote_fm(fm.get("title", "")) or note_path.stem
         note_type = fm.get("type") or fm.get("note_type") or ""
         title_sim = _title_similarity(candidate_title, title)
-        same_type = (note_type == candidate_type)
+        same_type = note_type == candidate_type
         # Use title similarity as the duplicate signal (0..1).
         score = title_sim
         is_dup = (
@@ -450,7 +451,7 @@ def _merge_source_into_note(
             return
         items.append(new_source_ref)
         new_list = "[" + ", ".join(f"'{x}'" for x in items) + "]"
-        new_block = block[:m.start()] + "source_conversations: " + new_list + block[m.end():]
+        new_block = block[: m.start()] + "source_conversations: " + new_list + block[m.end() :]
     else:
         new_block = block.rstrip() + f"\nsource_conversations: ['{new_source_ref}']\n"
     new_text = "---" + new_block + text[end:]
@@ -523,9 +524,14 @@ def _bm25_recall_candidates(
         return []
     try:
         from codewiki.mcp.tools.wiki_search import search as _search
+
         hits = _search(
-            output_dir, query, scope="notes", include_notes=True,
-            max_results=_BM25_RECALL_TOPK, score_threshold=0.1,
+            output_dir,
+            query,
+            scope="notes",
+            include_notes=True,
+            max_results=_BM25_RECALL_TOPK,
+            score_threshold=0.1,
             # Dedup is a similarity judgment, not a ranking one: exempt from
             # authority weighting so draft candidates can't sink below the
             # conflict floor just because they are unreviewed.
@@ -541,12 +547,14 @@ def _bm25_recall_candidates(
         score = float(h.get("relevance_score") or 0.0)
         if score < _CONFLICT_BM25_FLOOR:
             continue
-        out.append({
-            "file": h.get("file", ""),
-            "title": h.get("title", ""),
-            "score": round(score, 3),
-            "signal": "bm25",
-        })
+        out.append(
+            {
+                "file": h.get("file", ""),
+                "title": h.get("title", ""),
+                "score": round(score, 3),
+                "signal": "bm25",
+            }
+        )
     return out
 
 
@@ -577,7 +585,7 @@ def _find_weak_conflicts(
             sim = _title_similarity(candidate_title, title)
             if sim < _CONFLICT_TITLE_FLOOR:
                 continue
-            same_type = (note_type == candidate_type)
+            same_type = note_type == candidate_type
             is_strong = (
                 sim >= _DEDUP_THRESHOLD
                 or (sim >= _DEDUP_THRESHOLD * 0.8 and same_type)
@@ -586,10 +594,14 @@ def _find_weak_conflicts(
             if is_strong:
                 continue  # handled by _find_existing_note, not a "conflict"
             rel = str(note_path.relative_to(output_dir))
-            candidates.append({
-                "file": rel, "title": title,
-                "score": round(sim, 3), "signal": "title_sim",
-            })
+            candidates.append(
+                {
+                    "file": rel,
+                    "title": title,
+                    "score": round(sim, 3),
+                    "signal": "title_sim",
+                }
+            )
     for hit in _bm25_recall_candidates(candidate_title, candidate_content, output_dir):
         if hit.get("file") and not any(c["file"] == hit["file"] for c in candidates):
             candidates.append(hit)
@@ -626,7 +638,7 @@ def _union_fm_list(
     if merged == existing:
         return head
     line = f"{key}: [" + ", ".join(f'"{v}"' for v in merged) + "]"
-    return head[:m.start()] + line + head[m.end():]
+    return head[: m.start()] + line + head[m.end() :]
 
 
 def _apply_dedup_action(
@@ -661,13 +673,15 @@ def _apply_dedup_action(
     if text.startswith("---"):
         end = text.find("\n---", 3)
         if end != -1:
-            head, body = text[:end + 4], text[end + 4:]
+            head, body = text[: end + 4], text[end + 4 :]
 
     if action == "update":
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         new_head = re.sub(
             r"(generated:\s*\{[^}]*at:\s*)\d{4}-\d{2}-\d{2}T[\d:]+Z",
-            lambda m: m.group(1) + now, head, count=1,
+            lambda m: m.group(1) + now,
+            head,
+            count=1,
         )
         new_text = new_head + "\n\n" + content.strip() + "\n"
     else:  # merge
@@ -677,13 +691,16 @@ def _apply_dedup_action(
         # merge_op 的字段粒度，闸门语义不变（合并结果仍是既有笔记的更新）。
         try:
             from codewiki.mcp.tools.note_types import merge_fields_for
+
             _fm_type = re.search(r"^(?:type|note_type):\s*(\S+)", head, re.MULTILINE)
-            strategies = merge_fields_for(
-                _fm_type.group(1) if _fm_type else "general"
-            )
+            strategies = merge_fields_for(_fm_type.group(1) if _fm_type else "general")
         except Exception:
-            strategies = {"body": "append", "tags": "union",
-                          "related_modules": "union", "title": "replace"}
+            strategies = {
+                "body": "append",
+                "tags": "union",
+                "related_modules": "union",
+                "title": "replace",
+            }
         # tags union 在此场景无增量来源（draft 无 frontmatter，tags 在落盘
         # 时才生成）。related_modules 恒取 union：merge-into-target 是互补
         # 知识合并，双方 scope 都要保留——表的 replace 策略只属于
@@ -692,7 +709,7 @@ def _apply_dedup_action(
         body_md = body.strip()
         marker = f"> 合并自蒸馏候选：{title}\n\n" if strategies.get("body") == "append" else ""
         section = f"\n\n## {title}\n\n{marker}{content.strip()}\n"
-        new_text = (head + ("\n\n" + body_md if body_md else "") + section)
+        new_text = head + ("\n\n" + body_md if body_md else "") + section
 
     try:
         note_path.write_text(new_text, encoding="utf-8")
@@ -704,6 +721,7 @@ def _apply_dedup_action(
     # Refresh the BM25 index entry for the modified note.
     try:
         from codewiki.mcp.tools.wiki_search import update_file
+
         update_file(output_dir, note_path, session=None)
     except Exception as e:  # indexing is best-effort; never block distillation
         logger.warning("search index refresh failed after %s: %s", action, e)
@@ -722,7 +740,6 @@ def _default_llm_from_env() -> Callable[[str, str], Awaitable[str]]:
     """
     from codewiki.src.config import Config, MAIN_MODEL, LLM_BASE_URL, LLM_API_KEY
     from codewiki.src.be.llm_services import create_main_model
-    import asyncio
 
     cfg = Config(
         repo_path=".",
@@ -768,7 +785,7 @@ def _parse_llm_notes(raw_llm_output: str) -> List[Dict[str, Any]]:
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
             try:
-                data = json.loads(text[start:end + 1])
+                data = json.loads(text[start : end + 1])
             except json.JSONDecodeError:
                 return []
         else:
@@ -793,7 +810,7 @@ def _parse_llm_memories(raw_llm_output: str) -> List[str]:
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
             try:
-                data = json.loads(text[start:end + 1])
+                data = json.loads(text[start : end + 1])
             except json.JSONDecodeError:
                 return []
         else:
@@ -873,7 +890,9 @@ def _process_llm_output(
     conflicts: List[Dict[str, Any]] = []
     unresolved_conflicts = 0
     # Traceability: source_conversation points at the raw file (relative to repowiki)
-    raw_rel = str(raw_path.relative_to(output_dir)) if _safe_rel(raw_path, output_dir) else str(raw_path)
+    raw_rel = (
+        str(raw_path.relative_to(output_dir)) if _safe_rel(raw_path, output_dir) else str(raw_path)
+    )
     for note in notes:
         note_type = note.get("note_type") or note_type_override or "general"
         if note_type not in _VALID_NOTE_TYPES:
@@ -890,12 +909,14 @@ def _process_llm_output(
         # 宁缺毋滥，这里是确定性兜底)。
         priority = _parse_priority(note.get("priority"))
         if priority is not None and priority < _PRIORITY_MIN:
-            produced.append({
-                "title": title,
-                "note_type": note_type,
-                "priority": priority,
-                "status": "low_priority",
-            })
+            produced.append(
+                {
+                    "title": title,
+                    "note_type": note_type,
+                    "priority": priority,
+                    "status": "low_priority",
+                }
+            )
             continue
 
         # --- P1: two-stage dedup, second submit — agent adjudication actions.
@@ -903,21 +924,31 @@ def _process_llm_output(
         if action not in _VALID_DEDUP_ACTIONS:
             action = ""
         if action == "skip":
-            produced.append({
-                "title": title, "note_type": note_type, "status": "skipped",
-            })
+            produced.append(
+                {
+                    "title": title,
+                    "note_type": note_type,
+                    "status": "skipped",
+                }
+            )
             continue
         if action in ("update", "merge"):
             applied = _apply_dedup_action(
-                action, str(note.get("target") or ""),
-                title, content, raw_rel, output_dir,
+                action,
+                str(note.get("target") or ""),
+                title,
+                content,
+                raw_rel,
+                output_dir,
             )
-            produced.append({
-                "title": title,
-                "note_type": note_type,
-                "target": applied.get("target"),
-                "status": applied["status"],
-            })
+            produced.append(
+                {
+                    "title": title,
+                    "note_type": note_type,
+                    "target": applied.get("target"),
+                    "status": applied["status"],
+                }
+            )
             continue
 
         # --- T3/P1 de-duplicate against existing notes/ before creating a draft.
@@ -931,19 +962,23 @@ def _process_llm_output(
                 existing_file = existing.get("file", "")
                 if dedup == "merge":
                     _merge_source_into_note(existing_file, raw_rel, output_dir)
-                    produced.append({
-                        "title": title,
-                        "note_type": note_type,
-                        "merged_into": existing_file,
-                        "status": "merged",
-                    })
+                    produced.append(
+                        {
+                            "title": title,
+                            "note_type": note_type,
+                            "merged_into": existing_file,
+                            "status": "merged",
+                        }
+                    )
                 else:  # suppress (default): drop the duplicate draft
-                    produced.append({
-                        "title": title,
-                        "note_type": note_type,
-                        "duplicate_of": existing_file,
-                        "status": "suppressed",
-                    })
+                    produced.append(
+                        {
+                            "title": title,
+                            "note_type": note_type,
+                            "duplicate_of": existing_file,
+                            "status": "suppressed",
+                        }
+                    )
                 continue
             weak = _find_weak_conflicts(title, content, note_type, output_dir)
             if weak:
@@ -962,13 +997,15 @@ def _process_llm_output(
                     continue
                 # Modes A/B: no agent to adjudicate — fall back to suppress
                 # (legacy behaviour), but surface the candidates for auditing.
-                produced.append({
-                    "title": title,
-                    "note_type": note_type,
-                    "status": "suppressed",
-                    "fallback": "auto_suppress",
-                    "candidates": weak,
-                })
+                produced.append(
+                    {
+                        "title": title,
+                        "note_type": note_type,
+                        "status": "suppressed",
+                        "fallback": "auto_suppress",
+                        "candidates": weak,
+                    }
+                )
                 continue
 
         ingest_args = {
@@ -999,34 +1036,28 @@ def _process_llm_output(
         # Add origin: conversation to the draft note frontmatter (traceability)
         if note_file:
             _patch_note_origin(Path(note_file))
-        produced.append({
-            "title": title,
-            "note_type": note_type,
-            "note_file": note_file,
-            "status": result.get("status", "unknown"),
-        })
+        produced.append(
+            {
+                "title": title,
+                "note_type": note_type,
+                "note_file": note_file,
+                "status": result.get("status", "unknown"),
+            }
+        )
 
-    # Task-memory dual track: route the LLM's task-scoped "memories" into the
-    # task's PENDING area (repowiki/tasks/<task_id>/pending-memories.json) so the
-    # host agent can present them to the user for confirmation before they land
-    # in memories.md (confirm_task_memories / reject_task_memories). Only
-    # meaningful when the raw file carries a task_id. Ghost task_id (task deleted
-    # after capture) is tolerated — stage_task_memories reports the task as
-    # missing and we skip silently.
+    # Task-memory dual track: route the LLM's task-scoped "memories" DIRECTLY
+    # into the task's memories.md (timestamp-headed entries, atomic append) —
+    # no confirm gate (ADR-0002: task-scoped progress knowledge carries
+    # bounded noise cost; the gate stays for notes, which enter the shared,
+    # retrieval-indexed knowledge base). Only meaningful when the raw file
+    # carries a task_id. Ghost task_id (task deleted after capture) is
+    # tolerated — the writer skips silently.
     memories = _parse_llm_memories(llm_output) if task_id else []
-    memories_staged = 0
-    memories_pending: List[Dict[str, Any]] = []
+    memories_written = 0
     if task_id and memories:
-        from codewiki.mcp.tools.task_manager import handle_stage_task_memories
-        r = json.loads(handle_stage_task_memories({
-            "output_dir": str(output_dir),
-            "task_id": task_id,
-            "memories": memories,
-            "source_raw": raw_rel,
-        }, store))
-        if r.get("ok"):
-            memories_staged = r.get("staged", 0)
-            memories_pending = r.get("pending", [])
+        from codewiki.mcp.tools.task_manager import append_task_memories_direct
+
+        memories_written = append_task_memories_direct(output_dir, task_id, memories)
 
     # Mark raw as distilled, then apply the retention policy (L0 archive):
     #   drop_raw (argument or frontmatter) -> delete (explicit privacy opt-out)
@@ -1037,6 +1068,7 @@ def _process_llm_output(
     # Weak conflicts still pending keep the raw in raw/ untouched so the second
     # submit can re-read it.
     from codewiki.src.config import RAW_DIR
+
     raw_dir = output_dir / RAW_DIR
     keep_raw = str(meta.get("keep_raw", "false")).lower() == "true"
     if not drop_raw:
@@ -1045,7 +1077,7 @@ def _process_llm_output(
     archived_to: Optional[str] = None
     if unresolved_conflicts == 0:
         _mark_distilled(raw_path)
-        produced_knowledge = bool(produced) or bool(memories_staged)
+        produced_knowledge = bool(produced) or bool(memories_written)
         if drop_raw:
             try:
                 raw_path.unlink()
@@ -1057,9 +1089,7 @@ def _process_llm_output(
             # indexed; reached via note source_ref (设计方案 §9 链接优先)。
             archived_to = _archive_raw(raw_path, output_dir)
             if archived_to:
-                _rewrite_source_refs_after_archive(
-                    output_dir, raw_path.name, archived_to
-                )
+                _rewrite_source_refs_after_archive(output_dir, raw_path.name, archived_to)
         else:
             # no_knowledge noise: clean up so it doesn't linger.
             try:
@@ -1080,6 +1110,7 @@ def _process_llm_output(
     if produced:
         try:
             from codewiki.mcp.tools.wiki_search import build_full_index
+
             build_full_index(output_dir)
         except Exception as _e:  # indexing is best-effort; never block distillation
             logger.warning("search index rebuild failed after distill: %s", _e)
@@ -1087,15 +1118,14 @@ def _process_llm_output(
     if unresolved_conflicts:
         file_status = "conflicts_pending"
     else:
-        file_status = "completed" if (produced or memories_staged) else "no_knowledge"
+        file_status = "completed" if (produced or memories_written) else "no_knowledge"
     ret: Dict[str, Any] = {
         "raw_path": str(raw_path),
         "status": file_status,
         "notes_created": len(produced),
         "notes": produced,
         "distilled": produced,
-        "memories_staged": memories_staged,
-        "memories_pending": memories_pending,
+        "memories_written": memories_written,
         "task_id": task_id or None,
         "deleted_raw": deleted,
         "archived_raw": archived_to,
@@ -1138,17 +1168,20 @@ async def _distill_one(
         return {"raw_path": str(raw_path), "status": "llm_error", "error": str(e)}
 
     return _process_llm_output(
-        raw_path, llm_output, output_dir, store,
-        note_type_override, related_modules_override, dedup,
+        raw_path,
+        llm_output,
+        output_dir,
+        store,
+        note_type_override,
+        related_modules_override,
+        dedup,
     )
 
 
 def _mark_distilled(raw_path: Path) -> None:
     try:
         text = raw_path.read_text(encoding="utf-8")
-        new_text = re.sub(
-            r"^status:\s*\w+", "status: distilled", text, count=1, flags=re.MULTILINE
-        )
+        new_text = re.sub(r"^status:\s*\w+", "status: distilled", text, count=1, flags=re.MULTILINE)
         if new_text == text and "status:" not in text:
             new_text = text.replace("---", "---\nstatus: distilled", 1)
         raw_path.write_text(new_text, encoding="utf-8")
@@ -1219,6 +1252,7 @@ def _archive_raw(raw_path: Path, output_dir: Path) -> Optional[str]:
         if dest.exists():
             # Defensive: same name already archived (e.g. re-captured slug).
             import hashlib
+
             digest = hashlib.sha1(
                 (raw_path.name + str(raw_path.stat().st_size)).encode()
             ).hexdigest()[:6]
@@ -1230,9 +1264,7 @@ def _archive_raw(raw_path: Path, output_dir: Path) -> Optional[str]:
         return None
 
 
-def _rewrite_source_refs_after_archive(
-    output_dir: Path, raw_name: str, archive_rel: str
-) -> int:
+def _rewrite_source_refs_after_archive(output_dir: Path, raw_name: str, archive_rel: str) -> int:
     """Repoint note source_ref from raw/<name> to the archived location.
 
     Scans notes/ (bounded) rather than only this run's produced files, so
@@ -1301,21 +1333,29 @@ def _background_run(
     try:
         llm = _default_llm_from_env()
     except Exception as e:
-        _write_job_status(output_dir, job_id, {
-            "status": "error",
-            "error": f"Failed to build LLM from env: {e}",
-            "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        })
+        _write_job_status(
+            output_dir,
+            job_id,
+            {
+                "status": "error",
+                "error": f"Failed to build LLM from env: {e}",
+                "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+        )
         return
 
     async def _run() -> List[Dict[str, Any]]:
         results = []
         for p in raw_paths:
-            _write_job_status(output_dir, job_id, {
-                "status": "processing",
-                "current": p.name,
-                "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            })
+            _write_job_status(
+                output_dir,
+                job_id,
+                {
+                    "status": "processing",
+                    "current": p.name,
+                    "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                },
+            )
             res = await _distill_one(
                 p, llm, output_dir, store, note_type_override, related_modules_override
             )
@@ -1324,18 +1364,26 @@ def _background_run(
 
     try:
         results = asyncio.run(_run())
-        _write_job_status(output_dir, job_id, {
-            "status": "completed",
-            "results": results,
-            "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        })
+        _write_job_status(
+            output_dir,
+            job_id,
+            {
+                "status": "completed",
+                "results": results,
+                "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+        )
     except Exception as e:
         logger.exception("distill_conversation background job %s failed", job_id)
-        _write_job_status(output_dir, job_id, {
-            "status": "error",
-            "error": str(e),
-            "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        })
+        _write_job_status(
+            output_dir,
+            job_id,
+            {
+                "status": "error",
+                "error": str(e),
+                "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -1383,6 +1431,7 @@ def handle_distill_conversation(
     # Resolve target raw files
     single = _resolve_raw_path(arguments, output_dir)
     from codewiki.src.config import RAW_DIR
+
     raw_dir = output_dir / RAW_DIR
     targets = [single] if single else _iter_raw_files(raw_dir)
 
@@ -1396,28 +1445,34 @@ def handle_distill_conversation(
     task_filter = str(arguments.get("task_id") or "").strip()
     if task_filter:
         from codewiki.mcp.tools.capture_conversation import pending_raws_by_task
+
         allowed = {
             str((raw_dir / e["relpath"]).resolve())
             for e in pending_raws_by_task(output_dir).get(task_filter, [])
         }
         targets = [t for t in targets if str(t.resolve()) in allowed]
         if not targets:
-            return json.dumps({
-                "status": "noop",
-                "task_id": task_filter,
-                "message": (
-                    f"No pending (un-distilled) conversations bound to task "
-                    f"'{task_filter}'. Nothing to distill."
-                ),
-                "distilled": [],
-            }, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "status": "noop",
+                    "task_id": task_filter,
+                    "message": (
+                        f"No pending (un-distilled) conversations bound to task "
+                        f"'{task_filter}'. Nothing to distill."
+                    ),
+                    "distilled": [],
+                },
+                ensure_ascii=False,
+            )
 
     if not targets:
-        return json.dumps({
-            "status": "noop",
-            "message": "No pending raw conversations to distill.",
-            "distilled": [],
-        })
+        return json.dumps(
+            {
+                "status": "noop",
+                "message": "No pending raw conversations to distill.",
+                "distilled": [],
+            }
+        )
 
     # Mode C (agent-driven): the host agent IS the LLM. Over MCP JSON the
     # caller cannot inject a callable (Mode A) and usually has no MAIN_MODEL
@@ -1425,7 +1480,9 @@ def handle_distill_conversation(
     # submit runs the deterministic half on the agent's extraction results.
     mode = str(arguments.get("mode") or "auto").lower()
     if mode not in ("auto", "prepare", "submit"):
-        return json.dumps({"error": f"Invalid mode '{mode}'. Expected one of: auto, prepare, submit."})
+        return json.dumps(
+            {"error": f"Invalid mode '{mode}'. Expected one of: auto, prepare, submit."}
+        )
 
     if mode == "prepare":
         preview_chars = int(arguments.get("preview_chars") or _DEFAULT_PREVIEW_CHARS)
@@ -1445,38 +1502,45 @@ def handle_distill_conversation(
             related_notes: List[Dict[str, Any]] = []
             try:
                 related_notes = [
-                    {"file": h.get("file", ""), "title": h.get("title", ""),
-                     "score": h.get("score", 0)}
+                    {
+                        "file": h.get("file", ""),
+                        "title": h.get("title", ""),
+                        "score": h.get("score", 0),
+                    }
                     for h in _bm25_recall_candidates(
                         p.stem, built["transcript"][:2000], output_dir
                     )[:3]
                 ]
             except Exception as e:  # neighbour recall must never block prepare
                 logger.debug("related_notes recall skipped: %s", e)
-            captures.append({
-                "conversation_id": p.stem,
-                "path": str(p.relative_to(output_dir)) if _safe_rel(p, output_dir) else str(p),
-                # file-side-channel：正文走磁盘，这里只给绝对路径。
-                "full_path": str(p.resolve()),
-                "transcript_chars": len(built["transcript"]),
-                "captured_at": meta.get("captured_at", ""),
-                "turn_count": meta.get("turn_count", ""),
-                "link_to": _unquote_fm(meta.get("link_to", "")),
-                "task_id": _unquote_fm(meta.get("task_id", "")),
-                # K-line: friction score for distillation prioritisation. The
-                # listing itself is already friction-DESC via _iter_raw_files.
-                "friction_score": friction_score,
-                # V6: 提取前即可见的库内近邻（无则空列表）。
-                **({"related_notes": related_notes} if related_notes else {}),
-                # 短预览仅用于初筛（这条对话有没有可蒸馏的知识），不是完整正文。
-                "preview": built["transcript"][:preview_chars],
-            })
+            captures.append(
+                {
+                    "conversation_id": p.stem,
+                    "path": str(p.relative_to(output_dir)) if _safe_rel(p, output_dir) else str(p),
+                    # file-side-channel：正文走磁盘，这里只给绝对路径。
+                    "full_path": str(p.resolve()),
+                    "transcript_chars": len(built["transcript"]),
+                    "captured_at": meta.get("captured_at", ""),
+                    "turn_count": meta.get("turn_count", ""),
+                    "link_to": _unquote_fm(meta.get("link_to", "")),
+                    "task_id": _unquote_fm(meta.get("task_id", "")),
+                    # K-line: friction score for distillation prioritisation. The
+                    # listing itself is already friction-DESC via _iter_raw_files.
+                    "friction_score": friction_score,
+                    # V6: 提取前即可见的库内近邻（无则空列表）。
+                    **({"related_notes": related_notes} if related_notes else {}),
+                    # 短预览仅用于初筛（这条对话有没有可蒸馏的知识），不是完整正文。
+                    "preview": built["transcript"][:preview_chars],
+                }
+            )
         if not captures:
-            return json.dumps({
-                "status": "noop",
-                "message": "No readable pending conversations.",
-                "captures": [],
-            })
+            return json.dumps(
+                {
+                    "status": "noop",
+                    "message": "No readable pending conversations.",
+                    "captures": [],
+                }
+            )
         ret: Dict[str, Any] = {
             "status": "prepared",
             "mode": "prepare",
@@ -1490,7 +1554,7 @@ def handle_distill_conversation(
                 "preview is only a taster for deciding whether to skip); "
                 "(2) apply system_prompt to it and produce ONE JSON object shaped "
                 '{"notes": [{title, note_type, related_modules, tags, content, '
-                "priority?, scene?}], \"memories\": [string]} — priority is 0-100 "
+                'priority?, scene?}], "memories": [string]} — priority is 0-100 '
                 "(notes below 70 are dropped by the tool, so only emit notes worth "
                 "keeping); scene is a short work-context label; "
                 "(3) immediately persist it with mode='submit' and distilled="
@@ -1516,23 +1580,27 @@ def handle_distill_conversation(
     if mode == "submit":
         distilled_map = arguments.get("distilled")
         if not isinstance(distilled_map, dict) or not distilled_map:
-            return json.dumps({
-                "error": (
-                    "mode='submit' requires 'distilled': a mapping of conversation_id "
-                    '(e.g. "conv-20260808T113515Z") to the extraction JSON shaped '
-                    '{"notes": [...]}.'
-                ),
-            })
+            return json.dumps(
+                {
+                    "error": (
+                        "mode='submit' requires 'distilled': a mapping of conversation_id "
+                        '(e.g. "conv-20260808T113515Z") to the extraction JSON shaped '
+                        '{"notes": [...]}.'
+                    ),
+                }
+            )
         results: List[Dict[str, Any]] = []
         for p in targets:
             key = p.stem  # e.g. "conv-20260808T113515Z"
-            bare = key[len("conv-"):] if key.startswith("conv-") else key
+            bare = key[len("conv-") :] if key.startswith("conv-") else key
             llm_output = distilled_map.get(key)
             if llm_output is None:
                 llm_output = distilled_map.get(bare)
             if llm_output is None:
                 # No extraction result for this capture: leave the raw file untouched.
-                results.append({"raw_path": str(p), "conversation_id": key, "status": "missing_result"})
+                results.append(
+                    {"raw_path": str(p), "conversation_id": key, "status": "missing_result"}
+                )
                 continue
             if not isinstance(llm_output, str):
                 llm_output = json.dumps(llm_output, ensure_ascii=False)
@@ -1540,7 +1608,12 @@ def handle_distill_conversation(
             # dedup_action 裁决（agent 即 LLM，精判零成本）；raw 文件在全部
             # 裁决完成前保留，不标记 distilled。
             res = _process_llm_output(
-                p, llm_output, output_dir, store, note_type_ov, related_ov,
+                p,
+                llm_output,
+                output_dir,
+                store,
+                note_type_ov,
+                related_ov,
                 conflict_policy="hold",
                 drop_raw=bool(arguments.get("drop_raw", False)),
             )
@@ -1548,46 +1621,60 @@ def handle_distill_conversation(
             results.append(res)
         n_notes = sum(len(r.get("notes", [])) for r in results)
         n_conflicts = sum(len(r.get("conflicts", [])) for r in results)
-        return json.dumps({
-            "status": "completed",
-            "mode": "submit",
-            "distilled": results,
-            "raw_processed": len(results),
-            "notes_created": n_notes,
-            "conflicts_pending": n_conflicts,
-        }, indent=2, ensure_ascii=False)
+        return json.dumps(
+            {
+                "status": "completed",
+                "mode": "submit",
+                "distilled": results,
+                "raw_processed": len(results),
+                "notes_created": n_notes,
+                "conflicts_pending": n_conflicts,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
 
     # Mode B: background
     if arguments.get("run_in_background") and not arguments.get("llm"):
         job_id = "distill-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        _write_job_status(output_dir, job_id, {
-            "status": "queued",
-            "targets": [p.name for p in targets],
-            "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        })
+        _write_job_status(
+            output_dir,
+            job_id,
+            {
+                "status": "queued",
+                "targets": [p.name for p in targets],
+                "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+        )
         t = threading.Thread(
             target=_background_run,
             args=(targets, output_dir, store, job_id, note_type_ov, related_ov),
             daemon=True,
         )
         t.start()
-        return json.dumps({
-            "status": "queued",
-            "job_id": job_id,
-            "targets": len(targets),
-            "poll": "Read repowiki/distill-jobs.json for progress, then confirm_note each draft.",
-        }, indent=2, ensure_ascii=False)
+        return json.dumps(
+            {
+                "status": "queued",
+                "job_id": job_id,
+                "targets": len(targets),
+                "poll": "Read repowiki/distill-jobs.json for progress, then confirm_note each draft.",
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
 
     # Mode A: direct (llm injected)
     llm = arguments.get("llm")
     if not callable(llm):
-        return json.dumps({
-            "error": (
-                "distill_conversation is stateless and requires an LLM. "
-                "Pass 'llm' (async callable) for direct mode, or "
-                "'run_in_background=true' to build one from MAIN_MODEL env."
-            )
-        })
+        return json.dumps(
+            {
+                "error": (
+                    "distill_conversation is stateless and requires an LLM. "
+                    "Pass 'llm' (async callable) for direct mode, or "
+                    "'run_in_background=true' to build one from MAIN_MODEL env."
+                )
+            }
+        )
 
     import asyncio
 
@@ -1606,15 +1693,20 @@ def handle_distill_conversation(
     # If we're already inside a running loop (unlikely in thread dispatch), run via thread
     if loop.is_running():
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor(1) as ex:
             results = ex.submit(lambda: asyncio.run(_run_all())).result()
     else:
         results = loop.run_until_complete(_run_all())
 
     n_notes = sum(len(r.get("notes", [])) for r in results)
-    return json.dumps({
-        "status": "completed",
-        "distilled": results,
-        "raw_processed": len(results),
-        "notes_created": n_notes,
-    }, indent=2, ensure_ascii=False)
+    return json.dumps(
+        {
+            "status": "completed",
+            "distilled": results,
+            "raw_processed": len(results),
+            "notes_created": n_notes,
+        },
+        indent=2,
+        ensure_ascii=False,
+    )
