@@ -674,6 +674,16 @@ _register(
                     "enum": ["error", "warning", "info"],
                     "description": "Minimum severity to report (default: info)",
                 },
+                "fix": {
+                    "type": "boolean",
+                    "description": (
+                        "When true, self-heal a stale wiki index: if the only stale_refs "
+                        "are references inside wiki/index.md to removed files, rebuild "
+                        "the index BEFORE running the checks, so every check (stale_refs, "
+                        "broken_links, ...) sees the rebuilt index. Content files are "
+                        "never modified. Default: false."
+                    ),
+                },
             },
         },
     ),

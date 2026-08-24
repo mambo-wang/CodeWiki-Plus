@@ -390,11 +390,11 @@ def _rebuild_index(raw_dir: Path) -> Dict[str, Any]:
             text = existing.read_text(encoding="utf-8")
         except OSError:
             continue
-        ch = _peek_frontmatter(text, "content_hash")
-        ss = _peek_frontmatter(text, "source_session")
-        st = _peek_frontmatter(text, "status") or "pending"
-        tk = _peek_frontmatter(text, "task_id")
-        ca = _peek_frontmatter(text, "captured_at")
+        ch = _unq(_peek_frontmatter(text, "content_hash"))
+        ss = _unq(_peek_frontmatter(text, "source_session"))
+        st = _unq(_peek_frontmatter(text, "status") or "pending")
+        tk = _unq(_peek_frontmatter(text, "task_id"))
+        ca = _unq(_peek_frontmatter(text, "captured_at"))
         if not ch:
             continue
         files.append({
@@ -416,6 +416,12 @@ def _peek_frontmatter(text: str, key: str) -> str:
         if line.startswith(marker):
             return line[len(marker):].strip()
     return ""
+
+
+def _unq(v: str) -> str:
+    """Strip surrounding single/double quotes from a frontmatter value."""
+    v = v.strip()
+    return v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v
 
 
 def pending_raws_by_task(output_dir: Path) -> Dict[str, List[Dict[str, str]]]:
@@ -452,10 +458,6 @@ def pending_raws_by_task(output_dir: Path) -> Dict[str, List[Dict[str, str]]]:
             if isinstance(e, dict) and e.get("relpath"):
                 indexed[str(e["relpath"])] = e
 
-    def _unq(v: str) -> str:
-        v = v.strip()
-        return v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v
-
     by_task: Dict[str, List[Dict[str, str]]] = {}
     try:
         candidates = sorted(raw_dir.glob("conv-*.md"))
@@ -466,10 +468,10 @@ def pending_raws_by_task(output_dir: Path) -> Dict[str, List[Dict[str, str]]]:
             continue
         entry = indexed.get(p.name)
         if entry is not None:
-            if str(entry.get("status") or "pending") == "distilled":
+            if _unq(str(entry.get("status") or "pending")) == "distilled":
                 continue
-            task_id = str(entry.get("task_id") or "")
-            captured_at = str(entry.get("captured_at") or "")
+            task_id = _unq(str(entry.get("task_id") or ""))
+            captured_at = _unq(str(entry.get("captured_at") or ""))
         else:
             # Not indexed — peek frontmatter directly.
             try:
