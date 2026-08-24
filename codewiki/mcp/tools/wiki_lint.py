@@ -1686,6 +1686,13 @@ def handle_lint_wiki(
     else:
         checks = [c for c in checks if c in _ALL_CHECKS]
 
+    # ``fix=true`` lets lint self-heal index staleness: when the only
+    # stale_refs point at the wiki index (i.e. index.md references files that
+    # have been removed), rebuild the index BEFORE the checks run, so no
+    # check reports issues the rebuild already resolved. Content files are
+    # never modified -- the fix only regenerates the index.
+    fix = bool(arguments.get("fix", False))
+
     severity_filter = arguments.get("severity_filter", "info")
     min_severity = _SEVERITY_ORDER.get(severity_filter, 2)
 
@@ -1701,6 +1708,33 @@ def handle_lint_wiki(
         module_tree = _load_module_tree(output_dir)
 
     all_issues: List[Dict[str, Any]] = []
+
+    # Self-heal stale index references when fix=true.  Rebuild the index only
+    # when every stale_ref points at wiki/index.md (a stale generated index),
+    # leaving content files untouched.  This runs BEFORE the checks so every
+    # check that reads wiki files (stale_refs, broken_links, orphan_pages, ...)
+    # sees the rebuilt index and does not report issues that the rebuild
+    # already resolved.  Non-fatal: failures leave the original issues in
+    # place (the checks below simply run against the old state).
+    if fix and output_dir and "stale_refs" in checks:
+        try:
+            pre_stale = _check_stale_refs(output_dir, module_tree)
+            if pre_stale and all(
+                Path(str(i.get("file", ""))).as_posix().endswith("wiki/index.md")
+                for i in pre_stale
+            ):
+                from codewiki.mcp.tools.wiki_index import rebuild_index
+                rebuild_index(output_dir)
+                module_tree = _load_module_tree(output_dir)
+        except Exception as exc:  # keep lint non-fatal
+            all_issues.append({
+                "check": "stale_refs",
+                "severity": "error",
+                "message": f"fix=true rebuild failed: {exc}",
+                "file": "wiki/index.md",
+                "line": 1,
+                "suggestion": "Run the rebuild manually and re-lint.",
+            })
 
     # Run selected checks
     if "stale_refs" in checks and output_dir:
