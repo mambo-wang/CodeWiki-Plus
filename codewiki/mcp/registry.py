@@ -628,6 +628,94 @@ _register(
 
 _register(
     Tool(
+        name="analyze_changes",
+        description=(
+            "Git-diff driven blast-radius analysis: answer 'what does my change affect?' "
+            "after editing code. Two input modes: since=<commit range> (e.g. 'HEAD~1' for "
+            "git diff <since>..HEAD) or worktree=true (uncommitted staged + unstaged + "
+            "untracked changes, default). The diff is parsed at LINE level and matched "
+            "against component line spans, so the analysis starts from the exact functions "
+            "whose lines changed (not whole files). Then runs transitive impact "
+            "(direction='depended_by' answers who calls the changed functions, transitively) "
+            "and suggests regression test files by naming convention. "
+            "Auto-loads from SQLite cache — no prior analyze_repo needed in current session. "
+            "Use analyze_impact for pre-change assessment on a specific function; use "
+            "analyze_changes for post-change assessment on a diff."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path. Auto-loads from SQLite cache if a previous analysis exists.",
+                },
+                "since": {
+                    "type": "string",
+                    "description": "Committed range: git diff <since>..HEAD (e.g. 'HEAD~1', or a commit hash). Mutually exclusive with worktree (takes precedence).",
+                },
+                "worktree": {
+                    "type": "boolean",
+                    "description": "Analyze uncommitted changes (staged + unstaged + untracked). Default: true.",
+                    "default": True,
+                },
+                "direction": {
+                    "type": "string",
+                    "enum": ["depended_by", "depends_on", "both"],
+                    "description": "Traversal direction (default: depended_by)",
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "Maximum BFS depth in hops (default: 10, max: 50)",
+                },
+            },
+            "required": ["repo_path"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.change_analysis:handle_analyze_changes",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="watch_repo",
+        description=(
+            "Start/stop/query the background graph watcher for a repository. "
+            "Keeps the dependency graph in sync with disk without manual "
+            "analyze_repo re-runs: a background thread polls for file changes "
+            "(fingerprint-based, idempotent) and incrementally re-parses only "
+            "the changed files, then swaps the session's component store to the "
+            "refreshed graph. Query tools (analyze_impact etc.) attach a "
+            "graph_stale flag while watch is active. Saves within one poll "
+            "interval are coalesced into a single refresh batch (debounce). "
+            "On an unexpected failure the watcher degrades gracefully to manual "
+            "mode and logs the error."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path. Auto-loads from SQLite cache if a previous analysis exists.",
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "stop", "status"],
+                    "description": "start (default) launches the background poller; stop halts it; status reports state.",
+                },
+                "interval": {
+                    "type": "number",
+                    "description": "Poll interval in seconds (default 2.0, minimum 1.0). Changes within one interval are merged into a single refresh.",
+                },
+            },
+            "required": ["repo_path"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.watch:handle_watch_repo",
+    mode="thread",
+)
+
+_register(
+    Tool(
         name="lint_wiki",
         description=(
             "Check documentation-code consistency. Works with or without an active session. "

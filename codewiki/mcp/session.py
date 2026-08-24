@@ -41,6 +41,12 @@ class SessionState:
     cache: Optional[AnalysisCache] = None
     analyzed_commit: Optional[str] = None
     docs_written: int = 0
+    # Watch-mode state: background poller that keeps the graph in sync with
+    # disk (set by watch_repo start; None when watch is not active).
+    watcher: Optional[Any] = None
+    # Options the session was analyzed with (include/exclude patterns etc.) so
+    # watch-mode incremental re-parses apply the same filtering.
+    analyze_options: Dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
     last_accessed: float = field(default_factory=time.time)
 

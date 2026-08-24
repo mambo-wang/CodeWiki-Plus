@@ -121,3 +121,42 @@ tests/test_task_manager.py 新增 2 个测试（test_capture_deletes_binding_aft
 ### 2026-08-24 23:17
 
 同步更新 AGENTS.md 任务记忆段落与 codewiki/mcp/prompts.py 的 task-workflow 提示词，说明绑定生命周期语义。
+### 2026-08-24 22:33
+
+用户发起代码图谱工具对标调研（CodeGraph/Grapify/CBM），结论：技术底座同源（tree-sitter 10 语言 + SQLite + transitive_impact），影响半径能力已有（analyze_impact 比 codegraph impact 更细）。确认 3 项真实差距并整理为 backlog：①P1 文件监听实时增量同步（watch 模式）②P1 git diff 驱动变更影响闭环（analyze_changes + 测试映射）③P2 代码符号全文/语义检索（FTS5 BM25，可选 embedding）。另含 2 项 P3 可选（死代码扫描、cytoscape 交互可视化）。已落盘 docs/代码图谱能力增强-Backlog.md（沿用 OKF Backlog 文档格式：背景/问题/方案/验收/影响面/优先级）。待用户决定实施顺序。
+
+### 2026-08-24 22:49
+
+需求细化：用户明确两个目标——①修改前按函数查上下游影响（analyze_impact 已覆盖，依赖图谱新鲜度=watch 模式）；②修改后按 commit 范围或工作区未提交变更分析影响。②的精度要求从文件级升级为函数级：git diff 行级解析（--unified=0 取变更行号）→ 组件 start_line/end_line 区间匹配定位变更函数（删除行回退旧版本解析）。backlog 第 2 项已拆分子项②（行级 diff 解析）+子项③（analyze_changes 工具，输入 since 或 worktree=true，含 untracked），验收标准同步更新。复用点：GitPython 已依赖、transitive_impact/resolve_files_to_components 已有。
+
+### 2026-08-24 23:24
+
+## analyze_changes 工具实现完成（Backlog 第 2 项子项②+③）
+
+- 新增 codewiki/mcp/tools/change_analysis.py：`parse_unified_diff`（git diff --unified=0 行级解析，删除行 anchor 映射）、`collect_git_changes`（since=commit 范围 / worktree=暂存+未暂存+untracked）、`locate_changed_components`（变更行号→组件区间匹配）、`suggest_tests`（命名约定+文件系统检查）、`handle_analyze_changes`（transitive_impact 计算影响半径）
+- registry.py 已注册 analyze_changes 工具（direction/max_depth/since/worktree 参数）
+- tests/test_change_analysis.py 14 个测试全部通过（单元+集成）
+
+## 踩坑记录（测试环境）
+
+1. GitPython 3.1.50 Windows 上 `repo.index.add(".")` 会把 .git 内部文件加进 index 且路径带 ./ 前缀 → 测试 fixture 必须用显式文件列表 add
+2. `Path.relative_to` 相同路径返回 Path('.')，`_repo_subdir` 需归一化为 ''，否则子目录过滤逻辑误杀所有路径（untracked 收集为空）
+3. `ls-files --others --exclude-standard` 比 `Repo.untracked_files` 可靠（后者 Windows 上会返回已跟踪文件）
+
+## 下一步
+
+- Backlog 第 1 项：watch 模式（文件变更监听→增量影响分析）
+- Backlog 第 2 项验收：真实仓库手动验证 analyze_changes（用本仓库的 worktree 变更试跑）
+
+### 2026-08-25 00:26
+
+## 2026-08-25：Backlog 第 1 项 watch 模式完成（24 测试全过）
+
+- 新增 `codewiki/mcp/tools/watch.py`：RepoWatcher 后台轮询线程（纯 stdlib threading.Event.wait，间隔即去抖窗口，默认 2s、最小 1s）；`_incremental_refresh` 复用 handle_analyze_repo 增量管线（remove_by_file → skip_file_paths → builder 只解析变更文件 → 合并缓存 → 重算 leaf → batch_insert incremental）；`handle_watch_repo` MCP 工具（action=start/stop/status）；`attach_graph_stale` 供 impact/crosslink/component_list 附新鲜度提示（degraded/stopped/synced 三态）
+- cache.py：_SRC_EXTS 补全 .pyx/.go/.php；新增 remove_file_fingerprints；**remove_by_file 增加 relative_path 列匹配**（相对路径删不掉旧行 → 已删文件组件被 get_components_by_files 读回残留，本次修复）
+- analysis.py：指纹 all_files 改用 m.relative_path（原 m.file_path 绝对路径与 _fp_detect 的 os.walk 相对路径键不一致 → 所有文件每次轮询都报变更）；session 持久化 analyze_options（include/exclude patterns）供 watch 复用
+- 测试：tests/conftest.py 共享 analyzed_repo fixture；tests/test_watch.py 10 个用例（修改/新增/删除、幂等、降级、生命周期、graph_stale）
+
+**关键踩坑（后续实现注意）**：watch 必须用 cache._fp_detect()（幂等），不能 detect_changes()——git 检测器对未提交修改每次轮询都报变更 → 无限刷新循环。
+
+下一步：Backlog 第 3 项 P2 符号检索（FTS5）需用户确认后继续。

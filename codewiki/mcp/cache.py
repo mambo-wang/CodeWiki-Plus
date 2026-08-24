@@ -1047,6 +1047,18 @@ class AnalysisCache:
                     (fp_norm,),
                 ).fetchall()
             ]
+        if not ids:
+            # Relative paths (detect_changes / _fp_detect output, watch mode)
+            # never match the absolute file_path column — compare against
+            # relative_path as well, else stale rows survive and get merged
+            # back into the graph (deleted files never disappear).
+            ids = [
+                r["id"]
+                for r in self.conn.execute(
+                    "SELECT id FROM components WHERE replace(relative_path, '\\', '/')=?",
+                    (fp_norm,),
+                ).fetchall()
+            ]
         if not ids and "/" in fp_norm:
             # Fallback: suffix match — covers relative paths from detect_changes
             # and monorepo subpath cases.  Normalise backslashes in the DB value.
@@ -1112,6 +1124,22 @@ class AnalysisCache:
         if rows: self.conn.executemany(
             "INSERT OR REPLACE INTO file_fingerprints VALUES(?,?,?,?,?)", rows); self.conn.commit()
 
+    def remove_file_fingerprints(self, paths: List[str]):
+        """Drop fingerprint rows for files that no longer exist on disk.
+
+        Keeps ``_fp_detect`` idempotent for watch-mode polling: without this,
+        a deleted file would be reported as changed on every poll.
+        """
+        paths = [p for p in paths if p]
+        if not paths:
+            return
+        for chunk in _sql_chunks(paths):
+            ph = ",".join("?" * len(chunk))
+            self.conn.execute(
+                f"DELETE FROM file_fingerprints WHERE file_path IN ({ph})", chunk
+            )
+        self.conn.commit()
+
     def get_all_fingerprints(self) -> Dict[str, Dict[str, Any]]:
         return {r["file_path"]: dict(mtime=r["mtime"], size=r["size"],
                 content_hash=r["content_hash"], commit_id=r["commit_id"])
@@ -1153,8 +1181,8 @@ class AnalysisCache:
 
     # -- git change detection --
 
-    _SRC_EXTS = {".py", ".java", ".js", ".jsx", ".ts", ".tsx", ".c", ".h",
-                 ".cpp", ".hpp", ".cc", ".hh", ".cs", ".kt", ".kts"}
+    _SRC_EXTS = {".py", ".pyx", ".java", ".js", ".jsx", ".ts", ".tsx", ".c", ".h",
+                 ".cpp", ".hpp", ".cc", ".hh", ".cs", ".kt", ".kts", ".go", ".php"}
 
     def detect_changes(self) -> Optional[Dict[str, Any]]:
         ch = self._git_detect(); return ch if ch is not None else self._fp_detect()
