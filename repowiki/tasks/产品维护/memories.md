@@ -144,3 +144,11 @@ repowiki/wiki/doctrine.md 已 confirm 为 stable（human:wangbao，2026-08-24T16
 ### 2026-08-25 00:37
 
 后续注意 aggregation.notes_since_last_doctrine，达到阈值 25 时需运行 refresh_doctrine。
+### 2026-08-25 00:40
+
+## 2026-08-25：代码图谱 Backlog 收尾——已提交推送 develop
+
+- 用户决定不再继续 Backlog 第 3 项（P2 符号检索 FTS5）。
+- 本地提交 `d5293df` 已推送 develop：analyze_changes + watch_repo 全部落地（12 文件 +1407 行）。
+- 拉取远程 4 提交（含 ADR-0002 任务记忆直写退役 pending 闸门）：registry.py 自动合并无冲突；memories.md 两侧均追加导致冲突，已手动解决（两侧内容全部保留，append-only 语义）。
+- 经验：SearchReplace 工具无法处理含 git 冲突标记（<<<<<<<）的文件，且 CRLF 行尾文件需用 \r\n 匹配；git 冲突文件直接用 python 脚本清标记更可靠。PowerShell 下 git rebase --continue 卡 vim → 用 $env:GIT_EDITOR='true' 跳过。
