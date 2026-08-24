@@ -10,4 +10,3 @@ __author__ = "CodeWiki Contributors"
 __license__ = "MIT"
 
 __all__ = ["__version__"]
-

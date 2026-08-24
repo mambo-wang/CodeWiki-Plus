@@ -125,6 +125,13 @@ disallow_incomplete_defs = false
 line-length = 100
 target-version = "py312"
 
+[tool.ruff.lint]
+# Pin the rule set to the classic ruff default so lint behavior stays stable
+# across ruff versions (0.16 broadened its default to include UP/BLE/S/...,
+# which most of the existing codebase does not satisfy — see CI failures on
+# c22fc26/99e4c44). Widen deliberately, not by upgrade accident.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
