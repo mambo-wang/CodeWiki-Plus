@@ -6,13 +6,13 @@ aliases:
 - 知识笔记索引
 ---
 
-<!-- 自动生成于 2026-08-24T23:38:48+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-25T00:39:17+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
 ## 入门指引
 
-* [Team Operating Doctrine](doctrine.md) - > **Operating Thesis**: 工具只做确定性簿记，推理与决策永远在调用方 agent 与用户手里；一切进入知识库的内容必须经过显式确认闸门。
+* [Team Operating Doctrine](doctrine.md) - type: Doctrine
 * [阅读指南](reading-guide.md) - > 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。
 
 ## 模块文档
@@ -75,6 +75,11 @@ aliases:
 
 ## 知识笔记
 
+* [doctrine 不会自动注入 Agent 上下文：唯一通道是 query_wiki(mode='overview')](../notes/2026-08-25-doctrine-不会自动注入-agent-上下文唯一通道是-query-wikimodeoverview.md) - architecture (architecture, 2026-08-25)
+* [MCP 参数长度受限时蒸馏 submit 走文件侧通道：Python 脚本直接调 handle_distill_conversation](../notes/2026-08-25-mcp-参数长度受限时蒸馏-submit-走文件侧通道python-脚本直接调-handle-distill-conve.md) - workaround (workaround, 2026-08-25)
+* [移除 doctrine 备份机制：.backup 冗余且备份文件会污染检索索引](../notes/2026-08-25-移除-doctrine-备份机制backup-冗余且备份文件会污染检索索引.md) - decision (decision, 2026-08-25)
+* [聚合/doctrine 阈值等运行参数通过 repowiki/schema.yaml conventions.aggregation 覆盖，不改 py 源码默认值](../notes/2026-08-25-聚合doctrine-阈值等运行参数通过-repowikischemayaml-conventionsaggregati.md) - decision (decision, 2026-08-25)
+* [蒸馏时无知识密度的对话也提交空结果，否则 raw 无法归档清理](../notes/2026-08-25-蒸馏时无知识密度的对话也提交空结果否则-raw-无法归档清理.md) - architecture (architecture, 2026-08-25)
 * [Agent 表述必须诚实区分「已知事实」与「推测」，不能把假设当依据](../notes/2026-08-24-agent-表述必须诚实区分已知事实与推测不能把假设当依据.md) - lesson (lesson, 2026-08-24)
 * [frontmatter deep module 重构四决策：路由收进 module、原地扩展、字节级兼容、先 reader 后 writer](../notes/2026-08-24-frontmatter-deep-module-重构四决策路由收进-module原地扩展字节级兼容先-reader-后.md) - decision (decision, 2026-08-24)
 * [GitHub API 直连被阻时用 PowerShell Invoke-RestMethod 走系统网络栈，token 从 git 凭据管理器提取](../notes/2026-08-24-github-api-直连被阻时用-powershell-invoke-restmethod-走系统网络栈token-从.md) - workaround (workaround, 2026-08-24)

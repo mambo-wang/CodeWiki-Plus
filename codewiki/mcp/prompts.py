@@ -1028,7 +1028,7 @@ def _prompt_distill_conversations(args: dict[str, str]) -> str:
 
 没有合格内容就返回 `{{"notes": [], "memories": []}}`。
 
-3. 立即调用 distill_conversation(mode="submit", repo_path="{repo_path}", conversation_id="<该条id>", distilled={{"<conversation_id>": <第2步产出的JSON>}}) 落盘这一条
+3. 立即落盘这一条。**大载荷走 distilled_file 文件侧通道（勿内联 distilled）**：`distilled` 内联参数可能超出 MCP 传输限制（一条多笔记 JSON 极易触发）。正确做法：先用 `write_to_file` 把第 2 步产出的 JSON 写入 `{repo_path}/repowiki/raw/.distill-<该条id>.json`（形状为 `{{"<conversation_id>": {{"notes": [...], "memories": [...]}}}}`，或单条裸 `{{"notes": [...], "memories": [...]}}` 配合 conversation_id 参数），再调用 distill_conversation(mode="submit", repo_path="{repo_path}", distilled_file="<写盘路径>") 只传小路径。**不要写临时 Python 脚本调用 handler 绕过**。小载荷（单条、正文短）仍可直接内联 distilled。
 4. 落盘后即可丢弃该条 transcript 正文，继续处理下一条 capture
 
 ## 步骤 3: 提交确定性处理（已在步骤 2 逐条执行）

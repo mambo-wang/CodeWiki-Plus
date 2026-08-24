@@ -1426,7 +1426,24 @@ _register(
                         "priority (0-100; <70 is dropped deterministically), scene (short work-context "
                         "label stored as metadata.scene), and — to resolve conflicts_pending from a "
                         "previous submit — dedup_action (store|skip|update|merge) plus target "
-                        "(candidate note file for update/merge). Values may be JSON strings or objects."
+                        "(candidate note file for update/merge). Values may be JSON strings or objects. "
+                        "For large multi-note payloads prefer distilled_file (file-side-channel) "
+                        "over inlining here."
+                    ),
+                },
+                "distilled_file": {
+                    "type": "string",
+                    "description": (
+                        "Mode submit only, alternative to 'distilled': path to a JSON file "
+                        "containing the extraction mapping. File-side-channel symmetric to "
+                        "prepare's full_path — the host agent writes the large extraction JSON "
+                        "with write_to_file and passes only this small path, avoiding oversized "
+                        "MCP arguments. Accepted shapes: mapping {conversation_id: {notes, "
+                        "memories}}, or a bare {notes, memories} object bound to the "
+                        "conversation_id argument (single-target submit). Relative paths are "
+                        "resolved against output_dir, then the process CWD. If both distilled "
+                        "and distilled_file are given, they are merged with the inline "
+                        "distilled taking precedence on key collisions."
                     ),
                 },
                 "drop_raw": {

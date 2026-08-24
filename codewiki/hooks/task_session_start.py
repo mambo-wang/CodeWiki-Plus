@@ -20,6 +20,12 @@ Why a SessionStart hook (not just AGENTS.md guidance):
     returned ``additionalContext`` into the agent's context, so the task prompt is
     guaranteed to surface every time.
 
+The same hard-trigger channel also injects the Team Doctrine
+(``repowiki/wiki/doctrine.md``, ~3KB) into the fresh session. The doctrine is
+the knowledge flywheel's aggregated consensus — cheap enough to surface up
+front, and far more reliable than AGENTS.md's soft "query_wiki first" advice
+(which agents routinely skip when competing with the task prompt).
+
 Unlike the SessionEnd capture hook (which fires-and-forgets via a detached
 subprocess), this hook MUST return its ``systemMessage`` synchronously — the IDE
 is waiting on stdout. It is therefore deliberately lightweight: it reads at
@@ -210,6 +216,43 @@ def _latest_friction_hint(repo_path: str) -> str:
     return ""
 
 
+_DOCTRINE_MAX_BYTES = 20_000
+
+
+def _load_doctrine(repo_path: str) -> str:
+    """Return the Team Doctrine body (repowiki/wiki/doctrine.md) for injection.
+
+    The doctrine is the knowledge flywheel's aggregated consensus, regenerated
+    by ``refresh_doctrine``. At ~3KB it is cheap enough to hard-inject at every
+    session start — a hard trigger that AGENTS.md's soft "query_wiki first"
+    advice cannot match. The OKF frontmatter block is stripped; the function
+    degrades to "" when the file is absent, too large, or unreadable so the
+    hook never breaks the task-binding prompt.
+    """
+    try:
+        path = Path(repo_path) / "repowiki" / "wiki" / "doctrine.md"
+        if not path.is_file():
+            return ""
+        if path.stat().st_size > _DOCTRINE_MAX_BYTES:
+            return ""
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return ""
+    body = text
+    if body.startswith("---"):
+        parts = body.split("\n---\n", 1)
+        if len(parts) == 2:
+            body = parts[1]
+    body = body.strip()
+    if not body:
+        return ""
+    return (
+        "【项目定向】本会话已注入 Team Doctrine（知识飞轮聚合的团队共识，"
+        "随 refresh_doctrine 刷新），请作为本仓库的默认做事方式参考，"
+        "无需再 query_wiki(mode='overview') 拉取：\n\n" + body
+    )
+
+
 def _build_message(event: dict, repo_path: str) -> str:
     """Build the guidance injected into the fresh session.
 
@@ -312,6 +355,11 @@ def _build_message(event: dict, repo_path: str) -> str:
     if friction_hint:
         lines.append("")
         lines.append(friction_hint)
+
+    doctrine = _load_doctrine(repo_path)
+    if doctrine:
+        lines.append("")
+        lines.append(doctrine)
 
     return "\n".join(lines)
 

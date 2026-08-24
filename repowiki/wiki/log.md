@@ -2,6 +2,13 @@
 
 > 本文件为追加写入的操作记录，由系统自动维护
 
+## 2026-08-25
+* **ingest_note**: 添加笔记: 聚合/doctrine 阈值等运行参数通过 repowiki/schema.yaml conventions.aggregation 覆盖，不改 py 源码默认值
+* **ingest_note**: 添加笔记: doctrine 不会自动注入 Agent 上下文：唯一通道是 query_wiki(mode='overview')
+* **ingest_note**: 添加笔记: 移除 doctrine 备份机制：.backup 冗余且备份文件会污染检索索引
+* **ingest_note**: 添加笔记: MCP 参数长度受限时蒸馏 submit 走文件侧通道：Python 脚本直接调 handle_distill_conversation
+* **ingest_note**: 添加笔记: 蒸馏时无知识密度的对话也提交空结果，否则 raw 无法归档清理
+
 ## 2026-08-24
 * **lint_wiki**: 检查完成: 0 个问题
 * **lint_wiki**: 检查完成: 57 个问题

@@ -22,7 +22,7 @@ stale_after: '2027-02-21'
 
 # Team Operating Doctrine
 
-> **Operating Thesis**: 工具只做确定性簿记，推理与决策永远在调用方 agent 与用户手里；进入知识库的内容必须经显式确认闸门。
+> **Operating Thesis**: 工具只做确定性笔记，推理与决策永远在调用方 agent 与用户手里；进入知识库的内容必须经显式确认闸门。
 
 ## Core Principles
 - 无状态工具 + LLM 外置：提取/聚合/压缩走 prepare→调用方推理→submit，工具不持模型不推断，跨 IDE 可移植。
