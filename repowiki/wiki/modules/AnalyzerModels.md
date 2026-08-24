@@ -7,12 +7,6 @@ metadata:
   depth: 2
   module_type: leaf
   component_count: 10
-  components: ['codewiki/src/be/dependency_analyzer/models/analysis.py::AnalysisResult',
-    'codewiki/src/be/dependency_analyzer/models/analysis.py::NodeSelection', 'codewiki/src/be/dependency_analyzer/models/core.py::CallRelationship',
-    'codewiki/src/be/dependency_analyzer/models/core.py::Node', 'codewiki/src/be/dependency_analyzer/models/core.py::Repository',
-    'codewiki/src/be/dependency_analyzer/models/cross_service.py::CrossServiceLink',
-    'codewiki/src/be/dependency_analyzer/models/cross_service.py::RouteNode', 'codewiki/src/be/dependency_analyzer/models/cross_service.py::RouteProtocol',
-    'codewiki/src/be/dependency_analyzer/models/cross_service.py::RouteRole', 'codewiki/src/be/dependency_analyzer/models/cross_service.py::WorkspaceTopology']
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28

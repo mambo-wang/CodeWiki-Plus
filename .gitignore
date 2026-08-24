@@ -83,5 +83,6 @@ Thumbs.db
 *.tmp
 *.log
 *.bak
+.trash/
 .codewiki/
 .workbuddy/

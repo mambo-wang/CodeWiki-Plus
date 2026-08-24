@@ -7,16 +7,6 @@ metadata:
   depth: 2
   module_type: leaf
   component_count: 19
-  components: ['codewiki/mcp/prompts.py::_prompt_architecture_review', 'codewiki/mcp/prompts.py::_prompt_code_analysis',
-    'codewiki/mcp/prompts.py::_prompt_consolidate_knowledge', 'codewiki/mcp/prompts.py::_prompt_cross_service_trace',
-    'codewiki/mcp/prompts.py::_prompt_distill_conversations', 'codewiki/mcp/prompts.py::_prompt_extract_knowledge',
-    'codewiki/mcp/prompts.py::_prompt_generate_wiki', 'codewiki/mcp/prompts.py::_prompt_impact_review',
-    'codewiki/mcp/prompts.py::_prompt_incremental_update', 'codewiki/mcp/prompts.py::_prompt_ingest_note',
-    'codewiki/mcp/prompts.py::_prompt_init_wiki', 'codewiki/mcp/prompts.py::_prompt_promote_note',
-    'codewiki/mcp/prompts.py::_prompt_quality_check', 'codewiki/mcp/prompts.py::_prompt_search_wiki',
-    'codewiki/mcp/prompts.py::_prompt_task_workflow', 'codewiki/mcp/prompts.py::_prompt_team_memory_hook',
-    'codewiki/mcp/prompts.py::_prompt_workspace_analysis', 'codewiki/mcp/prompts.py::_resolve_path',
-    'codewiki/mcp/prompts.py::register']
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-08-23

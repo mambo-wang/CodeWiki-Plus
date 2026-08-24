@@ -209,8 +209,11 @@ _register(
                     "description": (
                         "Additional frontmatter fields merged into the doc header. "
                         "Common keys: aliases (list), category (str), domain (str), "
-                        "origin (str), severity (str), components (list), "
-                        "related_modules (list), source_refs (list), chunk_refs (list). "
+                        "origin (str), severity (str), related_modules (list), "
+                        "source_refs (list), chunk_refs (list). "
+                        "Do NOT pass component-id lists (components) — they bloat "
+                        "frontmatter and no tool reads them back; component_count "
+                        "is written automatically when needed. "
                         "OKF v0.2 standard keys (status/tags/description) are written "
                         "at the top level; everything else folds under `metadata:`."
                     ),

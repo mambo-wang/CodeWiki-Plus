@@ -7,9 +7,6 @@ metadata:
   depth: 1
   module_type: leaf
   component_count: 6
-  components: ['codewiki/src/config.py::Config', 'codewiki/src/config.py::ConfigError',
-    'codewiki/src/config.py::from_cli', 'codewiki/src/config.py::from_cli_args', 'codewiki/src/config.py::meta_resolve',
-    'codewiki/src/utils.py::file_manager']
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28

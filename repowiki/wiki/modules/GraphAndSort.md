@@ -7,15 +7,6 @@ metadata:
   depth: 2
   module_type: leaf
   component_count: 14
-  components: ['codewiki/src/be/dependency_analyzer/ast_parser.py::DependencyParser',
-    'codewiki/src/be/dependency_analyzer/dependency_graphs_builder.py::DependencyGraphBuilder',
-    'codewiki/src/be/dependency_analyzer/topo_sort.py::build_graph_from_components',
-    'codewiki/src/be/dependency_analyzer/topo_sort.py::build_reverse_graph', 'codewiki/src/be/dependency_analyzer/topo_sort.py::concise_node',
-    'codewiki/src/be/dependency_analyzer/topo_sort.py::dependency_first_dfs', 'codewiki/src/be/dependency_analyzer/topo_sort.py::detect_cycles',
-    'codewiki/src/be/dependency_analyzer/topo_sort.py::dfs', 'codewiki/src/be/dependency_analyzer/topo_sort.py::get_leaf_nodes',
-    'codewiki/src/be/dependency_analyzer/topo_sort.py::resolve_cycles', 'codewiki/src/be/dependency_analyzer/topo_sort.py::resolve_files_to_components',
-    'codewiki/src/be/dependency_analyzer/topo_sort.py::strongconnect', 'codewiki/src/be/dependency_analyzer/topo_sort.py::topological_sort',
-    'codewiki/src/be/dependency_analyzer/topo_sort.py::transitive_impact']
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28

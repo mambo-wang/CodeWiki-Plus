@@ -34,6 +34,10 @@ _ALL_CHECKS = {
     "low_adoption",
 }
 
+# 归档/调试暂存目录不参与 wiki 一致性审计：.trash/（deprecated 笔记归档区，
+# 历史快照的相对链接随迁移自然失效，不应误报）与 .hook-debug/（抓包调试输出）。
+_SCRATCH_DIR_NAMES = {".trash", ".hook-debug", ".meta"}
+
 # OKF v0.2 lifecycle vocabulary (see okf/SPEC.md §5)
 _OKF_STATUSES = {"draft", "stable", "deprecated"}
 _LEGACY_STATUS_MAP = {
@@ -255,6 +259,8 @@ def _check_stale_refs(
     valid_files = {f.name for f in output_dir.rglob("*.md")}
 
     for md_file in output_dir.rglob("*.md"):
+        if _SCRATCH_DIR_NAMES.intersection(md_file.parts):
+            continue
         try:
             content = md_file.read_text(encoding="utf-8")
         except OSError:
@@ -314,6 +320,8 @@ def _check_broken_links(
     issues: List[Dict[str, Any]] = []
 
     for md_file in output_dir.rglob("*.md"):
+        if _SCRATCH_DIR_NAMES.intersection(md_file.parts):
+            continue
         try:
             content = md_file.read_text(encoding="utf-8")
         except OSError:
@@ -620,6 +628,8 @@ def _check_no_outlinks(
         anchor_map = _build_anchor_map(output_dir)
 
     for md_file in output_dir.rglob("*.md"):
+        if _SCRATCH_DIR_NAMES.intersection(md_file.parts):
+            continue
         if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
             continue
         rel_path = str(md_file.relative_to(output_dir))

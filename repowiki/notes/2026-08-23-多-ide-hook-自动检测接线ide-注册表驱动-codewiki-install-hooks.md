@@ -50,3 +50,8 @@ CodeWiki 的任务记忆 hook/subagent 接线原本仅支持 CodeBuddy（`.codeb
 
 - 新增 IDE 支持：在 IDE_SPECS 加一行 + 确认 hooks 事件格式即可
 - 不含 Cursor/Windsurf/Trae（无 hooks 机制）
+
+## 相关文档
+
+- [CLI 命令](../wiki/modules/CLI_Commands.md)
+- [MCP Prompts](../wiki/modules/MCP_Prompts.md)

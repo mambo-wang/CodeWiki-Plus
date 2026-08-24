@@ -6,36 +6,7 @@ stale_after: 2026-10-31
 metadata:
   depth: 2
   module_type: leaf
-  component_count: 57
-  components: ['codewiki/mcp/tools/cbm_integration.py::cbm_get_architecture', 'codewiki/mcp/tools/cbm_integration.py::cbm_trace_cross_service',
-    'codewiki/mcp/tools/cbm_integration.py::is_cbm_available', 'codewiki/mcp/tools/cbm_integration.py::merge_cbm_and_local_results',
-    'codewiki/mcp/tools/file_param.py::read_json_param', 'codewiki/mcp/tools/file_param.py::read_param',
-    'codewiki/mcp/tools/issue_tracker.py::_fnv1a_32', 'codewiki/mcp/tools/issue_tracker.py::_generate_issue_id',
-    'codewiki/mcp/tools/issue_tracker.py::_load_issues', 'codewiki/mcp/tools/issue_tracker.py::_save_issues',
-    'codewiki/mcp/tools/issue_tracker.py::handle_flag_issue', 'codewiki/mcp/tools/prompt_server.py::_build_schema_constraints',
-    'codewiki/mcp/tools/prompt_server.py::_resolve_prompt', 'codewiki/mcp/tools/prompt_server.py::handle_get_prompt',
-    'codewiki/mcp/tools/wiki_index.py::_append_with_lock', 'codewiki/mcp/tools/wiki_index.py::_atomic_write',
-    'codewiki/mcp/tools/wiki_index.py::_compute_health_score', 'codewiki/mcp/tools/wiki_index.py::_extract_doc_title_and_summary',
-    'codewiki/mcp/tools/wiki_index.py::_parse_note_frontmatter', 'codewiki/mcp/tools/wiki_index.py::_render_index',
-    'codewiki/mcp/tools/wiki_index.py::append_log', 'codewiki/mcp/tools/wiki_index.py::rebuild_index',
-    'codewiki/mcp/tools/wiki_lint.py::_check_broken_links', 'codewiki/mcp/tools/wiki_lint.py::_check_coverage',
-    'codewiki/mcp/tools/wiki_lint.py::_check_cycles', 'codewiki/mcp/tools/wiki_lint.py::_check_missing_aliases',
-    'codewiki/mcp/tools/wiki_lint.py::_check_no_outlinks', 'codewiki/mcp/tools/wiki_lint.py::_check_orphan_pages',
-    'codewiki/mcp/tools/wiki_lint.py::_check_overview_stale_lint', 'codewiki/mcp/tools/wiki_lint.py::_check_stale_refs',
-    'codewiki/mcp/tools/wiki_lint.py::_check_stale_sources', 'codewiki/mcp/tools/wiki_lint.py::_check_superseded_pages',
-    'codewiki/mcp/tools/wiki_lint.py::_check_undocumented', 'codewiki/mcp/tools/wiki_lint.py::_check_unsupported_claims',
-    'codewiki/mcp/tools/wiki_lint.py::_get_all_module_names', 'codewiki/mcp/tools/wiki_lint.py::_get_documented_components',
-    'codewiki/mcp/tools/wiki_lint.py::_get_output_dir', 'codewiki/mcp/tools/wiki_lint.py::_load_module_tree',
-    'codewiki/mcp/tools/wiki_lint.py::_walk', 'codewiki/mcp/tools/wiki_lint.py::handle_lint_wiki',
-    'codewiki/mcp/tools/wiki_search.py::_IndexData', 'codewiki/mcp/tools/wiki_search.py::_check_jieba',
-    'codewiki/mcp/tools/wiki_search.py::_extract_fm', 'codewiki/mcp/tools/wiki_search.py::_extract_snippet',
-    'codewiki/mcp/tools/wiki_search.py::_extract_title', 'codewiki/mcp/tools/wiki_search.py::_index_path',
-    'codewiki/mcp/tools/wiki_search.py::_load_index', 'codewiki/mcp/tools/wiki_search.py::_open_standalone_cache',
-    'codewiki/mcp/tools/wiki_search.py::_read_doc', 'codewiki/mcp/tools/wiki_search.py::_read_note',
-    'codewiki/mcp/tools/wiki_search.py::_resolve_db_path', 'codewiki/mcp/tools/wiki_search.py::_save_index',
-    'codewiki/mcp/tools/wiki_search.py::_tokenize', 'codewiki/mcp/tools/wiki_search.py::build_full_index',
-    'codewiki/mcp/tools/wiki_search.py::remove_file', 'codewiki/mcp/tools/wiki_search.py::search',
-    'codewiki/mcp/tools/wiki_search.py::update_file', 'codewiki/mcp/tools/impact.py::_build_comp_module_index']
+  component_count: 58
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28

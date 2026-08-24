@@ -28,3 +28,7 @@ CodeWiki 的 MCP 工具约定：session_id 是隐式参数——registry.py 的 
 ## 根因
 
 只检查了单个工具 schema 的参数完整性，未对照项目既有约定；"看起来缺参数"不等于"应该补声明"。
+
+## 相关文档
+
+- [MCP 薄壳架构与参数约定](../wiki/scenarios/MCP-Server薄壳架构与参数约定.md)

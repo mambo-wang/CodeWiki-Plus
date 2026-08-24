@@ -43,3 +43,7 @@ metadata:
 2. 游标 + 原子 checkpoint 续跑，增强 repowiki/raw/ 可靠性；
 3. contentMd5 变更检测做增量蒸馏判断；
 4. 单次 LLM 调用多任务，减少往返。
+
+## 相关文档
+
+- [对话蒸馏管线与 raw 暂存区](../wiki/scenarios/对话蒸馏管线与raw暂存区.md)

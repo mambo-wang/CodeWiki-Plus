@@ -7,24 +7,6 @@ metadata:
   depth: 2
   module_type: leaf
   component_count: 20
-  components: ['codewiki/src/be/dependency_analyzer/utils/external_symbols.py::is_external_symbol',
-    'codewiki/src/be/dependency_analyzer/utils/external_symbols.py::is_macro_name',
-    'codewiki/src/be/dependency_analyzer/utils/external_symbols.py::normalize_symbol',
-    'codewiki/src/be/dependency_analyzer/utils/logging_config.py::ColoredFormatter',
-    'codewiki/src/be/dependency_analyzer/utils/logging_config.py::setup_logging',
-    'codewiki/src/be/dependency_analyzer/utils/logging_config.py::setup_module_logging',
-    'codewiki/src/be/dependency_analyzer/utils/path_canonicalizer.py::canonicalize_path',
-    'codewiki/src/be/dependency_analyzer/utils/path_canonicalizer.py::make_mq_route_key',
-    'codewiki/src/be/dependency_analyzer/utils/path_canonicalizer.py::make_route_key',
-    'codewiki/src/be/dependency_analyzer/utils/patterns.py::fallback_priority', 'codewiki/src/be/dependency_analyzer/utils/patterns.py::find_fallback_connectivity_files',
-    'codewiki/src/be/dependency_analyzer/utils/patterns.py::find_fallback_entry_points',
-    'codewiki/src/be/dependency_analyzer/utils/patterns.py::get_function_patterns_for_language',
-    'codewiki/src/be/dependency_analyzer/utils/patterns.py::has_high_connectivity_potential',
-    'codewiki/src/be/dependency_analyzer/utils/patterns.py::is_critical_function',
-    'codewiki/src/be/dependency_analyzer/utils/patterns.py::is_entry_point_file',
-    'codewiki/src/be/dependency_analyzer/utils/patterns.py::is_entry_point_path',
-    'codewiki/src/be/dependency_analyzer/utils/security.py::_inside', 'codewiki/src/be/dependency_analyzer/utils/security.py::assert_safe_path',
-    'codewiki/src/be/dependency_analyzer/utils/security.py::safe_open_text']
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28

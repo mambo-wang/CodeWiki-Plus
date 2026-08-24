@@ -7,11 +7,6 @@ metadata:
   depth: 2
   module_type: leaf
   component_count: 10
-  components: ['codewiki/cli/config_manager.py::ConfigManager', 'codewiki/cli/git_manager.py::GitManager',
-    'codewiki/cli/html_generator.py::HTMLGenerator', 'codewiki/cli/models/config.py::AgentInstructions',
-    'codewiki/cli/models/config.py::Configuration', 'codewiki/cli/models/job.py::DocumentationJob',
-    'codewiki/cli/models/job.py::GenerationOptions', 'codewiki/cli/models/job.py::JobStatistics',
-    'codewiki/cli/models/job.py::JobStatus', 'codewiki/cli/models/job.py::LLMConfig']
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
