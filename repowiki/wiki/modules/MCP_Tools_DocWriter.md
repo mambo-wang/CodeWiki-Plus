@@ -11,6 +11,7 @@ metadata:
   generator_version: '1.0'
   updated_at: 2026-07-28
 description: "`MCP_Tools_DocWriter` 是 CodeWiki 的文档写入与骨架生成层，负责把 [[MCP_Tools_Analysis]] 与 [[DependencyAnalyzer]] 产出的分析结果，转化为可落盘的 Wiki Markdown 文件。它包含四个子文件：`doc_writer."
+aliases: ["MCP_Tools_DocWriter"]
 ---
 
 # MCP_Tools_DocWriter 模块文档

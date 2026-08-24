@@ -11,6 +11,7 @@ metadata:
   generator_version: '1.0'
   updated_at: 2026-07-28
 description: "GraphAndSort 是 DependencyAnalyzer 的叶子模块，负责把多语言代码仓库解析出的代码组件（函数/类/接口/结构体）及其依赖关系，转换为可遍历的**依赖图**，再经**拓扑排序**与**叶节点提取**产出「叶优先（leaf-first）」的文档生成顺序。"
+aliases: ["GraphAndSort"]
 ---
 
 # GraphAndSort 模块文档

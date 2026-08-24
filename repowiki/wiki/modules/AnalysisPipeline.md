@@ -11,6 +11,7 @@ metadata:
   generator_version: '1.0'
   updated_at: 2026-07-28
 description: "AnalysisPipeline 是 DependencyAnalyzer 下负责**仓库分析编排**的叶子模块，位于 `codewiki/src/be/dependency_analyzer/analysis/`。它串起「克隆 → 结构扫描 → 服务边界识别 → 多语言 AST 解析生成调用图 → 跨服务路由匹配 →"
+aliases: ["AnalysisPipeline"]
 ---
 
 # AnalysisPipeline 模块文档

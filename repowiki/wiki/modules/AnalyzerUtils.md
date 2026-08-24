@@ -11,6 +11,7 @@ metadata:
   generator_version: '1.0'
   updated_at: 2026-07-28
 description: "`AnalyzerUtils` 是 `DependencyAnalyzer` 的叶子工具模块，集中存放依赖分析过程中跨语言、跨分析器复用的纯函数与配置表。它不持有状态，不发起网络调用，只提供：符号去外部化判定、彩色日志、URL/路由键规范化、入口点与高连接性启发式判定、连接性回退策略，以及路径安全读取。"
+aliases: ["AnalyzerUtils"]
 ---
 
 # AnalyzerUtils 模块文档

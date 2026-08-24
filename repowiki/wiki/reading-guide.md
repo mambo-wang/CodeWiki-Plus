@@ -4,6 +4,7 @@ title: "阅读指南"
 generated: { by: codewiki/reading_guide.py, at: 2026-08-23T00:00:00Z }
 stale_after: 2099-12-31
 description: "> 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。"
+aliases: ["阅读指南"]
 ---
 # 阅读指南
 

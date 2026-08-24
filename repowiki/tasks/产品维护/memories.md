@@ -23,3 +23,5 @@ distill-worker 源码化已完成：codewiki/agents/distill-worker.md 为权威�
 待验证点：distill-worker.md 的 frontmatter（toolsMCP 字段名、agentic 模式 Task spawn）依赖 IDE 对 subagent 定义的解析，建议下次新会话观察 hook 是否成功把蒸馏委托出去。
 
 文档质量审计（lint_wiki 全量检查）曾被任务引导打断、用户明确搁置（"不用"），后续如需可重新发起。
+
+多 IDE hook 自动检测接线功能已开发完成并发布 v5.4.0：CodeBuddy/Qoder/Claude Code 三类 IDE 自动检测接线，codewiki install-hooks CLI + IDE 注册表驱动；发布经 PyPI（twine --disable-progress-bar）与 GitHub Release（Invoke-RestMethod）。

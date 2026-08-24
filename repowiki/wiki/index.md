@@ -1,26 +1,35 @@
 ---
 okf_version: "0.2"
+aliases:
+- 项目文档索引
+- 文档索引
+- 知识笔记索引
 ---
 
-<!-- 自动生成于 2026-08-23T20:29:41+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-24T11:33:32+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
+## 入门指引
+
+* [Team Operating Doctrine](doctrine.md) - > **Operating Thesis**: 工具只做确定性簿记，推理与决策永远在调用方 agent 与用户手里；一切进入知识库的内容必须经过显式确认闸门。
+* [阅读指南](reading-guide.md) - > 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。
+
 ## 模块文档
 
-* [AnalysisPipeline](modules/AnalysisPipeline.md) - title: AnalysisPipeline
+* [AnalysisPipeline](modules/AnalysisPipeline.md) - AnalysisPipeline 是 DependencyAnalyzer 下负责**仓库分析编排**的叶子模块，位于 `codewiki/src/be/dependency_analyzer/analysis/`。它串起「克隆 → 结构扫
 * [AnalyzerModels](modules/AnalyzerModels.md) - AnalyzerModels 是依赖分析子系统（`DependencyAnalyzer`）的纯数据层，定义了从单仓库静态分析到多仓库跨服务调用链匹配所需的全部 Pydantic 模型。它不包含业务逻辑，仅作为各分析阶段之间传递、聚合与持久化
-* [AnalyzerUtils](modules/AnalyzerUtils.md) - title: AnalyzerUtils
+* [AnalyzerUtils](modules/AnalyzerUtils.md) - `AnalyzerUtils` 是 `DependencyAnalyzer` 的叶子工具模块，集中存放依赖分析过程中跨语言、跨分析器复用的纯函数与配置表。它不持有状态，不发起网络调用，只提供：符号去外部化判定、彩色日志、URL/路由键规范化
 * [CLI](modules/CLI.md) - CLI 是 CodeWiki 的顶层用户入口模块，建立在 Click 框架之上，负责把用户输入的命令转化为对后端 `LLM_Backend` 引擎的调用。它并不直接实现代码分析或文档生成逻辑，而是承担"胶水层"职责：解析命令行参数、持久化用
 * [CLI_Adapter](modules/CLI_Adapter.md) - `CLI_Adapter` 是命令行入口与后端文档生成引擎之间的适配层。它唯一的核心组件 `CLIDocumentationGenerator` 包裹了后端 `[[LLM_Backend]]` 中的 `DocumentationGenera
 * [CLI_Commands](modules/CLI_Commands.md) - CLI_Commands 是 CodeWiki 的命令行入口层，基于 Click 框架构建。它把用户意图转化为对底层生成管线、配置管理与 MCP 服务的调用。
 * [CLI_Config](modules/CLI_Config.md) - `CLI_Config` 是 CodeWiki CLI 的「配置与作业状态」叶子模块，负责持久化用户设置、安全存储凭据、管理 Git 仓库操作、生成 GitHub Pages 静态查看器，以及定义文档生成作业的数据模型。它是连接命令行层（[
-* [CLI_Utils 模块文档](modules/CLI_Utils.md) - title: CLI_Utils
+* [CLI_Utils](modules/CLI_Utils.md) - `CLI_Utils` 是 CodeWiki 命令行工具的底层实用模块集合，位于 `codewiki/cli/utils/` 目录下，为上层命令（[[CLI_Commands]]、[[CLI_Adapter]]）提供错误处理、文件系统操作、
 * [DependencyAnalyzer](modules/DependencyAnalyzer.md) - DependencyAnalyzer 是 CodeWiki 后端的顶层依赖分析模块，负责将任意（多语言）代码仓库转换为可供 LLM 文档生成消费的「节点—调用关系—路由—拓扑」结构化数据。它覆盖从仓库克隆/校验、多语言 AST 调用图分析、
 * [DocVisualizer](modules/DocVisualizer.md) - DocVisualizer（位于 `codewiki/src/fe/`）是 CodeWiki 的轻量级文档可视化前端叶子模块，负责将 LLM 生成的 Markdown 文档（`overview.md`、各模块的 `.
 * [Frontend](modules/Frontend.md) - Frontend 是 CodeWiki 的前端呈现层，负责把 [[LLM_Backend]]（DocumentationGenerator）与 [[MCP_Server]] 生成的 Wiki 产物（Markdown 文档、`module_t
 * [GraphAndSort](modules/GraphAndSort.md) - GraphAndSort 是 DependencyAnalyzer 的叶子模块，负责把多语言代码仓库解析出的代码组件（函数/类/接口/结构体）及其依赖关系，转换为可遍历的**依赖图**，再经**拓扑排序**与**叶节点提取**产出「叶优先（
-* [LLM_Backend 模块文档](modules/LLM_Backend.md) - title: LLM_Backend
+* [LLM_Backend](modules/LLM_Backend.md) - `LLM_Backend` 是 CodeWiki 的文档生成后端引擎（位于 `codewiki/src/be/`），是整个工具的核心能力提供方。它把「依赖分析 → 模块聚类 → 逐模块 LLM 文档生成 → 缓存/落盘」串成可复用的能力，被
 * [LanguageAnalyzers](modules/LanguageAnalyzers.md) - LanguageAnalyzers 是 DependencyAnalyzer 的叶子模块，包含针对 10 种编程语言的源码分析器。每个分析器接收一个文件路径与源码内容（外加可选的 `repo_path`），解析后产出两类标准对象：`Node
 * [MCP_Cache](modules/MCP_Cache.md) - `MCP_Cache` 是 [[MCP_Server]] 的持久化与检索核心，位于 `codewiki/mcp/cache.py`。
 * [MCP_Core](modules/MCP_Core.md) - MCP_Core 是 CodeWiki MCP Server（`codewiki.mcp.
@@ -28,10 +37,10 @@ okf_version: "0.2"
 * [MCP_Server](modules/MCP_Server.md) - MCP_Server 是 CodeWiki 的 MCP（Model Context Protocol）协议服务端，基于 stdio 传输，把后端的代码分析、文档生成、知识库管理与 Wiki 质量校验能力以「工具（tool）」形式暴露给 ID
 * [MCP_Tools_Analysis](modules/MCP_Tools_Analysis.md) - 本模块是 [[MCP_Server]] 的"分析类"工具集合，提供仓库级与多仓库工作区级的结构解析入口。核心是 `analyze_repo`（单仓分析）与 `analyze_workspace`（多仓工作区分析）两个 MCP 工具，二者均为
 * [MCP_Tools_Dependency](modules/MCP_Tools_Dependency.md) - `MCP_Tools_Dependency` 是 CodeWiki 的 MCP 工具集中负责**依赖关系分析**的叶子模块，包含 18 个组件（3 个公开 handler + 15 个私有辅助函数），分布在 4 个源文件中：
-* [MCP_Tools_DocWriter 模块文档](modules/MCP_Tools_DocWriter.md) - title: MCP_Tools_DocWriter
-* [MCP_Tools_Knowledge](modules/MCP_Tools_Knowledge.md) - title: MCP_Tools_Knowledge
-* [MCP_Tools_Quality 模块文档](modules/MCP_Tools_Quality.md) - title: MCP_Tools_Quality
-* [RouteExtractors 模块文档](modules/RouteExtractors.md) - title: RouteExtractors
+* [MCP_Tools_DocWriter](modules/MCP_Tools_DocWriter.md) - `MCP_Tools_DocWriter` 是 CodeWiki 的文档写入与骨架生成层，负责把 [[MCP_Tools_Analysis]] 与 [[DependencyAnalyzer]] 产出的分析结果，转化为可落盘的 Wiki Ma
+* [MCP_Tools_Knowledge](modules/MCP_Tools_Knowledge.md) - `MCP_Tools_Knowledge` 是 CodeWiki MCP 服务的知识库工具集（leaf 模块），聚焦于**离线知识沉淀与检索闭环**：从源码/AGENTS.md 生成结构化文档，录入笔记要点，并提供多模式的 Wiki 查询能
+* [MCP_Tools_Quality](modules/MCP_Tools_Quality.md) - `MCP_Tools_Quality` 是 CodeWiki MCP 工具层中的质量与索引子模块，负责对生成的 Wiki 文档进行健康检查（lint）、全文检索（search）、索引重建（index）、问题标记（issue）、跨服务架构追踪
+* [RouteExtractors](modules/RouteExtractors.md) - RouteExtractors 是 `DependencyAnalyzer` 的叶子模块，负责从各语言源文件中**提取路由节点（`RouteNode`）**，供跨服务（cross-service）调用分析使用。它位于 AST/调用图分析之后
 * [SharedConfig](modules/SharedConfig.md) - `SharedConfig` 是 CodeWiki 横跨 CLI、后端分析与 MCP 服务的**共享配置与文件管理基座**（位于 `codewiki/src/`）。它仅由两个源文件、6 个组件构成，却是各模块协同的基石：`Config` 统
 * [WebApp](modules/WebApp.md) - `Frontend/WebApp` 是 CodeWiki 的 Web 入口层，基于 FastAPI 提供图形化界面，让用户提交 GitHub 仓库 URL 即可异步生成完整文档。它由 7 个源文件、15 个组件组成，核心职责是：接收仓库提交
 
@@ -55,8 +64,21 @@ okf_version: "0.2"
 
 * [README_CN](sources/README_CN.md) - WeKnora 中文 README（v0.7.0）源文档摘要：三大核心能力、部署方式、功能矩阵与集成生态
 
+## 场景方法
+
+* [IDE-Hook采集链路方法](scenarios/IDE-Hook采集链路方法.md) - CodeBuddy IDE hook 对话采集链路的 SOP 与禁忌：transcript 索引分片读取、同步采集异步蒸馏、双副本同步、注入可靠性
+* [MCP-Server薄壳架构与参数约定](scenarios/MCP-Server薄壳架构与参数约定.md) - MCP 薄壳分层、新增工具两处落点、output_dir 解析单点收敛、工具参数先读描述纪律
+* [Wiki页面生成约定与数据结构](scenarios/Wiki页面生成约定与数据结构.md) - status 语义分层、OKF actor 约定、module_tree 字符串引用、实体概念提取识别与举证分离四步流程
+* [任务记忆系统设计方法](scenarios/任务记忆系统设计方法.md) - 任务归属采集阶段决定、source_session_id 维度绑定、pending 确认闸门、memories 追加式原子写
+* [对话蒸馏管线与raw暂存区](scenarios/对话蒸馏管线与raw暂存区.md) - 蒸馏三模式共同落盘路径、raw 暂存区生命周期、Mode C 多文件蒸馏操作纪律
+
 ## 知识笔记
 
+* [GitHub API 直连被阻时用 PowerShell Invoke-RestMethod 走系统网络栈，token 从 git 凭据管理器提取](../notes/2026-08-24-github-api-直连被阻时用-powershell-invoke-restmethod-走系统网络栈token-从.md) - workaround (workaround, 2026-08-24)
+* [MCP prompt 与 AGENTS.md 是同一约定的两个载体：静态常驻注入 vs 按需可查询](../notes/2026-08-24-mcp-prompt-与-agentsmd-是同一约定的两个载体静态常驻注入-vs-按需可查询.md) - architecture (architecture, 2026-08-24)
+* [mcp 知识飞轮决策记录：L0 对话归档零索引、Phase 5 资产置信分层与 distill-worker 随包发布](../notes/2026-08-24-mcp-知识飞轮决策记录l0-对话归档零索引phase-5-资产置信分层与-distill-worker-随包发布.md) - decision (decision, 2026-08-24)
+* [Windows GBK 控制台编码导致 CLI 输出与 twine 发布崩溃](../notes/2026-08-24-windows-gbk-控制台编码导致-cli-输出与-twine-发布崩溃.md) - pitfall (pitfall, 2026-08-24)
+* [配置合并的 Python 坑：dict 浅拷贝污染原配置 + hooks.get(event, []) 未写回](../notes/2026-08-24-配置合并的-python-坑dict-浅拷贝污染原配置-hooksgetevent-未写回.md) - pitfall (pitfall, 2026-08-24)
 * [distill-worker subagent 定义随包发布，hook 启用时自动拷贝到项目 .codebuddy/agents/](../notes/2026-08-23-distill-worker-subagent-定义随包发布hook-启用时自动拷贝到项目-codebuddyagent.md) - decision (decision, 2026-08-23)
 * [hook 采集机制仅正式接线 CodeBuddy，README 措辞用「仅接线支持」](../notes/2026-08-23-hook-采集机制仅正式接线-codebuddyreadme-措辞用仅接线支持.md) - architecture (architecture, 2026-08-23)
 * [会话启动时的 query_wiki/蒸馏等重操作委托 subagent 执行，避免阻塞用户正常使用](../notes/2026-08-23-会话启动时的-query-wiki蒸馏等重操作委托-subagent-执行避免阻塞用户正常使用.md) - decision (decision, 2026-08-23)
