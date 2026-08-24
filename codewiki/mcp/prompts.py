@@ -60,7 +60,8 @@ _TASK_MEMORY_AGENTS_SECTION = f"""{_TASK_MEMORY_AGENTS_START}
 - task_id 由标题 slugify 生成且**不可变**；同名任务被拒绝；**无重命名**(删除后重建)。
 - `delete_task` 级联删除任务目录与绑定文件，但**不删**已打上 `task_id` 的笔记。
 - `query_wiki` 不校验任务存在性(幽灵 `task_id` 允许)。
-- `memories.md` 追加式原子写(临时文件 + `os.replace`)，并发串行。
+- `memories.md` 追加式原子写(临时文件 + `os.replace`)，并发串行；条目带 `### YYYY-MM-DD HH:MM` 时间戳头(ADR-0001：保持 markdown 不迁 JSONL，时间戳头是切条/截断/压缩的解析边界，存量无头文件运行时空行回退解析)。
+- `get_task_context`/`get_task` 的 memories 返回**有界**：默认分别取最近 20/5 条，`memories_total`/`memories_truncated` 标记截断、`max_memories` 参数翻页；`compaction_due=true` 表示超压缩阈值(40 条/24KB)且超出保留窗口，应跑 `compact_task_memories`(两段式无状态：`mode="prepare"` 取待压条目由调用方写摘要 → `mode="submit"` 落盘；原文归档 memories-archive.md 不删，直写不走 confirm 闸门)。
 {_TASK_MEMORY_AGENTS_END}"""
 
 
@@ -155,7 +156,7 @@ CLI 自动检测项目根目录存在哪些 IDE 配置目录（`.codebuddy/` / `
 - 在仓库根目录写入/更新 AGENTS.md（含使用建议、自我反思协议、知识沉淀规则）
 {hook_block}
 ## 步骤 {2 + step_shift}: 自定义 schema.yaml
-读取 `{output_dir or repo_path + '/repowiki'}/schema.yaml`，根据项目特点修改：
+读取 `{output_dir or repo_path + "/repowiki"}/schema.yaml`，根据项目特点修改：
 - **purpose**（重要）：用一两句话描述项目定位，会注入到所有文档生成 prompt 中
 - **doc_types**：选择适合项目的文档风格（api/architecture/design/business 等）
 - **conventions**：调整命名规范、最小行数、是否需要 Mermaid 图等
@@ -267,14 +268,16 @@ def _prompt_extract_knowledge(args: dict[str, str]) -> str:
         source_path = _resolve_path(source_path)
     # Derive a name from the file stem
     from pathlib import Path as _Path
+
     source_name = _Path(source_path).stem
     # output_dir defaults to cwd/repowiki (not next to the source file)
     output_dir = args.get("output_dir", "") or str(_Path(_resolve_path("")) / "repowiki")
     granularity = args.get("granularity", "").strip()
     gran_call = f', variables={{"granularity": "{granularity}"}}' if granularity else ""
     gran_default_note = (
-        "" if granularity else
-        "- granularity 未指定时，自动遵循 schema.yaml 的 extraction_granularity 配置\n"
+        ""
+        if granularity
+        else "- granularity 未指定时，自动遵循 schema.yaml 的 extraction_granularity 配置\n"
     )
     return f"""请导入外部文档并从中抽取结构化知识。采用「骨架提取 → 去重检查 → 证据校验 → 页面撰写」两阶段流程，按以下步骤执行：
 
@@ -367,7 +370,7 @@ def _prompt_search_wiki(args: dict[str, str]) -> str:
 
 def _prompt_quality_check(args: dict[str, str]) -> str:
     output_dir = args.get("output_dir", "")
-    od_param = f'output_dir="{output_dir}"' if output_dir else 'repo_path=<repo_path>'
+    od_param = f'output_dir="{output_dir}"' if output_dir else "repo_path=<repo_path>"
     return f"""请对 Wiki 文档执行全面质量审计。按以下步骤执行：
 
 ## 步骤 1: 运行全量检查
@@ -731,7 +734,6 @@ def _prompt_cross_service_trace(args: dict[str, str]) -> str:
 def _prompt_ingest_note(args: dict[str, str]) -> str:
     output_dir = args.get("output_dir", "")
     note_type = args.get("note_type", "general")
-    dir_hint = f'output_dir="{output_dir}"' if output_dir else 'output_dir="<repo>/repowiki"'
     return f"""请将知识经验归档到 Wiki 知识库。按以下步骤执行：
 
 ## 何时使用
@@ -769,7 +771,7 @@ def _prompt_ingest_note(args: dict[str, str]) -> str:
 
 ```json
 {{
-  "output_dir": "{output_dir or '<repo>/repowiki'}",
+  "output_dir": "{output_dir or "<repo>/repowiki"}",
   "note_type": "{note_type}",
   "title": "<简洁描述核心知识的标题>",
   "content": "## 背景\\n...\\n## 核心内容\\n...\\n## 原因\\n...",
@@ -794,14 +796,14 @@ def _prompt_ingest_note(args: dict[str, str]) -> str:
 
 调用 query_wiki 确认笔记可被检索：
 ```
-query_wiki(output_dir="{output_dir or '<repo>/repowiki'}", query="<笔记标题关键词>")
+query_wiki(output_dir="{output_dir or "<repo>/repowiki"}", query="<笔记标题关键词>")
 ```
 
 ## 高质量笔记示例
 
 ```json
 {{
-  "output_dir": "{output_dir or '<repo>/repowiki'}",
+  "output_dir": "{output_dir or "<repo>/repowiki"}",
   "note_type": "lesson",
   "title": "OrderService.process() 只做参数校验不做业务处理",
   "content": "## 背景\\n\\nAgent 误以为 OrderService.process() 包含完整业务逻辑，基于方法名做了错误的设计假设。\\n\\n## 正确做法\\n\\nprocess() 仅做入参校验和格式化，实际业务处理在 OrderService.execute() 中。老项目方法名与实际行为不一致是常见情况，应优先阅读实现而非信任方法名。\\n\\n## 根因\\n\\n十几年老项目，方法经过多次重构但名称未更新。",
@@ -825,13 +827,16 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
     elif action == "disable":
         action_hint = "用户请求：**关闭**采集 Hook。执行步骤 1 确认现状后直接进入步骤 2B。"
     else:
-        action_hint = ("用户未指定动作：先执行步骤 1 检查当前状态并向用户报告，"
-                       "再按其意愿选择步骤 2A（启用）或 2B（关闭）。")
+        action_hint = (
+            "用户未指定动作：先执行步骤 1 检查当前状态并向用户报告，"
+            "再按其意愿选择步骤 2A（启用）或 2B（关闭）。"
+        )
 
     # ── 注册表驱动的支持清单（H2，docs/Hook多智能体支持设计方案.md）──
     # 支持等级与家族归并来自 codewiki/hooks.yaml；探测结果决定接线范围。
     try:
         from codewiki.mcp.tools import hook_registry
+
         _reg = hook_registry.load_registry()
         _detected = [a["id"] for a in hook_registry.detect_project_agents(repo_path)]
         _verified = [a["id"] for a in _reg.get("agents", []) if a.get("verified")]
@@ -839,7 +844,9 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
     except Exception:
         _detected, _verified, _theoretical = [], ["codebuddy", "qoder", "claude-code"], []
 
-    _detected_str = ", ".join(f"`{i}`" for i in _detected) if _detected else "（未探测到任何已安装智能体）"
+    _detected_str = (
+        ", ".join(f"`{i}`" for i in _detected) if _detected else "（未探测到任何已安装智能体）"
+    )
     _theoretical_str = ", ".join(f"`{i}`" for i in _theoretical) if _theoretical else "无"
 
     return f"""管理 team-memory fusion 的对话自动采集 Hook。
@@ -1466,6 +1473,7 @@ def register(server):
     async def get_prompt(name: str, arguments: dict[str, str] | None) -> Any:
         """Return a workflow prompt template with step-by-step agent instructions."""
         from mcp.types import GetPromptResult, PromptMessage, TextContent as PromptTextContent
+
         args = arguments or {}
 
         prompts_map = {
@@ -1492,17 +1500,24 @@ def register(server):
         if not handler:
             return GetPromptResult(
                 description=f"Unknown prompt: {name}",
-                messages=[PromptMessage(
-                    role="user",
-                    content=PromptTextContent(type="text", text=f"未知的 Prompt 模板: {name}。可用模板: {', '.join(prompts_map.keys())}"),
-                )],
+                messages=[
+                    PromptMessage(
+                        role="user",
+                        content=PromptTextContent(
+                            type="text",
+                            text=f"未知的 Prompt 模板: {name}。可用模板: {', '.join(prompts_map.keys())}",
+                        ),
+                    )
+                ],
             )
 
         text = handler(args)
         return GetPromptResult(
             description=f"CodeWiki 工作流指引: {name}",
-            messages=[PromptMessage(
-                role="user",
-                content=PromptTextContent(type="text", text=text),
-            )],
+            messages=[
+                PromptMessage(
+                    role="user",
+                    content=PromptTextContent(type="text", text=text),
+                )
+            ],
         )
