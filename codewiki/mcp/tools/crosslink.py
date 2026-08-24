@@ -227,4 +227,9 @@ def handle_list_dependencies(
         summary=summary,
     )
 
+    # Graph freshness hint (only present when watch mode is active).
+    from codewiki.mcp.tools.watch import attach_graph_stale
+
+    response = attach_graph_stale(response, session)
+
     return json.dumps(response, indent=2, ensure_ascii=False)

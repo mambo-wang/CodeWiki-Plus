@@ -111,6 +111,10 @@ def _build_full(session, entries: list, total: int) -> str:
                     "Use read_code_components to fetch source code.",
         },
     )
+    # Graph freshness hint (only present when watch mode is active).
+    from codewiki.mcp.tools.watch import attach_graph_stale
+
+    response = attach_graph_stale(response, session)
     return json.dumps(response, indent=2, ensure_ascii=False)
 
 
@@ -167,4 +171,8 @@ def _build_summary(session, entries: list, total: int) -> str:
                     "when generating docs for a specific module.",
         },
     )
+    # Graph freshness hint (only present when watch mode is active).
+    from codewiki.mcp.tools.watch import attach_graph_stale
+
+    response = attach_graph_stale(response, session)
     return json.dumps(response, indent=2, ensure_ascii=False)

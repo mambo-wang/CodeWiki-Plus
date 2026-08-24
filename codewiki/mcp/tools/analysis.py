@@ -207,6 +207,13 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         repo_path=str(repo_path), output_dir=str(output_dir),
         components=lazy_store, leaf_nodes=leaf_nodes, cache=cache,
     )
+    # Remember the analysis options so watch-mode incremental re-parses
+    # apply the same include/exclude filtering (see tools/watch.py).
+    session.analyze_options = {
+        "include_patterns": include,
+        "exclude_patterns": exclude,
+        "detect_services": arguments.get("detect_services", True),
+    }
 
     # Record analyzed commit
     from codewiki.cli.utils.repo_validator import get_git_commit_hash
@@ -340,7 +347,10 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
 
     # 9. Update file fingerprints for incremental next run
     try:
-        all_files = list({m.file_path for m in metas.values() if m.file_path})
+        # Repo-relative paths on purpose: _fp_detect() keys its fingerprint
+        # rows by relative path (os.walk output). Absolute paths would make
+        # every file look changed on the next fingerprint poll.
+        all_files = list({m.relative_path for m in metas.values() if m.relative_path})
         if all_files:
             cache.update_file_fingerprints(all_files, session.analyzed_commit or "")
     except Exception as e:
