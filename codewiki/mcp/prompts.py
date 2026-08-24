@@ -48,17 +48,18 @@ _TASK_MEMORY_AGENTS_SECTION = f"""{_TASK_MEMORY_AGENTS_START}
    - **跳过**：本次会话不做任务关联
    新建任务两步弹框：选择「新建任务」后**必须**再次调用 `ask_followup_question` 弹出第二个输入框（标题「新建任务」，问题「请输入新任务名称」，带 2 个占位选项）。弹框自带输入框，用户可自由输入任务名后回车；以输入文字为准，立即调用 `create_task(title=<任务名>)` 创建并关联。若用户只点了占位选项，用文字追问确认真实任务名
 3. `get_task_context(task_id=<任务id>)` 拉取任务描述 + 记忆 + 关联笔记，作为继续工作的上下文
-4. **补蒸馏（委托 subagent，不阻塞）**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn「蒸馏 worker」subagent（`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP）后台执行：`distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)`，然后**直接开始回答用户提问**。在自然停顿点（任务告一段落/用户空闲）重新 `get_task_context` 把新产出的待确认记忆/草稿笔记注入上下文 → 向用户展示待确认项（`confirm_task_memories` / `confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、蒸馏结果在会话结束前展示确认即可
+4. **补蒸馏（委托 subagent，不阻塞）**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn「蒸馏 worker」subagent（`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP）后台执行：`distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)`，然后**直接开始回答用户提问**。在自然停顿点（任务告一段落/用户空闲）重新 `get_task_context` 拉取最新上下文（任务记忆已直写落盘，`memories_written` 报告条数）→ 只向用户展示待确认的草稿笔记（`confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、草稿笔记在会话结束前展示确认即可
 
 **工具入口：**
 - `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context`
 - 存储：`repowiki/tasks/.index.json` + `<task_id>/task.md` + `<task_id>/memories.md`；会话绑定在 `repowiki/.meta/task_bindings/`
-- `capture_conversation` / `distill_conversation` / `ingest_note` / `query_wiki` 均接受 `task_id`；蒸馏时 LLM 双轨产出 `notes`(通用知识) 与 `memories`(任务进度，先暂存 pending 待确认)
+- `capture_conversation` / `distill_conversation` / `ingest_note` / `query_wiki` 均接受 `task_id`；蒸馏时 LLM 双轨产出 `notes`(通用知识，draft 待确认) 与 `memories`(任务进度，直写落盘——ADR-0002：任务记忆不做确认闸门)
 - MCP prompt `task-workflow`（prompts/list）— 完整工作流指引
 
 **关键设计约束(实现时务必遵守)：**
 - task_id 由标题 slugify 生成且**不可变**；同名任务被拒绝；**无重命名**(删除后重建)。
 - `delete_task` 级联删除任务目录与绑定文件，但**不删**已打上 `task_id` 的笔记。
+- **绑定文件是一次性消费凭证**：`set_session_task` 写入 `repowiki/.meta/task_bindings/<session_id>.json` 后，首次 `capture_conversation` 成功落盘即自动删除；显式传 `task_id` 不消费绑定。同会话在绑定删除后再次捕获（supersede）会继承旧 raw 的 task_id，归属不丢。
 - `query_wiki` 不校验任务存在性(幽灵 `task_id` 允许)。
 - `memories.md` 追加式原子写(临时文件 + `os.replace`)，并发串行；条目带 `### YYYY-MM-DD HH:MM` 时间戳头(ADR-0001：保持 markdown 不迁 JSONL，时间戳头是切条/截断/压缩的解析边界，存量无头文件运行时空行回退解析)。
 - `get_task_context`/`get_task` 的 memories 返回**有界**：默认分别取最近 20/5 条，`memories_total`/`memories_truncated` 标记截断、`max_memories` 参数翻页；`compaction_due=true` 表示超压缩阈值(40 条/24KB)且超出保留窗口，应跑 `compact_task_memories`(两段式无状态：`mode="prepare"` 取待压条目由调用方写摘要 → `mode="submit"` 落盘；原文归档 memories-archive.md 不删，直写不走 confirm 闸门)。
@@ -998,7 +999,7 @@ def _prompt_distill_conversations(args: dict[str, str]) -> str:
 ```
 
 - **notes（通用经验）**：只提取**持久有效**、未来的 Agent 或队友能直接受益的知识（带 rationale 的决策、被纠正的假设、踩坑点、不明显的架构事实、含恢复条件的临时方案）。跳过闲聊、问候和临时任务状态。没有合格内容就返回 `{{"notes": []}}`——绝不凑数。
-- **memories（任务记忆）**：记录**任务范围内的进度知识**（本次做了什么、剩余事项、达成的决策、下一步上下文），每条 1-3 句简洁 Markdown。仅当 raw 对话绑定 task_id 时有意义，工具会暂存到 `repowiki/tasks/<task_id>/pending-memories.json`，待步骤 4 与用户确认（`confirm_task_memories`）后才落盘到 `memories.md`；未绑定的对话返回 `{{"memories": []}}`。
+- **memories（任务记忆）**：记录**任务范围内的进度知识**（本次做了什么、剩余事项、达成的决策、下一步上下文），每条 1-3 句简洁 Markdown。仅当 raw 对话绑定 task_id 时有意义，工具会直写落盘到 `repowiki/tasks/<task_id>/memories.md`（带时间戳头，无需确认——任务记忆是任务作用域的进度知识，ADR-0002）；未绑定的对话返回 `{{"memories": []}}`。
 
 没有合格内容就返回 `{{"notes": [], "memories": []}}`。
 
@@ -1006,10 +1007,10 @@ def _prompt_distill_conversations(args: dict[str, str]) -> str:
 4. 落盘后即可丢弃该条 transcript 正文，继续处理下一条 capture
 
 ## 步骤 3: 提交确定性处理（已在步骤 2 逐条执行）
-工具对每条 submit 都会：与已有笔记去重、经 ingest_note 写入草稿（status=draft）、将任务记忆暂存到 pending（未确认不落盘）、标记/删除已处理的 raw 文件并重建检索索引。结果按 capture 报告：新建笔记数 / 去重抑制数 / 合并数 / 待确认记忆数。
+工具对每条 submit 都会：与已有笔记去重、经 ingest_note 写入草稿（status=draft）、将任务记忆直写落盘到 memories.md（`memories_written` 报告条数）、标记/删除已处理的 raw 文件并重建检索索引。结果按 capture 报告：新建笔记数 / 去重抑制数 / 合并数 / 落盘记忆数。
 
 ## 步骤 4: 与用户评审（必须）
-逐条展示产出的草稿（标题 + 一句话摘要），并**同步展示待确认的任务记忆**（若 `memories_pending` 非空，用 `list_pending_memories` 拉取完整列表），一起询问用户保留哪些。对接受的笔记调用 `confirm_note`、对接受的记忆调用 `confirm_task_memories`，对拒绝的调用 `reject_note` / `reject_task_memories`。**绝不静默确认**——草稿评审是知识飞轮的质量闸门，记忆确认同理。
+逐条展示产出的草稿（标题 + 一句话摘要），询问用户保留哪些。对接受的笔记调用 `confirm_note`，对拒绝的调用 `reject_note`。**绝不静默确认**——草稿评审是知识飞轮的质量闸门（笔记进全局检索库）；任务记忆无此闸门（ADR-0002），蒸馏时已直写落盘，下次 `get_task_context` 自动可见。
 
 ## 备选：后台 worker（Mode B）
 仅当 MCP server 进程配置了 MAIN_MODEL / LLM_BASE_URL / LLM_API_KEY 环境变量时，可改用 distill_conversation(run_in_background=true)，轮询 `repowiki/distill-jobs.json` 直到 status=completed，再执行步骤 4。IDE Agent 优先使用上面的 prepare/submit 流程。"""
@@ -1029,20 +1030,20 @@ def _prompt_task_workflow(args: dict[str, str]) -> str:
 3. 关联后：`set_session_task(source_session_id=<当前会话id>, task_id=<选中任务>)` 建立绑定，之后本会话采集的对话会自动带上 task_id
 4. `get_task_context(task_id=<选中任务>)` 拉取该任务的描述 + 记忆 + 关联笔记，作为继续工作的上下文
 5. **补蒸馏（委托 subagent，不阻塞）**：检查返回的 `pending_raw_count`（本任务未蒸馏的历史对话数）。若 > 0，**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn「蒸馏 worker」subagent（`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP）后台执行：
-   - subagent 执行：`distill_conversation(mode="prepare", task_id=<选中任务>)` 获取该任务的积压对话清单 → 按清单逐条 read_file 阅读 raw 文件，提取 `notes`（通用经验）与 `memories`（任务进度）→ `distill_conversation(mode="submit", distilled=<提取结果>)` 提交（产出草稿笔记 + 待确认记忆）
+   - subagent 执行：`distill_conversation(mode="prepare", task_id=<选中任务>)` 获取该任务的积压对话清单 → 按清单逐条 read_file 阅读 raw 文件，提取 `notes`（通用经验）与 `memories`（任务进度）→ `distill_conversation(mode="submit", distilled=<提取结果>)` 提交（产出草稿笔记 + 直写落盘的任务记忆）
    - 主 Agent **不等蒸馏完成，直接开始回答用户提问**
-   - 在自然停顿点（任务告一段落/用户空闲时）重新 `get_task_context` 拉取最新上下文（新产出的待确认记忆/草稿笔记会一并注入）
-   - 向用户展示待确认项：`confirm_task_memories` / `confirm_note` 确认后才正式落盘
+   - 在自然停顿点（任务告一段落/用户空闲时）重新 `get_task_context` 拉取最新上下文（新落盘的任务记忆/待确认草稿笔记会一并注入）
+   - 向用户展示待确认的草稿笔记：`confirm_note` 确认后才正式落盘（任务记忆已直写，无需确认）
    - 用户明确表示紧急时可先答复提问，蒸馏结果在会话结束前展示确认即可
 
 ## 会话进行中
 - 采集对话时带上 `task_id`（capture_conversation 的 task_id 参数，或经 set_session_task 绑定后自动带）
-- 蒸馏时（distill-conversations 流程）LLM 会同时产出 `notes`（通用知识）和 `memories`（任务进度），后者先暂存到 pending（`repowiki/tasks/<task_id>/pending-memories.json`），向用户展示确认后调用 `confirm_task_memories` 落盘到 `repowiki/tasks/<task_id>/memories.md`，或用 `reject_task_memories` 丢弃
+- 蒸馏时（distill-conversations 流程）LLM 会同时产出 `notes`（通用知识，draft 待确认）和 `memories`（任务进度），后者**直写落盘**到 `repowiki/tasks/<task_id>/memories.md`（ADR-0002：任务记忆不做确认闸门——噪声成本被任务生命周期限定；笔记的 confirm 闸门保持不变）
 
 ## 会话结束
 - 任务完成：`complete_task(task_id=...)`
 - 需要归档/放弃：`delete_task(task_id=...)`（会级联删除任务目录与绑定，但**不删**已打上 task_id 的笔记）
-- 进度记忆只由蒸馏产出（`memories` 轨）并经 `confirm_task_memories` 确认后落盘，不要直调 `add_task_memory` 绕过评审闸门
+- 进度记忆优先由蒸馏产出（`memories` 轨，直写落盘）；`add_task_memory` 保留给 Agent 在会话中显式记录进度（如用户口述的待办），两者同走原子追加写
 
 ## 检索
 - `query_wiki(query=..., task_id=<任务id>)` 按任务过滤笔记

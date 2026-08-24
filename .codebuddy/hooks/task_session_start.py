@@ -143,9 +143,9 @@ def _count_pending_raws(repo_path: str) -> dict:
             status, task_id = "pending", ""
             for line in text.splitlines():
                 if line.startswith("status:"):
-                    status = line[len("status:"):].strip().strip("\"'")
+                    status = line[len("status:") :].strip().strip("\"'")
                 elif line.startswith("task_id:"):
-                    task_id = line[len("task_id:"):].strip().strip("\"'")
+                    task_id = line[len("task_id:") :].strip().strip("\"'")
             if status != "distilled":
                 counts[task_id] = counts.get(task_id, 0) + 1
     except Exception:
@@ -183,13 +183,13 @@ def _latest_friction_hint(repo_path: str) -> str:
             for line in text.splitlines():
                 if line.startswith("friction_score:"):
                     try:
-                        score = int(line[len("friction_score:"):].strip())
+                        score = int(line[len("friction_score:") :].strip())
                     except ValueError:
                         score = None
                 elif line.startswith("status:"):
-                    status = line[len("status:"):].strip().strip("\"'")
+                    status = line[len("status:") :].strip().strip("\"'")
                 elif line.startswith("friction_signals:"):
-                    for part in line[len("friction_signals:"):].split(","):
+                    for part in line[len("friction_signals:") :].split(","):
                         kv = part.strip().split("=", 1)
                         if len(kv) == 2 and kv[0].strip() == "correction":
                             try:
@@ -236,14 +236,18 @@ def _build_message(event: dict, repo_path: str) -> str:
         "弹框标题用「任务关联」，提供以下选项："
     )
     if active:
-        lines.append("- 关联已有任务：把下面每个进行中任务的标题作为弹框选项，用户选中后调用 "
-                     f"set_session_task(source_session_id={session_id or '<当前会话id>'}, task_id=<选中任务>) 建立绑定")
+        lines.append(
+            "- 关联已有任务：把下面每个进行中任务的标题作为弹框选项，用户选中后调用 "
+            f"set_session_task(source_session_id={session_id or '<当前会话id>'}, task_id=<选中任务>) 建立绑定"
+        )
         lines.append("  当前进行中的任务：")
         for t in active:
             lines.append(f"    - {t.get('title') or t.get('id')}（task_id={t.get('id')}）")
     else:
-        lines.append("- 新建任务：选择后会再弹一个输入框让用户输入任务名（可补一句描述），调用 "
-                     "create_task(title=<任务名>, description=<可选>) 创建后即关联该新任务")
+        lines.append(
+            "- 新建任务：选择后会再弹一个输入框让用户输入任务名（可补一句描述），调用 "
+            "create_task(title=<任务名>, description=<可选>) 创建后即关联该新任务"
+        )
     lines.append("- 跳过：本次会话不做任务关联，直接开始干活")
     lines.append("")
     lines.append(
@@ -278,26 +282,28 @@ def _build_message(event: dict, repo_path: str) -> str:
             "蒸馏 worker 走 Mode C（纯 MCP JSON）流程："
         )
         lines.append(
-            "  1. distill_conversation(mode=\"prepare\", task_id=<绑定的任务id>) "
+            '  1. distill_conversation(mode="prepare", task_id=<绑定的任务id>) '
             "获取该任务的积压对话清单"
         )
         lines.append(
             "  2. 按清单逐条 read_file 阅读 raw 文件，提取 notes（通用经验）与 memories（任务进度）"
         )
         lines.append(
-            "  3. distill_conversation(mode=\"submit\", distilled=<提取结果>) 提交；"
-            "产出为草稿笔记与待确认记忆"
+            '  3. distill_conversation(mode="submit", distilled=<提取结果>) 提交；'
+            "产出为草稿笔记（待确认）与直写落盘的任务记忆"
         )
         lines.append(
             "  4. 蒸馏完成后，主 Agent 在自然停顿点（任务告一段落/用户空闲时）重新 "
-            "get_task_context 拉取最新上下文（新产出的待确认记忆/草稿笔记会一并注入）"
+            "get_task_context 拉取最新上下文（新落盘的任务记忆/待确认草稿笔记会一并注入）"
         )
         lines.append(
-            "  5. 向用户展示待确认项，经 confirm_task_memories / confirm_note 确认后才正式落盘"
+            "  5. 向用户展示待确认的草稿笔记，经 confirm_note 确认后才正式落盘"
+            "     （任务记忆已直写落盘，无需确认——ADR-0002）"
         )
         lines.append(
             "若用户明确表示紧急，可先回答提问，蒸馏结果在会话结束前展示确认即可。"
-            "注意：pending 记忆与 draft 笔记在确认前只能作为只读参考，不得当作已定论的结论引用。"
+            "注意：draft 笔记在确认前只能作为只读参考，不得当作已定论的结论引用。"
+            "任务记忆（memories.md）是任务进度记录，直写可信，可正常作为上下文使用。"
         )
 
     # K-line: the newest pending capture showed friction (score >= 20) —
