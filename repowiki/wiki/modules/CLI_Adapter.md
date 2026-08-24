@@ -7,7 +7,6 @@ metadata:
   depth: 2
   module_type: leaf
   component_count: 1
-  components: ['codewiki/cli/adapters/doc_generator.py::CLIDocumentationGenerator']
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28

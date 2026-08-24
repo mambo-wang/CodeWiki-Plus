@@ -7,21 +7,6 @@ metadata:
   depth: 2
   module_type: leaf
   component_count: 21
-  components: ['codewiki/src/be/dependency_analyzer/analyzers/c.py::TreeSitterCAnalyzer',
-    'codewiki/src/be/dependency_analyzer/analyzers/c.py::analyze_c_file', 'codewiki/src/be/dependency_analyzer/analyzers/cpp.py::TreeSitterCppAnalyzer',
-    'codewiki/src/be/dependency_analyzer/analyzers/cpp.py::analyze_cpp_file', 'codewiki/src/be/dependency_analyzer/analyzers/csharp.py::TreeSitterCSharpAnalyzer',
-    'codewiki/src/be/dependency_analyzer/analyzers/csharp.py::analyze_csharp_file',
-    'codewiki/src/be/dependency_analyzer/analyzers/go.py::TreeSitterGoAnalyzer', 'codewiki/src/be/dependency_analyzer/analyzers/go.py::analyze_go_file',
-    'codewiki/src/be/dependency_analyzer/analyzers/java.py::TreeSitterJavaAnalyzer',
-    'codewiki/src/be/dependency_analyzer/analyzers/java.py::analyze_java_file', 'codewiki/src/be/dependency_analyzer/analyzers/javascript.py::TreeSitterJSAnalyzer',
-    'codewiki/src/be/dependency_analyzer/analyzers/javascript.py::analyze_javascript_file_treesitter',
-    'codewiki/src/be/dependency_analyzer/analyzers/kotlin.py::TreeSitterKotlinAnalyzer',
-    'codewiki/src/be/dependency_analyzer/analyzers/kotlin.py::analyze_kotlin_file',
-    'codewiki/src/be/dependency_analyzer/analyzers/php.py::NamespaceResolver', 'codewiki/src/be/dependency_analyzer/analyzers/php.py::TreeSitterPHPAnalyzer',
-    'codewiki/src/be/dependency_analyzer/analyzers/php.py::analyze_php_file', 'codewiki/src/be/dependency_analyzer/analyzers/python.py::PythonASTAnalyzer',
-    'codewiki/src/be/dependency_analyzer/analyzers/python.py::analyze_python_file',
-    'codewiki/src/be/dependency_analyzer/analyzers/typescript.py::TreeSitterTSAnalyzer',
-    'codewiki/src/be/dependency_analyzer/analyzers/typescript.py::analyze_typescript_file_treesitter']
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28

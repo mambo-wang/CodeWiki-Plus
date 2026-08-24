@@ -33,6 +33,9 @@
 - [第 2 篇：双层 Prompt 架构同时服务人和模型](https://mp.weixin.qq.com/s/1lNjR_SsrU5Fw2NKnkxnMA)（2026-08-01）
 - [第 3 篇：零依赖检索设计](https://mp.weixin.qq.com/s/T7r-ojyWC-YOpM_U5BNbEw)（2026-08-06）
 - [第 4 篇：知识写入方式全景](https://mp.weixin.qq.com/s/V90mghqB5wttKd25eXA-Pw)（2026-08-09）
+- [第 5 篇：OKF 0.2 规范介绍和实战](https://mp.weixin.qq.com/s/Dt748cHQCa7mfz1PEvgS6g)（2026-08）
+- [第 6 篇：借助 HOOKS 机制实现跨会话记忆和任务管理](https://mp.weixin.qq.com/s/flsqORauNo0Th1v8G4Ceng)（2026-08）
+
 
 ### 这个项目是什么？
 

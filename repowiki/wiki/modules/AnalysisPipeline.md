@@ -6,47 +6,7 @@ stale_after: 2026-10-31
 metadata:
   depth: 2
   module_type: leaf
-  component_count: 61
-  components: ['codewiki/src/be/dependency_analyzer/analysis/analysis_service.py::AnalysisService',
-    'codewiki/src/be/dependency_analyzer/analysis/analysis_service.py::analyze_repository',
-    'codewiki/src/be/dependency_analyzer/analysis/analysis_service.py::analyze_repository_structure_only',
-    'codewiki/src/be/dependency_analyzer/analysis/call_graph_analyzer.py::CallGraphAnalyzer',
-    'codewiki/src/be/dependency_analyzer/analysis/call_graph_analyzer.py::TimeoutError',
-    'codewiki/src/be/dependency_analyzer/analysis/call_graph_analyzer.py::signal_handler',
-    'codewiki/src/be/dependency_analyzer/analysis/call_graph_analyzer.py::timeout',
-    'codewiki/src/be/dependency_analyzer/analysis/cloning.py::cleanup_repository',
-    'codewiki/src/be/dependency_analyzer/analysis/cloning.py::cleanup_repository_safe',
-    'codewiki/src/be/dependency_analyzer/analysis/cloning.py::clone_repository', 'codewiki/src/be/dependency_analyzer/analysis/cloning.py::handle_remove_readonly',
-    'codewiki/src/be/dependency_analyzer/analysis/cloning.py::parse_github_url', 'codewiki/src/be/dependency_analyzer/analysis/cloning.py::sanitize_github_url',
-    'codewiki/src/be/dependency_analyzer/analysis/cross_service_matcher.py::CrossServiceMatcher',
-    'codewiki/src/be/dependency_analyzer/analysis/cross_service_matcher.py::path_matches_template',
-    'codewiki/src/be/dependency_analyzer/analysis/infra_scanner.py::InfraScanner',
-    'codewiki/src/be/dependency_analyzer/analysis/infra_scanner.py::InfraServiceInfo',
-    'codewiki/src/be/dependency_analyzer/analysis/infra_scanner.py::scan_workspace_infra',
-    'codewiki/src/be/dependency_analyzer/analysis/repo_analyzer.py::RepoAnalyzer',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::ServiceInfo',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_depth', 'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_detect_from_build_manifests',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_detect_from_compose',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_detect_from_convention_dirs',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_detect_from_dockerfiles',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_detect_from_spring_config',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_extract_spring_app_name_properties',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_extract_spring_app_name_yml',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_find_files',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_find_files_glob',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_find_service_root',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_has_source_files',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_is_excluded_rel',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_package_json_is_service',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_parse_compose_for_services',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_register_service',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_register_spring_service',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_remove_nested_services',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_service_name_from_path',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_walk_pruned',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::assign_service_label',
-    'codewiki/src/be/dependency_analyzer/analysis/service_detector.py::detect_services',
-    'codewiki/src/be/dependency_analyzer/analysis/topology_visualizer.py::TopologyVisualizer']
+  component_count: 43
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28

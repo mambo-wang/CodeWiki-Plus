@@ -412,6 +412,10 @@ def _render_index(
     parts: List[str] = [
         "---",
         f'okf_version: "{OKF_VERSION}"',
+        "aliases:",
+        "- 项目文档索引",
+        "- 文档索引",
+        "- 知识笔记索引",
         "---",
         "",
         f"<!-- 自动生成于 {generated_at} | Health Score: {health_score}/100 | 本文件由系统自动维护 -->",

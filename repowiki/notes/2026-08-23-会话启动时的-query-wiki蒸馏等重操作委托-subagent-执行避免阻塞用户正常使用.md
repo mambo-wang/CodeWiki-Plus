@@ -29,3 +29,8 @@ origin: conversation
 - 上下文隔离：raw 原文在 subagent 独立上下文消化，主会话只留摘要级信息。
 - 不阻塞：spawn 后主 Agent 立即返回用户问题，蒸馏后台完成。
 - 权限最小化 + 评审闸门分离：subagent 仅授权 ReadFile + codewiki MCP，且不执行 confirm_note/confirm_task_memories——正式落盘必须由主 Agent 与用户确认。
+
+## 相关文档
+
+- [任务记忆系统设计方法](../wiki/scenarios/任务记忆系统设计方法.md)
+- [对话蒸馏管线与 raw 暂存区](../wiki/scenarios/对话蒸馏管线与raw暂存区.md)

@@ -37,3 +37,7 @@ origin: conversation
 ## Rationale
 
 「仅支持」会让人误以为底层完全不兼容其他 IDE；实际采集层已通用化，缺口只在注册文件，因此「仅接线支持」是准确表述。
+
+## 相关文档
+
+- [IDE-Hook 采集链路方法](../wiki/scenarios/IDE-Hook采集链路方法.md)

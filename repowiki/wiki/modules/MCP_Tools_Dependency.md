@@ -7,15 +7,6 @@ metadata:
   depth: 2
   module_type: leaf
   component_count: 18
-  components: ['codewiki/mcp/tools/component_list.py::_build_full', 'codewiki/mcp/tools/component_list.py::_build_summary',
-    'codewiki/mcp/tools/component_list.py::handle_list_components', 'codewiki/mcp/tools/cross_service.py::_filter_by_method',
-    'codewiki/mcp/tools/cross_service.py::_filter_by_path', 'codewiki/mcp/tools/cross_service.py::_filter_by_service',
-    'codewiki/mcp/tools/cross_service.py::_format_all', 'codewiki/mcp/tools/cross_service.py::_trace_route',
-    'codewiki/mcp/tools/cross_service.py::handle_query_cross_service', 'codewiki/mcp/tools/crosslink.py::_build_module_dependency_graph',
-    'codewiki/mcp/tools/crosslink.py::_build_reverse_index', 'codewiki/mcp/tools/crosslink.py::_read_high_impact_threshold',
-    'codewiki/mcp/tools/crosslink.py::_walk', 'codewiki/mcp/tools/crosslink.py::_build_comp_module_index',
-    'codewiki/mcp/tools/crosslink.py::handle_list_dependencies', 'codewiki/mcp/tools/impact.py::_enrich_component',
-    'codewiki/mcp/tools/impact.py::_walk', 'codewiki/mcp/tools/impact.py::handle_analyze_impact']
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28

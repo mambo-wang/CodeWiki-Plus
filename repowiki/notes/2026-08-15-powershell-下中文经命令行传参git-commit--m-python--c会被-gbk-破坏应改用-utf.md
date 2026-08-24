@@ -35,3 +35,8 @@ verified:
 ## 根因
 
 Windows PowerShell 默认用系统 ANSI 代码页（GBK）解释命令行参数，与 UTF-8 不一致。
+
+## 相关文档
+
+- [CLI 命令](../wiki/modules/CLI_Commands.md)
+- [文档索引](../wiki/index.md)
