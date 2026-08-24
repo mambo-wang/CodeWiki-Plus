@@ -6,6 +6,17 @@
 
 ## Glossary
 
+**task memory** — 任务作用域的进度知识（本次做了什么、下一步、待办），累积于该任务的
+memories，生命周期挂在任务上：一条任务记忆无论多老都只对该任务有意义，不按"年龄"晋升
+为全局知识。与 Wiki 笔记（跨任务的通用经验，全局作用域）分轨互补。
+
+**memory compaction** — 记忆巩固操作：把任务记忆中的旧条目有损压缩为文件头部摘要段，
+并保留最近条目全文。产出直写不走确认闸门——它是可逆操作（原文全在 memory archive，
+摘要不合格重跑一次即可），不属于"噪声知识进库"的闸门防御范围。
+
+**memory archive** — 被压缩条目的原文存放地（memories-archive.md，append-only）。永不
+进入任何自动加载路径，仅供人查证或压缩返工时回溯。
+
 **frontmatter module** — the deep module at `codewiki/src/frontmatter.py` that owns
 repowiki page frontmatter read/write (`parse_frontmatter` / `render_frontmatter` /
 `update`) and page-type routing (`route_page_type`, backed by `PAGE_TYPE_DIRS`).
@@ -19,4 +30,4 @@ module.
 
 ## Key decisions
 
-_No ADRs yet. Record architectural decisions under `docs/adr/` (see `docs/agents/domain.md`)._
+- [ADR-0001 — 任务记忆保持 Markdown，不迁移 JSONL](adr/0001-task-memory-stays-markdown.md)（2026-08-24）
