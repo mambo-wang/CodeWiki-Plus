@@ -24,6 +24,12 @@ from typing import Any
 
 from mcp.types import TextContent, Tool
 
+# V4 (note_types 权威表): note_type 枚举从声明表生成——一处定义，
+# registry inputSchema / distill _VALID_NOTE_TYPES / promotion 路由同源。
+# 项目 schema 的自定义类型受 MCP 静态校验所限仍走包内默认表（重启生效），
+# 已知约束记录于 docs/OpenViking借鉴详细设计方案-P3四项.md §1.2。
+from codewiki.mcp.tools.note_types import DEFAULT_NOTE_TYPES as _NOTE_TYPES
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,12 +54,7 @@ class ToolDef:
 
 REGISTRY: dict[str, ToolDef] = {}
 
-# V4 (note_types 权威表): note_type 枚举从声明表生成——一处定义，
-# registry inputSchema / distill _VALID_NOTE_TYPES / promotion 路由同源。
-# 项目 schema 的自定义类型受 MCP 静态校验所限仍走包内默认表（重启生效），
-# 已知约束记录于 docs/OpenViking借鉴详细设计方案-P3四项.md §1.2。
-from codewiki.mcp.tools.note_types import DEFAULT_NOTE_TYPES as _NOTE_TYPES
-
+# note_type 权威表导入移至文件顶部 import 区（E402）；设计说明见顶部注释。
 _NOTE_TYPE_ENUM = sorted(_NOTE_TYPES)
 
 
@@ -201,7 +202,15 @@ _register(
                 },
                 "page_type": {
                     "type": "string",
-                    "enum": ["module", "entity", "concept", "source", "comparison", "query", "scenario"],
+                    "enum": [
+                        "module",
+                        "entity",
+                        "concept",
+                        "source",
+                        "comparison",
+                        "query",
+                        "scenario",
+                    ],
                     "description": "LLM Wiki page type. Determines subdirectory routing (default: module → wiki/modules/)",
                 },
                 "frontmatter_extra": {
@@ -278,7 +287,15 @@ _register(
                 },
                 "page_type": {
                     "type": "string",
-                    "enum": ["module", "entity", "concept", "source", "comparison", "query", "scenario"],
+                    "enum": [
+                        "module",
+                        "entity",
+                        "concept",
+                        "source",
+                        "comparison",
+                        "query",
+                        "scenario",
+                    ],
                     "description": "LLM Wiki page type for path resolution (default: module)",
                 },
                 "old_string": {
@@ -658,16 +675,29 @@ _register(
                     "items": {
                         "type": "string",
                         "enum": [
-                            "all", "stale_refs", "undocumented", "broken_links",
-                            "cycles", "coverage", "orphan_pages", "no_outlinks",
-                            "missing_aliases", "stale_sources", "superseded_pages",
-                            "isolated_components", "overview_stale", "unsupported_claims",
-                            "stale_notes", "note_clusters", "low_adoption",
+                            "all",
+                            "stale_refs",
+                            "undocumented",
+                            "broken_links",
+                            "cycles",
+                            "coverage",
+                            "orphan_pages",
+                            "no_outlinks",
+                            "missing_aliases",
+                            "stale_sources",
+                            "superseded_pages",
+                            "isolated_components",
+                            "overview_stale",
+                            "unsupported_claims",
+                            "stale_notes",
+                            "note_clusters",
+                            "low_adoption",
                             "okf_conformance",
-                            "scenario_capacity", "scenario_orphan",
+                            "scenario_capacity",
+                            "scenario_orphan",
                         ],
                     },
-                    "description": "Which checks to run (default: [\"all\"])",
+                    "description": 'Which checks to run (default: ["all"])',
                 },
                 "severity_filter": {
                     "type": "string",
@@ -811,7 +841,16 @@ _register(
                 },
                 "type_filter": {
                     "type": "string",
-                    "enum": ["doc", "note", "module", "entity", "concept", "source", "comparison", "query"],
+                    "enum": [
+                        "doc",
+                        "note",
+                        "module",
+                        "entity",
+                        "concept",
+                        "source",
+                        "comparison",
+                        "query",
+                    ],
                     "description": "Filter results by page type (default: all types)",
                 },
                 "include_notes": {
@@ -1531,9 +1570,15 @@ _register(
                 "issue_type": {
                     "type": "string",
                     "enum": [
-                        "orphan_page", "no_outlinks", "missing_aliases",
-                        "stale_source", "broken_link", "outdated_content",
-                        "missing_section", "low_coverage", "custom",
+                        "orphan_page",
+                        "no_outlinks",
+                        "missing_aliases",
+                        "stale_source",
+                        "broken_link",
+                        "outdated_content",
+                        "missing_section",
+                        "low_coverage",
+                        "custom",
                     ],
                     "description": "Type of quality issue",
                 },
@@ -1992,12 +2037,23 @@ _register(
     Tool(
         name="get_task",
         description=(
-            "Return a single task's details (description) plus its accumulated memories."
+            "Return a single task's details (description) plus its most recent "
+            "memories (default 5 entries). memories_total / memories_truncated "
+            "indicate whether older entries exist — pass a larger max_memories "
+            "to page back through them. For full-history context restoration "
+            "use get_task_context."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "task_id": {"type": "string", "description": "Task id."},
+                "max_memories": {
+                    "type": "integer",
+                    "description": (
+                        "Max most-recent memory entries to return (default 5). "
+                        "Non-positive or invalid values mean no limit."
+                    ),
+                },
                 "session_id": {"type": "string", "description": "Optional active session id."},
                 "output_dir": {"type": "string", "description": "Wiki output directory."},
                 "repo_path": {"type": "string", "description": "Repository path."},
@@ -2108,19 +2164,31 @@ _register(
         name="get_task_context",
         description=(
             "Aggregate a task's full context: task.md description, accumulated "
-            "memories.md, pending (unconfirmed) memories, and related notes "
-            "(notes whose frontmatter carries the matching task_id, each with "
-            "its status: draft = unconfirmed, stable = confirmed). Also returns "
-            "pending_raw_count / pending_raws — the number of un-distilled raw "
-            "captures bound to this task. If pending_raw_count > 0, run "
-            "distill_conversation(mode='prepare', task_id=<this task>) to catch "
-            "up BEFORE answering the user's question. Use this at session start "
-            "to resume a task."
+            "memories (bounded to the most recent 20 entries by default — "
+            "memories_total / memories_truncated indicate older entries; pass a "
+            "larger max_memories to page back), pending (unconfirmed) memories, "
+            "and related notes (notes whose frontmatter carries the matching "
+            "task_id, each with its status: draft = unconfirmed, stable = "
+            "confirmed). Also returns pending_raw_count / pending_raws — the "
+            "number of un-distilled raw captures bound to this task. If "
+            "pending_raw_count > 0, run distill_conversation(mode='prepare', "
+            "task_id=<this task>) to catch up BEFORE answering the user's "
+            "question. compaction_due=true means memories.md exceeded the "
+            "compaction thresholds (40 entries / 24KB) with entries beyond the "
+            "keep window — run compact_task_memories to compress old entries "
+            "into a summary. Use this at session start to resume a task."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "task_id": {"type": "string", "description": "Task id."},
+                "max_memories": {
+                    "type": "integer",
+                    "description": (
+                        "Max most-recent memory entries to return (default 20). "
+                        "Non-positive or invalid values mean no limit."
+                    ),
+                },
                 "session_id": {"type": "string", "description": "Optional active session id."},
                 "output_dir": {"type": "string", "description": "Wiki output directory."},
                 "repo_path": {"type": "string", "description": "Repository path."},
@@ -2196,7 +2264,7 @@ _register(
         description=(
             "Confirm pending task memories: append them to memories.md (atomic, "
             "append-only) and drop them from the pending area. Pass memory_ids to "
-            "confirm a subset; omit it (or pass [\"*\"]) to confirm ALL pending. "
+            'confirm a subset; omit it (or pass ["*"]) to confirm ALL pending. '
             "Pair with reject_task_memories for the per-memory review gate."
         ),
         inputSchema={
@@ -2206,7 +2274,7 @@ _register(
                 "memory_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Pending memory ids to confirm; empty or [\"*\"] = all.",
+                    "description": 'Pending memory ids to confirm; empty or ["*"] = all.',
                 },
                 "session_id": {"type": "string", "description": "Optional active session id."},
                 "output_dir": {"type": "string", "description": "Wiki output directory."},
@@ -2225,7 +2293,7 @@ _register(
         description=(
             "Reject pending task memories: drop them from the pending area without "
             "persisting to memories.md. Pass memory_ids to reject a subset; omit it "
-            "(or pass [\"*\"]) to reject ALL pending."
+            '(or pass ["*"]) to reject ALL pending.'
         ),
         inputSchema={
             "type": "object",
@@ -2234,7 +2302,7 @@ _register(
                 "memory_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Pending memory ids to reject; empty or [\"*\"] = all.",
+                    "description": 'Pending memory ids to reject; empty or ["*"] = all.',
                 },
                 "reason": {
                     "type": "string",
@@ -2248,6 +2316,53 @@ _register(
         },
     ),
     handler_path="codewiki.mcp.tools.task_manager:handle_reject_task_memories",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="compact_task_memories",
+        description=(
+            "Compress a task's old memories.md entries into a '## 早期记忆（摘要）' "
+            "summary section, keeping the most recent 20 entries in full. Two-phase "
+            "stateless design (no LLM inside): mode='prepare' (default) returns the "
+            "entries to compress + summary instructions — the CALLER writes the "
+            "summary; mode='submit' with that summary performs the rewrite. "
+            "Compacted entries' originals are appended verbatim to the task's "
+            "memories-archive.md (append-only, never auto-loaded). Direct write, "
+            "no confirm gate — the operation is reversible via the archive. "
+            "No-op (compaction_needed=false) when below the thresholds (40 entries "
+            "/ 24KB) or when nothing lies beyond the keep window. Trigger signal: "
+            "get_task_context returns compaction_due=true."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "Task id."},
+                "mode": {
+                    "type": "string",
+                    "enum": ["prepare", "submit"],
+                    "description": (
+                        "'prepare' (default): return entries to compress + "
+                        "instructions. 'submit': apply the caller-authored summary."
+                    ),
+                },
+                "summary": {
+                    "type": "string",
+                    "description": (
+                        "The caller-written summary (required for mode='submit', "
+                        "max 2048 chars). Covers key facts, settled decisions, open "
+                        "items, and context still relevant to future work."
+                    ),
+                },
+                "session_id": {"type": "string", "description": "Optional active session id."},
+                "output_dir": {"type": "string", "description": "Wiki output directory."},
+                "repo_path": {"type": "string", "description": "Repository path."},
+            },
+            "required": ["task_id"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.task_manager:handle_compact_task_memories",
     mode="thread",
 )
 
@@ -2293,6 +2408,7 @@ async def _try_cbm_enrichment(
 
     try:
         from codewiki.mcp.cbm_client import is_cbm_enabled
+
         if not is_cbm_enabled():
             return result
 
@@ -2426,9 +2542,12 @@ async def dispatch(name: str, arguments: dict[str, Any], store: Any) -> list[Tex
                 result = await handler(arguments)
 
         else:
-            return [TextContent(type="text", text=json.dumps({
-                "error": f"Invalid mode '{tool_def.mode}' for tool '{name}'"
-            }))]
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps({"error": f"Invalid mode '{tool_def.mode}' for tool '{name}'"}),
+                )
+            ]
 
         # --- CBM enrichment (best-effort, async) ---
         result = await _try_cbm_enrichment(name, arguments, result)
@@ -2439,7 +2558,9 @@ async def dispatch(name: str, arguments: dict[str, Any], store: Any) -> list[Tex
             return result
         if isinstance(result, TextContent):
             return [result]
-        return [TextContent(type="text", text=result if isinstance(result, str) else json.dumps(result))]
+        return [
+            TextContent(type="text", text=result if isinstance(result, str) else json.dumps(result))
+        ]
 
     except Exception as e:
         logger.error("Tool %s failed: %s", name, e, exc_info=True)

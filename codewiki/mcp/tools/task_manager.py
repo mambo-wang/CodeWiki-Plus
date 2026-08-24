@@ -9,7 +9,9 @@ sessions:
       .index.json             # task index: [{id, title, status, created_at, ...}]
       <task_id>/
         task.md               # task description + status (frontmatter + body)
-        memories.md           # accumulated task memories (append-only)
+        memories.md           # accumulated task memories (append-only; entries
+                              #   carry "### YYYY-MM-DD HH:MM" headings — legacy
+                              #   heading-less files parse via blank-line fallback)
         pending-memories.json # staged (unconfirmed) distilled memories
 
 Session bindings live under ``repowiki/.meta/task_bindings/<source_session_id>.json``
@@ -44,7 +46,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.tools.capture_conversation import (
@@ -59,6 +61,7 @@ logger = logging.getLogger(__name__)
 # --------------------------------------------------------------------------- #
 # Storage helpers
 # --------------------------------------------------------------------------- #
+
 
 def _tasks_dir(output_dir: Path) -> Path:
     """Path to the repowiki/tasks directory (created lazily by callers)."""
@@ -161,6 +164,7 @@ def _extract_fm(text: str, key: str) -> Optional[str]:
 # Task file write helpers
 # --------------------------------------------------------------------------- #
 
+
 def _task_frontmatter(task: Dict[str, Any]) -> str:
     """Render the YAML frontmatter block for a task.md file."""
     lines = [
@@ -190,6 +194,12 @@ def _write_task_file(output_dir: Path, task: Dict[str, Any], description: str) -
 def _append_memory_atomic(path: Path, content: str) -> None:
     """Append a memory entry to memories.md using an atomic read-modify-write.
 
+    Entries are stamped with a ``### YYYY-MM-DD HH:MM`` heading (P0 entry
+    structuring, ADR-0001: format stays markdown; the heading is the parse
+    boundary for truncation/compaction). Legacy files without headings are
+    parsed by blank-line fallback — no migration is performed here; the file
+    is rewritten lazily into headed form only when compaction runs (P1).
+
     The read + write is not lock-protected across processes, but the final
     replace is atomic, so no reader ever observes a partially written file.
     Callers that need cross-process serialization should serialize externally;
@@ -201,11 +211,128 @@ def _append_memory_atomic(path: Path, content: str) -> None:
         existing = path.read_text(encoding="utf-8").rstrip("\n")
         if existing:
             existing += "\n\n"
-    entry = (content or "").strip()
-    new_content = existing + entry + "\n"
+    entry = f"### {datetime.now():%Y-%m-%d %H:%M}\n\n{(content or '').strip()}\n"
+    new_content = existing + entry
     tmp = path.with_suffix(".tmp")
     tmp.write_text(new_content, encoding="utf-8")
     os.replace(tmp, path)
+
+
+# Compaction thresholds and keep-window (see docs/任务记忆存储与加载扩展性
+# 设计方案.md §3 Q6/Q7; ADR-0001). The compact tool is a stateless two-phase
+# (prepare/submit) MCP tool — the LLM summary is produced by the CALLER, never
+# by this tool (same constraint as distill_conversation's Mode C).
+_COMPACTION_THRESHOLD_COUNT = 40
+_COMPACTION_THRESHOLD_BYTES = 24 * 1024
+_COMPACTION_KEEP = 20
+_COMPACTION_SUMMARY_MAX_CHARS = 2048
+_SUMMARY_HEADING = "## 早期记忆（摘要）"
+_ARCHIVE_FILENAME = "memories-archive.md"
+
+
+def _split_memories(text: str) -> List[str]:
+    """Split memories.md content into entries (P0 entry structuring).
+
+    Headed form: entries delimited by ``### `` headings; a heading and its
+    multi-paragraph body stay together. Legacy form (no headings): entries
+    fall back to blank-line separated paragraphs. Mixed files (legacy block
+    before the first heading — the lazy-migration intermediate state) use
+    heading boundaries where present and blank-line splitting for the legacy
+    pre-heading block. The compaction summary section (``## 早期记忆（摘要）``)
+    is NOT an entry — use ``_split_summary_and_entries`` for files that may
+    carry one.
+    """
+    if not text or not text.strip():
+        return []
+    if re.search(r"^### ", text, re.M):
+        entries: List[str] = []
+        for part in re.split(r"(?m)^(?=### )", text):
+            part = part.strip()
+            if not part:
+                continue
+            if part.startswith("### "):
+                entries.append(part)
+            else:
+                entries.extend(p.strip() for p in re.split(r"\n\s*\n", part) if p.strip())
+        return entries
+    return [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+
+
+def _split_summary_and_entries(text: str) -> Tuple[str, List[str]]:
+    """Split memories.md content into (summary_section, entries).
+
+    Post-compaction files carry a ``## 早期记忆（摘要）`` section (summary body
+    + archive pointer line) before the kept entries. The summary section runs
+    from the heading to the first ``### `` entry heading; anything BEFORE the
+    summary heading (should not exist in canonical files, tolerated if it does)
+    parses as legacy entries. Returns ("", entries) when no summary section.
+    """
+    if not text or not text.strip():
+        return "", []
+    idx = text.find(_SUMMARY_HEADING)
+    if idx < 0:
+        return "", _split_memories(text)
+    prefix = text[:idx].strip()
+    rest = text[idx:]
+    m = re.search(r"(?m)^### ", rest)
+    if m:
+        summary = rest[: m.start()].rstrip()
+        entries_text = rest[m.start() :]
+    else:
+        summary = rest.rstrip()
+        entries_text = ""
+    entries = _split_memories(prefix) if prefix else []
+    entries.extend(_split_memories(entries_text))
+    return summary, entries
+
+
+def _archive_path(output_dir: Path, task_id: str) -> Path:
+    """Path to a task's memory archive (compacted entry originals)."""
+    return _tasks_dir(output_dir) / task_id / _ARCHIVE_FILENAME
+
+
+def _compaction_needed(total_entries: int, mem_bytes: int) -> bool:
+    """Whether compaction would actually help.
+
+    Requires entries beyond the keep window (otherwise there is nothing to
+    compress — a single oversized entry inside the keep window cannot be
+    compacted away) AND at least one threshold exceeded.
+    """
+    return total_entries > _COMPACTION_KEEP and (
+        total_entries > _COMPACTION_THRESHOLD_COUNT or mem_bytes > _COMPACTION_THRESHOLD_BYTES
+    )
+
+
+def _load_memories_limited(mem_path: Path, max_memories: Optional[int]) -> Tuple[str, int, bool]:
+    """Read memories.md, returning (rendered_text, total_entries, truncated).
+
+    ``max_memories`` keeps only the most recent entries (file order); the
+    compaction summary section, when present, is always kept in the rendered
+    text ahead of the entries. ``None`` or a non-positive / oversized value
+    means "no limit" — call sites default to bounded reads (get_task_context:
+    20, get_task: 5), but unlimited reads remain available.
+    """
+    if not mem_path.exists():
+        return "", 0, False
+    text = mem_path.read_text(encoding="utf-8").strip()
+    summary, entries = _split_summary_and_entries(text)
+    total = len(entries)
+    if max_memories is None or max_memories <= 0 or max_memories >= total:
+        return text, total, False
+    body = "\n\n".join(entries[-max_memories:])
+    rendered = f"{summary}\n\n{body}" if summary else body
+    return rendered, total, True
+
+
+def _parse_max_memories(arguments: Dict[str, Any], default: int) -> Optional[int]:
+    """Parse the optional max_memories argument; invalid values mean no limit."""
+    raw = arguments.get("max_memories")
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _pending_memories_path(output_dir: Path, task_id: str) -> Path:
@@ -227,9 +354,7 @@ def _read_pending_memories(output_dir: Path, task_id: str) -> List[Dict[str, Any
         return []
 
 
-def _write_pending_memories(
-    output_dir: Path, task_id: str, memories: List[Dict[str, Any]]
-) -> None:
+def _write_pending_memories(output_dir: Path, task_id: str, memories: List[Dict[str, Any]]) -> None:
     """Atomically write a task's pending memories (temp file + os.replace)."""
     p = _pending_memories_path(output_dir, task_id)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -251,6 +376,7 @@ def _ids_mean_all(memory_ids: Any) -> bool:
 # --------------------------------------------------------------------------- #
 # Handlers
 # --------------------------------------------------------------------------- #
+
 
 def handle_create_task(arguments: Dict[str, Any], store: SessionStore) -> str:
     """Create a new task. Duplicate titles are rejected; no rename is supported."""
@@ -286,11 +412,14 @@ def handle_create_task(arguments: Dict[str, Any], store: SessionStore) -> str:
     _write_index(output_dir, tasks)
     _write_task_file(output_dir, task, description)
 
-    return json.dumps({
-        "ok": True,
-        "task": task,
-        "description": description,
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "ok": True,
+            "task": task,
+            "description": description,
+        },
+        ensure_ascii=False,
+    )
 
 
 def handle_list_tasks(arguments: Dict[str, Any], store: SessionStore) -> str:
@@ -312,7 +441,14 @@ def handle_list_tasks(arguments: Dict[str, Any], store: SessionStore) -> str:
 
 
 def handle_get_task(arguments: Dict[str, Any], store: SessionStore) -> str:
-    """Return a single task's details plus its accumulated memories."""
+    """Return a single task's details plus its most recent memories.
+
+    ``max_memories`` (default 5) bounds the memories payload: only the most
+    recent entries are returned, with ``memories_total`` / ``memories_truncated``
+    telling the caller whether older entries exist (pass a larger value to page
+    back through them). Task detail — not full history — is this tool's job;
+    ``get_task_context`` is the full-history reader.
+    """
     session_id = arguments.get("session_id")
     session = store.get(session_id) if session_id else None
     try:
@@ -336,19 +472,24 @@ def handle_get_task(arguments: Dict[str, Any], store: SessionStore) -> str:
         m = re.match(r"\A---\s*\n.*?\n---\s*\n?(.*)", text, re.DOTALL)
         description = (m.group(1) if m else text).strip()
 
-    memories = ""
-    mem_path = _memories_path(output_dir, task_id)
-    if mem_path.exists():
-        memories = mem_path.read_text(encoding="utf-8").strip()
+    memories, mem_total, mem_truncated = _load_memories_limited(
+        _memories_path(output_dir, task_id),
+        _parse_max_memories(arguments, default=5),
+    )
 
     pending = _read_pending_memories(output_dir, task_id)
-    return json.dumps({
-        "ok": True,
-        "task": task,
-        "description": description,
-        "memories": memories,
-        "pending_memories": pending,
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "ok": True,
+            "task": task,
+            "description": description,
+            "memories": memories,
+            "memories_total": mem_total,
+            "memories_truncated": mem_truncated,
+            "pending_memories": pending,
+        },
+        ensure_ascii=False,
+    )
 
 
 def handle_complete_task(arguments: Dict[str, Any], store: SessionStore) -> str:
@@ -409,6 +550,7 @@ def handle_delete_task(arguments: Dict[str, Any], store: SessionStore) -> str:
 
     # 2. Remove the task directory tree (task.md + memories.md).
     import shutil
+
     task_dir = _tasks_dir(output_dir) / task_id
     if task_dir.exists():
         shutil.rmtree(task_dir, ignore_errors=True)
@@ -429,11 +571,14 @@ def handle_delete_task(arguments: Dict[str, Any], store: SessionStore) -> str:
                 except OSError:
                     logger.warning("Failed to remove binding %s", bf)
 
-    return json.dumps({
-        "ok": True,
-        "deleted": task_id,
-        "cleared_bindings": cleared_bindings,
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "ok": True,
+            "deleted": task_id,
+            "cleared_bindings": cleared_bindings,
+        },
+        ensure_ascii=False,
+    )
 
 
 def handle_set_session_task(arguments: Dict[str, Any], store: SessionStore) -> str:
@@ -470,11 +615,14 @@ def handle_set_session_task(arguments: Dict[str, Any], store: SessionStore) -> s
     tmp.write_text(json.dumps(binding, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, p)
 
-    return json.dumps({
-        "ok": True,
-        "source_session_id": source_session_id,
-        "task_id": task_id,
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "ok": True,
+            "source_session_id": source_session_id,
+            "task_id": task_id,
+        },
+        ensure_ascii=False,
+    )
 
 
 def handle_add_task_memory(arguments: Dict[str, Any], store: SessionStore) -> str:
@@ -499,11 +647,14 @@ def handle_add_task_memory(arguments: Dict[str, Any], store: SessionStore) -> st
 
     _append_memory_atomic(_memories_path(output_dir, task_id), content)
 
-    return json.dumps({
-        "ok": True,
-        "task_id": task_id,
-        "appended_chars": len(content),
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "ok": True,
+            "task_id": task_id,
+            "appended_chars": len(content),
+        },
+        ensure_ascii=False,
+    )
 
 
 def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> str:
@@ -535,10 +686,18 @@ def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> s
         m = re.match(r"\A---\s*\n.*?\n---\s*\n?(.*)", text, re.DOTALL)
         description = (m.group(1) if m else text).strip()
 
-    memories = ""
+    # Bounded memories read (P0): default keeps the most recent 20 entries;
+    # memories_total / memories_truncated let the host agent page back if it
+    # needs older context. compaction_due is the pull-style signal that the
+    # file exceeded the compaction thresholds AND has entries beyond the keep
+    # window (i.e. compaction would actually help) — run compact_task_memories.
+    memories, mem_total, mem_truncated = _load_memories_limited(
+        _memories_path(output_dir, task_id),
+        _parse_max_memories(arguments, default=20),
+    )
     mem_path = _memories_path(output_dir, task_id)
-    if mem_path.exists():
-        memories = mem_path.read_text(encoding="utf-8").strip()
+    mem_bytes = mem_path.stat().st_size if mem_path.exists() else 0
+    compaction_due = _compaction_needed(mem_total, mem_bytes)
 
     # Discover related notes by frontmatter task_id. The ``status`` field lets
     # the host agent tell drafts apart from confirmed knowledge when injecting
@@ -601,27 +760,35 @@ def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> s
     aggregation = None
     try:
         from codewiki.mcp.tools import aggregation_state as agg
+
         aggregation = agg.aggregation_summary(output_dir)
     except Exception:
         pass
 
-    return json.dumps({
-        "ok": True,
-        "task": task,
-        "description": description,
-        "memories": memories,
-        "pending_memories": _read_pending_memories(output_dir, task_id),
-        "related_notes": related_notes,
-        "pending_raw_count": len(pending_raws),
-        "pending_raws": pending_payload,
-        "pending_raws_truncated": len(pending_raws) > _MAX_PENDING_SHOWN,
-        **({"aggregation": aggregation} if aggregation else {}),
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "ok": True,
+            "task": task,
+            "description": description,
+            "memories": memories,
+            "memories_total": mem_total,
+            "memories_truncated": mem_truncated,
+            "compaction_due": compaction_due,
+            "pending_memories": _read_pending_memories(output_dir, task_id),
+            "related_notes": related_notes,
+            "pending_raw_count": len(pending_raws),
+            "pending_raws": pending_payload,
+            "pending_raws_truncated": len(pending_raws) > _MAX_PENDING_SHOWN,
+            **({"aggregation": aggregation} if aggregation else {}),
+        },
+        ensure_ascii=False,
+    )
 
 
 # --------------------------------------------------------------------------- #
 # Pending-memory confirmation gate
 # --------------------------------------------------------------------------- #
+
 
 def handle_stage_task_memories(arguments: Dict[str, Any], store: SessionStore) -> str:
     """Stage distilled task memories in a pending area awaiting user confirmation.
@@ -646,13 +813,16 @@ def handle_stage_task_memories(arguments: Dict[str, Any], store: SessionStore) -
     pending = _read_pending_memories(output_dir, task_id)
     raw = arguments.get("memories")
     if not isinstance(raw, list) or not raw:
-        return json.dumps({
-            "ok": True,
-            "task_id": task_id,
-            "staged": 0,
-            "pending_total": len(pending),
-            "pending": pending,
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "ok": True,
+                "task_id": task_id,
+                "staged": 0,
+                "pending_total": len(pending),
+                "pending": pending,
+            },
+            ensure_ascii=False,
+        )
 
     tasks = _read_index(output_dir)
     if _find_by_id(tasks, task_id) is None:
@@ -666,23 +836,28 @@ def handle_stage_task_memories(arguments: Dict[str, Any], store: SessionStore) -
         content = str(m or "").strip()
         if not content or content in existing:
             continue
-        pending.append({
-            "id": f"mem-{uuid.uuid4().hex[:12]}",
-            "content": content,
-            "source_raw": source_raw,
-            "staged_at": now,
-        })
+        pending.append(
+            {
+                "id": f"mem-{uuid.uuid4().hex[:12]}",
+                "content": content,
+                "source_raw": source_raw,
+                "staged_at": now,
+            }
+        )
         existing.add(content)
         staged += 1
     _write_pending_memories(output_dir, task_id, pending)
 
-    return json.dumps({
-        "ok": True,
-        "task_id": task_id,
-        "staged": staged,
-        "pending_total": len(pending),
-        "pending": pending,
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "ok": True,
+            "task_id": task_id,
+            "staged": staged,
+            "pending_total": len(pending),
+            "pending": pending,
+        },
+        ensure_ascii=False,
+    )
 
 
 def handle_list_pending_memories(arguments: Dict[str, Any], store: SessionStore) -> str:
@@ -702,11 +877,14 @@ def handle_list_pending_memories(arguments: Dict[str, Any], store: SessionStore)
     if not task_id:
         return json.dumps({"error": "task_id is required."})
 
-    return json.dumps({
-        "ok": True,
-        "task_id": task_id,
-        "pending": _read_pending_memories(output_dir, task_id),
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "ok": True,
+            "task_id": task_id,
+            "pending": _read_pending_memories(output_dir, task_id),
+        },
+        ensure_ascii=False,
+    )
 
 
 def handle_confirm_task_memories(arguments: Dict[str, Any], store: SessionStore) -> str:
@@ -750,12 +928,15 @@ def handle_confirm_task_memories(arguments: Dict[str, Any], store: SessionStore)
         confirmed += 1
 
     _write_pending_memories(output_dir, task_id, remaining)
-    return json.dumps({
-        "ok": True,
-        "task_id": task_id,
-        "confirmed": confirmed,
-        "remaining": remaining,
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "ok": True,
+            "task_id": task_id,
+            "confirmed": confirmed,
+            "remaining": remaining,
+        },
+        ensure_ascii=False,
+    )
 
 
 def handle_reject_task_memories(arguments: Dict[str, Any], store: SessionStore) -> str:
@@ -790,9 +971,182 @@ def handle_reject_task_memories(arguments: Dict[str, Any], store: SessionStore) 
         rejected = len(pending) - len(remaining)
 
     _write_pending_memories(output_dir, task_id, remaining)
-    return json.dumps({
-        "ok": True,
-        "task_id": task_id,
-        "rejected": rejected,
-        "remaining": remaining,
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "ok": True,
+            "task_id": task_id,
+            "rejected": rejected,
+            "remaining": remaining,
+        },
+        ensure_ascii=False,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Memory compaction (P1 — see docs/任务记忆存储与加载扩展性设计方案.md §5.2)
+# --------------------------------------------------------------------------- #
+
+_COMPACT_INSTRUCTION = (
+    "阅读 entries_to_compress（若 existing_summary 非空，它包含此前压缩的旧摘要，"
+    "新摘要应覆盖其内容），生成一份任务早期记忆的中文 Markdown 摘要，"
+    "不超过 {max_chars} 字。摘要应覆盖：关键事实与已完成决策、未决事项、"
+    "仍可能影响后续工作的上下文（历史坑、约定、外部依赖）。"
+    "丢掉纯过程性细节，保留结论性信息。"
+    "完成后调用 compact_task_memories(mode='submit', task_id=..., summary=...)。"
+)
+
+
+def _compact_threshold_state(
+    output_dir: Path, task_id: str
+) -> Tuple[str, str, List[str], int, bool]:
+    """Load (text, summary_section, entries, file_bytes, compaction_needed)."""
+    mem_path = _memories_path(output_dir, task_id)
+    if not mem_path.exists():
+        return "", "", [], 0, False
+    text = mem_path.read_text(encoding="utf-8").strip()
+    summary, entries = _split_summary_and_entries(text)
+    mem_bytes = mem_path.stat().st_size
+    needed = _compaction_needed(len(entries), mem_bytes)
+    return text, summary, entries, mem_bytes, needed
+
+
+def handle_compact_task_memories(arguments: Dict[str, Any], store: SessionStore) -> str:
+    """Compress a task's old memories into a summary section (two-phase).
+
+    Stateless Mode-C design (mirrors distill_conversation): this tool never
+    calls an LLM. ``mode="prepare"`` (default) returns the entries to compress
+    plus instructions — the CALLER (host agent / subagent) writes the summary.
+    ``mode="submit"`` with that ``summary`` performs the deterministic rewrite:
+
+      memories.md    := "## 早期记忆（摘要）" + summary + archive pointer
+                        + the most recent _COMPACTION_KEEP entries (full text)
+      memories-archive.md (append-only) := the compressed entries' originals,
+                        legacy heading-less entries get a synthetic heading
+
+    Failure ordering: the archive replace happens BEFORE the memories replace,
+    so a crash between the two leaves the originals duplicated in the archive
+    (safe, retry-able) — never lost. Compaction output is written directly,
+    without a confirm gate: the operation is reversible (originals live in the
+    archive; re-running regenerates), which the confirm philosophy does not
+    cover (ADR-0001 / design doc §3 Q8).
+
+    Idempotent: when the file is below the thresholds or has no entries beyond
+    the keep window, both modes return ``compaction_needed: false`` as a no-op.
+    """
+    session_id = arguments.get("session_id")
+    session = store.get(session_id) if session_id else None
+    try:
+        output_dir = _resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    task_id = str(arguments.get("task_id") or "").strip()
+    if not task_id:
+        return json.dumps({"error": "task_id is required."})
+
+    tasks = _read_index(output_dir)
+    if _find_by_id(tasks, task_id) is None:
+        return json.dumps({"error": f"Task '{task_id}' does not exist."})
+
+    mode = str(arguments.get("mode") or "prepare").strip().lower()
+    if mode not in ("prepare", "submit"):
+        return json.dumps({"error": "mode must be 'prepare' or 'submit'."})
+
+    text, summary, entries, mem_bytes, needed = _compact_threshold_state(output_dir, task_id)
+    if not needed:
+        return json.dumps(
+            {
+                "ok": True,
+                "task_id": task_id,
+                "compaction_needed": False,
+                "entries_total": len(entries),
+                "note": "Below compaction thresholds or nothing beyond the keep window; no-op.",
+            },
+            ensure_ascii=False,
+        )
+
+    compress = entries[:-_COMPACTION_KEEP]
+    keep = entries[-_COMPACTION_KEEP:]
+
+    if mode == "prepare":
+        return json.dumps(
+            {
+                "ok": True,
+                "mode": "prepare",
+                "task_id": task_id,
+                "compaction_needed": True,
+                "entries_to_compress": compress,
+                "existing_summary": summary,
+                "keep_recent": _COMPACTION_KEEP,
+                "summary_max_chars": _COMPACTION_SUMMARY_MAX_CHARS,
+                "summary_heading": _SUMMARY_HEADING,
+                "instruction": _COMPACT_INSTRUCTION.format(max_chars=_COMPACTION_SUMMARY_MAX_CHARS),
+            },
+            ensure_ascii=False,
+        )
+
+    # mode == "submit": apply the caller-authored summary.
+    new_summary = str(arguments.get("summary") or "").strip()
+    if not new_summary:
+        return json.dumps(
+            {"error": "summary is required for mode='submit' (produce it via mode='prepare')."}
+        )
+    if len(new_summary) > _COMPACTION_SUMMARY_MAX_CHARS:
+        return json.dumps(
+            {
+                "error": (
+                    f"summary exceeds {_COMPACTION_SUMMARY_MAX_CHARS} chars "
+                    f"(got {len(new_summary)}); shorten it."
+                )
+            }
+        )
+
+    # NOTE: the split is recomputed at submit time. Entries appended between
+    # prepare and submit land in the keep window; the compress set may gain the
+    # entry that was previously the oldest kept one — the caller's summary may
+    # not cover it. Tolerated: append-only writes are rare mid-compaction and
+    # the entry is preserved verbatim in the archive either way.
+    date = datetime.now().strftime("%Y-%m-%d")
+    pointer = f"> 原文归档于 {_ARCHIVE_FILENAME}，截至 {date}，共 {len(compress)} 条。"
+    new_text = f"{_SUMMARY_HEADING}\n\n{new_summary}\n\n{pointer}\n\n" + "\n\n".join(keep) + "\n"
+
+    # Archive block: verbatim entries; legacy heading-less entries get a
+    # synthetic heading so the archive stays scannable (and re-parseable).
+    archive_parts: List[str] = []
+    for e in compress:
+        if e.startswith("### "):
+            archive_parts.append(e)
+        else:
+            archive_parts.append("### 历史条目（存量格式，无时间戳）\n\n" + e)
+    archive_block = "\n\n".join(archive_parts) + "\n"
+
+    # Safe failure ordering: archive replace first (superset — no information
+    # loss), then the memories rewrite. A failure between the two leaves the
+    # originals in BOTH files; a retry re-archives (duplicate) but never loses.
+    archive_path = _archive_path(output_dir, task_id)
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    existing_archive = ""
+    if archive_path.exists():
+        existing_archive = archive_path.read_text(encoding="utf-8").rstrip("\n")
+    new_archive = (existing_archive + "\n\n" if existing_archive else "") + archive_block
+    archive_tmp = archive_path.with_suffix(".tmp")
+    archive_tmp.write_text(new_archive, encoding="utf-8")
+    os.replace(archive_tmp, archive_path)
+
+    mem_path = _memories_path(output_dir, task_id)
+    mem_tmp = mem_path.with_suffix(".tmp")
+    mem_tmp.write_text(new_text, encoding="utf-8")
+    os.replace(mem_tmp, mem_path)
+
+    return json.dumps(
+        {
+            "ok": True,
+            "mode": "submit",
+            "task_id": task_id,
+            "compressed": len(compress),
+            "kept": len(keep),
+            "archive": _ARCHIVE_FILENAME,
+            "memories_total": len(keep),
+        },
+        ensure_ascii=False,
+    )
