@@ -11,6 +11,7 @@ metadata:
   generator_version: '1.0'
   updated_at: 2026-08-23
 description: "MCP_Prompts 是 CodeWiki MCP Server 的**提示词（Prompt）叶子模块**，17 个构建器实现于 `codewiki/mcp/prompts.py`。"
+aliases: ["MCP_Prompts"]
 ---
 
 # MCP_Prompts 模块文档

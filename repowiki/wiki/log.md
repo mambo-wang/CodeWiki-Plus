@@ -5,6 +5,12 @@
 ## 2026-08-24
 * **lint_wiki**: 检查完成: 0 个问题
 * **lint_wiki**: 检查完成: 57 个问题
+* **lint_wiki**: 检查完成: 103 个问题
+* **lint_wiki**: 检查完成: 103 个问题
+* **ingest_note**: 添加笔记: Windows GBK 控制台编码导致 CLI 输出与 twine 发布崩溃
+* **ingest_note**: 添加笔记: 配置合并的 Python 坑：dict 浅拷贝污染原配置 + hooks.get(event, []) 未写回
+* **ingest_note**: 添加笔记: GitHub API 直连被阻时用 PowerShell Invoke-RestMethod 走系统网络栈，token 从 git 凭据管理器提取
+* **ingest_note**: 添加笔记: MCP prompt 与 AGENTS.md 是同一约定的两个载体：静态常驻注入 vs 按需可查询
 
 ## 2026-08-23
 * **ingest_note**: 添加笔记: hook 采集机制仅正式接线 CodeBuddy，README 措辞用「仅接线支持」

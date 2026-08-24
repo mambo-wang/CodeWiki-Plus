@@ -11,6 +11,7 @@ metadata:
   generator_version: '1.0'
   updated_at: 2026-07-28
 description: "LanguageAnalyzers 是 DependencyAnalyzer 的叶子模块，包含针对 10 种编程语言的源码分析器。每个分析器接收一个文件路径与源码内容（外加可选的 `repo_path`），解析后产出两类标准对象：`Node`（类、函数、方法、接口等符号）与 `CallRelationship`（调用/"
+aliases: ["LanguageAnalyzers"]
 ---
 
 # LanguageAnalyzers 模块文档

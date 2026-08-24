@@ -11,6 +11,7 @@ metadata:
   generator_version: '1.0'
   updated_at: 2026-07-28
 description: "`CLI_Config` 是 CodeWiki CLI 的「配置与作业状态」叶子模块，负责持久化用户设置、安全存储凭据、管理 Git 仓库操作、生成 GitHub Pages 静态查看器，以及定义文档生成作业的数据模型。它是连接命令行层（[[CLI_Commands]]、[[CLI]]、[[CLI_Adapter]]）"
+aliases: ["CLI_Config"]
 ---
 
 # CLI_Config 模块文档

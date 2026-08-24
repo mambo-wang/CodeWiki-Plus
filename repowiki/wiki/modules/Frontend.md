@@ -6,6 +6,7 @@ stale_after: 2026-10-31
 metadata: {depth: 1, module_type: overview, component_count: 0, generated_by: codewiki,
   generator_version: '1.0', updated_at: 2026-07-28}
 description: "Frontend 是 CodeWiki 的前端呈现层，负责把 [[LLM_Backend]]（DocumentationGenerator）与 [[MCP_Server]] 生成的 Wiki 产物（Markdown 文档、`module_tree.json`、`metadata."
+aliases: ["Frontend"]
 ---
 
 # Frontend 模块文档（概览）

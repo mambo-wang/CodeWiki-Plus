@@ -11,6 +11,7 @@ metadata:
   generator_version: '1.0'
   updated_at: 2026-07-28
 description: "`MCP_Cache` 是 [[MCP_Server]] 的持久化与检索核心，位于 `codewiki/mcp/cache.py`。"
+aliases: ["MCP_Cache"]
 ---
 
 # MCP_Cache 模块文档
