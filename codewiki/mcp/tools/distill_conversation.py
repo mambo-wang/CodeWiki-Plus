@@ -212,6 +212,58 @@ def _resolve_output_dir(
     raise ValueError("output_dir or repo_path is required (or pass an active session).")
 
 
+def _load_distilled_file(arguments: Dict[str, Any], output_dir: Path) -> Optional[Dict[str, Any]]:
+    """Load a distilled extraction mapping from a JSON file on disk (Mode C submit).
+
+    File-side-channel counterpart of the prepare path: instead of inlining a
+    large extracted JSON in the MCP ``distilled`` argument (which may exceed the
+    transport limit for multi-note payloads), the host agent writes the JSON
+    with ``write_to_file`` and passes only the small file path via
+    ``distilled_file``. Accepted shapes:
+      - mapping ``{conversation_id: {"notes": [...], "memories": [...]}}``;
+      - a bare ``{"notes": [...], "memories": [...]}`` bound to the
+        ``conversation_id`` argument (single-target submit).
+    The staging file is deleted after a successful parse (one-shot
+    consumption). Returns None when the file is absent/invalid (caller falls
+    back to the inline ``distilled`` argument).
+    """
+    raw = str(arguments.get("distilled_file") or "").strip()
+    if not raw:
+        return None
+    p = Path(raw)
+    if not p.is_absolute():
+        cand = output_dir / p
+        if cand.is_file():
+            p = cand
+        else:
+            cand2 = Path.cwd() / p
+            if cand2.is_file():
+                p = cand2
+    if not p.is_file():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict) or not data:
+        return None
+    # One-shot consumption: the file is a staging artifact written by the host
+    # agent; delete it once parsed so it never leaks into _iter_raw_files or
+    # the search index. Matches the task_bindings one-shot-credential convention.
+    try:
+        p.unlink(missing_ok=True)
+    except OSError:
+        pass
+    if "notes" in data or "memories" in data:
+        # Bare extraction object — requires a single target conversation.
+        cid = str(arguments.get("conversation_id") or "").strip()
+        if not cid:
+            return None
+        key = cid if cid.startswith("conv-") else f"conv-{cid}"
+        return {key: data}
+    return data
+
+
 def _resolve_raw_path(arguments: Dict[str, Any], output_dir: Path) -> Optional[Path]:
     """Find the raw conversation markdown file to distill.
 
@@ -1578,14 +1630,24 @@ def handle_distill_conversation(
         return json.dumps(ret, indent=2, ensure_ascii=False)
 
     if mode == "submit":
+        # Mode C submit 双通道：大载荷走 distilled_file（file-side-channel，
+        # 与 prepare 的 full_path 对称），小载荷仍可直接内联 distilled。
+        # 两者可同时提供（file 为基座、内联覆盖同 key）；显式内联优先。
         distilled_map = arguments.get("distilled")
+        file_map = _load_distilled_file(arguments, output_dir)
+        if file_map is not None:
+            if not isinstance(distilled_map, dict):
+                distilled_map = {}
+            distilled_map = {**file_map, **(distilled_map or {})}
         if not isinstance(distilled_map, dict) or not distilled_map:
             return json.dumps(
                 {
                     "error": (
-                        "mode='submit' requires 'distilled': a mapping of conversation_id "
-                        '(e.g. "conv-20260808T113515Z") to the extraction JSON shaped '
-                        '{"notes": [...]}.'
+                        "mode='submit' requires 'distilled' or 'distilled_file': a "
+                        "mapping of conversation_id (e.g. \"conv-20260808T113515Z\") to "
+                        'the extraction JSON shaped {"notes": [...]}. For large '
+                        "payloads, write the extraction JSON to a file first (write_to_file) "
+                        "and pass only the path via 'distilled_file'."
                     ),
                 }
             )
