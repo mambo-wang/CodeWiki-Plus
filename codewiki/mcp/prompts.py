@@ -826,19 +826,40 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
         action_hint = "用户请求：**关闭**采集 Hook。执行步骤 1 确认现状后直接进入步骤 2B。"
     else:
         action_hint = ("用户未指定动作：先执行步骤 1 检查当前状态并向用户报告，"
-                       "再按其意愿选择步骤 2A（启用）或步骤 2B（关闭）。")
-    return f"""管理 team-memory fusion 的对话自动采集 Hook（支持 CodeBuddy / Qoder / Claude Code）。
+                       "再按其意愿选择步骤 2A（启用）或 2B（关闭）。")
+
+    # ── 注册表驱动的支持清单（H2，docs/Hook多智能体支持设计方案.md）──
+    # 支持等级与家族归并来自 codewiki/hooks.yaml；探测结果决定接线范围。
+    try:
+        from codewiki.mcp.tools import hook_registry
+        _reg = hook_registry.load_registry()
+        _detected = [a["id"] for a in hook_registry.detect_project_agents(repo_path)]
+        _verified = [a["id"] for a in _reg.get("agents", []) if a.get("verified")]
+        _theoretical = [a["id"] for a in _reg.get("agents", []) if not a.get("verified")]
+    except Exception:
+        _detected, _verified, _theoretical = [], ["codebuddy", "qoder", "claude-code"], []
+
+    _detected_str = ", ".join(f"`{i}`" for i in _detected) if _detected else "（未探测到任何已安装智能体）"
+    _theoretical_str = ", ".join(f"`{i}`" for i in _theoretical) if _theoretical else "无"
+
+    return f"""管理 team-memory fusion 的对话自动采集 Hook。
+
+**支持范围由 `codewiki/hooks.yaml` 注册表驱动**（家族归并：claude / cursor / codex 三种 hook 格式）：
+- **已验证支持**（日常使用背书）：{", ".join(f"`{i}`" for i in _verified)}
+- **理论支持**（家族归并推导，未经真机验证，接线后必须跑步骤 2A 第 5 步的模拟事件验证）：{_theoretical_str}
 
 {action_hint}
 
 采集 Hook 只负责把对话捕获到 `repowiki/raw/`（仅采集、不蒸馏）；蒸馏是独立的显式步骤，见 distill-conversations prompt。
 
-三个支持的 IDE 接线格式一致（`.codebuddy/`、`.qoder/`、`.claude/` 各自 `settings.json`，hooks 事件同为 SessionStart/SessionEnd），仅配置目录不同。
+**当前项目探测结果**：`{repo_path}` 下检测到的智能体配置目录：{_detected_str}。**只为探测到的智能体接线**——探测不凭空创建任何目录；用户想接未探测到的智能体时，由用户自行初始化该工具的配置目录后重跑本流程。
+
+claude 家族（CodeBuddy/Qoder/Claude Code 及理论支持工具）接线格式一致（各自 `settings.json`，事件 SessionStart/SessionEnd），仅配置目录不同。cursor 家族（`hooks.json` + 事件名 sessionStart/stop）与 codex 家族（`hooks.json` 嵌套结构）格式不同，且 **cursor 家族采集降级**：stop 事件不携带 transcript_path，只能落事件信封、无法完整蒸馏对话——为 cursor 家族接线前须向用户说明此限制。
 
 ## 步骤 1: 检查当前状态
-依次检查项目根目录下三个 IDE 配置目录 `{repo_path}/.codebuddy/`、`{repo_path}/.qoder/`、`{repo_path}/.claude/`：
-- 每个目录下读取 `settings.json`：**已启用** = 存在 hooks.SessionEnd 与 hooks.SessionStart 两个条目，且对应目录 `hooks/` 下 `capture_session_end.py` 与 `task_session_start.py` 两个脚本文件都物理存在（注意：hooks 不展开环境变量，命令中必须写脚本的绝对路径，不能用 `$CODEBUDDY_PROJECT_DIR` / `$CLAUDE_PROJECT_DIR`）
-- 向用户报告哪些 IDE 已启用、哪些未启用
+依次检查项目根目录下**探测到的**每个智能体配置目录（如 `{repo_path}/.codebuddy/`、`{repo_path}/.qoder/`、`{repo_path}/.claude/` 等，以探测结果为准）：
+- 每个目录下读取家族对应的配置文件（claude 家族 `settings.json`；cursor/codex 家族 `hooks.json`）：**已启用** = 存在 SessionEnd 与 SessionStart（或家族对应事件名）两个条目，且对应目录 `hooks/` 下 `capture_session_end.py` 与 `task_session_start.py` 两个脚本文件都物理存在（注意：hooks 不展开环境变量，命令中必须写脚本的绝对路径，不能用 `$CODEBUDDY_PROJECT_DIR` / `$CLAUDE_PROJECT_DIR`）
+- 向用户报告哪些智能体已启用、哪些未启用
 
 ## 步骤 2A: 启用
 **首选路径：运行 CLI 自动检测接线（推荐，覆盖全部已安装智能体）**
@@ -847,7 +868,7 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 codewiki install-hooks --repo-path {repo_path}
 ```
 
-CLI 会自动检测项目根目录下存在哪些 IDE 配置目录（`.codebuddy/` / `.qoder/` / `.claude/`），检测到哪些就为哪些自动完成全部接线：
+CLI 会自动检测项目根目录下存在哪些智能体配置目录（按 `codewiki/hooks.yaml` 注册表探测），检测到哪些就为哪些自动完成全部接线：
 - 强制拷贝 hook 脚本与 `distill-worker.md` 到对应 `.codebuddy|.qoder|.claude/hooks/` 与 `agents/`
 - 幂等合并 `settings.json` 的 SessionStart/SessionEnd 注册（保留已有无关配置，重复运行不产生重复条目）
 - 向 `AGENTS.md` upsert 任务记忆引导段（多 IDE 共享一份，只写一次）
@@ -928,7 +949,7 @@ CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤�
 4. hook 脚本 `capture_session_end.py`、`task_session_start.py` 与 subagent 定义 `distill-worker.md` 可保留也可删除；重新启用时步骤 2A 会自动补回
 
 ## 注意事项
-- Hook 接线支持 CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`）。其他运行时（Trae、CLI agent 等）请改用 `capture_conversation` MCP 工具手动采集
+- Hook 接线支持范围见开头注册表清单（已验证：CodeBuddy/Qoder/Claude Code；理论支持按家族归并列出，接线后必须模拟事件验证）。完全不支持 hook 的运行时请改用 `capture_conversation` MCP 工具手动采集
 - 仅在会话结束时（SessionEnd）采集一次，落到 repowiki/raw/conv-*.md；会话级 supersede 去重保证每个会话只保留最新一份完整 transcript，不会膨胀
 - Hook 永不蒸馏、永不写 wiki 页面、永不使 IDE 失败（异常仅输出到 stderr，退出码保持 0）"""
 

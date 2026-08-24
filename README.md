@@ -698,6 +698,27 @@ Agent 调用 `list_tasks` 找到任务 → `set_session_task` 绑定会话 → `
 
 **其他 IDE**：指定 `command: "codewiki"`, `args: ["mcp"]` 即可。
 
+### 团队记忆 Hook 的智能体支持矩阵
+
+对话采集 Hook（team-memory-hook）按家族归并支持多种智能体（注册表 `codewiki/hooks.yaml`，家族格式：claude = settings.json、cursor/codex = hooks.json）：
+
+| 智能体 | 家族 | 支持等级 |
+|--------|------|----------|
+| `codebuddy` | claude | 已验证 |
+| `qoder` | claude | 已验证 |
+| `claude-code` | claude | 已验证 |
+| `codex-cli` | codex | 理论支持 |
+| `cursor` | cursor | 理论支持（采集降级：stop 事件不带 transcript，仅事件信封） |
+| `gemini-cli` | claude | 理论支持 |
+| `trae` | claude | 理论支持 |
+| `windsurf` | claude | 理论支持 |
+| `kilocode` | claude | 理论支持 |
+| `opencode` | claude | 理论支持 |
+
+"已验证"指日常使用背书；"理论支持"指家族归并推导、未经真机验证——接线后请按 team-memory-hook prompt 的模拟事件步骤验证。不支持 hook 的运行时可用 `capture_conversation` MCP 工具手动采集。
+
+**无 MCP 环境的检索**：`codewiki query "<关键词>"` CLI 命令输出 Agent 友好的定界文本块（与 query_wiki 同一引擎），配合 `codewiki/agents/wiki-recall.md` subagent 定义（拷入各工具的 agents 目录），任何能执行 shell 命令的 Agent 均可消费团队知识库。
+
 ### 原始 CLI 模式（仍然可用）
 
 如果你更习惯命令行一键生成，原始的 CLI 方式完全不受影响。需要先配置 LLM API：
