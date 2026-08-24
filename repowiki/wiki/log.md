@@ -11,6 +11,9 @@
 * **ingest_note**: 添加笔记: 配置合并的 Python 坑：dict 浅拷贝污染原配置 + hooks.get(event, []) 未写回
 * **ingest_note**: 添加笔记: GitHub API 直连被阻时用 PowerShell Invoke-RestMethod 走系统网络栈，token 从 git 凭据管理器提取
 * **ingest_note**: 添加笔记: MCP prompt 与 AGENTS.md 是同一约定的两个载体：静态常驻注入 vs 按需可查询
+* **close_session**: 会话关闭
+* **ingest_note**: 添加笔记: install-hooks 幂等去重在 Windows 路径分隔符下失效
+* **ingest_note**: 添加笔记: smoke test 用临时 output_dir 污染真实仓库缓存导致落盘错位
 
 ## 2026-08-23
 * **ingest_note**: 添加笔记: hook 采集机制仅正式接线 CodeBuddy，README 措辞用「仅接线支持」

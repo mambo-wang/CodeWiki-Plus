@@ -6,7 +6,7 @@ aliases:
 - 知识笔记索引
 ---
 
-<!-- 自动生成于 2026-08-24T11:33:32+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-24T21:55:49+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -75,8 +75,10 @@ aliases:
 ## 知识笔记
 
 * [GitHub API 直连被阻时用 PowerShell Invoke-RestMethod 走系统网络栈，token 从 git 凭据管理器提取](../notes/2026-08-24-github-api-直连被阻时用-powershell-invoke-restmethod-走系统网络栈token-从.md) - workaround (workaround, 2026-08-24)
+* [install-hooks 幂等去重在 Windows 路径分隔符下失效](../notes/2026-08-24-install-hooks-幂等去重在-windows-路径分隔符下失效.md) - pitfall (pitfall, 2026-08-24)
 * [MCP prompt 与 AGENTS.md 是同一约定的两个载体：静态常驻注入 vs 按需可查询](../notes/2026-08-24-mcp-prompt-与-agentsmd-是同一约定的两个载体静态常驻注入-vs-按需可查询.md) - architecture (architecture, 2026-08-24)
 * [mcp 知识飞轮决策记录：L0 对话归档零索引、Phase 5 资产置信分层与 distill-worker 随包发布](../notes/2026-08-24-mcp-知识飞轮决策记录l0-对话归档零索引phase-5-资产置信分层与-distill-worker-随包发布.md) - decision (decision, 2026-08-24)
+* [smoke test 用临时 output_dir 污染真实仓库缓存导致落盘错位](../notes/2026-08-24-smoke-test-用临时-output-dir-污染真实仓库缓存导致落盘错位.md) - pitfall (pitfall, 2026-08-24)
 * [Windows GBK 控制台编码导致 CLI 输出与 twine 发布崩溃](../notes/2026-08-24-windows-gbk-控制台编码导致-cli-输出与-twine-发布崩溃.md) - pitfall (pitfall, 2026-08-24)
 * [配置合并的 Python 坑：dict 浅拷贝污染原配置 + hooks.get(event, []) 未写回](../notes/2026-08-24-配置合并的-python-坑dict-浅拷贝污染原配置-hooksgetevent-未写回.md) - pitfall (pitfall, 2026-08-24)
 * [distill-worker subagent 定义随包发布，hook 启用时自动拷贝到项目 .codebuddy/agents/](../notes/2026-08-23-distill-worker-subagent-定义随包发布hook-启用时自动拷贝到项目-codebuddyagent.md) - decision (decision, 2026-08-23)
