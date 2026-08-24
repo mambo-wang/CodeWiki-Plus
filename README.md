@@ -13,7 +13,6 @@
   <a href="https://pypi.org/project/codewiki-plus/"><img alt="PyPI" src="https://img.shields.io/pypi/v/codewiki-plus?style=flat-square&label=PyPI" /></a>
   <a href="https://python.org/"><img alt="Python version" src="https://img.shields.io/badge/python-3.12+-blue?style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" /></a>
-  <a href="https://github.com/FSoft-AI4Code/CodeWiki"><img alt="Upstream: CodeWiki" src="https://img.shields.io/badge/upstream-FSoft--AI4Code%2FCodeWiki-orange?style=flat-square" /></a>
 </p>
 
 <p align="center">
@@ -37,7 +36,9 @@
 
 ### 这个项目是什么？
 
-CodeWiki-Plus 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) 的增强分支，核心改动是**让 CodeWiki 无需配置任何大模型 API，直接由 AI IDE（CodeBuddy、Cursor、Claude Desktop 等）自身的模型驱动 Wiki 文档生成**，并在此基础上构建了完整的知识管理引擎。
+CodeWiki-Plus 是一个由 AI IDE（CodeBuddy、Cursor、Claude Desktop 等）自身模型驱动的仓库知识引擎：**无需配置任何大模型 API**，即可完成 Wiki 文档生成，并在此基础上提供检索、笔记、任务记忆、团队遥测等完整知识管理能力。
+
+项目最初 fork 自 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) 并在其工具链（Tree-sitter AST 解析、依赖图构建、拓扑排序、Mermaid 校验）基础上独立演进，现已发展为架构定位不同的独立项目——详见[致谢](#致谢)。
 
 ### 为什么要做这个改造？
 
@@ -56,9 +57,9 @@ CodeWiki-Plus 是 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/Code
               ↑ 纯工具       ↑ 纯工具    ↑ IDE 自身模型      ↑ 纯工具
 ```
 
-### 相比原版 CodeWiki 的增强
+### 与上游 CodeWiki 的差异
 
-| 能力维度 | 原版 CodeWiki | CodeWiki-Plus |
+| 能力维度 | 上游 CodeWiki | CodeWiki-Plus |
 |----------|--------------|---------------|
 | LLM 配置 | 必须自行配置 API Key | 零配置，IDE 自身模型驱动 |
 | 生成模式 | 黑盒一键生成 | 40 个细粒度工具，Agent 全程可控 |
@@ -709,7 +710,7 @@ codewiki config set \
 codewiki generate
 ```
 
-支持 OpenAI、Anthropic、Azure OpenAI、AWS Bedrock 以及 Claude Code / Codex 订阅模式。详见[上游项目 README](https://github.com/FSoft-AI4Code/CodeWiki)。
+支持 OpenAI、Anthropic、Azure OpenAI、AWS Bedrock 以及 Claude Code / Codex 订阅模式（此模式的历史用法可参考[上游项目 README](https://github.com/FSoft-AI4Code/CodeWiki)）。
 
 ### 支持的语言
 
@@ -717,7 +718,7 @@ Python、Java、JavaScript、TypeScript、C、C++、C#、Kotlin、Go、PHP
 
 ### 致谢
 
-本项目的核心工具链（Tree-sitter AST 解析、依赖图构建、拓扑排序、Mermaid 校验）全部来自 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) 上游项目。以下开源项目的设计思路对我们产生了重要影响：
+CodeWiki-Plus 的核心工具链（Tree-sitter AST 解析、依赖图构建、拓扑排序、Mermaid 校验）源自 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki)，本项目在其基础上独立演进，感谢原作者团队的开拓性工作。以下开源项目的设计思路对我们产生了重要影响：
 
 - [codebase-memory-mcp](https://github.com/nicobailon/codebase-memory-mcp) — SQLite 持久化缓存架构、跨会话复用、三层降级模式
 - [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki) — 结构化知识层设计、页面类型路由、交叉链接
@@ -748,9 +749,11 @@ Python、Java、JavaScript、TypeScript、C、C++、C#、Kotlin、Go、PHP
 
 ### What is this project?
 
-CodeWiki-Plus is an enhanced fork of [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) that enables **zero-LLM-config Wiki generation** driven entirely by AI IDEs (CodeBuddy, Cursor, Claude Desktop, etc.) via MCP (Model Context Protocol), plus a full knowledge management engine.
+CodeWiki-Plus is a repository knowledge engine driven entirely by the AI IDE's own model (CodeBuddy, Cursor, Claude Desktop, etc.) via MCP (Model Context Protocol): **zero LLM configuration** for Wiki generation, plus a full knowledge management engine on top — retrieval, notes, task memory, and team telemetry.
 
-### Why this fork?
+The project originated as a fork of [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) and has since evolved independently on top of its toolchain (Tree-sitter AST parsing, dependency graph construction, topological sort, Mermaid validation) into a standalone project with a different architectural focus — see [Acknowledgements](#acknowledgements).
+
+### Why not just use the original?
 
 The original CodeWiki is an excellent repository-level documentation framework. However, it requires users to configure their own LLM API (API key, provider, model selection), and the generation pipeline runs as a black box with no user intervention.
 
@@ -767,7 +770,7 @@ After:
               ↑ pure tool     ↑ pure tool  ↑ IDE's own model ↑ pure tool
 ```
 
-### Enhancements over upstream CodeWiki
+### Differences from upstream CodeWiki
 
 | Dimension | Upstream CodeWiki | CodeWiki-Plus |
 |-----------|------------------|---------------|
@@ -1083,7 +1086,7 @@ Python, Java, JavaScript, TypeScript, C, C++, C#, Kotlin, Go, PHP
 
 ### Acknowledgements
 
-The core toolchain (Tree-sitter AST parsing, dependency graph, topological sort, Mermaid validation) comes from [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki). Influenced by:
+The core toolchain (Tree-sitter AST parsing, dependency graph, topological sort, Mermaid validation) originated from [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki); CodeWiki-Plus has evolved independently on top of it — many thanks to the original authors. Influenced by:
 
 - [codebase-memory-mcp](https://github.com/nicobailon/codebase-memory-mcp) — SQLite persistent cache, cross-session reuse
 - [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki) — Structured knowledge layer, page type routing
