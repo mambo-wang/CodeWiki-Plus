@@ -234,7 +234,7 @@ refresh_doctrine(mode="prepare")
 
 refresh_doctrine(mode="submit", content="...")
   → 工具侧校验：≤1200 字（超则拒绝并回报）、frontmatter 注入、
-    备份旧版（.backup/doctrine-N.md，保留 3 份）、原子写入、更新计数器
+    原子写入、更新计数器
 ```
 
 **内容规范**（system_prompt 核心，直接移植 TAM TEAM_MEMORY_SYSTEM_PROMPT 并改写）：

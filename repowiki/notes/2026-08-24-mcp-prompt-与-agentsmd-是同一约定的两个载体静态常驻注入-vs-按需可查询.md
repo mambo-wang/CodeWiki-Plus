@@ -10,7 +10,9 @@ metadata:
   - mcp
   severity: medium
   source_ref: conversations/conv-@prompts.py-1294-1308-这个prompt是做什么用的.md
-status: stable
+  consolidated_into:
+  - wiki/scenarios/MCP-Server薄壳架构与参数约定.md
+status: deprecated
 generated:
   by: codewiki/5.4.2
   at: 2026-08-24 03:33:29+00:00
@@ -19,6 +21,7 @@ origin: conversation
 verified:
 - by: human:wangbao
   at: '2026-08-24T03:40:47Z'
+reject_reason: 聚合进场景：MCP-Server薄壳架构与参数约定
 ---
 
 ## 背景

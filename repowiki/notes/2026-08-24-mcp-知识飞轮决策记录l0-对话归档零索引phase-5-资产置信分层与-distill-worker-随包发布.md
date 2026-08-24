@@ -21,7 +21,9 @@ metadata:
   - team-memory
   - agents
   - 团队记忆融合-L2场景聚合与L3-Doctrine设计方案
-status: stable
+  consolidated_into:
+  - wiki/scenarios/对话蒸馏管线与raw暂存区.md
+status: deprecated
 generated:
   by: codewiki/5.4.2
   at: 2026-08-24 02:05:55+00:00
@@ -29,6 +31,7 @@ stale_after: '2027-08-24'
 verified:
 - by: codewiki/5.4.2
   at: '2026-08-24T02:07:50Z'
+reject_reason: 聚合进场景：对话蒸馏管线与raw暂存区
 ---
 
 ## 背景

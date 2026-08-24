@@ -6,7 +6,7 @@ aliases:
 - 知识笔记索引
 ---
 
-<!-- 自动生成于 2026-08-24T21:55:49+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-24T23:38:48+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -70,16 +70,36 @@ aliases:
 * [MCP-Server薄壳架构与参数约定](scenarios/MCP-Server薄壳架构与参数约定.md) - MCP 薄壳分层、新增工具两处落点、output_dir 解析单点收敛、工具参数先读描述纪律
 * [Wiki页面生成约定与数据结构](scenarios/Wiki页面生成约定与数据结构.md) - status 语义分层、OKF actor 约定、module_tree 字符串引用、实体概念提取识别与举证分离四步流程
 * [任务记忆系统设计方法](scenarios/任务记忆系统设计方法.md) - 任务归属采集阶段决定、source_session_id 维度绑定、pending 确认闸门、memories 追加式原子写
+* [发布与依赖治理方法](scenarios/发布与依赖治理方法.md) - Windows 下发布/CI/依赖升级的工作方法：编码坑规避、网络栈 fallback、密钥扫描、ruff 钉版本、review 工具选型、验证纪律
 * [对话蒸馏管线与raw暂存区](scenarios/对话蒸馏管线与raw暂存区.md) - 蒸馏三模式共同落盘路径、raw 暂存区生命周期、Mode C 多文件蒸馏操作纪律
 
 ## 知识笔记
 
+* [Agent 表述必须诚实区分「已知事实」与「推测」，不能把假设当依据](../notes/2026-08-24-agent-表述必须诚实区分已知事实与推测不能把假设当依据.md) - lesson (lesson, 2026-08-24)
+* [frontmatter deep module 重构四决策：路由收进 module、原地扩展、字节级兼容、先 reader 后 writer](../notes/2026-08-24-frontmatter-deep-module-重构四决策路由收进-module原地扩展字节级兼容先-reader-后.md) - decision (decision, 2026-08-24)
 * [GitHub API 直连被阻时用 PowerShell Invoke-RestMethod 走系统网络栈，token 从 git 凭据管理器提取](../notes/2026-08-24-github-api-直连被阻时用-powershell-invoke-restmethod-走系统网络栈token-从.md) - workaround (workaround, 2026-08-24)
+* [health_score 为扣分制：error-10/warning-3/info-1](../notes/2026-08-24-health-score-为扣分制error-10warning-3info-1.md) - architecture (architecture, 2026-08-24)
 * [install-hooks 幂等去重在 Windows 路径分隔符下失效](../notes/2026-08-24-install-hooks-幂等去重在-windows-路径分隔符下失效.md) - pitfall (pitfall, 2026-08-24)
+* [lint_wiki 支持 fix=true 自愈过期索引](../notes/2026-08-24-lint-wiki-支持-fixtrue-自愈过期索引.md) - architecture (architecture, 2026-08-24)
 * [MCP prompt 与 AGENTS.md 是同一约定的两个载体：静态常驻注入 vs 按需可查询](../notes/2026-08-24-mcp-prompt-与-agentsmd-是同一约定的两个载体静态常驻注入-vs-按需可查询.md) - architecture (architecture, 2026-08-24)
 * [mcp 知识飞轮决策记录：L0 对话归档零索引、Phase 5 资产置信分层与 distill-worker 随包发布](../notes/2026-08-24-mcp-知识飞轮决策记录l0-对话归档零索引phase-5-资产置信分层与-distill-worker-随包发布.md) - decision (decision, 2026-08-24)
+* [OpenViking 借鉴三原则：借分层不借 LLM、借模式不借 hook、借粒度不借无闸门](../notes/2026-08-24-openviking-借鉴三原则借分层不借-llm借模式不借-hook借粒度不借无闸门.md) - decision (decision, 2026-08-24)
+* [patch 已有 frontmatter 路径缺 aliases 默认键](../notes/2026-08-24-patch-已有-frontmatter-路径缺-aliases-默认键.md) - pitfall (pitfall, 2026-08-24)
+* [raw 索引 .index.json 的 task_id 带字面引号导致按任务过滤漏检](../notes/2026-08-24-raw-索引-indexjson-的-task-id-带字面引号导致按任务过滤漏检.md) - pitfall (pitfall, 2026-08-24)
+* [retrieval_stats.db 放 repowiki/.meta 而非 .codewiki 的四个理由](../notes/2026-08-24-retrieval-statsdb-放-repowikimeta-而非-codewiki-的四个理由.md) - architecture (architecture, 2026-08-24)
+* [ruff 升级规则集变宽导致 CI 大面积红：显式 select 钉住窄默认，不顺风修宽规则](../notes/2026-08-24-ruff-升级规则集变宽导致-ci-大面积红显式-select-钉住窄默认不顺风修宽规则.md) - decision (decision, 2026-08-24)
 * [smoke test 用临时 output_dir 污染真实仓库缓存导致落盘错位](../notes/2026-08-24-smoke-test-用临时-output-dir-污染真实仓库缓存导致落盘错位.md) - pitfall (pitfall, 2026-08-24)
+* [TAM L0-L3 记忆管线对照：CodeWiki 已有 L0/L1，空白在 L2 场景聚合与 L3 Doctrine](../notes/2026-08-24-tam-l0-l3-记忆管线对照codewiki-已有-l0l1空白在-l2-场景聚合与-l3-doctrine.md) - architecture (architecture, 2026-08-24)
+* [task_bindings 绑定文件改为一次性消费凭证：成功落盘后删除 + supersede 继承旧 task_id](../notes/2026-08-24-task-bindings-绑定文件改为一次性消费凭证成功落盘后删除-supersede-继承旧-task-id.md) - decision (decision, 2026-08-24)
+* [telemetry 采用 per-user jsonl 文件：零冲突设计的承重墙](../notes/2026-08-24-telemetry-采用-per-user-jsonl-文件零冲突设计的承重墙.md) - decision (decision, 2026-08-24)
 * [Windows GBK 控制台编码导致 CLI 输出与 twine 发布崩溃](../notes/2026-08-24-windows-gbk-控制台编码导致-cli-输出与-twine-发布崩溃.md) - pitfall (pitfall, 2026-08-24)
+* [修复顺序类 bug 先看数据流时序：fix 块后置导致 broken_links 基于旧索引计算](../notes/2026-08-24-修复顺序类-bug-先看数据流时序fix-块后置导致-broken-links-基于旧索引计算.md) - lesson (lesson, 2026-08-24)
+* [单次 commit 业务 review 工具选型：mattpocock code-review 走 Spec 轴，需求来源可绕 setup](../notes/2026-08-24-单次-commit-业务-review-工具选型mattpocock-code-review-走-spec-轴需求来源可.md) - decision (decision, 2026-08-24)
+* [多 IDE hook 支持按家族归并：31 个智能体收敛为 3 家族 schema](../notes/2026-08-24-多-ide-hook-支持按家族归并31-个智能体收敛为-3-家族-schema.md) - architecture (architecture, 2026-08-24)
+* [子代理报告「全绿」不可信：lastfailed 缓存空 ≠ 真全绿，须自己实跑验证](../notes/2026-08-24-子代理报告全绿不可信lastfailed-缓存空-真全绿须自己实跑验证.md) - lesson (lesson, 2026-08-24)
+* [孤儿分支不是「部分文件单独分支」，.codewiki 二进制缓存救不了冲突](../notes/2026-08-24-孤儿分支不是部分文件单独分支codewiki-二进制缓存救不了冲突.md) - lesson (lesson, 2026-08-24)
+* [对话归档原样保留用户消息密钥导致 push 被 GitHub 密钥扫描拦截](../notes/2026-08-24-对话归档原样保留用户消息密钥导致-push-被-github-密钥扫描拦截.md) - pitfall (pitfall, 2026-08-24)
+* [测试多 helper 各写一次 jsonl 会互相全量覆盖，须 append-merge 且不依赖固定 user 文件名](../notes/2026-08-24-测试多-helper-各写一次-jsonl-会互相全量覆盖须-append-merge-且不依赖固定-user-文件名.md) - pitfall (pitfall, 2026-08-24)
 * [配置合并的 Python 坑：dict 浅拷贝污染原配置 + hooks.get(event, []) 未写回](../notes/2026-08-24-配置合并的-python-坑dict-浅拷贝污染原配置-hooksgetevent-未写回.md) - pitfall (pitfall, 2026-08-24)
 * [distill-worker subagent 定义随包发布，hook 启用时自动拷贝到项目 .codebuddy/agents/](../notes/2026-08-23-distill-worker-subagent-定义随包发布hook-启用时自动拷贝到项目-codebuddyagent.md) - decision (decision, 2026-08-23)
 * [hook 采集机制仅正式接线 CodeBuddy，README 措辞用「仅接线支持」](../notes/2026-08-23-hook-采集机制仅正式接线-codebuddyreadme-措辞用仅接线支持.md) - architecture (architecture, 2026-08-23)

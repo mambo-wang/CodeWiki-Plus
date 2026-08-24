@@ -23,6 +23,9 @@ from typing import Optional
 from codewiki.cli.utils.errors import FileSystemError
 from codewiki.cli.utils.fs import safe_write
 from codewiki.mcp.prompts import (
+    _QWENWORK_CAPTURE_END,
+    _QWENWORK_CAPTURE_SECTION,
+    _QWENWORK_CAPTURE_START,
     _TASK_MEMORY_AGENTS_END,
     _TASK_MEMORY_AGENTS_SECTION,
     _TASK_MEMORY_AGENTS_START,
@@ -33,6 +36,14 @@ from codewiki.mcp.prompts import (
 # ---------------------------------------------------------------------------
 # 每个 IDE 的配置目录、settings.json 文件名、agents 子目录、是否拷贝 distill-worker。
 # 新增一个 IDE 只需在此加一行，CLI 命令与 prompt 自动获得支持。
+#
+# 两种接线模式：
+#   - wiring: "hook"（默认）：IDE 支持 shell hook 事件（SessionStart/SessionEnd
+#     携带 transcript_path 经 stdin 调脚本）——拷脚本、写 settings.json、拷 agent。
+#   - wiring: "prompt"：宿主无 shell hook 机制，靠上下文注入 + Agent 中介执行
+#     （如千问办公：AGENTS.md 自动加载等价 SessionStart；会话捕获由 Agent 按协议
+#     调 MCP 工具完成）——只 upsert AGENTS.md 协议段，无 dir/settings/拷贝，
+#     且不参与仓库目录自动检测（无仓库标记，仅显式 --ide 触发）。
 IDE_SPECS: dict[str, dict] = {
     "codebuddy": {
         "dir": ".codebuddy",
@@ -51,6 +62,10 @@ IDE_SPECS: dict[str, dict] = {
         "settings": "settings.json",
         "agents_dir": "agents",
         "copy_agent": True,
+    },
+    "qwenwork": {
+        "wiring": "prompt",
+        "dir": None,
     },
 }
 
@@ -102,15 +117,18 @@ def detect_ide_dirs(repo: str) -> list[str]:
     """扫描项目根目录，返回已存在的 IDE 配置目录对应的 IDE 名称列表。
 
     存在 `.codebuddy/.qoder/.claude` 中哪些目录就检测到哪些 IDE——
-    即「用户用了哪些智能体就为哪些接线」。
+    即「用户用了哪些智能体就为哪些接线」。prompt 模式（千问办公）在仓库
+    无标记目录，不参与自动检测，仅显式 ``--ide qwenwork`` 触发。
     """
     repo_path = Path(repo)
-    return [name for name, spec in IDE_SPECS.items() if (repo_path / spec["dir"]).is_dir()]
+    return [
+        name
+        for name, spec in IDE_SPECS.items()
+        if spec.get("dir") and (repo_path / spec["dir"]).is_dir()
+    ]
 
 
-def merge_settings_json(
-    existing: Optional[dict], start_cmd: str, end_cmd: str
-) -> dict:
+def merge_settings_json(existing: Optional[dict], start_cmd: str, end_cmd: str) -> dict:
     """幂等合并 CodeWiki 的 hook 注册到现有 settings.json 配置。
 
     保留 existing 中全部既有键；对 hooks.SessionStart/SessionEnd 数组按 command
@@ -143,14 +161,14 @@ def merge_settings_json(
         if not isinstance(inner, list):
             inner = []
             target["hooks"] = inner
+
         # 按 command 去重。Windows 下反斜杠/正斜杠路径等价（如
         # `d:/repos/...` 与 `d:\repos\...`），比较前归一化分隔符，
         # 避免历史反斜杠条目与新生成的正斜杠条目被视为不同命令而重复注册。
-        norm = lambda cmd: (cmd or "").replace("\\", "/")
-        if not any(
-            isinstance(h, dict) and norm(h.get("command")) == norm(command)
-            for h in inner
-        ):
+        def norm(cmd: Optional[str]) -> str:
+            return (cmd or "").replace("\\", "/")
+
+        if not any(isinstance(h, dict) and norm(h.get("command")) == norm(command) for h in inner):
             inner.append({"type": "command", "command": command, "timeout": timeout})
     return merged
 
@@ -162,18 +180,40 @@ def upsert_agents_section(agents_path: Path) -> bool:
     之间的标记块：已存在则整体替换，不存在则追加到文件末尾。绝不触碰标记块
     以外的内容。返回是否发生了变更。
     """
+    return _upsert_marker_block(
+        agents_path, _TASK_MEMORY_AGENTS_START, _TASK_MEMORY_AGENTS_END, _TASK_MEMORY_AGENTS_SECTION
+    )
+
+
+def upsert_qwenwork_protocol(agents_path: Path) -> bool:
+    """把千问办公捕获协议段写入 AGENTS.md（幂等，独立标记块）。
+
+    只动 `<!-- CODEWIKI-QWENWORK:START -->` 到 `<!-- CODEWIKI-QWENWORK:END -->`
+    之间的标记块。与 TEAM-MEMORY-TASK 块相互独立：协议段是 QwenWork 专属
+    （prompt 接线模式的产物），不随多 IDE 共享引导段的 upsert 被替换。
+    """
+    return _upsert_marker_block(
+        agents_path,
+        _QWENWORK_CAPTURE_START,
+        _QWENWORK_CAPTURE_END,
+        _QWENWORK_CAPTURE_SECTION,
+    )
+
+
+def _upsert_marker_block(agents_path: Path, start: str, end: str, section: str) -> bool:
+    """通用标记块 upsert：已存在则替换，否则追加到末尾；块外内容不动。"""
     text = agents_path.read_text(encoding="utf-8") if agents_path.exists() else ""
-    start_idx = text.find(_TASK_MEMORY_AGENTS_START)
-    end_idx = text.find(_TASK_MEMORY_AGENTS_END)
+    start_idx = text.find(start)
+    end_idx = text.find(end)
     if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
         before = text[:start_idx]
-        after = text[end_idx + len(_TASK_MEMORY_AGENTS_END):]
-        new_text = before + _TASK_MEMORY_AGENTS_SECTION + after
+        after = text[end_idx + len(end) :]
+        new_text = before + section + after
     elif text.strip():
         # 追加到末尾，前面留一个空行
-        new_text = text.rstrip() + "\n\n" + _TASK_MEMORY_AGENTS_SECTION + "\n"
+        new_text = text.rstrip() + "\n\n" + section + "\n"
     else:
-        new_text = _TASK_MEMORY_AGENTS_SECTION + "\n"
+        new_text = section + "\n"
     if new_text == text:
         return False
     safe_write(agents_path, new_text)
@@ -183,18 +223,37 @@ def upsert_agents_section(agents_path: Path) -> bool:
 def install_for_ide(repo: str, ide: str) -> dict:
     """为单个 IDE 执行接线全流程，返回接线结果摘要。
 
-    步骤：
+    hook 模式（默认）：
     1. 从 codewiki 包内源副本强制拷贝 hook 脚本到 `<repo>/.<ide>/hooks/`，
        拷贝 distill-worker.md 到 `<repo>/.<ide>/agents/`（best-effort）
     2. 合并写入 `<repo>/.<ide>/settings.json` 的 SessionStart/SessionEnd 注册
     3. 向 `<repo>/AGENTS.md` upsert 任务记忆引导段（多 IDE 共享一份，幂等）
+
+    prompt 模式（千问办公）：无 shell hook 机制，仅向 `<repo>/AGENTS.md`
+    upsert 任务记忆引导段 + QwenWork 捕获协议段（两个独立标记块，幂等）。
+    AGENTS.md 由千问办公作为项目上下文自动加载，等价于 SessionStart 注入；
+    会话捕获由 Agent 按协议段执行。
     """
     repo_path = Path(repo)
     if ide not in IDE_SPECS:
-        raise IdeWiringError(
-            f"Unknown IDE: {ide!r}. Supported: {', '.join(IDE_SPECS)}"
-        )
+        raise IdeWiringError(f"Unknown IDE: {ide!r}. Supported: {', '.join(IDE_SPECS)}")
     spec = IDE_SPECS[ide]
+
+    if spec.get("wiring") == "prompt":
+        # prompt 模式：只写 AGENTS.md（引导段 + 专属协议段），无目录/脚本/注册。
+        agents_changed = upsert_agents_section(repo_path / "AGENTS.md")
+        protocol_changed = upsert_qwenwork_protocol(repo_path / "AGENTS.md")
+        return {
+            "ide": ide,
+            "dir": None,
+            "wiring": "prompt",
+            "copied": [],
+            "settings_written": False,
+            "settings_changed": False,
+            "agents_changed": agents_changed or protocol_changed,
+            "protocol_changed": protocol_changed,
+        }
+
     pkg = _resolve_pkg_sources()
 
     ide_dir = repo_path / spec["dir"]

@@ -612,6 +612,19 @@ def handle_capture_conversation(
     if sup_rel is not None:
         dest_path = raw_dir / sup_rel
         superseded = True
+        # 绑定文件在首次成功捕获后即被删除（一次性消费凭证）。若同一会话
+        # 再次捕获（supersede）时已解析不到 task_id，从被替换的旧 entry
+        # 继承 task_id，避免覆盖后归属丢失。task_id 参与 content_hash，
+        # 继承后需重算，保证索引与去重一致。
+        if not task_id:
+            for _entry in index.get("files", []):
+                if _entry.get("relpath") == sup_rel:
+                    inherited = str(_entry.get("task_id") or "").strip()
+                    if inherited:
+                        task_id = inherited
+                        task_source = "binding-inherited"
+                        content_hash = _content_hash(turns, link_to, task_id)
+                    break
 
     now = datetime.now(timezone.utc)
     stamp = now.strftime("%Y%m%dT%H%M%SZ")
@@ -738,6 +751,22 @@ def handle_capture_conversation(
     else:
         entries.append(new_entry)
     _write_index(raw_dir, {"files": entries})
+
+    # One-shot binding consumption: a session binding (repowiki/.meta/
+    # task_bindings/<source_session_id>.json) exists only to route this
+    # session's captures to a task. Once the raw file has been written
+    # successfully, the binding has served its purpose — delete it so
+    # task_bindings/ does not accumulate stale records for ended sessions.
+    # Only delete when the task_id actually came from the binding file
+    # (task_source == "binding"); explicit task_id arguments and inherited
+    # supersede ids must not touch it. Missing/undelettable files are fine:
+    # a failed cleanup must never block the capture itself.
+    if task_source == "binding" and source_session_id:
+        _binding_path = output_dir / ".meta" / "task_bindings" / f"{source_session_id}.json"
+        try:
+            _binding_path.unlink(missing_ok=True)
+        except OSError:
+            pass  # non-fatal: stale binding files are cosmetic only
 
     # NOTE: deliberately no append_log() here. Raw capture is transient (the
     # file is deleted after distillation), and the hook fires on every session

@@ -11,7 +11,9 @@ metadata:
   - ide-config
   severity: medium
   source_ref: conversations/conv-当前项目添加的hook和subagent只支持codebuddy，优化为支持市面上常见的智能体，比如自动检测有.qode.md
-status: stable
+  consolidated_into:
+  - wiki/scenarios/IDE-Hook采集链路方法.md
+status: deprecated
 generated:
   by: codewiki/5.4.2
   at: 2026-08-24 03:33:22+00:00
@@ -20,6 +22,7 @@ origin: conversation
 verified:
 - by: human:wangbao
   at: '2026-08-24T03:40:50Z'
+reject_reason: 聚合进场景：IDE-Hook采集链路方法
 ---
 
 ## 背景

@@ -20,7 +20,9 @@ metadata:
   related_components:
   - codewiki/cli/utils/ide_config.py
   - codewiki/cli/commands/install_hooks.py
-status: stable
+  consolidated_into:
+  - wiki/scenarios/IDE-Hook采集链路方法.md
+status: deprecated
 generated:
   by: codewiki/5.3.0
   at: 2026-08-23 12:29:40+00:00
@@ -28,6 +30,7 @@ stale_after: '2027-08-23'
 verified:
 - by: codewiki/5.3.0
   at: '2026-08-23T12:44:51Z'
+reject_reason: 聚合进场景：IDE-Hook采集链路方法
 ---
 
 ## 背景

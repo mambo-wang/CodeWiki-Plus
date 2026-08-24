@@ -15,9 +15,18 @@ metadata:
   - notes/2026-08-15-okf-7-actor-约定是-codewikiversion旧格式-agentcodewiki-已废弃.md
   - notes/2026-08-15-module-treejson-的-children-是字符串引用而非嵌套对象.md
   - notes/2026-08-03-entityconcept-提取采用-weknora-式两阶段流程p0纯-prompt-协议.md
-  summary: status 语义分层（wiki 页 stable/经验笔记 draft）；OKF actor 约定；module_tree 字符串引用；实体概念提取识别与举证分离四步流程与
-    related≠same 原则
-  heat: 1
+  - notes/2026-08-24-patch-已有-frontmatter-路径缺-aliases-默认键.md
+  - notes/2026-08-24-frontmatter-deep-module-重构四决策路由收进-module原地扩展字节级兼容先-reader-后.md
+  - notes/2026-08-24-lint-wiki-支持-fixtrue-自愈过期索引.md
+  - notes/2026-08-24-修复顺序类-bug-先看数据流时序fix-块后置导致-broken-links-基于旧索引计算.md
+  - notes/2026-08-24-health-score-为扣分制error-10warning-3info-1.md
+  - 2026-08-24-patch-已有-frontmatter-路径缺-aliases-默认键.md
+  - 2026-08-24-frontmatter-deep-module-重构四决策路由收进-module原地扩展字节级兼容先-reader-后.md
+  - 2026-08-24-lint-wiki-支持-fixtrue-自愈过期索引.md
+  - 2026-08-24-修复顺序类-bug-先看数据流时序fix-块后置导致-broken-links-基于旧索引计算.md
+  - 2026-08-24-health-score-为扣分制error-10warning-3info-1.md
+  summary: frontmatter aliases 双路径对齐；lint fix=true 自愈块先于检查；health_score 扣分制口径
+  heat: 2
 ---
 ## 工作场景
 wiki 页面生成中的 OKF 约定、frontmatter 语义与 wiki 数据结构消费的方法体系。适用于撰写/修补 wiki 页面、开发实体/概念知识提取、排查 frontmatter 与模块树问题。
@@ -30,10 +39,14 @@ wiki 页面生成中的 OKF 约定、frontmatter 语义与 wiki 数据结构消�
 2. OKF actor 写 codewiki/<version>（config.py actor_id()）；排查 actor 问题先看 actor_id() 实际返回值，不按旧文档臆断。
 3. 遍历 module_tree.json 先判断 children 元素类型：children 是字符串引用（模块 id）需二次查顶层定义节点，不是嵌套 dict。
 4. 实体/概念提取按「识别与举证分离」四步：骨架提取（Pass 0 只出 JSON 骨架、禁写正文）→ query_wiki 语义去重（create/merge/drop）→ 证据校验（source_ref 行范围必须实质性讨论该项，无引用不成立）→ 编译式撰写（merge 用 edit 追加不覆盖）。
+5. 生成路径与修补路径都要写 aliases：_build_okf_frontmatter / _inject_lightweight_frontmatter / rebuild_index 与 _okf_patch_defaults 两套路径默认键集合保持一致（修补路径曾漏 aliases 产生无别名页面）。
+6. lint --fix=true 自愈过期索引要「预扫 stale_refs → 先 rebuild_index → 再跑全部检查」：自愈块必须位于检查执行之前，否则 broken_links 基于旧索引计算；Windows 下路径比较统一 Path().as_posix() 规避分隔符差异。
 
 ## 判断逻辑
 - 去重三条件：同一真实事物 / 名称变体 / 类型兼容；核心原则 related ≠ same，拿不准就不合并。
 - 提取粒度三级回退：显式变量 → schema.yaml extraction_granularity → standard。
+- health_score 是扣分制（error -10 / warning -3 / info -1）：大量 info 会把分数拉到 0，不代表格式错误——评估先看 error/warning 分布而非总分。
+- 修复顺序类 bug 先看数据流时序：fix 块后置会让后续检查消费旧数据，断言「修好了」要验证修复点发生在数据产生之前。
 
 ## 禁忌与反模式
 - 不要全局改 inject_okf_frontmatter 的 status="draft" 默认值：capture（pending）与蒸馏链路（未审核语义）依赖它；改动只收敛在 doc_writer 的 wiki 生成路径。
@@ -43,3 +56,4 @@ wiki 页面生成中的 OKF 约定、frontmatter 语义与 wiki 数据结构消�
 ## 关键事实依据
 - prompt 模板示例写 status: draft 曾误导 LLM 照抄产生 draft 页面，模板已同步改 stable。
 - P0 采用纯 prompt 协议落地（不加 MCP 端点、不改数据结构），是项目「Agent 行为偏好纯 prompt 协议」理念的体现。
+- frontmatter deep module 重构四决策：路由收进 module、原地扩展、字节级兼容、先 reader 后 writer——改 frontmatter 读写先对齐这四条。

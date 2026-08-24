@@ -2,3 +2,12 @@
 {"t": "hit", "doc": "wiki/modules/CLI_Commands.md", "at": "2026-08-23", "n": 1}
 {"t": "hit", "doc": "wiki/modules/MCP_Prompts.md", "at": "2026-08-23", "n": 1}
 {"t": "hit", "doc": "wiki/modules/MCP_Server.md", "at": "2026-08-23", "n": 1}
+{"t": "hit", "doc": "wiki/scenarios/MCP-Server薄壳架构与参数约定.md", "at": "2026-08-24", "n": 1}
+{"t": "hit", "doc": "wiki/scenarios/Wiki页面生成约定与数据结构.md", "at": "2026-08-24", "n": 1}
+{"t": "hit", "doc": "wiki/modules/MCP_Tools_Dependency.md", "at": "2026-08-24", "n": 1}
+{"t": "hit", "doc": "notes/2026-08-03-mcp-工具-schema-不声明-session-idhandler-隐式读取.md", "at": "2026-08-24", "n": 1}
+{"t": "hit", "doc": "wiki/doctrine.md", "at": "2026-08-24", "n": 1}
+{"t": "hit", "doc": "notes/2026-08-24-windows-gbk-控制台编码导致-cli-输出与-twine-发布崩溃.md", "at": "2026-08-24", "n": 1}
+{"t": "hit", "doc": "wiki/modules/SharedConfig.md", "at": "2026-08-24", "n": 1}
+{"t": "hit", "doc": "wiki/modules/AnalyzerUtils.md", "at": "2026-08-24", "n": 1}
+{"t": "hit", "doc": "notes/2026-08-24-github-api-直连被阻时用-powershell-invoke-restmethod-走系统网络栈token-从.md", "at": "2026-08-24", "n": 1}
