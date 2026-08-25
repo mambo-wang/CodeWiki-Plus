@@ -677,6 +677,61 @@ _register(
 
 _register(
     Tool(
+        name="review_changes",
+        description=(
+            "Git-diff driven code review evidence assembly: answer 'is my change correct?' "
+            "after editing code, against four review axes — spec (SPEC/design docs, explicit "
+            "paths or auto-discovered under docs/specs/.scratch/openspec), convention "
+            "(project wiki conventions + Doctrine), module_knowledge (pitfall/lesson/decision "
+            "notes of the changed module), general (built-in engineering checklist + project "
+            "override). Deterministic and LLM-free (Doctrine: reasoning stays with the caller): "
+            "mode='prepare' assembles the review context package (diff + annotated changed "
+            "sources + four-axis evidence) and writes it to the workspace; the caller agent "
+            "reviews it and may archive the structured report with mode='submit'. "
+            "Judgment order when axes conflict: spec > convention > module_knowledge > general. "
+            "Same input source as analyze_changes (since range or uncommitted worktree) but "
+            "analyze_changes answers impact, review_changes answers quality."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path. Auto-loads from SQLite cache if a previous analysis exists.",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["prepare", "submit"],
+                    "description": "prepare (default) assembles the review context package; submit validates and archives the caller's report.",
+                },
+                "since": {
+                    "type": "string",
+                    "description": "Committed range: git diff <since>..HEAD (e.g. 'HEAD~1', or a commit hash). Omitted = uncommitted changes. In since mode changed sources are read from HEAD so they match the diff exactly.",
+                },
+                "spec_paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Explicit SPEC/design doc paths (relative to repo_path or absolute). Auto-discovery runs only when no explicit path yields a readable file.",
+                },
+                "focus": {
+                    "type": "string",
+                    "enum": ["all", "spec", "convention", "module_knowledge", "general"],
+                    "description": "Restrict evidence assembly to one axis (default: all).",
+                },
+                "report": {
+                    "type": "object",
+                    "description": "Submit only: the review report {title, findings: [{id, axis, severity, file, line, title, evidence, suggestion, rule_ref}], summary}.",
+                },
+            },
+            "required": ["repo_path"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.review_changes:handle_review_changes",
+    mode="thread",
+)
+
+_register(
+    Tool(
         name="watch_repo",
         description=(
             "Start/stop/query the background graph watcher for a repository. "
@@ -1975,7 +2030,9 @@ _register(
             "Initialize a Wiki workspace for a project (zero-config bootstrap). "
             "Creates the output directory structure (wiki/modules, wiki/entities, "
             "wiki/concepts, wiki/sources, wiki/comparisons, wiki/queries, notes/), "
-            "copies the annotated schema.yaml template (preserving comments), and "
+            "copies the annotated schema.yaml template (preserving comments), "
+            "the ontology.yaml template and the review_checklist.yaml override "
+            "template (both skipped when already present), and "
             "injects wiki usage instructions + self-reflection protocols into the "
             "project's AGENTS.md. Run this ONCE before starting any wiki generation "
             "or knowledge ingestion workflow. Idempotent: safe to re-run — existing "

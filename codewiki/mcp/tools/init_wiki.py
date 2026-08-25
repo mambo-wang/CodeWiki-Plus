@@ -25,6 +25,10 @@ _SCHEMA_TEMPLATE = _SCHEMA_TEMPLATE_PKG if _SCHEMA_TEMPLATE_PKG.exists() else _S
 _ONTOLOGY_TEMPLATE_PKG = Path(__file__).resolve().parents[2] / "templates" / "ontology.yaml"
 _ONTOLOGY_TEMPLATE = _ONTOLOGY_TEMPLATE_PKG if _ONTOLOGY_TEMPLATE_PKG.exists() else None
 
+# Review checklist override template: project-level merge layer for review_changes
+_REVIEW_CHECKLIST_TEMPLATE_PKG = Path(__file__).resolve().parents[2] / "templates" / "review_checklist.yaml"
+_REVIEW_CHECKLIST_TEMPLATE = _REVIEW_CHECKLIST_TEMPLATE_PKG if _REVIEW_CHECKLIST_TEMPLATE_PKG.exists() else None
+
 # Subdirectories to create under output_dir
 _WIKI_SUBDIRS = [
     "wiki/modules",
@@ -84,6 +88,7 @@ def handle_init_wiki(arguments: dict) -> str:
         "created_dirs": [],
         "schema_yaml": None,
         "ontology_yaml": None,
+        "review_checklist_yaml": None,
         "agents_md": None,
     }
 
@@ -121,6 +126,17 @@ def handle_init_wiki(arguments: dict) -> str:
         else:
             results["ontology_yaml"] = str(onto_dest) + " (already exists, skipped)"
 
+    # ── Step 2c: Copy review_checklist.yaml (review_changes override) ────
+    # Skip when present: users customize this file, init must not clobber it.
+    if _REVIEW_CHECKLIST_TEMPLATE and _REVIEW_CHECKLIST_TEMPLATE.exists():
+        checklist_dest = output_dir_p / "review_checklist.yaml"
+        if not checklist_dest.exists():
+            shutil.copy2(str(_REVIEW_CHECKLIST_TEMPLATE), str(checklist_dest))
+            results["review_checklist_yaml"] = str(checklist_dest)
+            logger.info("Copied review_checklist.yaml template to %s", checklist_dest)
+        else:
+            results["review_checklist_yaml"] = str(checklist_dest) + " (already exists, skipped)"
+
     # ── Step 3: Write AGENTS.md ─────────────────────────────────────────
     try:
         from codewiki.mcp.tools.agents_md import write_agents_md
@@ -142,7 +158,9 @@ def handle_init_wiki(arguments: dict) -> str:
         "Wiki workspace initialized. Next: "
         "1) Edit schema.yaml to set 'purpose' and adjust conventions; "
         "2) Edit ontology.yaml to define project terms and aliases for search; "
-        "3) Run analyze_repo to parse code and generate docs; "
-        "4) Or use ingest_note/query_wiki for knowledge management."
+        "3) Optionally edit review_checklist.yaml to add team review rules "
+        "(merged into review_changes, same id overrides builtin); "
+        "4) Run analyze_repo to parse code and generate docs; "
+        "5) Or use ingest_note/query_wiki for knowledge management."
     )
     return json.dumps(results, ensure_ascii=False, indent=2)

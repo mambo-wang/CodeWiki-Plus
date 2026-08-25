@@ -18,6 +18,12 @@ memories，生命周期挂在任务上：一条任务记忆无论多老都只对
 **memory archive** — 被压缩条目的原文存放地（memories-archive.md，append-only）。永不
 进入任何自动加载路径，仅供人查证或压缩返工时回溯。
 
+**review axes** — review_changes 代码审查的四类评审依据的规范短名，focus 枚举、上下文包
+evidence 键、报告 axis 字段三处统一使用：`spec`（SPEC/设计文档）、`convention`（项目
+Wiki 规范 + Doctrine）、`module_knowledge`（模块历史笔记）、`general`（内置通用
+checklist）。评审对象 = 同一次 git 变更（since 或未提交），工具只做确定性收集与落盘，
+推理外置给调用方 Agent（Doctrine 约束）。
+
 **frontmatter module** — the deep module at `codewiki/src/frontmatter.py` that owns
 repowiki page frontmatter read/write (`parse_frontmatter` / `render_frontmatter` /
 `update`) and page-type routing (`route_page_type`, backed by `PAGE_TYPE_DIRS`).
