@@ -24,10 +24,10 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen
 
       - name: Run tests
-        run: uv run pytest -p no:cacheprovider -o addopts="" tests/ -q
+        run: uv run pytest --cov=codewiki --cov-report=term-missing -p no:cacheprovider tests/ -q
 
   lint:
     name: Lint
@@ -43,7 +43,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen
 
       - name: Collect changed Python files
         env:

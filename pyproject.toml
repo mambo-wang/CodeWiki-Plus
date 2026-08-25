@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68.0.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "codewiki-plus"
@@ -65,6 +65,17 @@ dependencies = [
     "pathspec>=0.12.1"
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "mypy>=1.5.0",
+    "ruff>=0.1.0",
+]
+
+# Keep pip-compatible extra for `pip install -e .[dev]` fallback (uv canonical is dependency-groups above)
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
@@ -84,31 +95,15 @@ Documentation = "https://github.com/mambo-wang/CodeWiki-Plus/blob/main/README.md
 Repository = "https://github.com/mambo-wang/CodeWiki-Plus"
 Issues = "https://github.com/mambo-wang/CodeWiki-Plus/issues"
 
-[tool.setuptools]
-packages = [
-    "codewiki", 
-    "codewiki.cli", 
-    "codewiki.cli.commands", 
-    "codewiki.cli.models", 
-    "codewiki.cli.utils", 
-    "codewiki.cli.adapters",
-    "codewiki.src",
-    "codewiki.src.be",
-    "codewiki.src.be.agent_tools",
-    "codewiki.src.be.dependency_analyzer",
-    "codewiki.src.be.dependency_analyzer.analysis",
-    "codewiki.src.be.dependency_analyzer.analyzers",
-    "codewiki.src.be.dependency_analyzer.analyzers.route_extractors",
-    "codewiki.src.be.dependency_analyzer.models",
-    "codewiki.src.be.dependency_analyzer.utils",
-    "codewiki.src.fe",
-    "codewiki.mcp",
-    "codewiki.mcp.tools",
-    "codewiki.hooks"
-]
+[tool.hatch.build]
+artifacts = ["codewiki/templates/**/*", "codewiki/py.typed", "codewiki/agents/**/*"]
 
-[tool.setuptools.package-data]
-codewiki = ["templates/**/*", "py.typed", "agents/*.md"]
+[tool.hatch.build.targets.wheel]
+packages = ["codewiki"]
+
+[tool.uv]
+managed = true
+default-groups = ["dev"]
 
 [tool.black]
 line-length = 100
@@ -137,5 +132,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=codewiki --cov-report=term-missing"
+addopts = "-v"
+# Coverage is CI-only: `uv run pytest --cov=codewiki --cov-report=term-missing` (keeps `uv sync` without dev + local `uv run pytest -q` working without pytest-cov)
 
