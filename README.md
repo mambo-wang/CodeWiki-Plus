@@ -98,15 +98,16 @@ pip install codewiki-plus
 codewiki --version
 ```
 
-> **开发者选项**：如需从源码开发（获取最新未发布改动），推荐使用 [uv](https://docs.astral.sh/uv/) 按 `uv.lock` 精确复现开发环境：
+> **开发者选项**：如需从源码开发（获取最新未发布改动），推荐使用 [uv](https://docs.astral.sh/uv/) 按 `uv.lock` 精确复现开发环境（`pyproject.toml:106` `tool.uv.default-groups = ["dev"]` 已包含 dev 工具）：
 > ```bash
 > git clone https://github.com/mambo-wang/CodeWiki-Plus.git
 > cd CodeWiki-Plus
-> uv sync --frozen --extra dev   # 按 uv.lock 复现完整开发环境（含 dev 依赖）
-> uv run codewiki --version      # 通过 uv 环境运行 CLI
-> uv run pytest tests/ -q -o addopts=""  # 运行测试（仓库未装 pytest-cov，须禁用 addopts 默认值）
+> uv sync --frozen              # 按 uv.lock 复现完整开发环境（含 dev 依赖，hatchling 构建）
+> uv run codewiki --version     # 通过 uv 环境运行 CLI
+> uv run pytest tests/ -q       # 运行测试（addopts 已移除 --cov，无需覆盖）
+> # 需要覆盖率时：uv run pytest --cov=codewiki --cov-report=term-missing
 > ```
-> 没有 uv 时也可 `pip install -e .`，但依赖解析不受 `uv.lock` 锁定。
+> 没有 uv 时也可 `pip install -e .[dev]`，但依赖解析不受 `uv.lock` 锁定。
 
 **第 2 步：配置 MCP Server**
 
@@ -832,15 +833,16 @@ Verify:
 codewiki --version
 ```
 
-> **For developers** (latest unreleased changes) — [uv](https://docs.astral.sh/uv/) is recommended to reproduce the dev environment exactly as locked by `uv.lock`:
+> **For developers** (latest unreleased changes) — [uv](https://docs.astral.sh/uv/) is recommended to reproduce the dev environment exactly as locked by `uv.lock` (`tool.uv.default-groups = ["dev"]` includes dev tools):
 > ```bash
 > git clone https://github.com/mambo-wang/CodeWiki-Plus.git
 > cd CodeWiki-Plus
-> uv sync --frozen --extra dev   # reproduce the full dev environment from uv.lock (incl. dev extras)
-> uv run codewiki --version      # run the CLI inside the uv-managed environment
-> uv run pytest tests/ -q -o addopts=""  # run tests (pytest-cov isn't installed; disable default addopts)
+> uv sync --frozen              # reproduce the full dev environment from uv.lock (hatchling build)
+> uv run codewiki --version     # run the CLI inside the uv-managed environment
+> uv run pytest tests/ -q       # run tests (no --cov in addopts; no override needed)
+> # with coverage: uv run pytest --cov=codewiki --cov-report=term-missing
 > ```
-> Without uv, `pip install -e .` still works, but dependency resolution is not locked by `uv.lock`.
+> Without uv, `pip install -e .[dev]` still works, but dependency resolution is not locked by `uv.lock`.
 
 **Step 2: Configure MCP Server**
 
