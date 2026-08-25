@@ -76,31 +76,48 @@ def actor_id() -> str:
 # Per-user git identity is process-stable: resolve it once. The env override
 # (CODEWIKI_USER) is checked live on every call so pseudonyms apply immediately.
 _GIT_USER_NAME_CACHE: Optional[str] = None
+_GIT_USER_EMAIL_CACHE: Optional[str] = None
 
 # Filename-safe charset for the telemetry namespace: alphanumerics, dash,
 # underscore. Everything else (spaces, CJK, dots...) collapses to a dash.
 _USER_ID_UNSAFE_RE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
-def _git_user_name() -> str:
-    """Global ``git config user.name`` (cwd-independent); '' when unset/failing."""
-    global _GIT_USER_NAME_CACHE
-    if _GIT_USER_NAME_CACHE is not None:
-        return _GIT_USER_NAME_CACHE
-    name = ""
+def _git_config_value(key: str) -> str:
+    """``git config <key>`` value (cwd-dependent; global fallback); '' on failure."""
+    import subprocess
+
     try:
-        import subprocess
         proc = subprocess.run(
-            ["git", "config", "user.name"],
+            ["git", "config", key],
             capture_output=True, text=True, timeout=5,
             encoding="utf-8", errors="replace",
         )
         if proc.returncode == 0:
-            name = (proc.stdout or "").strip()
+            return (proc.stdout or "").strip()
     except Exception:
-        name = ""
-    _GIT_USER_NAME_CACHE = name
-    return name
+        pass
+    return ""
+
+
+def _git_user_name() -> str:
+    """Global ``git config user.name``; '' when unset/failing."""
+    global _GIT_USER_NAME_CACHE
+    if _GIT_USER_NAME_CACHE is None:
+        _GIT_USER_NAME_CACHE = _git_config_value("user.name")
+    return _GIT_USER_NAME_CACHE
+
+
+def _git_user_email() -> str:
+    """Global ``git config user.email``; '' when unset/failing.
+
+    Preferred over user.name for namespacing: emails are effectively globally
+    unique (user.name collisions across teammates are common).
+    """
+    global _GIT_USER_EMAIL_CACHE
+    if _GIT_USER_EMAIL_CACHE is None:
+        _GIT_USER_EMAIL_CACHE = _git_config_value("user.email")
+    return _GIT_USER_EMAIL_CACHE
 
 
 def _login_name() -> str:
@@ -120,15 +137,20 @@ def _sanitize_user_id(raw: str) -> str:
 
 
 def user_id() -> str:
-    """Stable per-user identity for telemetry namespacing.
+    """Stable per-user identity for telemetry / task-memory namespacing.
     Priority: CODEWIKI_USER env (explicit override, allows pseudonyms)
-    > git config user.name > os.getlogin(). Falls back to 'local'.
+    > git user.email > git user.name > os.getlogin. Falls back to 'local'.
     Not an auth mechanism — namespace only (trust model = confirm gate).
+
+    email ranks above name because it is effectively globally unique, which
+    keeps per-user files from fragmenting when two teammates share a name —
+    and from colliding when the same person contributes from several
+    machines with consistent git identity.
     """
     env = os.getenv("CODEWIKI_USER", "").strip()
     if env:
         return _sanitize_user_id(env)
-    raw = _git_user_name()
+    raw = _git_user_email() or _git_user_name()
     if not raw:
         raw = _login_name()
     if not raw:
