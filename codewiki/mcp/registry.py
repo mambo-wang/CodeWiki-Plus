@@ -2176,7 +2176,10 @@ _register(
         name="list_tasks",
         description=(
             "List tasks from the task memory layer, optionally filtered by status "
-            "('active' or 'completed'). New sessions should only surface active tasks."
+            "('active' or 'completed'). New sessions should only surface active tasks. "
+            "The .index.json is a rebuildable cache over the tasks/ directory: entries "
+            "lost to a git merge (or a corrupt index) are silently recovered from "
+            "tasks/*/task.md on the next read."
         ),
         inputSchema={
             "type": "object",
@@ -2302,8 +2305,10 @@ _register(
     Tool(
         name="add_task_memory",
         description=(
-            "Append a memory entry to a task's memories.md (atomic, append-only). "
-            "Task memories are task-scoped progress knowledge, distinct from wiki notes."
+            "Append a memory entry to the CURRENT USER's per-user memory file "
+            "memories/<user_id>.md (atomic, append-only; each user writes only "
+            "their own file — git-level conflict isolation). Task memories are "
+            "task-scoped progress knowledge, distinct from wiki notes."
         ),
         inputSchema={
             "type": "object",
@@ -2325,20 +2330,23 @@ _register(
     Tool(
         name="get_task_context",
         description=(
-            "Aggregate a task's full context: task.md description, accumulated "
-            "memories (bounded to the most recent 20 entries by default — "
-            "memories_total / memories_truncated indicate older entries; pass a "
-            "larger max_memories to page back), pending (unconfirmed) memories, "
-            "and related notes (notes whose frontmatter carries the matching "
-            "task_id, each with its status: draft = unconfirmed, stable = "
-            "confirmed). Also returns pending_raw_count / pending_raws — the "
-            "number of un-distilled raw captures bound to this task. If "
-            "pending_raw_count > 0, run distill_conversation(mode='prepare', "
-            "task_id=<this task>) to catch up BEFORE answering the user's "
-            "question. compaction_due=true means memories.md exceeded the "
-            "compaction thresholds (40 entries / 24KB) with entries beyond the "
-            "keep window — run compact_task_memories to compress old entries "
-            "into a summary. Use this at session start to resume a task."
+            "Aggregate a task's full context: task.md description, layered "
+            "memories, and related notes. Memories are LAYERED (multi-user split): "
+            "hot layer = the current user's per-user file (+ legacy memories.md) "
+            "with the most recent max_memories entries in full (default 20; "
+            "memories_total / memories_truncated indicate older entries); warm "
+            "layer = each other teammate's summary section + their 2 most recent "
+            "entries, degraded to one-line hints past the budget. Also returns "
+            "related notes (notes whose frontmatter carries the matching task_id, "
+            "each with its status: draft = unconfirmed, stable = confirmed) and "
+            "pending_raw_count / pending_raws — the number of un-distilled raw "
+            "captures bound to this task. If pending_raw_count > 0, run "
+            "distill_conversation(mode='prepare', task_id=<this task>) to catch up "
+            "BEFORE answering the user's question. compaction_due=true means the "
+            "HOT layer exceeded the compaction thresholds (40 entries / 24KB) "
+            "with entries beyond the keep window — run compact_task_memories to "
+            "compress old entries into a summary. Use this at session start to "
+            "resume a task."
         ),
         inputSchema={
             "type": "object",
@@ -2366,15 +2374,19 @@ _register(
     Tool(
         name="compact_task_memories",
         description=(
-            "Compress a task's old memories.md entries into a '## 早期记忆（摘要）' "
-            "summary section, keeping the most recent 20 entries in full. Two-phase "
-            "stateless design (no LLM inside): mode='prepare' (default) returns the "
-            "entries to compress + summary instructions — the CALLER writes the "
-            "summary; mode='submit' with that summary performs the rewrite. "
-            "Compacted entries' originals are appended verbatim to the task's "
-            "memories-archive.md (append-only, never auto-loaded). Direct write, "
-            "no confirm gate — the operation is reversible via the archive. "
-            "No-op (compaction_needed=false) when below the thresholds (40 entries "
+            "Compress the CALLER's old memories into a '## 早期记忆（摘要）' "
+            "summary section, keeping the most recent 20 entries in full. "
+            "File-domain and author-exclusive: the compaction unit is the current "
+            "user's memories/<user_id>.md PLUS the legacy memories.md (which "
+            "converges into the user's file and is then removed); other users' "
+            "files are never touched. Two-phase stateless design (no LLM inside): "
+            "mode='prepare' (default) returns the entries to compress + summary "
+            "instructions — the CALLER writes the summary; mode='submit' with that "
+            "summary performs the rewrite. Compacted entries' originals are "
+            "appended verbatim to memories-archive/<owner>.md per origin owner "
+            "(append-only, never auto-loaded). Direct write, no confirm gate — the "
+            "operation is reversible via the archive. No-op "
+            "(compaction_needed=false) when below the thresholds (40 entries "
             "/ 24KB) or when nothing lies beyond the keep window. Trigger signal: "
             "get_task_context returns compaction_due=true."
         ),

@@ -1,0 +1,6 @@
+# Task memory per-user files: teammates only ever append to their own file,
+# so a same-file collision means the SAME user on two machines. union keeps
+# both sides' lines; the loader re-orders by timestamp heading and absorbs the
+# interleaving (multi-user split design §4.1 / Q7).
+repowiki/tasks/*/memories/*.md merge=union
+repowiki/tasks/*/memories-archive/*.md merge=union

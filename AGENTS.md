@@ -152,7 +152,7 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
 
 **工具入口：**
 - `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context` / `compact_task_memories`
-- 存储：`repowiki/tasks/.index.json` + `<task_id>/task.md` + `<task_id>/memories.md`（条目带 `### YYYY-MM-DD HH:MM` 时间戳头；压缩后头部有「早期记忆（摘要）」段）+ `<task_id>/memories-archive.md`（压缩归档，append-only、永不自动加载）；会话绑定在 `repowiki/.meta/task_bindings/`
+- 存储：`repowiki/tasks/.index.json`（可重建缓存：目录扫描为准，失配/损坏时自动重建）+ `<task_id>/task.md` + `<task_id>/memories/<user_id>.md`（每人只写自己的文件，多人 git 冲突隔离；条目带 `### YYYY-MM-DD HH:MM` 时间戳头；压缩后头部有「早期记忆（摘要）」段）+ `<task_id>/memories-archive/<user_id>.md`（压缩归档，append-only、永不自动加载）；`<task_id>/memories.md` 为存量单文件（只读兼容，热层，首次压缩并入当前用户文件后移除）；会话绑定在 `repowiki/.meta/task_bindings/`
 - `capture_conversation` / `distill_conversation` / `ingest_note` / `query_wiki` 均接受 `task_id`；蒸馏时 LLM 双轨产出 `notes`(通用知识，draft 待确认) 与 `memories`(任务进度，直写落盘——ADR-0002：任务记忆不做确认闸门)
 - MCP prompt `task-workflow`（prompts/list）— 完整工作流指引
 
@@ -161,8 +161,8 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
 - `delete_task` 级联删除任务目录与绑定文件，但**不删**已打上 `task_id` 的笔记。
 - **绑定文件是一次性消费凭证**：`set_session_task` 写入 `repowiki/.meta/task_bindings/<session_id>.json` 后，首次 `capture_conversation` 成功落盘即自动删除；显式传 `task_id` 不消费绑定。同会话在绑定删除后再次捕获（supersede）会继承旧 raw 的 task_id，归属不丢。
 - `query_wiki` 不校验任务存在性(幽灵 `task_id` 允许)。
-- `memories.md` 追加式原子写(临时文件 + `os.replace`)，并发串行；条目带 `### YYYY-MM-DD HH:MM` 时间戳头(ADR-0001：保持 markdown 不迁 JSONL，时间戳头是切条/截断/压缩的解析边界，存量无头文件运行时空行回退解析)。
-- `get_task_context`/`get_task` 的 memories 返回**有界**：默认分别取最近 20/5 条，`memories_total`/`memories_truncated` 标记截断、`max_memories` 参数翻页；`compaction_due=true` 表示超压缩阈值(40 条/24KB)且超出保留窗口，应跑 `compact_task_memories`(两段式无状态：`mode="prepare"` 取待压条目由调用方写摘要 → `mode="submit"` 落盘；原文归档 memories-archive.md 不删，直写不走 confirm 闸门)。
+- `memories/<user_id>.md` 追加式原子写(临时文件 + `os.replace`)，并发串行；**每人只写自己的文件**(文件所有权即 git 级互斥原语)；条目带 `### YYYY-MM-DD HH:MM` 时间戳头(ADR-0001：保持 markdown 不迁 JSONL，时间戳头是切条/截断/压缩的解析边界，存量无头文件运行时空行回退解析)。
+- `get_task_context`/`get_task` 的 memories 返回**分层有界**：热层=自己(+存量 legacy)文件取最近 20/5 条全量；温层=其他成员仅注入摘要+最近 2 条(超预算降级为一行线索)；`memories_total`/`memories_truncated` 标记截断、`max_memories` 参数翻页；`compaction_due=true` 表示热层超压缩阈值(40 条/24KB)且超出保留窗口，应跑 `compact_task_memories`(两段式无状态：`mode="prepare"` 取待压条目由调用方写摘要 → `mode="submit"` 落盘；**文件域压缩，只压自己的文件(+legacy 并入)，永不动他人文件**；原文按归属归档 `memories-archive/<user_id>.md` 不删，直写不走 confirm 闸门)。
 <!-- TEAM-MEMORY-TASK:END -->
 
 <!-- CODEWIKI-QWENWORK:START -->
