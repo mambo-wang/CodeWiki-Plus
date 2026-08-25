@@ -9,6 +9,10 @@
 * **ingest_note**: 添加笔记: MCP 参数长度受限时蒸馏 submit 走文件侧通道：Python 脚本直接调 handle_distill_conversation
 * **ingest_note**: 添加笔记: 蒸馏时无知识密度的对话也提交空结果，否则 raw 无法归档清理
 * **ingest_note**: 添加笔记: 知识摄入到自动检索链路：ingest_note 自动写索引、close_session 兜底终态
+* **analyze_repo**: 分析仓库 CodeWiki-CN，1561 个组件
+* **analyze_repo**: 分析仓库 CodeWiki-CN，1561 个组件
+* **ingest_note**: 添加笔记: review_changes 全轴 prepare 单次调用易挂起（MCP 通道卡住）
+* **ingest_note**: 添加笔记: untracked 新文件不在分析图谱内，review_changes changed_sources 切片为空
 
 ## 2026-08-24
 * **lint_wiki**: 检查完成: 0 个问题

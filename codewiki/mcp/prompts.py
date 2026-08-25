@@ -541,6 +541,59 @@ read_code_components(repo_path="{repo_path}", component_ids=['<high_risk_id>'])
 使用 get_prompt(prompt_type="impact_review") 获取更详细的解读指南。"""
 
 
+def _prompt_change_review(args: dict[str, str]) -> str:
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    since = args.get("since", "")
+    if since:
+        mode_call = f"analyze_changes(repo_path='{repo_path}', since='{since}')"
+        mode_desc = f"已提交范围 `{since}..HEAD`（git diff 行级解析）"
+    else:
+        mode_call = f"analyze_changes(repo_path='{repo_path}', worktree=true)"
+        mode_desc = "未提交变更（暂存 + 未暂存 + 新增文件）"
+    return f"""请对最近代码变更做影响范围评估（修改后分析）。按以下步骤执行：
+
+## 步骤 1: 确定变更范围
+- 本次分析模式：{mode_desc}
+- 调用 {mode_call}
+- 该工具从 SQLite 缓存自动加载依赖图谱，无需先跑 analyze_repo
+- 需要其他遍历方向时加 direction='depends_on' / 'both'，限制深度加 max_depth=<N>
+
+## 步骤 2: 理解分析结果
+- changed_components: 变更行命中的函数/类（行级 diff 定位，不是整个文件）
+- affected_components: 传递性影响的所有组件（含调用链与深度）
+- suggested_tests: 按命名约定建议的回归测试文件
+- summary: total_affected / changed_files / changed_components / source 规模概览
+- 边界情况（不是错误）:
+  - file_level_changes: 变更行落在组件外（如 import/装饰器），退化为文件级
+  - deleted_unlocated: 被删除的函数（按旧版本解析定位）
+  - untracked_files: 新增未跟踪文件不在图谱内，需先 analyze_repo 增量纳入
+
+## 步骤 3: 回归测试计划
+- 对 suggested_tests 中实际存在的测试文件，明确建议运行
+- 对 affected_components 中高风险组件（5+ 直接依赖者）建议补充回归测试
+- 受影响组件分布在 3+ 模块时，提示需要集成测试
+
+## 步骤 4: 深挖（可选）
+```
+# 对某个受影响组件做修改前式细查（看谁调用它）
+analyze_impact(repo_path='{repo_path}', component_ids=['<affected_id>'], direction='depended_by')
+
+# 模块级依赖视图
+list_dependencies(repo_path='{repo_path}', module_level=true)
+```
+
+## 步骤 5: 代码评审（review_changes）
+调用 review_changes(mode='prepare', repo_path='{repo_path}', since=<可选，留空=未提交变更>, spec_paths=[<可选>]) 获取评审上下文包（写入 workspace）。
+- evidence.spec: SPEC 命中情况——逐条比对变更是否覆盖需求、有无超范围
+- evidence.convention: 项目规范 hits——检查变更是否违反（doctrine 为最高优先级）
+- evidence.module_knowledge: 历史 pitfall/lesson——检查是否重蹈覆辙
+- evidence.general: 通用清单——逐项过一遍
+四轴依据冲突时裁决顺序 spec > convention > module_knowledge > general，冲突时引用双方依据不合并。
+评审产出 findings 后，可选 review_changes(mode='submit', report=...) 落盘；
+对值得复用的发现，经用户确认后 ingest_note 沉淀（pitfall/decision）。
+"""
+
+
 def _prompt_architecture_review(args: dict[str, str]) -> str:
     repo_path = _resolve_path(args.get("repo_path", ""))
     return f"""请通过依赖图分析代码库的高层架构。按以下步骤执行：
@@ -1323,6 +1376,30 @@ def register(server):
                 ],
             ),
             Prompt(
+                name="change-review",
+                title="变更评估与代码评审（修改后）",
+                description=(
+                    "对最近代码变更（commit 范围或未提交变更）执行影响范围分析与代码评审："
+                    "git diff 行级解析定位变更函数，传递性影响半径 + 回归测试建议；"
+                    "再经 review_changes 按四轴（spec/convention/module_knowledge/general）"
+                    "收集评审依据，检查变更是否正确、是否符合规范与历史教训。"
+                    "与 impact-review 互补：impact-review 用于修改前对指定组件评估，"
+                    "change-review 用于修改后对 diff 评估与评审。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="repo_path",
+                        description="代码仓库路径（须已执行过 analyze_repo 或 code-analysis）",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="since",
+                        description="已提交范围 git diff <since>..HEAD（如 HEAD~1 或 commit hash）；留空默认分析未提交变更（worktree）",
+                        required=False,
+                    ),
+                ],
+            ),
+            Prompt(
                 name="architecture-review",
                 title="架构审查与热点分析",
                 description=(
@@ -1511,6 +1588,7 @@ def register(server):
             "quality-check": _prompt_quality_check,
             "code-analysis": _prompt_code_analysis,
             "impact-review": _prompt_impact_review,
+            "change-review": _prompt_change_review,
             "architecture-review": _prompt_architecture_review,
             "workspace-analysis": _prompt_workspace_analysis,
             "cross-service-trace": _prompt_cross_service_trace,
