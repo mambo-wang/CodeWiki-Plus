@@ -139,10 +139,13 @@ def _read_lines(path: Path) -> List[str]:
 def record_hit(output_dir, doc_path: str, count: int = 1) -> None:
     """Append (or same-day-merge) a ``hit`` event for *doc_path*.
 
-    Same-day aggregation: if the LAST line of the user's event file already
-    is today's hit line for the same doc, its ``n`` is incremented in place
-    (small daily rewrite of the file — line counts stay bounded). Otherwise
-    a new line is appended. Failures propagate; callers keep the
+    Same-day aggregation: the first matching line in the user's event file
+    (newest first) that already is today's hit line for the same doc gets
+    its ``n`` incremented in place; otherwise a new line is appended.
+    Scanning the whole file (instead of just the tail) keeps the file
+    bounded at one line per (user, doc, day) even when a query returns many
+    docs and interleaves hits between invocations. Corrupt lines are
+    skipped and never block a merge. Failures propagate; callers keep the
     best-effort try/except posture (stats must never break the search path,
     but the write helper itself stays honest).
     """
@@ -150,18 +153,20 @@ def record_hit(output_dir, doc_path: str, count: int = 1) -> None:
     today = date.today().isoformat()
     lines = _read_lines(path)
     merged = False
-    if lines:
+    # Newest-first scan: merge into the most recent matching hit line.
+    for i in range(len(lines) - 1, -1, -1):
         try:
-            last = json.loads(lines[-1])
-            if (isinstance(last, dict)
-                    and last.get("t") == "hit"
-                    and last.get("doc") == doc_path
-                    and str(last.get("at", "")) == today):
-                last["n"] = int(last.get("n", 0) or 0) + int(count)
-                lines[-1] = json.dumps(last, ensure_ascii=False)
-                merged = True
+            ev = json.loads(lines[i])
         except (json.JSONDecodeError, ValueError, TypeError):
-            merged = False  # corrupt tail → just append a fresh line
+            continue  # corrupt line → skip it, keep scanning
+        if (isinstance(ev, dict)
+                and ev.get("t") == "hit"
+                and ev.get("doc") == doc_path
+                and str(ev.get("at", "")) == today):
+            ev["n"] = int(ev.get("n", 0) or 0) + int(count)
+            lines[i] = json.dumps(ev, ensure_ascii=False)
+            merged = True
+            break
     if not merged:
         lines.append(json.dumps(
             {"t": "hit", "doc": doc_path, "at": today, "n": int(count)},
