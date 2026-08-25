@@ -6,7 +6,7 @@ aliases:
 - 知识笔记索引
 ---
 
-<!-- 自动生成于 2026-08-26T00:55:56+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-26T01:03:05+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -75,8 +75,14 @@ aliases:
 
 ## 知识笔记
 
+* [analyze_changes 的 changed_components 行区间定位是近似，跨函数边界会误报组件](../notes/2026-08-26-analyze-changes-的-changed-components-行区间定位是近似跨函数边界会误报组件.md) - pitfall (pitfall, 2026-08-26)
+* [analyze_repo 增量与依赖图谱的测试并行执行存在时序竞态](../notes/2026-08-26-analyze-repo-增量与依赖图谱的测试并行执行存在时序竞态.md) - lesson (lesson, 2026-08-26)
 * [build 后端 setuptools→hatchling 迁移后 wheel 内容会变化，需对比文件清单而非只看能否安装](../notes/2026-08-26-build-后端-setuptoolshatchling-迁移后-wheel-内容会变化需对比文件清单而非只看能否安装.md) - pitfall (pitfall, 2026-08-26)
 * [fork 来源的 PR 与目标分支冲突时的维护者合入流程（merge-tree 探测 + worktree + push fork）](../notes/2026-08-26-fork-来源的-pr-与目标分支冲突时的维护者合入流程merge-tree-探测-worktree-push-fork.md) - lesson (lesson, 2026-08-26)
+* [handle_query_wiki 在 session 存在时每次查询都全量重建检索索引](../notes/2026-08-26-handle-query-wiki-在-session-存在时每次查询都全量重建检索索引.md) - pitfall (pitfall, 2026-08-26)
+* [load_project_checklist 对 YAML 损坏静默回退 None 无日志，难排查](../notes/2026-08-26-load-project-checklist-对-yaml-损坏静默回退-none-无日志难排查.md) - pitfall (pitfall, 2026-08-26)
+* [_read_versioned_lines 对磁盘上已不存在的 untracked 文件返回空列表，产生只有 header 的空 body](../notes/2026-08-26-read-versioned-lines-对磁盘上已不存在的-untracked-文件返回空列表产生只有-header.md) - pitfall (pitfall, 2026-08-26)
+* [type_filter 是单值精确匹配，设计要「优先 5 类」需多次查询合并](../notes/2026-08-26-type-filter-是单值精确匹配设计要优先-5-类需多次查询合并.md) - lesson (lesson, 2026-08-26)
 * [uv 工具链两坑：--no-dev 已移除须用 --no-group dev；.python-version 补丁固定与 uv Docker 镜像内置 Python 漂移](../notes/2026-08-26-uv-工具链两坑--no-dev-已移除须用---no-group-devpython-version-补丁固定与-uv.md) - pitfall (pitfall, 2026-08-26)
 * [doctrine 不会自动注入 Agent 上下文：唯一通道是 query_wiki(mode='overview')](../notes/2026-08-25-doctrine-不会自动注入-agent-上下文唯一通道是-query-wikimodeoverview.md) - architecture (architecture, 2026-08-25)
 * [MCP 参数长度受限时蒸馏 submit 应走 distilled_file 文件侧通道（勿内联大 JSON）](../notes/2026-08-25-mcp-参数长度受限时蒸馏-submit-走文件侧通道python-脚本直接调-handle-distill-conve.md) - pitfall (pitfall, 2026-08-25)
