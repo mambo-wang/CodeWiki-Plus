@@ -10,6 +10,7 @@ Install-hooks command for CodeWiki CLI.
 """
 
 import sys
+from pathlib import Path
 
 import click
 
@@ -59,7 +60,23 @@ def _echo_summary(repo: str, results: list[dict]) -> None:
     "--ide",
     type=click.Choice(list(IDE_SPECS), case_sensitive=False),
     default=None,
-    help=("Wire a specific IDE only, skipping auto-detection. One of: " + ", ".join(IDE_SPECS)),
+    help=(
+        "Wire a specific IDE only, skipping auto-detection. One of: "
+        + ", ".join(IDE_SPECS)
+        + ". The IDE's config dir must already exist; pass --create-dir to"
+        " create it."
+    ),
+)
+@click.option(
+    "--create-dir",
+    "create_dir",
+    is_flag=True,
+    default=False,
+    help=(
+        "With --ide only: allow wiring an IDE whose config dir does not"
+        " exist yet in the repo (the dir will be created). Safety gate:"
+        " without this flag, --ide never conjures new IDE config dirs."
+    ),
 )
 @click.option(
     "--repo-path",
@@ -67,7 +84,7 @@ def _echo_summary(repo: str, results: list[dict]) -> None:
     default=".",
     help="Target project path (default: current directory)",
 )
-def install_hooks(ide: str, repo_path: str) -> None:
+def install_hooks(ide: str, create_dir: bool, repo_path: str) -> None:
     """
     Wire CodeWiki task-memory hooks/subagents for detected IDEs.
 
@@ -93,8 +110,24 @@ def install_hooks(ide: str, repo_path: str) -> None:
     """
     try:
         if ide:
-            targets = [ide.lower()]
+            target = ide.lower()
+            spec = IDE_SPECS[target]
+            if spec.get("dir") and not create_dir:
+                ide_dir = Path(repo_path) / spec["dir"]
+                if not ide_dir.is_dir():
+                    raise IdeWiringError(
+                        f"target dir {spec['dir']}/ does not exist in {repo_path}. "
+                        "Explicit --ide wiring does not create missing IDE config "
+                        "dirs (a repo should only be wired for tools actually "
+                        "used in it). Re-run with --create-dir if you really "
+                        f"want to wire {target} into this repo."
+                    )
+            targets = [target]
         else:
+            if create_dir:
+                raise IdeWiringError(
+                    "--create-dir only makes sense together with --ide <name>."
+                )
             targets = detect_ide_dirs(repo_path)
         if not targets:
             click.secho(
@@ -107,8 +140,12 @@ def install_hooks(ide: str, repo_path: str) -> None:
                 " auto-detected - wire it explicitly with --ide qwenwork"
             )
             click.echo(
-                "To wire a specific IDE regardless, use: "
+                "To wire a specific IDE whose config dir already exists, use: "
                 "codewiki install-hooks --ide <" + "|".join(IDE_SPECS) + ">"
+            )
+            click.echo(
+                "(--ide requires the IDE config dir to exist; add --create-dir"
+                " only if you deliberately want to create it)"
             )
             sys.exit(0)
         results = [install_for_ide(repo_path, name) for name in targets]
