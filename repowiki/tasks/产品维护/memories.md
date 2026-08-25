@@ -152,3 +152,12 @@ repowiki/wiki/doctrine.md 已 confirm 为 stable（human:wangbao，2026-08-24T16
 - 本地提交 `d5293df` 已推送 develop：analyze_changes + watch_repo 全部落地（12 文件 +1407 行）。
 - 拉取远程 4 提交（含 ADR-0002 任务记忆直写退役 pending 闸门）：registry.py 自动合并无冲突；memories.md 两侧均追加导致冲突，已手动解决（两侧内容全部保留，append-only 语义）。
 - 经验：SearchReplace 工具无法处理含 git 冲突标记（<<<<<<<）的文件，且 CRLF 行尾文件需用 \r\n 匹配；git 冲突文件直接用 python 脚本清标记更可靠。PowerShell 下 git rebase --continue 卡 vim → 用 $env:GIT_EDITOR='true' 跳过。
+
+### 2026-08-26 01:04
+
+### 2026-08-26 会话蒸馏完成（4 条 raw 对话 → 6 条 stable 笔记）
+
+- 输入：repowiki/raw/ 下 4 条 raw（主体为「变更评估与代码评审」144 轮长对话）
+- 结果：6 条 store + 2 条 skip（与 2026-08-25 已有 stable 笔记重复）+ 2 条无知识（SessionEnd 信封、命令重复），均已清理/归档
+- 6 条确认 stable 笔记：query_wiki 全量重建索引、type-filter 单值精确匹配、analyze-repo 并行时序竞态、load-project-checklist 静默回退、changed-components 行区间近似、read-versioned-lines untracked 空列表
+- 待办：aggregation_hint 提示 consolidate_notes（58 条确认、阈值 10）与 refresh_doctrine（阈值 25）到期，已询问用户，待用户决定是否执行
