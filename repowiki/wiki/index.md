@@ -6,7 +6,7 @@ aliases:
 - 知识笔记索引
 ---
 
-<!-- 自动生成于 2026-08-25T23:27:05+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-25T23:55:12+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -77,6 +77,8 @@ aliases:
 
 * [doctrine 不会自动注入 Agent 上下文：唯一通道是 query_wiki(mode='overview')](../notes/2026-08-25-doctrine-不会自动注入-agent-上下文唯一通道是-query-wikimodeoverview.md) - architecture (architecture, 2026-08-25)
 * [MCP 参数长度受限时蒸馏 submit 应走 distilled_file 文件侧通道（勿内联大 JSON）](../notes/2026-08-25-mcp-参数长度受限时蒸馏-submit-走文件侧通道python-脚本直接调-handle-distill-conve.md) - pitfall (pitfall, 2026-08-25)
+* [review_changes 全轴 prepare 单次调用易挂起（MCP 通道卡住）](../notes/2026-08-25-review-changes-全轴-prepare-单次调用易挂起mcp-通道卡住.md) - pitfall (pitfall, 2026-08-25)
+* [untracked 新文件不在分析图谱内，review_changes changed_sources 切片为空](../notes/2026-08-25-untracked-新文件不在分析图谱内review-changes-changed-sources-切片为空.md) - pitfall (pitfall, 2026-08-25)
 * [知识摄入到自动检索链路：ingest_note 自动写索引、close_session 兜底终态](../notes/2026-08-25-知识摄入到自动检索链路ingest-note-自动写索引close-session-兜底终态.md) - general (general, 2026-08-25)
 * [移除 doctrine 备份机制：.backup 冗余且备份文件会污染检索索引](../notes/2026-08-25-移除-doctrine-备份机制backup-冗余且备份文件会污染检索索引.md) - decision (decision, 2026-08-25)
 * [聚合/doctrine 阈值等运行参数通过 repowiki/schema.yaml conventions.aggregation 覆盖，不改 py 源码默认值](../notes/2026-08-25-聚合doctrine-阈值等运行参数通过-repowikischemayaml-conventionsaggregati.md) - decision (decision, 2026-08-25)
