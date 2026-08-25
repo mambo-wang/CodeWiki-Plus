@@ -38,8 +38,6 @@ MANIFEST
 htmlcov/
 .tox/
 .hypothesis/
-tests/*
-!tests/test_latest_compat.py
 
 # Jupyter
 *.ipynb
