@@ -586,21 +586,35 @@ def handle_review_changes(
 
     changes: List[FileChange] = git_info["changes"]
     if not changes:
-        return json.dumps(
-            {
+        # No changes: still go through the workspace file side-channel so the
+        # MCP response shape is consistent (always carries "file") regardless
+        # of whether the range has diffs — callers (and tests) should not have
+        # to branch on an early-returned compact dict.
+        empty_result: Dict[str, Any] = {
+            "status": "prepared",
+            "query": {"repo_path": session.repo_path, "since": since, "focus": focus},
+            "target": {
+                "diff_summary": {"changed_files": 0, "added_lines": 0, "deleted_lines": 0},
+                "changed_components": [], "changed_sources": {}, "affected_components": [],
+                "suggested_tests": [],
+            },
+            "evidence": {},
+            "hint": "No source-code changes found for the requested range.",
+        }
+        response = write_result(
+            session,
+            "review_context.json",
+            empty_result,
+            summary={
                 "status": "prepared",
-                "query": {"repo_path": session.repo_path, "since": since, "focus": focus},
-                "target": {
-                    "diff_summary": {"changed_files": 0, "added_lines": 0, "deleted_lines": 0},
-                    "changed_components": [], "changed_sources": {}, "affected_components": [],
-                    "suggested_tests": [],
-                },
-                "evidence": {},
+                "changed_files": 0,
+                "changed_components": 0,
+                "spec_found": False,
+                "evidence_axes": [],
                 "hint": "No source-code changes found for the requested range.",
             },
-            indent=2,
-            ensure_ascii=False,
         )
+        return json.dumps(response, indent=2, ensure_ascii=False)
 
     located = locate_changed_components(session.components, changes)
     start_ids: Set[str] = located["changed_component_ids"]
