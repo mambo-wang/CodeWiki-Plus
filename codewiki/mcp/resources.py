@@ -102,11 +102,12 @@ def _wiki_module_tree(output_path: Path) -> str:
 
 def _wiki_index_status(output_path: Path) -> str:
     """Check the search index and link graph status."""
-    from codewiki.src.config import meta_resolve
-    index_path = Path(meta_resolve(output_path, "search_index.db"))
-    result = {"output_dir": str(output_path), "index_exists": index_path.exists()}
+    from codewiki.mcp.tools.wiki_search import _resolve_db_path
+    from codewiki.mcp.tools.index_freshness import has_search_index
+    index_path = _resolve_db_path(output_path)
+    result = {"output_dir": str(output_path), "index_exists": has_search_index(output_path)}
 
-    if index_path.exists():
+    if index_path is not None and index_path.exists():
         try:
             import sqlite3
             conn = sqlite3.connect(str(index_path))

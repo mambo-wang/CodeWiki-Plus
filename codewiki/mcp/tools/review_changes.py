@@ -139,6 +139,23 @@ def _build_changed_sources(
         body = _annotate_lines(comp_lines, max(1, start_line), changed_lines)
         by_file.setdefault(rel, []).append(header + body)
 
+    # Untracked new files have no graph components, so the loop above cannot
+    # reach them.  Include the full working-tree source (all lines are new)
+    # so the review target is not empty for brand-new files.
+    for fc in changes:
+        if not fc.is_untracked:
+            continue
+        rel = _norm(fc.path)
+        if rel in by_file:
+            continue
+        all_lines = _read_versioned_lines(git_root, rel, None)
+        header = (
+            f"### {rel} (untracked new file)\n"
+            f"# file: {rel}  not in analysis graph — full working-tree source\n"
+        )
+        body = _annotate_lines(all_lines, 1, set(fc.added_lines))
+        by_file[rel] = header + body
+
     return {f: "\n\n".join(blocks) for f, blocks in by_file.items()}
 
 
@@ -602,6 +619,16 @@ def handle_review_changes(
     if focus in ("all", "general"):
         evidence["general"] = _collect_general_evidence(session.repo_path, changes)
 
+    hint = (
+        "以 target 为评审对象、evidence 为依据执行评审（裁决顺序 spec > convention > "
+        "module_knowledge > general）；产出 findings 后可用 mode=submit 落盘。"
+    )
+    if located["untracked_files"]:
+        hint += (
+            f"\n注意：{len(located['untracked_files'])} 个 untracked 新文件不在分析图谱内，"
+            "changed_sources 已附其全文（非函数级切片）。可先运行 analyze_repo 增量分析后重新 prepare，"
+            "以获得组件级定位。"
+        )
     full_result: Dict[str, Any] = {
         "status": "prepared",
         "query": {
@@ -612,8 +639,7 @@ def handle_review_changes(
         },
         "target": target,
         "evidence": evidence,
-        "hint": "以 target 为评审对象、evidence 为依据执行评审（裁决顺序 spec > convention > "
-        "module_knowledge > general）；产出 findings 后可用 mode=submit 落盘。",
+        "hint": hint,
     }
     if located["file_level_changes"]:
         full_result["file_level_changes"] = located["file_level_changes"]

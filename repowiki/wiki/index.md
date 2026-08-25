@@ -6,7 +6,7 @@ aliases:
 - 知识笔记索引
 ---
 
-<!-- 自动生成于 2026-08-25T23:55:12+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-26T00:40:42+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -75,6 +75,9 @@ aliases:
 
 ## 知识笔记
 
+* [build 后端 setuptools→hatchling 迁移后 wheel 内容会变化，需对比文件清单而非只看能否安装](../notes/2026-08-26-build-后端-setuptoolshatchling-迁移后-wheel-内容会变化需对比文件清单而非只看能否安装.md) - pitfall (pitfall, 2026-08-26)
+* [fork 来源的 PR 与目标分支冲突时的维护者合入流程（merge-tree 探测 + worktree + push fork）](../notes/2026-08-26-fork-来源的-pr-与目标分支冲突时的维护者合入流程merge-tree-探测-worktree-push-fork.md) - lesson (lesson, 2026-08-26)
+* [uv 工具链两坑：--no-dev 已移除须用 --no-group dev；.python-version 补丁固定与 uv Docker 镜像内置 Python 漂移](../notes/2026-08-26-uv-工具链两坑--no-dev-已移除须用---no-group-devpython-version-补丁固定与-uv.md) - pitfall (pitfall, 2026-08-26)
 * [doctrine 不会自动注入 Agent 上下文：唯一通道是 query_wiki(mode='overview')](../notes/2026-08-25-doctrine-不会自动注入-agent-上下文唯一通道是-query-wikimodeoverview.md) - architecture (architecture, 2026-08-25)
 * [MCP 参数长度受限时蒸馏 submit 应走 distilled_file 文件侧通道（勿内联大 JSON）](../notes/2026-08-25-mcp-参数长度受限时蒸馏-submit-走文件侧通道python-脚本直接调-handle-distill-conve.md) - pitfall (pitfall, 2026-08-25)
 * [review_changes 全轴 prepare 单次调用易挂起（MCP 通道卡住）](../notes/2026-08-25-review-changes-全轴-prepare-单次调用易挂起mcp-通道卡住.md) - pitfall (pitfall, 2026-08-25)

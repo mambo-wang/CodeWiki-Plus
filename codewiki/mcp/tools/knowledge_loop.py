@@ -1443,12 +1443,15 @@ def _query_mode_check(
             search as bm25_search,
             build_full_index,
         )
-        from codewiki.src.config import SEARCH_INDEX_FILENAME, META_DIR
+        from codewiki.mcp.tools.index_freshness import ensure_fresh, has_search_index
 
-        meta_idx = output_dir / META_DIR / SEARCH_INDEX_FILENAME
-        root_idx = output_dir / SEARCH_INDEX_FILENAME
-        idx_path = meta_idx if meta_idx.exists() else root_idx
-        if not idx_path.exists() or session is not None:
+        # R-05: build only when no usable index exists; otherwise let the
+        # cheap three-tier freshness check decide (stale -> transparent
+        # rebuild, fresh -> reuse).  No more unconditional full rebuilds on
+        # every query_wiki call.
+        if has_search_index(output_dir):
+            ensure_fresh(output_dir, session=session)
+        else:
             build_full_index(output_dir, session=session)
 
         raw = bm25_search(
@@ -1574,13 +1577,15 @@ def handle_query_wiki(
             search as bm25_search,
             build_full_index,
         )
-        from codewiki.src.config import SEARCH_INDEX_FILENAME, META_DIR
+        from codewiki.mcp.tools.index_freshness import ensure_fresh, has_search_index
 
-        # Auto-build index if it doesn't exist yet (SQLite-backed when session available)
-        meta_idx = output_dir / META_DIR / SEARCH_INDEX_FILENAME
-        root_idx = output_dir / SEARCH_INDEX_FILENAME
-        idx_path = meta_idx if meta_idx.exists() else root_idx
-        if not idx_path.exists() or session is not None:
+        # R-05: build only when no usable index exists; otherwise let the
+        # cheap three-tier freshness check decide (stale -> transparent
+        # rebuild, fresh -> reuse).  No more unconditional full rebuilds on
+        # every query_wiki call.
+        if has_search_index(output_dir):
+            ensure_fresh(output_dir, session=session)
+        else:
             build_full_index(output_dir, session=session)
 
         raw_results = bm25_search(

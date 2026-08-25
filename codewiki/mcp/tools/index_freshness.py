@@ -25,7 +25,7 @@ import logging
 import random
 import time
 from pathlib import Path
-from typing import Dict, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -170,20 +170,40 @@ def _stale_by_check(
     return None
 
 
+def has_search_index(output_dir: Path) -> bool:
+    """True when a usable search index already exists on disk.
+
+    Mirrors ensure_fresh's info probing (SQLite-with-data first, legacy JSON
+    fallback).  Callers that previously used ``idx_path.exists()`` against
+    ``SEARCH_INDEX_FILENAME`` (a name that is never written) should switch to
+    this — the real index lives in ``.codewiki/analysis_cache.db``.
+    """
+    return (_read_sqlite_index_info(output_dir) is not None
+            or _read_json_index_info(output_dir) is not None)
+
+
 def ensure_fresh(
     output_dir: Path,
     *,
     force: bool = False,
+    session: Any = None,
 ) -> bool:
     """Validate the search index against disk and rebuild when stale.
 
-    Called at the wiki_search.search() entry (sessionless path). Returns True
-    when the index was (re)built and can be used; False means stale-and-
-    unrecoverable — the caller should flag ``index_stale`` but still search.
+    Called at the wiki_search.search() entry (sessionless path) and by
+    handle_query_wiki when a usable index already exists (session or not) —
+    replacing the old "always full-rebuild on session" behaviour with the
+    same cheap three-tier gate. Returns True when the index was (re)built and
+    can be used; False means stale-and-unrecoverable — the caller should flag
+    ``index_stale`` but still search.
 
     Cheap by design: throttled to one inventory scan per output_dir per 60s
     (a stale verdict bypasses the throttle so the rebuild is attempted
     immediately on the next call after files change).
+
+    ``session`` is forwarded to build_full_index so a rebuild reuses the
+    active session's shared AnalysisCache connection instead of opening a
+    second writer against the same db file.
     """
     od = Path(output_dir)
     key = str(od)
@@ -212,7 +232,7 @@ def ensure_fresh(
     logger.warning("index stale (%s) — rebuilding: %s", key, stale_reason)
     try:
         from codewiki.mcp.tools.wiki_search import build_full_index
-        build_full_index(od, session=None)
+        build_full_index(od, session=session)
         # T3: wiki/index.md is a full-rewrite aggregate too — after a pull
         # conflict (either side wins), a manifest mismatch here means the
         # catalog is stale. Rebuild it alongside the search index.
