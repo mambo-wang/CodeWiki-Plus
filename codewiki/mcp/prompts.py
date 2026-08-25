@@ -101,7 +101,7 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
         hook_block = f"""## 步骤 2: 启用任务管理（跨会话任务记忆 + 对话采集）
 为支持跨会话任务记忆，启用 SessionEnd hook 使会话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成），并向 AGENTS.md 写入任务引导段，使新建会话时 Agent 提示用户关联已有任务或输入任务名新建。
 
-**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionStart/SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本与 distill-worker subagent 定义到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。接线支持 CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`），三个 IDE 的 settings.json 结构与事件注册完全一致，仅配置目录不同。
+**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionStart/SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本与 distill-worker subagent 定义到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。接线支持 CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`），三个 IDE 的 settings.json 结构与事件注册完全一致，仅配置目录不同。**只为项目根目录已存在配置目录的智能体接线（自动检测到哪些目录才为哪些接线），绝不主动新建 `.qoder`/`.claude` 等配置目录**——用户明确点名要接未检测到的智能体时，先向用户确认，并提示需先初始化该工具的配置目录。
 
 **首选路径：运行 CLI 自动检测接线（推荐）**
 
@@ -109,7 +109,7 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 codewiki install-hooks --repo-path {repo_path}
 ```
 
-CLI 自动检测项目根目录存在哪些 IDE 配置目录（`.codebuddy/` / `.qoder/` / `.claude/`），检测到哪些就为哪些自动完成全部接线（拷贝脚本与 distill-worker、幂等合并 settings.json、upsert AGENTS.md 引导段）。CLI 不可用时回退到下方手动步骤，Qoder/Claude Code 仅需把 `.codebuddy` 目录换成 `.qoder` / `.claude`。
+CLI 自动检测项目根目录存在哪些 IDE 配置目录（`.codebuddy/` / `.qoder/` / `.claude/`），检测到哪些就为哪些自动完成全部接线（拷贝脚本与 distill-worker、幂等合并 settings.json、upsert AGENTS.md 引导段）。CLI 不可用时回退到下方手动步骤，Qoder/Claude Code 仅需把 `.codebuddy` 目录换成 `.qoder` / `.claude`。**手动接线同样只为已检测到（目录已存在）的智能体执行；未检测到的一律不接、绝不创建其目录，除非用户明确点名并确认。**
 
 1. **确保两个 hook 脚本与 distill-worker subagent 就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。用以下命令解析 CodeWiki 自带的源文件路径，并**强制复制**到目标目录（务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
 
@@ -871,7 +871,7 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
         _detected, _verified, _theoretical = [], ["codebuddy", "qoder", "claude-code"], []
 
     _detected_str = (
-        ", ".join(f"`{i}`" for i in _detected) if _detected else "（未探测到任何已安装智能体）"
+        ", ".join(f"`{i}`" for i in _detected) if _detected else "（未探测到任何智能体配置目录）"
     )
     _theoretical_str = ", ".join(f"`{i}`" for i in _theoretical) if _theoretical else "无"
 
@@ -895,7 +895,7 @@ claude 家族（CodeBuddy/Qoder/Claude Code 及理论支持工具）接线格式
 - 向用户报告哪些智能体已启用、哪些未启用
 
 ## 步骤 2A: 启用
-**首选路径：运行 CLI 自动检测接线（推荐，覆盖全部已安装智能体）**
+**首选路径：运行 CLI 自动检测接线（推荐，覆盖全部已探测到的智能体）**
 
 ```powershell
 codewiki install-hooks --repo-path {repo_path}
@@ -906,7 +906,7 @@ CLI 会自动检测项目根目录下存在哪些智能体配置目录（按 `co
 - 幂等合并 `settings.json` 的 SessionStart/SessionEnd 注册（保留已有无关配置，重复运行不产生重复条目）
 - 向 `AGENTS.md` upsert 任务记忆引导段（多 IDE 共享一份，只写一次）
 
-CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤。手动接线时以 `.codebuddy` 为例，**Qoder 与 Claude Code 仅目标目录不同**：`.codebuddy/` ↔ `.qoder/` ↔ `.claude/`（settings.json、hooks/、agents/ 的相对位置与内容完全一致）。
+CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤。手动接线时以 `.codebuddy` 为例，**Qoder 与 Claude Code 仅目标目录不同**：`.codebuddy/` ↔ `.qoder/` ↔ `.claude/`（settings.json、hooks/、agents/ 的相对位置与内容完全一致）。**仅为步骤 1 探测到的智能体执行手动接线；未探测到的智能体一律不接、不创建其目录**——本机安装了某工具不等于本仓库在用它，除非用户明确点名并确认。
 
 ### 手动兜底步骤
 1. **确保两个 hook 脚本与 distill-worker subagent 就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。
