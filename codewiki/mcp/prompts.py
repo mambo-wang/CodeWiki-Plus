@@ -581,6 +581,16 @@ analyze_impact(repo_path='{repo_path}', component_ids=['<affected_id>'], directi
 # 模块级依赖视图
 list_dependencies(repo_path='{repo_path}', module_level=true)
 ```
+
+## 步骤 5: 代码评审（review_changes）
+调用 review_changes(mode='prepare', repo_path='{repo_path}', since=<可选，留空=未提交变更>, spec_paths=[<可选>]) 获取评审上下文包（写入 workspace）。
+- evidence.spec: SPEC 命中情况——逐条比对变更是否覆盖需求、有无超范围
+- evidence.convention: 项目规范 hits——检查变更是否违反（doctrine 为最高优先级）
+- evidence.module_knowledge: 历史 pitfall/lesson——检查是否重蹈覆辙
+- evidence.general: 通用清单——逐项过一遍
+四轴依据冲突时裁决顺序 spec > convention > module_knowledge > general，冲突时引用双方依据不合并。
+评审产出 findings 后，可选 review_changes(mode='submit', report=...) 落盘；
+对值得复用的发现，经用户确认后 ingest_note 沉淀（pitfall/decision）。
 """
 
 
@@ -1367,12 +1377,14 @@ def register(server):
             ),
             Prompt(
                 name="change-review",
-                title="变更影响范围评估（修改后）",
+                title="变更评估与代码评审（修改后）",
                 description=(
-                    "对最近代码变更（commit 范围或未提交变更）执行影响范围分析："
-                    "git diff 行级解析定位变更函数，传递性影响半径 + 回归测试建议。"
+                    "对最近代码变更（commit 范围或未提交变更）执行影响范围分析与代码评审："
+                    "git diff 行级解析定位变更函数，传递性影响半径 + 回归测试建议；"
+                    "再经 review_changes 按四轴（spec/convention/module_knowledge/general）"
+                    "收集评审依据，检查变更是否正确、是否符合规范与历史教训。"
                     "与 impact-review 互补：impact-review 用于修改前对指定组件评估，"
-                    "change-review 用于修改后对 diff 评估。"
+                    "change-review 用于修改后对 diff 评估与评审。"
                 ),
                 arguments=[
                     PromptArgument(

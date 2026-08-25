@@ -40,6 +40,7 @@ htmlcov/
 .hypothesis/
 tests/*
 !tests/test_latest_compat.py
+!tests/test_review_changes.py
 
 # Jupyter
 *.ipynb
