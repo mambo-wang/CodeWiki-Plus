@@ -6,7 +6,7 @@ aliases:
 - 知识笔记索引
 ---
 
-<!-- 自动生成于 2026-08-26T00:40:42+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-26T00:55:56+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -33,7 +33,7 @@ aliases:
 * [LanguageAnalyzers](modules/LanguageAnalyzers.md) - LanguageAnalyzers 是 DependencyAnalyzer 的叶子模块，包含针对 10 种编程语言的源码分析器。每个分析器接收一个文件路径与源码内容（外加可选的 `repo_path`），解析后产出两类标准对象：`Node
 * [MCP_Cache](modules/MCP_Cache.md) - `MCP_Cache` 是 [[MCP_Server]] 的持久化与检索核心，位于 `codewiki/mcp/cache.py`。
 * [MCP_Core](modules/MCP_Core.md) - MCP_Core 是 CodeWiki MCP Server（`codewiki.mcp.
-* [MCP_Prompts](modules/MCP_Prompts.md) - MCP_Prompts 是 CodeWiki MCP Server 的**提示词（Prompt）叶子模块**，17 个构建器实现于 `codewiki/mcp/prompts.py`。
+* [MCP_Prompts](modules/MCP_Prompts.md) - MCP_Prompts 是 CodeWiki MCP Server 的**提示词（Prompt）叶子模块**，18 个构建器实现于 `codewiki/mcp/prompts.py`。
 * [MCP_Server](modules/MCP_Server.md) - MCP_Server 是 CodeWiki 的 MCP（Model Context Protocol）协议服务端，基于 stdio 传输，把后端的代码分析、文档生成、知识库管理与 Wiki 质量校验能力以「工具（tool）」形式暴露给 ID
 * [MCP_Tools_Analysis](modules/MCP_Tools_Analysis.md) - 本模块是 [[MCP_Server]] 的"分析类"工具集合，提供仓库级与多仓库工作区级的结构解析入口。核心是 `analyze_repo`（单仓分析）与 `analyze_workspace`（多仓工作区分析）两个 MCP 工具，二者均为
 * [MCP_Tools_Dependency](modules/MCP_Tools_Dependency.md) - `MCP_Tools_Dependency` 是 CodeWiki 的 MCP 工具集中负责**依赖关系分析**的叶子模块，包含 18 个组件（3 个公开 handler + 15 个私有辅助函数），分布在 4 个源文件中：

@@ -1,8 +1,10 @@
 ---
 title: AnalyzerUtils
 type: Module
-generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:38+00:00'}
-stale_after: 2026-10-31
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:38+00:00
+stale_after: '2027-02-22'
 metadata:
   depth: 2
   module_type: leaf
@@ -10,8 +12,13 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
-description: "`AnalyzerUtils` 是 `DependencyAnalyzer` 的叶子工具模块，集中存放依赖分析过程中跨语言、跨分析器复用的纯函数与配置表。它不持有状态，不发起网络调用，只提供：符号去外部化判定、彩色日志、URL/路由键规范化、入口点与高连接性启发式判定、连接性回退策略，以及路径安全读取。"
-aliases: ["AnalyzerUtils"]
+description: '`AnalyzerUtils` 是 `DependencyAnalyzer` 的叶子工具模块，集中存放依赖分析过程中跨语言、跨分析器复用的纯函数与配置表。它不持有状态，不发起网络调用，只提供：符号去外部化判定、彩色日志、URL/路由键规范化、入口点与高连接性启发式判定、连接性回退策略，以及路径安全读取。'
+aliases:
+- AnalyzerUtils
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:15Z'
 ---
 
 # AnalyzerUtils 模块文档

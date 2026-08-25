@@ -1,8 +1,10 @@
 ---
 title: MCP_Core
 type: Module
-generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
-stale_after: 2026-10-31
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
 metadata:
   depth: 2
   module_type: leaf
@@ -10,8 +12,13 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
-description: "MCP_Core 是 CodeWiki MCP Server（`codewiki.mcp."
-aliases: ["MCP_Core"]
+description: MCP_Core 是 CodeWiki MCP Server（`codewiki.mcp.
+aliases:
+- MCP_Core
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:18Z'
 ---
 
 # MCP_Core 模块文档

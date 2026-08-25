@@ -1591,6 +1591,7 @@ class AnalysisCache:
     def update_search_doc(self, output_dir: Path, filepath: Path):
         try: fk = str(filepath.resolve().relative_to(Path(output_dir).resolve()))
         except ValueError: fk = filepath.name
+        fk = fk.replace("\\", "/")  # doc_key must match build_full_index's forward-slash shape
         ap = Path(output_dir) / fk
         if not ap.exists():
             self.conn.execute("DELETE FROM search_index WHERE doc_key=?",(fk,))
@@ -1607,7 +1608,29 @@ class AnalysisCache:
             self.conn.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
                               (fk, filepath.stem, src, len(tokens), json.dumps(tf), _doc_authority(fk, src, ct)))
             for t, f in tf.items(): self.conn.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
+        self._refresh_index_built_at()
         self.conn.commit()
+
+    def _refresh_index_built_at(self) -> None:
+        """Align the freshness mtime baseline with this incremental update.
+
+        index_freshness.ensure_fresh's tier-3 samples file mtimes against
+        search_stats.index_built_at; without refreshing it here, every
+        tool-side doc update would look "modified after build" and trigger a
+        full rebuild on the next query.  Content updates refresh the baseline
+        so a rebuild happens only on genuine external changes (git pull,
+        manual edits).  Deletes deliberately do NOT call this — a pull that
+        added files moments before the delete would otherwise be masked.
+        """
+        try:
+            import time as _time
+            self.conn.execute(
+                "INSERT INTO search_stats VALUES('index_built_at',?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (str(_time.time()),))
+            self.conn.commit()
+        except Exception as e:
+            logger.debug("search_stats index_built_at refresh failed: %s", e)
 
     # -- wiki link graph --
 

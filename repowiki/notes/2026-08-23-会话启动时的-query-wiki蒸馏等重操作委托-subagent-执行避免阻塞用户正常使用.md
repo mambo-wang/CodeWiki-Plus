@@ -1,19 +1,26 @@
 ---
 type: decision
-title: "会话启动时的 query_wiki/蒸馏等重操作委托 subagent 执行，避免阻塞用户正常使用"
-tags: ["decision", "readfile"]
+title: 会话启动时的 query_wiki/蒸馏等重操作委托 subagent 执行，避免阻塞用户正常使用
+tags:
+- decision
+- readfile
 metadata:
   date: 2026-08-23
   task_id: 产品维护
-  related_modules: ["task_manager"]
+  related_modules:
+  - task_manager
   severity: medium
-  source_ref: "conversations/conv-开始新对话触发选择任务后，会有query_wiki以及蒸馏操作，这些操作可以放到subagent执行吗，别影响用户正常使.md"
-  scene: "任务记忆/补蒸馏"
-status: draft
-generated: { by: codewiki/5.3.0, at: 2026-08-23T08:00:48Z }
-stale_after: 2027-08-23
+  source_ref: conversations/conv-开始新对话触发选择任务后，会有query_wiki以及蒸馏操作，这些操作可以放到subagent执行吗，别影响用户正常使.md
+  scene: 任务记忆/补蒸馏
+status: stable
+generated:
+  by: codewiki/5.3.0
+  at: 2026-08-23 08:00:48+00:00
+stale_after: '2027-08-26'
 origin: conversation
-
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:21Z'
 ---
 
 ## Background

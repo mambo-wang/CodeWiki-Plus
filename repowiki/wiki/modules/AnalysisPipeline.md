@@ -1,8 +1,10 @@
 ---
 title: AnalysisPipeline
 type: Module
-generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:38+00:00'}
-stale_after: 2026-10-31
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:38+00:00
+stale_after: '2027-02-22'
 metadata:
   depth: 2
   module_type: leaf
@@ -10,8 +12,14 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
-description: "AnalysisPipeline 是 DependencyAnalyzer 下负责**仓库分析编排**的叶子模块，位于 `codewiki/src/be/dependency_analyzer/analysis/`。它串起「克隆 → 结构扫描 → 服务边界识别 → 多语言 AST 解析生成调用图 → 跨服务路由匹配 →"
-aliases: ["AnalysisPipeline"]
+description: AnalysisPipeline 是 DependencyAnalyzer 下负责**仓库分析编排**的叶子模块，位于 `codewiki/src/be/dependency_analyzer/analysis/`。它串起「克隆
+  → 结构扫描 → 服务边界识别 → 多语言 AST 解析生成调用图 → 跨服务路由匹配 →
+aliases:
+- AnalysisPipeline
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:14Z'
 ---
 
 # AnalysisPipeline 模块文档

@@ -6,6 +6,7 @@ tags:
 metadata:
   date: 2026-08-25
   source_ref: conversations/conv-user_command-commands-codewiki-蒸馏对话提取记忆和经验-把已采集的对话（repowiki.md
+  source_conversations: ['conversations/conv-user_command-commands-codewiki-蒸馏对话提取记忆和经验-把已采集的对话（repowiki-9477de.md']
 status: stable
 generated:
   by: codewiki/5.4.2
@@ -15,7 +16,6 @@ origin: conversation
 verified:
 - by: human:wangbao
   at: '2026-08-24T16:32:22Z'
-source_conversations: ['conversations/conv-user_command-commands-codewiki-蒸馏对话提取记忆和经验-把已采集的对话（repowiki-9477de.md']
 
 ---
 

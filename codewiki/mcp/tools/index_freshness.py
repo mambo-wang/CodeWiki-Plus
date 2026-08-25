@@ -92,10 +92,14 @@ def _read_sqlite_index_info(output_dir: Path) -> Optional[Dict[str, object]]:
             ).fetchone()
             if not row or int(row[0]) == 0:
                 return None
-            total = int(row[0])
             keys = {
                 r[0] for r in conn.execute("SELECT doc_key FROM search_index").fetchall()
             }
+            # Total = actual row count in search_index, NOT search_stats.total_docs.
+            # Incremental deletes (update_search_doc/remove_file) don't maintain
+            # the stats field, so using it here would flag every tool-side
+            # delete as a count mismatch and force a full rebuild.
+            total = len(keys)
             built = conn.execute(
                 "SELECT value FROM search_stats WHERE key=?", (_INDEX_BUILT_KEY,)
             ).fetchone()

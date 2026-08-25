@@ -18,6 +18,9 @@
 * **ingest_note**: 添加笔记: build 后端 setuptools→hatchling 迁移后 wheel 内容会变化，需对比文件清单而非只看能否安装
 * **ingest_note**: 添加笔记: uv 工具链两坑：--no-dev 已移除须用 --no-group dev；.python-version 补丁固定与 uv Docker 镜像内置 Python 漂移
 * **lint_wiki**: 检查完成: 94 个问题
+* **flag_issue**: 新增问题: [low_coverage] wiki/index.md
+* **close_session**: 会话关闭
+* **lint_wiki**: 检查完成: 0 个问题
 
 ## 2026-08-25
 * **ingest_note**: 添加笔记: 聚合/doctrine 阈值等运行参数通过 repowiki/schema.yaml conventions.aggregation 覆盖，不改 py 源码默认值

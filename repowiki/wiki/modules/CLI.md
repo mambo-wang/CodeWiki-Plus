@@ -1,12 +1,25 @@
 ---
 title: CLI
 type: Module
-generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
-stale_after: 2026-10-31
-metadata: {depth: 1, module_type: overview, component_count: 0, generated_by: codewiki,
-  generator_version: '1.0', updated_at: 2026-07-28}
-description: "CLI 是 CodeWiki 的顶层用户入口模块，建立在 Click 框架之上，负责把用户输入的命令转化为对后端 `LLM_Backend` 引擎的调用。它并不直接实现代码分析或文档生成逻辑，而是承担\"胶水层\"职责：解析命令行参数、持久化用户配置、编排文档生成流程、向用户呈现进度与结果。"
-aliases: ["CLI"]
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 1
+  module_type: overview
+  component_count: 0
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: CLI 是 CodeWiki 的顶层用户入口模块，建立在 Click 框架之上，负责把用户输入的命令转化为对后端 `LLM_Backend`
+  引擎的调用。它并不直接实现代码分析或文档生成逻辑，而是承担"胶水层"职责：解析命令行参数、持久化用户配置、编排文档生成流程、向用户呈现进度与结果。
+aliases:
+- CLI
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:15Z'
 ---
 
 # CLI 模块文档（概览）

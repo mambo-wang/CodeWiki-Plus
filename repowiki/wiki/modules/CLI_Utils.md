@@ -1,8 +1,10 @@
 ---
 title: CLI_Utils
 type: Module
-generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
-stale_after: 2026-10-31
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
 metadata:
   depth: 2
   module_type: leaf
@@ -10,8 +12,13 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
-description: "`CLI_Utils` 是 CodeWiki 命令行工具的底层实用模块集合，位于 `codewiki/cli/utils/` 目录下，为上层命令（[[CLI_Commands]]、[[CLI_Adapter]]）提供错误处理、文件系统操作、进度展示、仓库校验、输入校验与生成后指引等通用能力。它不直接执行业务流程，而是被"
-aliases: ["CLI_Utils"]
+description: '`CLI_Utils` 是 CodeWiki 命令行工具的底层实用模块集合，位于 `codewiki/cli/utils/` 目录下，为上层命令（[[CLI_Commands]]、[[CLI_Adapter]]）提供错误处理、文件系统操作、进度展示、仓库校验、输入校验与生成后指引等通用能力。它不直接执行业务流程，而是被'
+aliases:
+- CLI_Utils
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:16Z'
 ---
 
 # CLI_Utils 模块文档
