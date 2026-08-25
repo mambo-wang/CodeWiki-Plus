@@ -184,27 +184,33 @@ def _extract_title(ct):
 # ---- Public API ----
 
 def build_full_index(output_dir, session=None):
-    """Build BM25 search index. Uses SQLite cache if session is available."""
+    """Build BM25 search index. Uses SQLite cache if session is available.
+
+    The SQLite build is guarded by ``_build_lock`` so concurrent callers (e.g.
+    parallel evidence collectors) cannot race on the same db file — one full
+    rebuild wins, the rest see the fresh index on their next freshness check.
+    """
     od = Path(output_dir)
     if not od.is_dir(): return {"docs_indexed": 0, "notes_indexed": 0, "total_tokens": 0}
 
-    # Try SQLite cache first (active session)
-    if session is not None and getattr(session, "cache", None) is not None:
-        try: return session.cache.build_search_index(od)
-        except Exception as e: logger.warning("SQLite search index failed: %s", e)
+    with _build_lock:
+        # Try SQLite cache first (active session)
+        if session is not None and getattr(session, "cache", None) is not None:
+            try: return session.cache.build_search_index(od)
+            except Exception as e: logger.warning("SQLite search index failed: %s", e)
 
-    # Try standalone SQLite (no active session, DB exists on disk)
-    if session is None:
-        db_path = _resolve_db_path(od)
-        if db_path is not None:
-            try:
-                from codewiki.mcp.cache import AnalysisCache
-                cache = AnalysisCache(db_path.parent.parent, db_path=db_path)
-                result = cache.build_search_index(od)
-                cache.close()
-                return result
-            except Exception as e:
-                logger.warning("Standalone SQLite index build failed: %s", e)
+        # Try standalone SQLite (no active session, DB exists on disk)
+        if session is None:
+            db_path = _resolve_db_path(od)
+            if db_path is not None:
+                try:
+                    from codewiki.mcp.cache import AnalysisCache
+                    cache = AnalysisCache(db_path.parent.parent, db_path=db_path)
+                    result = cache.build_search_index(od)
+                    cache.close()
+                    return result
+                except Exception as e:
+                    logger.warning("Standalone SQLite index build failed: %s", e)
 
     # Legacy JSON fallback
     with _build_lock:

@@ -25,8 +25,11 @@ only when absent, so user edits survive re-runs).  Shape of the YAML::
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 # Extension → checklist language key (lowercased suffix, no dot).
 LANG_BY_EXT = {
@@ -187,18 +190,29 @@ def load_project_checklist(repo_path: Optional[str]) -> Optional[Dict[str, List[
     try:
         import yaml
     except ImportError:
+        logger.warning("PyYAML unavailable, falling back to builtin checklist (override: %s)", p)
         return None
     try:
         data = yaml.safe_load(p.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to parse project checklist %s, falling back to builtin: %s", p, exc)
         return None
     if not isinstance(data, dict):
+        logger.warning(
+            "Project checklist %s is not a mapping (%s), falling back to builtin",
+            p,
+            type(data).__name__,
+        )
         return None
     out: Dict[str, List[Dict[str, Any]]] = {}
     for key, entries in data.items():
         if not isinstance(entries, list):
+            logger.warning("Section %r of %s is not a list, skipped", key, p)
             continue
-        out[str(key)] = [e for e in entries if isinstance(e, dict) and e.get("id")]
+        valid = [e for e in entries if isinstance(e, dict) and e.get("id")]
+        if len(valid) != len(entries):
+            logger.warning("Section %r of %s dropped entries missing 'id'", key, p)
+        out[str(key)] = valid
     return out
 
 

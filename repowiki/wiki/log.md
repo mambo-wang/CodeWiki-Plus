@@ -2,6 +2,23 @@
 
 > 本文件为追加写入的操作记录，由系统自动维护
 
+## 2026-08-26
+* **lint_wiki**: 检查完成: 298 个问题
+* **lint_wiki**: 检查完成: 298 个问题
+* **analyze_repo**: 分析仓库 CodeWiki-CN，1562 个组件
+* **edit_doc_file**: 更新 MCP_Tools_Quality.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Tools_Quality.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Tools_Quality.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Tools_Quality.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Tools_Quality.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Tools_Quality.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Tools_Quality.md (str_replace)
+* **lint_wiki**: 检查完成: 0 个问题
+* **ingest_note**: 添加笔记: fork 来源的 PR 与目标分支冲突时的维护者合入流程（merge-tree 探测 + worktree + push fork）
+* **ingest_note**: 添加笔记: build 后端 setuptools→hatchling 迁移后 wheel 内容会变化，需对比文件清单而非只看能否安装
+* **ingest_note**: 添加笔记: uv 工具链两坑：--no-dev 已移除须用 --no-group dev；.python-version 补丁固定与 uv Docker 镜像内置 Python 漂移
+* **lint_wiki**: 检查完成: 94 个问题
+
 ## 2026-08-25
 * **ingest_note**: 添加笔记: 聚合/doctrine 阈值等运行参数通过 repowiki/schema.yaml conventions.aggregation 覆盖，不改 py 源码默认值
 * **ingest_note**: 添加笔记: doctrine 不会自动注入 Agent 上下文：唯一通道是 query_wiki(mode='overview')
