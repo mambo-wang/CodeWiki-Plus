@@ -1,19 +1,29 @@
 ---
 type: architecture
-title: "hook 采集机制仅正式接线 CodeBuddy，README 措辞用「仅接线支持」"
-tags: ["architecture", "codebuddy", "sessionend", "sessionstart"]
+title: hook 采集机制仅正式接线 CodeBuddy，README 措辞用「仅接线支持」
+tags:
+- architecture
+- codebuddy
+- sessionend
+- sessionstart
 metadata:
   date: 2026-08-23
   task_id: 产品维护
-  related_modules: ["task-memory", "mcp"]
+  related_modules:
+  - task-memory
+  - mcp
   severity: medium
-  source_ref: "conversations/conv-现在codewiki-plus开启hook机制，支持那些智能体，目前我只知道支持codebuddy-@prompts.p.md"
-  scene: "team-memory-hook 支持范围"
-status: draft
-generated: { by: codewiki/5.3.0, at: 2026-08-23T07:40:26Z }
-stale_after: 2027-08-23
+  source_ref: conversations/conv-现在codewiki-plus开启hook机制，支持那些智能体，目前我只知道支持codebuddy-@prompts.p.md
+  scene: team-memory-hook 支持范围
+status: stable
+generated:
+  by: codewiki/5.3.0
+  at: 2026-08-23 07:40:26+00:00
+stale_after: '2027-08-26'
 origin: conversation
-
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:21Z'
 ---
 
 ## Background

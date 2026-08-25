@@ -1,8 +1,10 @@
 ---
 title: MCP_Cache
 type: Module
-generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
-stale_after: 2026-10-31
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
 metadata:
   depth: 2
   module_type: leaf
@@ -10,8 +12,13 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
-description: "`MCP_Cache` 是 [[MCP_Server]] 的持久化与检索核心，位于 `codewiki/mcp/cache.py`。"
-aliases: ["MCP_Cache"]
+description: '`MCP_Cache` 是 [[MCP_Server]] 的持久化与检索核心，位于 `codewiki/mcp/cache.py`。'
+aliases:
+- MCP_Cache
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:17Z'
 ---
 
 # MCP_Cache 模块文档

@@ -2,19 +2,47 @@
 title: README_CN
 type: Source
 description: WeKnora 中文 README（v0.7.0）源文档摘要：三大核心能力、部署方式、功能矩阵与集成生态
-generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-03 04:54:33+00:00'}
-stale_after: 2026-11-01
-aliases: [WeKnora README, WeKnora 中文 README]
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-03 04:54:33+00:00
+stale_after: '2027-02-22'
+aliases:
+- WeKnora README
+- WeKnora 中文 README
 sources:
-- {id: README_CN, resource: raw/sources/README_CN.md, title: WeKnora（腾讯开源企业级知识库平台）中文
-    README，用于测试两阶段知识提取流程, last_modified: 2026-08-03}
+- id: README_CN
+  resource: raw/sources/README_CN.md
+  title: WeKnora（腾讯开源企业级知识库平台）中文 README，用于测试两阶段知识提取流程
+  last_modified: 2026-08-03
 metadata:
-  source_refs: [README_CN]
-  chunk_refs: ['README_CN:39', 'README_CN:59', 'README_CN:304-307', 'README_CN:61',
-    'README_CN:63', 'README_CN:63', 'README_CN:63', 'README_CN:63', 'README_CN:63',
-    'README_CN:186-199', 'README_CN:203-215', 'README_CN:219-225', 'README_CN:74',
-    'README_CN:71', 'README_CN:67', 'README_CN:165-167', 'README_CN:170-172', 'README_CN:175-181',
-    'README_CN:233-235', 'README_CN:237-243', 'README_CN:289-296']
+  source_refs:
+  - README_CN
+  chunk_refs:
+  - README_CN:39
+  - README_CN:59
+  - README_CN:304-307
+  - README_CN:61
+  - README_CN:63
+  - README_CN:63
+  - README_CN:63
+  - README_CN:63
+  - README_CN:63
+  - README_CN:186-199
+  - README_CN:203-215
+  - README_CN:219-225
+  - README_CN:74
+  - README_CN:71
+  - README_CN:67
+  - README_CN:165-167
+  - README_CN:170-172
+  - README_CN:175-181
+  - README_CN:233-235
+  - README_CN:237-243
+  - README_CN:289-296
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:20Z'
 ---
 # README_CN
 

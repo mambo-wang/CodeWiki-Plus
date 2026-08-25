@@ -2,19 +2,46 @@
 title: WeKnora
 type: Entity
 description: 腾讯开源的企业级 LLM 知识管理框架：RAG 问答 + ReAct 推理 + 自动 Wiki 一体化
-generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-03 04:55:04+00:00'}
-stale_after: 2026-11-01
-aliases: [维娜拉, WeKnora 框架, Tencent WeKnora]
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-03 04:55:04+00:00
+stale_after: '2027-02-22'
+aliases:
+- 维娜拉
+- WeKnora 框架
+- Tencent WeKnora
 sources:
-- {id: README_CN, resource: raw/sources/README_CN.md, title: WeKnora（腾讯开源企业级知识库平台）中文
-    README，用于测试两阶段知识提取流程, last_modified: 2026-08-03}
+- id: README_CN
+  resource: raw/sources/README_CN.md
+  title: WeKnora（腾讯开源企业级知识库平台）中文 README，用于测试两阶段知识提取流程
+  last_modified: 2026-08-03
 metadata:
-  source_refs: [README_CN]
-  chunk_refs: ['README_CN:59', 'README_CN:304-307', 'README_CN:61', 'README_CN:63',
-    'README_CN:61', 'README_CN:61', 'README_CN:63', 'README_CN:63', 'README_CN:227-231',
-    'README_CN:186-199', 'README_CN:157', 'README_CN:158', 'README_CN:165-167', 'README_CN:170-172',
-    'README_CN:175-181', 'README_CN:233-235', 'README_CN:237-243', 'README_CN:147',
-    'README_CN:135']
+  source_refs:
+  - README_CN
+  chunk_refs:
+  - README_CN:59
+  - README_CN:304-307
+  - README_CN:61
+  - README_CN:63
+  - README_CN:61
+  - README_CN:61
+  - README_CN:63
+  - README_CN:63
+  - README_CN:227-231
+  - README_CN:186-199
+  - README_CN:157
+  - README_CN:158
+  - README_CN:165-167
+  - README_CN:170-172
+  - README_CN:175-181
+  - README_CN:233-235
+  - README_CN:237-243
+  - README_CN:147
+  - README_CN:135
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:14Z'
 ---
 # WeKnora
 

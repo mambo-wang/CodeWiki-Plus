@@ -1,15 +1,30 @@
 ---
 type: decision
-title: "下一期方向：资产置信分层与负反馈闭环（Roadmap Phase 5）"
-tags: ["codewiki", "decision"]
-aliases: ["置信分层", "负反馈", "资产治理", "Phase 5", "confidence level", "negative feedback"]
+title: 下一期方向：资产置信分层与负反馈闭环（Roadmap Phase 5）
+tags:
+- codewiki
+- decision
+aliases:
+- 置信分层
+- 负反馈
+- 资产治理
+- Phase 5
+- confidence level
+- negative feedback
 metadata:
   date: 2026-08-21
-  related_modules: ["mcp", "team-memory"]
-  source_ref: "tam-team-memory-practice"
-status: draft
-generated: { by: codewiki/5.3.0, at: 2026-08-21T02:27:01Z }
-stale_after: 2026-11-19
+  related_modules:
+  - mcp
+  - team-memory
+  source_ref: tam-team-memory-practice
+status: stable
+generated:
+  by: codewiki/5.3.0
+  at: 2026-08-21 02:27:01+00:00
+stale_after: '2027-08-26'
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:21Z'
 ---
 
 ## 背景

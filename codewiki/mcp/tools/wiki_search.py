@@ -289,6 +289,7 @@ def update_file(output_dir, filepath, session=None):
     # Legacy fallback
     try: fk = str(fp.resolve().relative_to(od.resolve()))
     except ValueError: fk = fp.name
+    fk = fk.replace("\\", "/")  # doc_key must match build_full_index's forward-slash shape
     with _build_lock:
         idx = _load_index(od); ap = od / fk
         if not ap.exists(): idx.remove(fk); _save_index(od, idx); return
@@ -297,12 +298,37 @@ def update_file(output_dir, filepath, session=None):
         else: ct = _read_doc(ap); title = _extract_title(ct) or ap.stem.replace("_"," ").title(); src = "doc"
         if ct.strip(): idx.upsert(fk, title, src, ct)
         else: idx.remove(fk)
+        # Tool-side update: align the freshness baseline (mirror of
+        # AnalysisCache.update_search_doc) so tier-3 mtime sampling in
+        # ensure_fresh doesn't flag this file as stale on the next query.
+        # Deletes above (ap not exists) intentionally skip this.
+        idx.built_at = time.time()
         _save_index(od, idx)
 
 def remove_file(output_dir, filepath):
     od = Path(output_dir); fp = Path(filepath)
     try: fk = str(fp.resolve().relative_to(od.resolve()))
     except ValueError: fk = fp.name
+    fk = fk.replace("\\", "/")  # doc_key must match build_full_index's forward-slash shape
+    # SQLite standalone first (mirror of update_file); a delete is not a
+    # content update so search_stats.index_built_at is intentionally NOT
+    # refreshed — an external pull that added files moments earlier must not
+    # be masked.
+    try:
+        db_path = _resolve_db_path(od)
+        if db_path is not None:
+            from codewiki.mcp.cache import AnalysisCache
+            c = AnalysisCache(db_path.parent.parent, db_path=db_path)
+            try:
+                c.conn.execute("DELETE FROM search_index WHERE doc_key=?", (fk,))
+                c.conn.execute("DELETE FROM search_token_index WHERE doc_key=?", (fk,))
+                c.conn.commit()
+            finally:
+                c.close()
+            return
+    except Exception as e:
+        logger.debug("SQLite search doc removal failed: %s", e)
+    # Legacy fallback
     with _build_lock:
         idx = _load_index(od)
         if idx.remove(fk): _save_index(od, idx)

@@ -1,4 +1,17 @@
 {
-  "issues": {},
+  "issues": {
+    "7c3deb26": {
+      "id": "7c3deb26",
+      "issue_type": "low_coverage",
+      "page_path": "wiki/index.md",
+      "description": "lint 全量检查：93 个高影响组件无文档覆盖（历史遗留，非本次变更引入，如 LazyComponentStore.items 111 dependents、CLILogger.debug 90 dependents、NamespaceResolver.resolve 87 dependents 等）。本次 wiki 更新不处理，作为 backlog 按组件逐个补齐。",
+      "severity": "info",
+      "created_at": "2026-08-26T00:47:14.782535",
+      "updated_at": "2026-08-26T00:47:14.782535",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
+    }
+  },
   "version": 1
 }

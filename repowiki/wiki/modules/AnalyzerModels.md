@@ -1,8 +1,10 @@
 ---
 title: AnalyzerModels
 type: Module
-generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:38+00:00'}
-stale_after: 2026-10-31
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:38+00:00
+stale_after: '2027-02-22'
 metadata:
   depth: 2
   module_type: leaf
@@ -10,8 +12,14 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
-description: "AnalyzerModels 是依赖分析子系统（`DependencyAnalyzer`）的纯数据层，定义了从单仓库静态分析到多仓库跨服务调用链匹配所需的全部 Pydantic 模型。它不包含业务逻辑，仅作为各分析阶段之间传递、聚合与持久化的「契约」。"
-aliases: ["AnalyzerModels"]
+description: AnalyzerModels 是依赖分析子系统（`DependencyAnalyzer`）的纯数据层，定义了从单仓库静态分析到多仓库跨服务调用链匹配所需的全部
+  Pydantic 模型。它不包含业务逻辑，仅作为各分析阶段之间传递、聚合与持久化的「契约」。
+aliases:
+- AnalyzerModels
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:15Z'
 ---
 
 # AnalyzerModels 模块文档

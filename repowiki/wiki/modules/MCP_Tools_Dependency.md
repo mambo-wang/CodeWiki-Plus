@@ -1,8 +1,10 @@
 ---
 title: MCP_Tools_Dependency
 type: Module
-generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
-stale_after: 2026-10-31
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
 metadata:
   depth: 2
   module_type: leaf
@@ -10,8 +12,14 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
-description: "`MCP_Tools_Dependency` 是 CodeWiki 的 MCP 工具集中负责**依赖关系分析**的叶子模块，包含 18 个组件（3 个公开 handler + 15 个私有辅助函数），分布在 4 个源文件中："
-aliases: ["MCP_Tools_Dependency"]
+description: '`MCP_Tools_Dependency` 是 CodeWiki 的 MCP 工具集中负责**依赖关系分析**的叶子模块，包含 18
+  个组件（3 个公开 handler + 15 个私有辅助函数），分布在 4 个源文件中：'
+aliases:
+- MCP_Tools_Dependency
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:18Z'
 ---
 
 # MCP_Tools_Dependency 模块文档

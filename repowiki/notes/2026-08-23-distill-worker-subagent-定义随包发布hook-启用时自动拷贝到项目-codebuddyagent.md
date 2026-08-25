@@ -1,19 +1,27 @@
 ---
 type: decision
-title: "distill-worker subagent 定义随包发布，hook 启用时自动拷贝到项目 .codebuddy/agents/"
-tags: ["codewiki", "decision"]
+title: distill-worker subagent 定义随包发布，hook 启用时自动拷贝到项目 .codebuddy/agents/
+tags:
+- codewiki
+- decision
 metadata:
   date: 2026-08-23
   task_id: 产品维护
-  related_modules: ["mcp", "agents"]
+  related_modules:
+  - mcp
+  - agents
   severity: medium
-  source_ref: "conversations/conv-开始新对话触发选择任务后，会有query_wiki以及蒸馏操作，这些操作可以放到subagent执行吗，别影响用户正常使-ad2869.md"
-  scene: "产品维护-蒸馏机制"
-status: draft
-generated: { by: codewiki/5.3.0, at: 2026-08-23T12:10:38Z }
-stale_after: 2027-08-23
+  source_ref: conversations/conv-开始新对话触发选择任务后，会有query_wiki以及蒸馏操作，这些操作可以放到subagent执行吗，别影响用户正常使-ad2869.md
+  scene: 产品维护-蒸馏机制
+status: stable
+generated:
+  by: codewiki/5.3.0
+  at: 2026-08-23 12:10:38+00:00
+stale_after: '2027-08-26'
 origin: conversation
-
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:21Z'
 ---
 
 ## Background

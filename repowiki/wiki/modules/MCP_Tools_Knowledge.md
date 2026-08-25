@@ -1,8 +1,10 @@
 ---
 title: MCP_Tools_Knowledge
 type: Module
-generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
-stale_after: 2026-10-31
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
 metadata:
   depth: 2
   module_type: leaf
@@ -10,8 +12,14 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
-description: "`MCP_Tools_Knowledge` 是 CodeWiki MCP 服务的知识库工具集（leaf 模块），聚焦于**离线知识沉淀与检索闭环**：从源码/AGENTS.md 生成结构化文档，录入笔记要点，并提供多模式的 Wiki 查询能力。"
-aliases: ["MCP_Tools_Knowledge"]
+description: '`MCP_Tools_Knowledge` 是 CodeWiki MCP 服务的知识库工具集（leaf 模块），聚焦于**离线知识沉淀与检索闭环**：从源码/AGENTS.md
+  生成结构化文档，录入笔记要点，并提供多模式的 Wiki 查询能力。'
+aliases:
+- MCP_Tools_Knowledge
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:19Z'
 ---
 
 # MCP_Tools_Knowledge 模块文档

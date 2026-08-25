@@ -2,16 +2,32 @@
 title: ReActAgent
 type: Concept
 description: WeKnora 的 ReAct 多步推理能力：自主编排知识检索、MCP 工具与网络搜索
-generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-03 04:55:40+00:00'}
-stale_after: 2026-11-01
-aliases: [ReAct Agent, ReAct 智能推理, ReACT]
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-03 04:55:40+00:00
+stale_after: '2027-02-22'
+aliases:
+- ReAct Agent
+- ReAct 智能推理
+- ReACT
 sources:
-- {id: README_CN, resource: raw/sources/README_CN.md, title: WeKnora（腾讯开源企业级知识库平台）中文
-    README，用于测试两阶段知识提取流程, last_modified: 2026-08-03}
+- id: README_CN
+  resource: raw/sources/README_CN.md
+  title: WeKnora（腾讯开源企业级知识库平台）中文 README，用于测试两阶段知识提取流程
+  last_modified: 2026-08-03
 metadata:
-  source_refs: [README_CN]
-  chunk_refs: ['README_CN:61', 'README_CN:116', 'README_CN:119', 'README_CN:149',
-    'README_CN:161']
+  source_refs:
+  - README_CN
+  chunk_refs:
+  - README_CN:61
+  - README_CN:116
+  - README_CN:119
+  - README_CN:149
+  - README_CN:161
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:13Z'
 ---
 # ReActAgent
 

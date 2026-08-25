@@ -1,8 +1,10 @@
 ---
 title: LLM_Backend
 type: Module
-generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
-stale_after: 2026-10-31
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
 metadata:
   depth: 1
   module_type: leaf
@@ -10,8 +12,14 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
-description: "`LLM_Backend` 是 CodeWiki 的文档生成后端引擎（位于 `codewiki/src/be/`），是整个工具的核心能力提供方。它把「依赖分析 → 模块聚类 → 逐模块 LLM 文档生成 → 缓存/落盘」串成可复用的能力，被 [[CLI_Adapter]]、[[MCP_Server]]、[[WebApp"
-aliases: ["LLM_Backend"]
+description: '`LLM_Backend` 是 CodeWiki 的文档生成后端引擎（位于 `codewiki/src/be/`），是整个工具的核心能力提供方。它把「依赖分析
+  → 模块聚类 → 逐模块 LLM 文档生成 → 缓存/落盘」串成可复用的能力，被 [[CLI_Adapter]]、[[MCP_Server]]、[[WebApp'
+aliases:
+- LLM_Backend
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:17Z'
 ---
 
 # LLM_Backend 模块文档

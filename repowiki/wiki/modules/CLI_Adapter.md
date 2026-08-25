@@ -1,8 +1,10 @@
 ---
 title: CLI_Adapter
 type: Module
-generated: {by: codewiki/5.2.0, at: !!timestamp '2026-08-02 23:41:39+00:00'}
-stale_after: 2026-10-31
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
 metadata:
   depth: 2
   module_type: leaf
@@ -10,8 +12,14 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
-description: "`CLI_Adapter` 是命令行入口与后端文档生成引擎之间的适配层。它唯一的核心组件 `CLIDocumentationGenerator` 包裹了后端 `[[LLM_Backend]]` 中的 `DocumentationGenerator`，在不改造后端逻辑的前提下，为 CLI 场景补充了两件事："
-aliases: ["CLI_Adapter"]
+description: '`CLI_Adapter` 是命令行入口与后端文档生成引擎之间的适配层。它唯一的核心组件 `CLIDocumentationGenerator`
+  包裹了后端 `[[LLM_Backend]]` 中的 `DocumentationGenerator`，在不改造后端逻辑的前提下，为 CLI 场景补充了两件事：'
+aliases:
+- CLI_Adapter
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:15Z'
 ---
 
 # CLI_Adapter 模块文档
