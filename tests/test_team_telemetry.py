@@ -12,18 +12,14 @@ Covers docs/团队知识库支持优化设计方案.md §4 acceptance criteria:
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import pytest
 
 from codewiki.mcp.session import SessionStore
-from codewiki.mcp.tools import telemetry
 from codewiki.mcp.tools.capture_conversation import handle_capture_conversation
 from codewiki.mcp.tools.telemetry import (
     aggregate_usage,
-    record_adopted,
     record_hit,
     telemetry_enabled,
 )
@@ -37,8 +33,8 @@ def _all_events(od: Path) -> list:
     out = []
     for p in sorted(d.glob("*.jsonl")):
         out.extend(
-            json.loads(l)
-            for l in p.read_text(encoding="utf-8").splitlines() if l.strip()
+            json.loads(line)
+            for line in p.read_text(encoding="utf-8").splitlines() if line.strip()
         )
     return out
 
@@ -111,7 +107,7 @@ class TestAggregate:
             {"t": "adopted", "doc": "notes/a.md", "at": "z", "key": "u/s2"},
         ]
         (p / "u.jsonl").write_text(
-            "\n".join(json.dumps(l) for l in lines) + "\n", encoding="utf-8")
+            "\n".join(json.dumps(e) for e in lines) + "\n", encoding="utf-8")
         agg = aggregate_usage(tmp_path)
         assert agg["notes/a.md"]["adopted"] == 2  # distinct keys only
 
@@ -198,5 +194,5 @@ class TestCaptureIntegration:
         # event landed in the CURRENT user's stream (user-dependent name)
         files = list((od / ".meta" / "telemetry").glob("*.jsonl"))
         assert len(files) == 1
-        events = [json.loads(l) for l in files[0].read_text(encoding="utf-8").splitlines() if l.strip()]
+        events = [json.loads(line) for line in files[0].read_text(encoding="utf-8").splitlines() if line.strip()]
         assert any(e["t"] == "adopted" and e["doc"] == "notes/pit.md" for e in events)

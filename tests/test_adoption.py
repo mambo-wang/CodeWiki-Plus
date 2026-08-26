@@ -13,17 +13,13 @@ Covers docs/知识飞轮增强设计方案-P1三项.md §2 acceptance criteria:
 from __future__ import annotations
 
 import json
-import math
-from pathlib import Path
 
-import pytest
 
 from codewiki.mcp.cache import USAGE_RANKING_DEFAULTS, compute_usage_heat
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.tools.adoption import (
     extract_adopted_docs,
     load_adoption_counts,
-    looks_like_search_happened,
     record_adoption_events,
 )
 from codewiki.mcp.tools.capture_conversation import handle_capture_conversation
@@ -90,8 +86,9 @@ class TestExtractAdoptedDocs:
         turns = _turns(
             '<!-- codewiki:referenced-docs: ["exists.md", "missing.md"] -->',
         )
-        exists = lambda p: p == "exists.md"
-        assert extract_adopted_docs(turns, existing=exists) == ["exists.md"]
+        def _exists(p):
+            return p == "exists.md"
+        assert extract_adopted_docs(turns, existing=_exists) == ["exists.md"]
 
     def test_prose_mention_does_not_match(self):
         turns = _turns(

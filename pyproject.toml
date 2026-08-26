@@ -126,11 +126,11 @@ target-version = "py312"
 # which most of the existing codebase does not satisfy — see CI failures on
 # c22fc26/99e4c44). Widen deliberately, not by upgrade accident.
 select = ["E4", "E7", "E9", "F"]
-# Relaxed: cosmetic E7 sub-rules and E501 are style-only; keep F/E9/E4 for bugs
-ignore = ["E741", "E731", "E701", "E702", "E501"]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["F401"]
+# E701/E702 (multiple statements on one line) are style-only with 250+ legacy
+# occurrences — relaxed in #17 until a dedicated cleanup pass.
+# E741/E731 were re-tightened after fixing all violations (post-#17 cleanup);
+# E501 is never active under this select, so it needs no ignore.
+ignore = ["E701", "E702"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -63,8 +63,8 @@ def _append_events(od: Path, events: list) -> None:
     if p.exists():
         import json as _json
         existing = [
-            _json.loads(l) for l in p.read_text(encoding="utf-8").splitlines()
-            if l.strip()
+            _json.loads(line) for line in p.read_text(encoding="utf-8").splitlines()
+            if line.strip()
         ]
     write_telemetry(od, "tester", existing + events)
 

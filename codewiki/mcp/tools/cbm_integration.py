@@ -193,8 +193,8 @@ def merge_cbm_and_local_results(
     local_links = local_topology.get("links", [])
 
     existing_keys = {
-        f"{l.get('client_repo')}:{l.get('server_repo')}:{l.get('route_key')}"
-        for l in local_links
+        f"{link.get('client_repo')}:{link.get('server_repo')}:{link.get('route_key')}"
+        for link in local_links
     }
 
     for path_entry in cbm_paths:

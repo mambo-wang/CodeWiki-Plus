@@ -33,7 +33,6 @@ from codewiki.mcp.tools.doc_writer import (  # noqa: E402
     handle_edit_doc_file,
     handle_write_doc_file,
     _inject_lightweight_frontmatter,
-    _resync_source_refs,
 )
 from codewiki.mcp.tools.knowledge_loop import (  # noqa: E402
     handle_confirm_note,

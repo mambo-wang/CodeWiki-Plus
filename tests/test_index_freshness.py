@@ -18,7 +18,6 @@ import json
 import time
 from pathlib import Path
 
-import pytest
 
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.tools import index_freshness as fr

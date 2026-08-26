@@ -230,11 +230,11 @@ def _incremental_refresh(
             if not available_types & valid_types:
                 valid_types.add("function")
             leaf_nodes = [
-                l
-                for l in raw_leafs
-                if isinstance(l, str)
-                and l in components
-                and components[l].component_type in valid_types
+                n
+                for n in raw_leafs
+                if isinstance(n, str)
+                and n in components
+                and components[n].component_type in valid_types
             ]
         except Exception as exc:
             logger.warning("watch: leaf-node recompute failed, keeping builder list: %s", exc)
