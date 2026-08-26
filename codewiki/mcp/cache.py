@@ -1,7 +1,14 @@
 """SQLite analysis cache: components, fingerprints, deps, search."""
 from __future__ import annotations
 
-import hashlib, json, logging, math, os, re, sqlite3, time
+import hashlib
+import json
+import logging
+import math
+import os
+import re
+import sqlite3
+import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import date, datetime
