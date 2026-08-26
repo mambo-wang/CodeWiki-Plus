@@ -27,6 +27,12 @@
 * **ingest_note**: 添加笔记: load_project_checklist 对 YAML 损坏静默回退 None 无日志，难排查
 * **ingest_note**: 添加笔记: analyze_changes 的 changed_components 行区间定位是近似，跨函数边界会误报组件
 * **ingest_note**: 添加笔记: _read_versioned_lines 对磁盘上已不存在的 untracked 文件返回空列表，产生只有 header 的空 body
+* **ingest_note**: 添加笔记: record_hit 同日聚合只查最后一行，交错写入下退化为纯追加（n 恒为 1）
+* **ingest_note**: 添加笔记: GitHub 竞品分层调研：TencentDB Agent Memory 为直接竞品，LLM Wiki 家族为理念源头
+* **lint_wiki**: 检查完成: 0 个问题
+* **close_session**: 会话关闭
+* **ingest_note**: 添加笔记: distill_conversation submit MCP 超时后仍会执行且不幂等——超时重试导致任务记忆重复写入与字节交错损坏
+* **close_session**: 会话关闭
 
 ## 2026-08-25
 * **ingest_note**: 添加笔记: 聚合/doctrine 阈值等运行参数通过 repowiki/schema.yaml conventions.aggregation 覆盖，不改 py 源码默认值
