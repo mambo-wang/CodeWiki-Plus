@@ -6,7 +6,7 @@ aliases:
 - 知识笔记索引
 ---
 
-<!-- 自动生成于 2026-08-26T12:31:16+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-26T21:57:33+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -85,6 +85,7 @@ aliases:
 * [load_project_checklist 对 YAML 损坏静默回退 None 无日志，难排查](../notes/2026-08-26-load-project-checklist-对-yaml-损坏静默回退-none-无日志难排查.md) - pitfall (pitfall, 2026-08-26)
 * [_read_versioned_lines 对磁盘上已不存在的 untracked 文件返回空列表，产生只有 header 的空 body](../notes/2026-08-26-read-versioned-lines-对磁盘上已不存在的-untracked-文件返回空列表产生只有-header.md) - pitfall (pitfall, 2026-08-26)
 * [record_hit 同日聚合只查最后一行，交错写入下退化为纯追加（n 恒为 1）](../notes/2026-08-26-record-hit-同日聚合只查最后一行交错写入下退化为纯追加n-恒为-1.md) - pitfall (pitfall, 2026-08-26)
+* [ruff format panic 的根因是误提交的一次性诊断脚本，检查步骤勿因工具崩溃轻率移除](../notes/2026-08-26-ruff-format-panic-的根因是误提交的一次性诊断脚本检查步骤勿因工具崩溃轻率移除.md) - pitfall (pitfall, 2026-08-26)
 * [type_filter 是单值精确匹配，设计要「优先 5 类」需多次查询合并](../notes/2026-08-26-type-filter-是单值精确匹配设计要优先-5-类需多次查询合并.md) - lesson (lesson, 2026-08-26)
 * [uv 工具链两坑：--no-dev 已移除须用 --no-group dev；.python-version 补丁固定与 uv Docker 镜像内置 Python 漂移](../notes/2026-08-26-uv-工具链两坑--no-dev-已移除须用---no-group-devpython-version-补丁固定与-uv.md) - pitfall (pitfall, 2026-08-26)
 * [doctrine 不会自动注入 Agent 上下文：唯一通道是 query_wiki(mode='overview')](../notes/2026-08-25-doctrine-不会自动注入-agent-上下文唯一通道是-query-wikimodeoverview.md) - architecture (architecture, 2026-08-25)
