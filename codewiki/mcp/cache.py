@@ -1894,8 +1894,8 @@ def _parse_row(r: sqlite3.Row) -> Tuple[Set[str], Optional[List], Optional[List]
     return deps, bc, params
 
 def _extract_title(content: str) -> Optional[str]:
-    for l in content.splitlines()[:30]:
-        s = l.strip()
+    for line in content.splitlines()[:30]:
+        s = line.strip()
         if s.startswith("# "): return s[2:].strip()
     return None
 
@@ -1903,7 +1903,7 @@ def _extract_frontmatter(content: str, key: str) -> Optional[str]:
     if not content.startswith("---"): return None
     try:
         end = content.index("---", 3)
-        for l in content[3:end].splitlines():
-            if l.startswith(f"{key}:"): return l[len(key)+1:].strip().strip('"').strip("'")
+        for line in content[3:end].splitlines():
+            if line.startswith(f"{key}:"): return line[len(key)+1:].strip().strip('"').strip("'")
     except ValueError: pass
     return None

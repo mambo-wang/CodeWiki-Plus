@@ -15,7 +15,6 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import pytest
 import yaml
 
 from codewiki.mcp.session import SessionStore

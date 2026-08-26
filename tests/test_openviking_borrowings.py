@@ -11,7 +11,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -20,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 def test_v4_table_single_source():
     from codewiki.mcp.tools.note_types import (
-        DEFAULT_NOTE_TYPES, valid_note_types, promotion_targets,
+        DEFAULT_NOTE_TYPES, promotion_targets,
         freshness_windows, merge_fields_for, validate_note_types,
     )
     from codewiki.mcp.tools.distill_conversation import _VALID_NOTE_TYPES

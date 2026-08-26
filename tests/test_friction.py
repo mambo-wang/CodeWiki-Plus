@@ -18,7 +18,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
 
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.tools import capture_conversation as capture

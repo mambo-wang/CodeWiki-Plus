@@ -141,7 +141,7 @@ class TopologyVisualizer:
             "| Method | Path | Client Service | Client Function | Server Service | Server Function |",
             "|--------|------|----------------|-----------------|----------------|-----------------|",
         ]
-        for link in sorted(topology.links, key=lambda l: (l.client_repo, l.path)):
+        for link in sorted(topology.links, key=lambda link: (link.client_repo, link.path)):
             method = link.method or "—"
             path = link.path or "—"
             client_func = link.client_function or "—"

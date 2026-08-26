@@ -11,12 +11,14 @@ changed files.
 
 from __future__ import annotations
 
-import json, logging, os
+import json
+import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from codewiki.mcp.cache import AnalysisCache, ComponentMeta, LazyComponentStore
-from codewiki.mcp.session import SessionState, SessionStore
+from codewiki.mcp.session import SessionStore
 from codewiki.mcp.workspace import SessionWorkspace
 
 logger = logging.getLogger(__name__)
@@ -92,7 +94,6 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
                     logger.warning("Route removal for %s failed (non-fatal): %s", cf, e)
 
             # Compute set of unchanged files to skip during parsing
-            changed_set = set(changed)
             all_cached_paths = cache.get_cached_file_paths()
             # These are the relative paths of files that are still cached and unchanged
             unchanged_rel_paths = all_cached_paths  # After remove_by_file, only unchanged remain
@@ -148,16 +149,16 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
             if not available_types & valid_types:
                 valid_types.add("function")
             leaf_nodes = [
-                l for l in raw_leafs
-                if isinstance(l, str) and l in components
-                and components[l].component_type in valid_types
+                n for n in raw_leafs
+                if isinstance(n, str) and n in components
+                and components[n].component_type in valid_types
             ]
             logger.info("Recomputed %d leaf nodes on merged graph", len(leaf_nodes))
         except Exception as e:
             logger.warning("Leaf-node recompute failed, merging with cached list: %s", e)
             old_leafs = cache.get_leaf_nodes()
-            merged = [l for l in old_leafs if l in components]
-            merged.extend(l for l in leaf_nodes if l not in merged)
+            merged = [n for n in old_leafs if n in components]
+            merged.extend(n for n in leaf_nodes if n not in merged)
             leaf_nodes = merged
 
     # Write to SQLite cache (incremental mode if we had cached components)
@@ -868,7 +869,7 @@ def _extract_overview_refs(output_dir: Path) -> Set[str]:
 
 def _save_overview_refs(output_dir: Path, refs: Set[str]):
     """Save overview refs to .meta/overview_refs.json."""
-    from codewiki.src.config import meta_join, META_DIR
+    from codewiki.src.config import meta_join
     meta_dir = Path(meta_join(output_dir, ""))
     meta_dir.mkdir(parents=True, exist_ok=True)
     refs_path = meta_dir / "overview_refs.json"

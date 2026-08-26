@@ -7,7 +7,6 @@ Run: python3 tests/smoke_test_mcp.py
 
 import asyncio
 import json
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -15,7 +14,7 @@ from pathlib import Path
 # Ensure codewiki is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from codewiki.mcp.session import SessionStore, SessionState
+from codewiki.mcp.session import SessionStore
 from codewiki.mcp.tools.analysis import handle_analyze_repo
 from codewiki.mcp.tools.code_reader import handle_read_code_components
 from codewiki.mcp.tools.doc_writer import handle_write_doc_file, handle_edit_doc_file
@@ -89,7 +88,6 @@ def main():
     check("summary has total_components", "total_components" in summary, str(summary.keys()))
     check("summary has total_leaf_nodes", "total_leaf_nodes" in summary, str(summary.keys()))
     check("summary has languages", "languages" in summary, str(summary.keys()))
-    total_leaf = summary["total_leaf_nodes"]
 
     # Use list_components tool to get component index
     lc_result = json.loads(handle_list_components({

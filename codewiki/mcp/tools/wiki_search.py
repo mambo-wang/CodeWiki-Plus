@@ -171,8 +171,8 @@ def _extract_fm(ct, key):
     if not ct.startswith("---"): return None
     try:
         end = ct.index("---", 3)
-        for l in ct[3:end].splitlines():
-            if l.startswith(f"{key}:"): return l[len(key)+1:].strip().strip('"').strip("'")
+        for line in ct[3:end].splitlines():
+            if line.startswith(f"{key}:"): return line[len(key)+1:].strip().strip('"').strip("'")
     except ValueError: pass
     return None
 
@@ -180,8 +180,8 @@ def _extract_fm(ct, key):
 _MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 
 def _extract_title(ct):
-    for l in ct.splitlines()[:30]:
-        s = l.strip()
+    for line in ct.splitlines()[:30]:
+        s = line.strip()
         if s.startswith("# "):
             title = _MD_LINK_RE.sub(lambda m: m.group(1), s[2:]).strip()
             return title or None

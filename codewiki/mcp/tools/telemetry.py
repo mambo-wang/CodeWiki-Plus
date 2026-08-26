@@ -39,7 +39,7 @@ import logging
 import os
 from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +127,7 @@ def _atomic_write_lines(path: Path, lines: List[str]) -> None:
 def _read_lines(path: Path) -> List[str]:
     """Non-empty lines of a jsonl file; missing file → [] (never raises)."""
     try:
-        return [l for l in path.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+        return [line for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
     except OSError:
         return []
 
