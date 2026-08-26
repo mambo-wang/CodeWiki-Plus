@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ def _format_all(links: List[Dict], routes: List[Dict]) -> Dict:
         "unmatched_routes": [
             r for r in routes
             if not any(
-                l.get("route_key") == r.get("route_key") for l in links
+                link.get("route_key") == r.get("route_key") for link in links
             )
         ],
     }
@@ -121,33 +121,33 @@ def _format_all(links: List[Dict], routes: List[Dict]) -> Dict:
 
 def _filter_by_service(links: List[Dict], service: str) -> Dict:
     matching = [
-        l for l in links
-        if service.lower() in l.get("client_repo", "").lower()
-        or service.lower() in l.get("server_repo", "").lower()
+        link for link in links
+        if service.lower() in link.get("client_repo", "").lower()
+        or service.lower() in link.get("server_repo", "").lower()
     ]
     return {
         "service": service,
         "count": len(matching),
-        "as_client": [l for l in matching if service.lower() in l.get("client_repo", "").lower()],
-        "as_server": [l for l in matching if service.lower() in l.get("server_repo", "").lower()],
+        "as_client": [link for link in matching if service.lower() in link.get("client_repo", "").lower()],
+        "as_server": [link for link in matching if service.lower() in link.get("server_repo", "").lower()],
     }
 
 
 def _filter_by_method(links: List[Dict], method: str) -> Dict:
     # MQ links serialize method as null — guard against None before .upper()
-    matching = [l for l in links if (l.get("method") or "").upper() == method.upper()]
+    matching = [link for link in links if (link.get("method") or "").upper() == method.upper()]
     return {"method": method.upper(), "count": len(matching), "links": matching}
 
 
 def _filter_by_path(links: List[Dict], path_prefix: str) -> Dict:
     prefix_lower = path_prefix.lower()
-    matching = [l for l in links if (l.get("path") or "").lower().startswith(prefix_lower)]
+    matching = [link for link in links if (link.get("path") or "").lower().startswith(prefix_lower)]
     return {"path_prefix": path_prefix, "count": len(matching), "links": matching}
 
 
 def _trace_route(links: List[Dict], routes: List[Dict], route_key: str) -> Dict:
     """Trace a specific route: find all clients and servers involved."""
-    matching_links = [l for l in links if l.get("route_key") == route_key]
+    matching_links = [link for link in links if link.get("route_key") == route_key]
     matching_routes = [r for r in routes if r.get("route_key") == route_key]
 
     clients = []

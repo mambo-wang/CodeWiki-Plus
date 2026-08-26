@@ -7,7 +7,6 @@ accumulate noise. Only keep_raw (explicit opt-in) preserves the raw file.
 import json
 from pathlib import Path
 
-import pytest
 
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.tools import distill_conversation as distill
