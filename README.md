@@ -35,6 +35,9 @@
 - [第 4 篇：知识写入方式全景](https://mp.weixin.qq.com/s/V90mghqB5wttKd25eXA-Pw)（2026-08-09）
 - [第 5 篇：OKF 0.2 规范介绍和实战](https://mp.weixin.qq.com/s/Dt748cHQCa7mfz1PEvgS6g)（2026-08）
 - [第 6 篇：借助 HOOKS 机制实现跨会话记忆和任务管理](https://mp.weixin.qq.com/s/flsqORauNo0Th1v8G4Ceng)（2026-08）
+- [第 7 篇：记忆/经验分层提取——自生长的团队知识库](https://mp.weixin.qq.com/s/s253xe5LiUmgdfDo3XxAbg)（2026-08）
+- [第 8 篇：四维代码评审——让踩过的坑自动变成 CHECKLIST](https://mp.weixin.qq.com/s/wH_mjG5IL-0qo_qDFpODuw)（2026-08）
+
 
 
 ### 这个项目是什么？
@@ -765,6 +768,10 @@ CodeWiki-Plus 的核心工具链（Tree-sitter AST 解析、依赖图构建、�
       url={https://arxiv.org/abs/2510.24428},
 }
 ```
+
+<p align="center">
+  <img src="img/thankyou.png" alt="Thank You" width="700" />
+</p>
 
 ---
 
