@@ -7,16 +7,22 @@ the legacy JSON file index otherwise.
 
 from __future__ import annotations
 
-import json, logging, math, os, re, threading, time
+import json
+import logging
+import math
+import os
+import re
+import threading
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, Optional
 
 from codewiki.mcp.cache import (
-    _STOPWORDS, _K1, _B, _build_indexable_text,
+    _K1, _B, _build_indexable_text,
     _tokenize, _extract_snippet,
     _load_ontology, _expand_with_ontology,
     _doc_authority,
-    compute_usage_heat, load_usage_ranking_config, _usage_context,
+    compute_usage_heat, _usage_context,
 )
 
 logger = logging.getLogger(__name__)

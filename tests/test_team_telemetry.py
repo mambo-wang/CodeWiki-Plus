@@ -54,8 +54,15 @@ class TestUserId:
         assert user_id() == "pseudonym-x"
 
     def test_git_config_fallback(self, monkeypatch):
+        from codewiki.src import config as cfg_module
         from codewiki.src.config import user_id
+
         monkeypatch.delenv("CODEWIKI_USER", raising=False)
+        # Make deterministic: CI has no git config, so mock it. Clear caches.
+        monkeypatch.setattr(cfg_module, "_GIT_USER_EMAIL_CACHE", None)
+        monkeypatch.setattr(cfg_module, "_GIT_USER_NAME_CACHE", None)
+        monkeypatch.setattr(cfg_module, "_git_user_email", lambda: "ci@example.com")
+        monkeypatch.setattr(cfg_module, "_git_user_name", lambda: "ci")
         uid = user_id()
         assert uid and uid != "local"
         # filename-safe: only [A-Za-z0-9_-]
