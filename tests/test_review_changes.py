@@ -185,7 +185,7 @@ def test_prepare_end_to_end():
         from codewiki.mcp.tools.analysis import handle_analyze_repo
 
         print("  (no cached session — running analyze_repo first, this may take a while)")
-        handle_analyze_repo({"repo_path": REPO_PATH})
+        handle_analyze_repo({"repo_path": REPO_PATH}, store)
 
     out = json.loads(handle_review_changes({"repo_path": REPO_PATH, "mode": "prepare"}, store))
     check("prepare status", out.get("status") == "prepared", detail=str(out)[:200])
