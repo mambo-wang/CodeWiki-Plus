@@ -33,6 +33,7 @@
 * **close_session**: 会话关闭
 * **ingest_note**: 添加笔记: distill_conversation submit MCP 超时后仍会执行且不幂等——超时重试导致任务记忆重复写入与字节交错损坏
 * **close_session**: 会话关闭
+* **ingest_note**: 添加笔记: ruff format panic 的根因是误提交的一次性诊断脚本，检查步骤勿因工具崩溃轻率移除
 
 ## 2026-08-25
 * **ingest_note**: 添加笔记: 聚合/doctrine 阈值等运行参数通过 repowiki/schema.yaml conventions.aggregation 覆盖，不改 py 源码默认值
