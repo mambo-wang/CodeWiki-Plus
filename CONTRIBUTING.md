@@ -13,4 +13,4 @@ uv run pre-commit install # enables ruff check + format on commit
 uv run pytest -q          # verify setup
 ```
 
-1. Create a feature branch, push to your fork, and open a PR against `mambo-wang:develop`.
+2. Create a feature branch, push to your fork, and open a PR against `mambo-wang:develop`.
