@@ -3,6 +3,7 @@
 Parses deployment configuration to discover service names, ports, and
 inter-service dependencies that complement Route-based matching.
 """
+
 from __future__ import annotations
 
 import logging
@@ -16,9 +17,14 @@ logger = logging.getLogger(__name__)
 class InfraServiceInfo:
     """Minimal service info extracted from infrastructure configs."""
 
-    def __init__(self, name: str, ports: List[int] = None,
-                 depends_on: List[str] = None, env_vars: Dict[str, str] = None,
-                 source: str = ""):
+    def __init__(
+        self,
+        name: str,
+        ports: List[int] = None,
+        depends_on: List[str] = None,
+        env_vars: Dict[str, str] = None,
+        source: str = "",
+    ):
         self.name = name
         self.ports = ports or []
         self.depends_on = depends_on or []
@@ -54,14 +60,14 @@ class InfraScanner:
 
     def _scan_docker_compose(self):
         """Parse docker-compose.yml / docker-compose.yaml files."""
-        for pattern in ("docker-compose.yml", "docker-compose.yaml",
-                        "compose.yml", "compose.yaml"):
+        for pattern in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"):
             for f in self.workspace_path.rglob(pattern):
                 self._parse_compose_file(f)
 
     def _parse_compose_file(self, path: Path):
         try:
             import yaml
+
             data = yaml.safe_load(path.read_text(encoding="utf-8", errors="replace"))
         except ImportError:
             logger.debug("PyYAML not available, skipping docker-compose parsing")
@@ -119,8 +125,11 @@ class InfraScanner:
                 env_vars = {str(k): str(v) for k, v in raw_env.items()}
 
             info = InfraServiceInfo(
-                name=svc_name, ports=ports, depends_on=depends_on,
-                env_vars=env_vars, source="docker-compose",
+                name=svc_name,
+                ports=ports,
+                depends_on=depends_on,
+                env_vars=env_vars,
+                source="docker-compose",
             )
             self.services[svc_name] = info
 
@@ -150,7 +159,7 @@ class InfraScanner:
             return
 
         url_pattern = re.compile(
-            r'^(\w*(?:SERVICE|API|URL|HOST|ENDPOINT)\w*)\s*=\s*(.+?)$',
+            r"^(\w*(?:SERVICE|API|URL|HOST|ENDPOINT)\w*)\s*=\s*(.+?)$",
             re.MULTILINE | re.IGNORECASE,
         )
         for m in url_pattern.finditer(content):
@@ -174,11 +183,13 @@ class InfraScanner:
 
     def _scan_application_yml(self):
         """Scan application.yml / application.yaml for service URLs."""
-        for pattern in ("application.yml", "application.yaml",
-                        "application.properties"):
+        for pattern in ("application.yml", "application.yaml", "application.properties"):
             for f in self.workspace_path.rglob(pattern):
                 parts = f.parts
-                if any(skip in parts for skip in ("node_modules", ".venv", "venv", ".git", "target", "build")):
+                if any(
+                    skip in parts
+                    for skip in ("node_modules", ".venv", "venv", ".git", "target", "build")
+                ):
                     continue
                 self._parse_spring_config(f)
 
@@ -186,6 +197,7 @@ class InfraScanner:
         if path.suffix in (".yml", ".yaml"):
             try:
                 import yaml
+
                 data = yaml.safe_load(path.read_text(encoding="utf-8", errors="replace"))
             except ImportError:
                 return
@@ -199,7 +211,7 @@ class InfraScanner:
             except OSError:
                 return
             url_pattern = re.compile(
-                r'^.*?(?:service|api|url|host|endpoint).*?=(.+?)$',
+                r"^.*?(?:service|api|url|host|endpoint).*?=(.+?)$",
                 re.MULTILINE | re.IGNORECASE,
             )
             for m in url_pattern.finditer(content):
@@ -216,8 +228,12 @@ class InfraScanner:
             return
         for key, value in data.items():
             full_key = f"{prefix}.{key}" if prefix else key
-            if isinstance(value, str) and (value.startswith("http://") or value.startswith("https://")):
-                svc_name = self._extract_service_from_url(value) or self._extract_service_name_from_key(full_key)
+            if isinstance(value, str) and (
+                value.startswith("http://") or value.startswith("https://")
+            ):
+                svc_name = self._extract_service_from_url(
+                    value
+                ) or self._extract_service_name_from_key(full_key)
                 if svc_name:
                     self.service_urls[svc_name] = value
             elif isinstance(value, dict):
@@ -227,7 +243,7 @@ class InfraScanner:
         """http://order-service:8080 → order-service."""
         for scheme in ("https://", "http://"):
             if url.startswith(scheme):
-                rest = url[len(scheme):]
+                rest = url[len(scheme) :]
                 host = rest.split(":")[0].split("/")[0]
                 if host and not host.replace(".", "").isdigit():
                     return host

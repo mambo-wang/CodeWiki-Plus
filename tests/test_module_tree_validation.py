@@ -178,14 +178,16 @@ def test_multiple_unmatched_and_leftover(tmp_path):
 def test_standalone_no_session_skips_validation(tmp_path):
     """Without an analysis session there is no id index; save must still work."""
     store = SessionStore()
-    result = json.loads(handle_save_module_tree(
-        {
-            "repo_path": str(tmp_path),
-            "output_dir": str(tmp_path),
-            "module_tree": {"core": {"components": ["src/a.py::A"]}},
-        },
-        store,
-    ))
+    result = json.loads(
+        handle_save_module_tree(
+            {
+                "repo_path": str(tmp_path),
+                "output_dir": str(tmp_path),
+                "module_tree": {"core": {"components": ["src/a.py::A"]}},
+            },
+            store,
+        )
+    )
     assert result["status"] == "saved"
     assert "validation" not in result
     assert "warning" not in result

@@ -140,15 +140,34 @@ repowiki/
 ```python
 # codewiki/cli/utils/ide_config.py
 IDE_SPECS: dict[str, dict] = {
-    "codebuddy":  {"dir": ".codebuddy", "settings": "settings.json", "agents_dir": "agents", "copy_agent": True},
-    "qoder":      {"dir": ".qoder",     "settings": "settings.json", "agents_dir": "agents", "copy_agent": True},
-    "claude-code": {"dir": ".claude",   "settings": "settings.json", "agents_dir": "agents", "copy_agent": True},
+    "codebuddy": {
+        "dir": ".codebuddy",
+        "settings": "settings.json",
+        "agents_dir": "agents",
+        "copy_agent": True,
+    },
+    "qoder": {
+        "dir": ".qoder",
+        "settings": "settings.json",
+        "agents_dir": "agents",
+        "copy_agent": True,
+    },
+    "claude-code": {
+        "dir": ".claude",
+        "settings": "settings.json",
+        "agents_dir": "agents",
+        "copy_agent": True,
+    },
 }
 HOOK_FILES = ("capture_session_end.py", "task_session_start.py")
 AGENT_FILE = "distill-worker.md"
 HOOKS_REGISTRATION = {  # 事件注册骨架，command 运行时补全绝对路径
-    "SessionStart": [{"matcher": "startup", "hooks": [{"type": "command", "command": "<cmd>", "timeout": 15}]}],
-    "SessionEnd":   [{"matcher": "other",  "hooks": [{"type": "command", "command": "<cmd>", "timeout": 30}]}],
+    "SessionStart": [
+        {"matcher": "startup", "hooks": [{"type": "command", "command": "<cmd>", "timeout": 15}]}
+    ],
+    "SessionEnd": [
+        {"matcher": "other", "hooks": [{"type": "command", "command": "<cmd>", "timeout": 30}]}
+    ],
 }
 ```
 

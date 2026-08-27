@@ -67,3 +67,8 @@ jobs:
         run: |
           xargs -0 -r uv run ruff check --output-format=github \
             < "$RUNNER_TEMP/changed-python-files"
+
+      - name: Ruff format check changed files
+        run: |
+          xargs -0 -r uv run ruff format --check \
+            < "$RUNNER_TEMP/changed-python-files"

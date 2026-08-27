@@ -17,14 +17,41 @@ logger = logging.getLogger(__name__)
 
 # Go built-in types and common standard-library types to filter out
 GO_PRIMITIVE_TYPES: Set[str] = {
-    "bool", "byte", "rune", "string", "error",
-    "int", "int8", "int16", "int32", "int64",
-    "uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
-    "float32", "float64", "complex64", "complex128",
-    "any", "comparable",
-    "Context", "Writer", "Reader", "Handler", "Request", "Response",
-    "Mutex", "RWMutex", "WaitGroup", "Once", "Pool",
-    "Buffer", "StringsBuilder",
+    "bool",
+    "byte",
+    "rune",
+    "string",
+    "error",
+    "int",
+    "int8",
+    "int16",
+    "int32",
+    "int64",
+    "uint",
+    "uint8",
+    "uint16",
+    "uint32",
+    "uint64",
+    "uintptr",
+    "float32",
+    "float64",
+    "complex64",
+    "complex128",
+    "any",
+    "comparable",
+    "Context",
+    "Writer",
+    "Reader",
+    "Handler",
+    "Request",
+    "Response",
+    "Mutex",
+    "RWMutex",
+    "WaitGroup",
+    "Once",
+    "Pool",
+    "Buffer",
+    "StringsBuilder",
 }
 
 
@@ -93,8 +120,7 @@ class TreeSitterGoAnalyzer:
                     (c for c in type_spec.children if c.type == "type_identifier"), None
                 )
                 type_body = next(
-                    (c for c in type_spec.children
-                     if c.type in ("struct_type", "interface_type")),
+                    (c for c in type_spec.children if c.type in ("struct_type", "interface_type")),
                     None,
                 )
                 if not name_node or not type_body:
@@ -107,9 +133,7 @@ class TreeSitterGoAnalyzer:
                 node_name = tname
 
         elif node.type == "function_declaration":
-            name_node = next(
-                (c for c in node.children if c.type == "identifier"), None
-            )
+            name_node = next((c for c in node.children if c.type == "identifier"), None)
             if name_node:
                 node_type = "function"
                 node_name = name_node.text.decode()
@@ -180,23 +204,17 @@ class TreeSitterGoAnalyzer:
                 name_node = next(
                     (c for c in type_spec.children if c.type == "type_identifier"), None
                 )
-                struct_body = next(
-                    (c for c in type_spec.children if c.type == "struct_type"), None
-                )
+                struct_body = next((c for c in type_spec.children if c.type == "struct_type"), None)
                 if name_node and struct_body:
                     struct_name = name_node.text.decode()
-                    self._extract_struct_dependencies(
-                        struct_body, struct_name, top_level_names
-                    )
+                    self._extract_struct_dependencies(struct_body, struct_name, top_level_names)
 
                 iface_body = next(
                     (c for c in type_spec.children if c.type == "interface_type"), None
                 )
                 if name_node and iface_body:
                     iface_name = name_node.text.decode()
-                    self._extract_interface_dependencies(
-                        iface_body, iface_name, top_level_names
-                    )
+                    self._extract_interface_dependencies(iface_body, iface_name, top_level_names)
 
         if node.type == "call_expression":
             caller_id = self._find_containing_function(node)
@@ -206,18 +224,18 @@ class TreeSitterGoAnalyzer:
         if node.type == "composite_literal":
             caller_id = self._find_containing_function(node)
             if caller_id:
-                type_node = next(
-                    (c for c in node.children if c.type == "type_identifier"), None
-                )
+                type_node = next((c for c in node.children if c.type == "type_identifier"), None)
                 if type_node:
                     type_name = type_node.text.decode()
                     if not self._is_primitive_type(type_name):
-                        self.call_relationships.append(CallRelationship(
-                            caller=caller_id,
-                            callee=self._get_component_id(type_name),
-                            call_line=node.start_point[0] + 1,
-                            is_resolved=False,
-                        ))
+                        self.call_relationships.append(
+                            CallRelationship(
+                                caller=caller_id,
+                                callee=self._get_component_id(type_name),
+                                call_line=node.start_point[0] + 1,
+                                is_resolved=False,
+                            )
+                        )
 
         for child in node.children:
             self._extract_relationships(child, top_level_names)
@@ -235,40 +253,44 @@ class TreeSitterGoAnalyzer:
             if len(children) == 1:
                 embedded_type = self._resolve_type_name(children[0])
                 if embedded_type and not self._is_primitive_type(embedded_type):
-                    self.call_relationships.append(CallRelationship(
-                        caller=self._get_component_id(struct_name),
-                        callee=self._get_component_id(embedded_type),
-                        call_line=field.start_point[0] + 1,
-                        is_resolved=False,
-                    ))
+                    self.call_relationships.append(
+                        CallRelationship(
+                            caller=self._get_component_id(struct_name),
+                            callee=self._get_component_id(embedded_type),
+                            call_line=field.start_point[0] + 1,
+                            is_resolved=False,
+                        )
+                    )
             else:
                 type_node = field.children[-1] if field.children else None
                 if type_node:
                     field_type = self._resolve_type_name(type_node)
                     if field_type and not self._is_primitive_type(field_type):
-                        self.call_relationships.append(CallRelationship(
-                            caller=self._get_component_id(struct_name),
-                            callee=self._get_component_id(field_type),
-                            call_line=field.start_point[0] + 1,
-                            is_resolved=False,
-                        ))
+                        self.call_relationships.append(
+                            CallRelationship(
+                                caller=self._get_component_id(struct_name),
+                                callee=self._get_component_id(field_type),
+                                call_line=field.start_point[0] + 1,
+                                is_resolved=False,
+                            )
+                        )
 
     def _extract_interface_dependencies(self, iface_body, iface_name: str, top_level_names: dict):
-        method_list = next(
-            (c for c in iface_body.children if c.type == "method_spec_list"), None
-        )
+        method_list = next((c for c in iface_body.children if c.type == "method_spec_list"), None)
         if not method_list:
             return
         for spec in method_list.children:
             if spec.type == "type_identifier":
                 embedded = spec.text.decode()
                 if not self._is_primitive_type(embedded):
-                    self.call_relationships.append(CallRelationship(
-                        caller=self._get_component_id(iface_name),
-                        callee=self._get_component_id(embedded),
-                        call_line=spec.start_point[0] + 1,
-                        is_resolved=False,
-                    ))
+                    self.call_relationships.append(
+                        CallRelationship(
+                            caller=self._get_component_id(iface_name),
+                            callee=self._get_component_id(embedded),
+                            call_line=spec.start_point[0] + 1,
+                            is_resolved=False,
+                        )
+                    )
 
     def _extract_call_target(self, call_node, caller_id: str, top_level_names: dict):
         func_node = call_node.children[0] if call_node.children else None
@@ -278,21 +300,31 @@ class TreeSitterGoAnalyzer:
         if func_node.type == "identifier":
             callee_name = func_node.text.decode()
             if not self._is_primitive_type(callee_name):
-                self.call_relationships.append(CallRelationship(
-                    caller=caller_id,
-                    callee=self._get_component_id(callee_name),
-                    call_line=call_node.start_point[0] + 1,
-                    is_resolved=False,
-                ))
+                self.call_relationships.append(
+                    CallRelationship(
+                        caller=caller_id,
+                        callee=self._get_component_id(callee_name),
+                        call_line=call_node.start_point[0] + 1,
+                        is_resolved=False,
+                    )
+                )
 
         elif func_node.type == "selector_expression":
             operand = next(
-                (c for c in func_node.children if c.type in ("identifier", "selector_expression", "call_expression", "parenthesized_expression")),
+                (
+                    c
+                    for c in func_node.children
+                    if c.type
+                    in (
+                        "identifier",
+                        "selector_expression",
+                        "call_expression",
+                        "parenthesized_expression",
+                    )
+                ),
                 None,
             )
-            field = next(
-                (c for c in func_node.children if c.type == "field_identifier"), None
-            )
+            field = next((c for c in func_node.children if c.type == "field_identifier"), None)
             if operand and field:
                 method_name = field.text.decode()
                 operand_name = operand.text.decode()
@@ -301,28 +333,28 @@ class TreeSitterGoAnalyzer:
                 if operand_name in top_level_names:
                     target_type = operand_name
                 else:
-                    target_type = self._find_variable_type(
-                        call_node, operand_name, top_level_names
-                    )
+                    target_type = self._find_variable_type(call_node, operand_name, top_level_names)
                 if target_type and not self._is_primitive_type(target_type):
-                    self.call_relationships.append(CallRelationship(
-                        caller=caller_id,
-                        callee=self._get_component_id(method_name, target_type),
-                        call_line=call_node.start_point[0] + 1,
-                        is_resolved=False,
-                    ))
+                    self.call_relationships.append(
+                        CallRelationship(
+                            caller=caller_id,
+                            callee=self._get_component_id(method_name, target_type),
+                            call_line=call_node.start_point[0] + 1,
+                            is_resolved=False,
+                        )
+                    )
                 else:
-                    self.call_relationships.append(CallRelationship(
-                        caller=caller_id,
-                        callee=method_name,
-                        call_line=call_node.start_point[0] + 1,
-                        is_resolved=False,
-                    ))
+                    self.call_relationships.append(
+                        CallRelationship(
+                            caller=caller_id,
+                            callee=method_name,
+                            call_line=call_node.start_point[0] + 1,
+                            is_resolved=False,
+                        )
+                    )
 
     def _get_receiver_type(self, method_node) -> Optional[str]:
-        param_list = next(
-            (c for c in method_node.children if c.type == "parameter_list"), None
-        )
+        param_list = next((c for c in method_node.children if c.type == "parameter_list"), None)
         if not param_list:
             return None
         for param in param_list.children:
@@ -336,25 +368,47 @@ class TreeSitterGoAnalyzer:
         if node.type == "type_identifier":
             return node.text.decode()
         elif node.type == "pointer_type":
-            inner = next((c for c in node.children if c.type in ("type_identifier", "qualified_type", "pointer_type")), None)
+            inner = next(
+                (
+                    c
+                    for c in node.children
+                    if c.type in ("type_identifier", "qualified_type", "pointer_type")
+                ),
+                None,
+            )
             if inner:
                 return self._resolve_type_name(inner)
         elif node.type == "slice_type":
-            inner = next((c for c in node.children if c.type in ("type_identifier", "pointer_type", "qualified_type")), None)
+            inner = next(
+                (
+                    c
+                    for c in node.children
+                    if c.type in ("type_identifier", "pointer_type", "qualified_type")
+                ),
+                None,
+            )
             if inner:
                 return self._resolve_type_name(inner)
         elif node.type == "array_type":
-            inner = next((c for c in node.children if c.type in ("type_identifier", "pointer_type")), None)
+            inner = next(
+                (c for c in node.children if c.type in ("type_identifier", "pointer_type")), None
+            )
             if inner:
                 return self._resolve_type_name(inner)
         elif node.type == "map_type":
-            children = [c for c in node.children if c.type in ("type_identifier", "pointer_type", "slice_type", "qualified_type")]
+            children = [
+                c
+                for c in node.children
+                if c.type in ("type_identifier", "pointer_type", "slice_type", "qualified_type")
+            ]
             if len(children) >= 2:
                 return self._resolve_type_name(children[1])
             elif len(children) == 1:
                 return self._resolve_type_name(children[0])
         elif node.type == "channel_type":
-            inner = next((c for c in node.children if c.type in ("type_identifier", "pointer_type")), None)
+            inner = next(
+                (c for c in node.children if c.type in ("type_identifier", "pointer_type")), None
+            )
             if inner:
                 return self._resolve_type_name(inner)
         elif node.type == "qualified_type":
@@ -368,9 +422,7 @@ class TreeSitterGoAnalyzer:
         params = []
         param_list = None
         if node.type == "function_declaration":
-            param_list = next(
-                (c for c in node.children if c.type == "parameter_list"), None
-            )
+            param_list = next((c for c in node.children if c.type == "parameter_list"), None)
         elif node.type == "method_declaration":
             lists = [c for c in node.children if c.type == "parameter_list"]
             if len(lists) >= 2:
@@ -383,11 +435,7 @@ class TreeSitterGoAnalyzer:
 
         for param in param_list.children:
             if param.type == "parameter_declaration":
-                names = [
-                    c.text.decode()
-                    for c in param.children
-                    if c.type == "identifier"
-                ]
+                names = [c.text.decode() for c in param.children if c.type == "identifier"]
                 type_node = param.children[-1] if param.children else None
                 type_str = self._resolve_type_name(type_node) if type_node else "unknown"
                 if names:
@@ -401,9 +449,7 @@ class TreeSitterGoAnalyzer:
         current = node.parent
         while current:
             if current.type == "function_declaration":
-                name_node = next(
-                    (c for c in current.children if c.type == "identifier"), None
-                )
+                name_node = next((c for c in current.children if c.type == "identifier"), None)
                 if name_node:
                     return self._get_component_id(name_node.text.decode())
             elif current.type == "method_declaration":
@@ -412,15 +458,11 @@ class TreeSitterGoAnalyzer:
                 )
                 if method_name_node:
                     recv = self._get_receiver_type(current)
-                    return self._get_component_id(
-                        method_name_node.text.decode(), recv
-                    )
+                    return self._get_component_id(method_name_node.text.decode(), recv)
             current = current.parent
         return None
 
-    def _find_variable_type(
-        self, node, variable_name: str, top_level_names: dict
-    ) -> Optional[str]:
+    def _find_variable_type(self, node, variable_name: str, top_level_names: dict) -> Optional[str]:
         func_node = node.parent
         while func_node and func_node.type not in (
             "function_declaration",
@@ -478,17 +520,17 @@ class TreeSitterGoAnalyzer:
     def _search_short_var_decl(self, block_node, variable_name: str) -> Optional[str]:
         for child in block_node.children:
             if child.type == "short_var_declaration":
-                lhs = next(
-                    (c for c in child.children if c.type == "expression_list"), None
-                )
-                rhs_nodes = [
-                    c for c in child.children if c.type == "expression_list"
-                ]
+                lhs = next((c for c in child.children if c.type == "expression_list"), None)
+                rhs_nodes = [c for c in child.children if c.type == "expression_list"]
                 rhs = rhs_nodes[1] if len(rhs_nodes) >= 2 else None
 
                 if lhs and rhs:
                     names = [c for c in lhs.children if c.type == "identifier"]
-                    calls = [c for c in rhs.children if c.type in ("call_expression", "composite_literal")]
+                    calls = [
+                        c
+                        for c in rhs.children
+                        if c.type in ("call_expression", "composite_literal")
+                    ]
                     for i, name_node in enumerate(names):
                         if name_node.text.decode() == variable_name:
                             if i < len(calls):
@@ -541,13 +583,47 @@ class TreeSitterGoAnalyzer:
     @staticmethod
     def _is_stdlib_package(name: str) -> bool:
         stdlib = {
-            "fmt", "log", "os", "io", "net", "http", "json", "xml",
-            "strings", "strconv", "math", "time", "context", "errors",
-            "sync", "path", "filepath", "regexp", "sort", "bytes",
-            "bufio", "encoding", "reflect", "runtime", "testing",
-            "crypto", "database", "sql", "html", "text", "flag",
-            "exec", "signal", "syscall", "unsafe", "atomic",
-            "rand", "hash", "compress", "archive", "container",
+            "fmt",
+            "log",
+            "os",
+            "io",
+            "net",
+            "http",
+            "json",
+            "xml",
+            "strings",
+            "strconv",
+            "math",
+            "time",
+            "context",
+            "errors",
+            "sync",
+            "path",
+            "filepath",
+            "regexp",
+            "sort",
+            "bytes",
+            "bufio",
+            "encoding",
+            "reflect",
+            "runtime",
+            "testing",
+            "crypto",
+            "database",
+            "sql",
+            "html",
+            "text",
+            "flag",
+            "exec",
+            "signal",
+            "syscall",
+            "unsafe",
+            "atomic",
+            "rand",
+            "hash",
+            "compress",
+            "archive",
+            "container",
         }
         return name in stdlib
 

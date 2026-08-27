@@ -71,7 +71,7 @@ def backfill_file(path: Path) -> bool:
 
     title = data.get("title") or path.stem
     aliases = [title] if isinstance(title, str) else [path.stem]
-    alias_line = f"aliases: [{', '.join('\"' + a.replace('\"', '\\\\\"') + '\"' for a in aliases)}]"
+    alias_line = f"aliases: [{', '.join('"' + a.replace('"', '\\\\"') + '"' for a in aliases)}]"
 
     lines = fm_text.split("\n")
     # Insert right after the opening delimiter block (end of first non-empty
@@ -80,9 +80,7 @@ def backfill_file(path: Path) -> bool:
     new_fm = "\n".join(lines + [alias_line])
     new_content = f"---\n{new_fm}\n---{body}"
 
-    fd, tmp_path = tempfile.mkstemp(
-        dir=str(path.parent), prefix=path.stem + ".", suffix=".tmp"
-    )
+    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), prefix=path.stem + ".", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(new_content)

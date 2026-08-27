@@ -2,20 +2,26 @@ from typing import Dict, List, Any
 import os
 from codewiki.src.config import Config
 from codewiki.src.be.dependency_analyzer.ast_parser import DependencyParser
-from codewiki.src.be.dependency_analyzer.topo_sort import build_graph_from_components, get_leaf_nodes
+from codewiki.src.be.dependency_analyzer.topo_sort import (
+    build_graph_from_components,
+    get_leaf_nodes,
+)
 from codewiki.src.utils import file_manager
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
 class DependencyGraphBuilder:
     """Handles dependency analysis and graph building."""
-    
+
     def __init__(self, config: Config):
         self.config = config
-    
-    def build_dependency_graph(self, skip_file_paths: set = None) -> tuple[Dict[str, Any], List[str], List[Dict]]:
+
+    def build_dependency_graph(
+        self, skip_file_paths: set = None
+    ) -> tuple[Dict[str, Any], List[str], List[Dict]]:
         """
         Build and save dependency graph, returning components, leaf nodes, and routes.
 
@@ -30,24 +36,22 @@ class DependencyGraphBuilder:
 
         # Prepare dependency graph path
         repo_name = os.path.basename(os.path.normpath(self.config.repo_path))
-        sanitized_repo_name = ''.join(c if c.isalnum() else '_' for c in repo_name)
+        sanitized_repo_name = "".join(c if c.isalnum() else "_" for c in repo_name)
         dependency_graph_path = os.path.join(
-            self.config.dependency_graph_dir, 
-            f"{sanitized_repo_name}_dependency_graph.json"
+            self.config.dependency_graph_dir, f"{sanitized_repo_name}_dependency_graph.json"
         )
-        filtered_folders_path = os.path.join(
-            self.config.dependency_graph_dir, 
-            f"{sanitized_repo_name}_filtered_folders.json"
+        os.path.join(
+            self.config.dependency_graph_dir, f"{sanitized_repo_name}_filtered_folders.json"
         )
 
         # Get custom include/exclude patterns from config
         include_patterns = self.config.include_patterns if self.config.include_patterns else None
         exclude_patterns = self.config.exclude_patterns if self.config.exclude_patterns else None
-        
+
         parser = DependencyParser(
             self.config.repo_path,
             include_patterns=include_patterns,
-            exclude_patterns=exclude_patterns
+            exclude_patterns=exclude_patterns,
         )
 
         filtered_folders = None
@@ -62,37 +66,44 @@ class DependencyGraphBuilder:
 
         # Parse repository
         components = parser.parse_repository(filtered_folders, skip_file_paths=skip_file_paths)
-        
+
         # Save dependency graph
         parser.save_dependency_graph(dependency_graph_path)
-        
+
         # Build graph for traversal
         graph = build_graph_from_components(components)
-        
+
         # Get leaf nodes
         leaf_nodes = get_leaf_nodes(graph, components)
 
         # check if leaf_nodes are in components, only keep the ones that are in components
         # and type is one of the following: class, interface, struct (or function for C-based projects)
-        
+
         # Determine if we should include functions based on available component types
         available_types = set()
         for comp in components.values():
             available_types.add(comp.component_type)
-        
+
         # Valid types for leaf nodes - include functions for C-based codebases
         valid_types = {"class", "interface", "struct"}
         # If no classes/interfaces/structs are found, include functions
         if not available_types.intersection(valid_types):
             valid_types.add("function")
-        
+
         keep_leaf_nodes = []
         for leaf_node in leaf_nodes:
             # Skip any leaf nodes that are clearly error strings or invalid identifiers
-            if not isinstance(leaf_node, str) or leaf_node.strip() == "" or any(err_keyword in leaf_node.lower() for err_keyword in ['error', 'exception', 'failed', 'invalid']):
+            if (
+                not isinstance(leaf_node, str)
+                or leaf_node.strip() == ""
+                or any(
+                    err_keyword in leaf_node.lower()
+                    for err_keyword in ["error", "exception", "failed", "invalid"]
+                )
+            ):
                 logger.warning(f"Skipping invalid leaf node identifier: '{leaf_node}'")
                 continue
-                
+
             if leaf_node in components:
                 if components[leaf_node].component_type in valid_types:
                     keep_leaf_nodes.append(leaf_node)
@@ -103,6 +114,6 @@ class DependencyGraphBuilder:
                 logger.warning(f"Leaf node {leaf_node} not found in components, removing it")
 
         # Collect cross-service routes from the parser
-        routes = getattr(parser, 'routes', [])
+        routes = getattr(parser, "routes", [])
 
         return components, keep_leaf_nodes, routes

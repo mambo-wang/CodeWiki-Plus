@@ -30,25 +30,24 @@ def _session(store, tmp_path):
 # Incremental refresh: modified file
 # ------------------------------------------------------------------
 
+
 def test_refresh_modified_file_updates_graph(analyzed_repo) -> None:
     """Editing b.py (adding a function) shows up in the session store;
     untouched files (a.py, c.py) keep their components."""
     tmp_path, store = analyzed_repo
     session = _session(store, tmp_path)
 
-    (tmp_path / "b.py").write_text(
-        PY_B + "\ndef func_new():\n    return 1\n", encoding="utf-8"
-    )
+    (tmp_path / "b.py").write_text(PY_B + "\ndef func_new():\n    return 1\n", encoding="utf-8")
 
     watcher = RepoWatcher(session, store, interval=1.0)
     changed = watcher.refresh_once()
     assert "b.py" in changed, changed
 
     ids = set(session.components.keys())
-    assert "b.py::func_new" in ids          # new function parsed
-    assert "b.py::func_b" in ids            # old function still cached
+    assert "b.py::func_new" in ids  # new function parsed
+    assert "b.py::func_b" in ids  # old function still cached
     assert "b.py::func_other" in ids
-    assert "a.py::func_a" in ids            # untouched file untouched
+    assert "a.py::func_a" in ids  # untouched file untouched
     assert "c.py::func_c" in ids
     assert watcher.batches == 1
     assert watcher.last_sync is not None
@@ -59,9 +58,7 @@ def test_refresh_is_idempotent(analyzed_repo) -> None:
     updated — a git-based detector would loop forever on uncommitted edits)."""
     tmp_path, store = analyzed_repo
     session = _session(store, tmp_path)
-    (tmp_path / "b.py").write_text(
-        PY_B.replace("return 42", "return 43"), encoding="utf-8"
-    )
+    (tmp_path / "b.py").write_text(PY_B.replace("return 42", "return 43"), encoding="utf-8")
 
     watcher = RepoWatcher(session, store, interval=1.0)
     assert "b.py" in watcher.refresh_once()
@@ -72,6 +69,7 @@ def test_refresh_is_idempotent(analyzed_repo) -> None:
 # ------------------------------------------------------------------
 # Incremental refresh: new / deleted files
 # ------------------------------------------------------------------
+
 
 def test_refresh_new_file_adds_components(analyzed_repo) -> None:
     tmp_path, store = analyzed_repo
@@ -102,6 +100,7 @@ def test_refresh_deleted_file_removes_components(analyzed_repo) -> None:
 # Degradation
 # ------------------------------------------------------------------
 
+
 def test_watcher_degrades_gracefully(analyzed_repo, monkeypatch) -> None:
     """A failing poll stops the loop and marks the watcher degraded —
     the session falls back to manual mode instead of crashing."""
@@ -127,6 +126,7 @@ def test_watcher_degrades_gracefully(analyzed_repo, monkeypatch) -> None:
 # MCP entry point
 # ------------------------------------------------------------------
 
+
 def test_handle_watch_repo_lifecycle(analyzed_repo) -> None:
     tmp_path, store = analyzed_repo
     session = _session(store, tmp_path)
@@ -137,9 +137,7 @@ def test_handle_watch_repo_lifecycle(analyzed_repo) -> None:
     assert parsed["watch"] is None
 
     # start
-    raw = handle_watch_repo(
-        {"repo_path": str(tmp_path), "action": "start", "interval": 1.0}, store
-    )
+    raw = handle_watch_repo({"repo_path": str(tmp_path), "action": "start", "interval": 1.0}, store)
     parsed = json.loads(raw)
     assert parsed["ok"] is True
     assert parsed["watch"]["running"] is True
@@ -156,9 +154,7 @@ def test_handle_watch_repo_lifecycle(analyzed_repo) -> None:
     assert session.watcher is None
 
     # start again after stop (restart works)
-    raw = handle_watch_repo(
-        {"repo_path": str(tmp_path), "action": "start", "interval": 1.0}, store
-    )
+    raw = handle_watch_repo({"repo_path": str(tmp_path), "action": "start", "interval": 1.0}, store)
     assert json.loads(raw)["watch"]["running"] is True
     handle_watch_repo({"repo_path": str(tmp_path), "action": "stop"}, store)
 
@@ -175,6 +171,7 @@ def test_handle_watch_repo_requires_session(tmp_path) -> None:
 # ------------------------------------------------------------------
 # graph_stale attachment on query tools
 # ------------------------------------------------------------------
+
 
 def test_attach_graph_stale_noop_without_watcher(analyzed_repo) -> None:
     tmp_path, store = analyzed_repo

@@ -1,4 +1,5 @@
 """SQLite analysis cache: components, fingerprints, deps, search."""
+
 from __future__ import annotations
 
 import hashlib
@@ -29,7 +30,8 @@ _SQL_CHUNK_SIZE = 500
 
 def _sql_chunks(items: List[Any], size: int = _SQL_CHUNK_SIZE) -> List[List[Any]]:
     """Split *items* into chunks small enough for SQL IN(...) placeholders."""
-    return [items[i:i + size] for i in range(0, len(items), size)]
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
 
 # ------------------------------------------------------------------ Shared BM25 tokeniser
 
@@ -40,22 +42,156 @@ _TOKEN_SPLIT_RE = re.compile(r"[\s,;:!?。？！，；：（）(){}<>\[\]/\\]+")
 
 _STOPWORDS: Set[str] = {
     # English function words
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "shall", "can", "need", "must", "it", "its",
-    "this", "that", "these", "those", "i", "you", "he", "she", "we", "they",
-    "me", "him", "her", "us", "them", "my", "your", "his", "our", "their",
-    "what", "which", "who", "whom", "where", "when", "why", "how", "all",
-    "each", "every", "both", "few", "more", "most", "other", "some", "such",
-    "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very",
-    "just", "because", "but", "and", "or", "if", "while", "about", "with",
-    "of", "at", "by", "for", "in", "on", "to", "from", "as", "into",
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "could",
+    "should",
+    "may",
+    "might",
+    "shall",
+    "can",
+    "need",
+    "must",
+    "it",
+    "its",
+    "this",
+    "that",
+    "these",
+    "those",
+    "i",
+    "you",
+    "he",
+    "she",
+    "we",
+    "they",
+    "me",
+    "him",
+    "her",
+    "us",
+    "them",
+    "my",
+    "your",
+    "his",
+    "our",
+    "their",
+    "what",
+    "which",
+    "who",
+    "whom",
+    "where",
+    "when",
+    "why",
+    "how",
+    "all",
+    "each",
+    "every",
+    "both",
+    "few",
+    "more",
+    "most",
+    "other",
+    "some",
+    "such",
+    "no",
+    "nor",
+    "not",
+    "only",
+    "own",
+    "same",
+    "so",
+    "than",
+    "too",
+    "very",
+    "just",
+    "because",
+    "but",
+    "and",
+    "or",
+    "if",
+    "while",
+    "about",
+    "with",
+    "of",
+    "at",
+    "by",
+    "for",
+    "in",
+    "on",
+    "to",
+    "from",
+    "as",
+    "into",
     # Chinese function words
-    "的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都", "一",
-    "一个", "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有",
-    "看", "好", "自己", "这", "他", "她", "它", "们", "那", "些", "什么",
-    "怎么", "如何", "可以", "能", "吗", "呢", "吧", "啊", "哦", "嗯",
-    "这个", "那个", "已经", "还是", "因为", "所以", "但是", "而且", "或者",
+    "的",
+    "了",
+    "在",
+    "是",
+    "我",
+    "有",
+    "和",
+    "就",
+    "不",
+    "人",
+    "都",
+    "一",
+    "一个",
+    "上",
+    "也",
+    "很",
+    "到",
+    "说",
+    "要",
+    "去",
+    "你",
+    "会",
+    "着",
+    "没有",
+    "看",
+    "好",
+    "自己",
+    "这",
+    "他",
+    "她",
+    "它",
+    "们",
+    "那",
+    "些",
+    "什么",
+    "怎么",
+    "如何",
+    "可以",
+    "能",
+    "吗",
+    "呢",
+    "吧",
+    "啊",
+    "哦",
+    "嗯",
+    "这个",
+    "那个",
+    "已经",
+    "还是",
+    "因为",
+    "所以",
+    "但是",
+    "而且",
+    "或者",
 }
 
 _JIEBA_AVAILABLE: Optional[bool] = None
@@ -67,6 +203,7 @@ def _check_jieba() -> bool:
     if _JIEBA_AVAILABLE is None:
         try:
             import jieba
+
             jieba.setLogLevel(logging.WARNING)
             _JIEBA_AVAILABLE = True
         except ImportError:
@@ -87,13 +224,15 @@ def _tokenize(text: str) -> List[str]:
     text = _MARKUP_RE.sub(" ", text)
     if _check_jieba():
         import jieba
+
         raw = jieba.lcut(text)
     else:
         raw = _TOKEN_SPLIT_RE.split(text.lower())
     return [
         t.strip().lower()
         for t in raw
-        if t.strip() and len(t.strip()) >= 2
+        if t.strip()
+        and len(t.strip()) >= 2
         and not t.strip().isdigit()
         and t.strip().lower() not in _STOPWORDS
     ]
@@ -128,6 +267,7 @@ def _parse_frontmatter_dict(text: str) -> Dict[str, Any]:
         return {}
     try:
         import yaml
+
         result = yaml.safe_load(fm_text)
         return result if isinstance(result, dict) else {}
     except Exception:
@@ -140,7 +280,9 @@ def _parse_frontmatter_dict(text: str) -> Dict[str, Any]:
                 key = key.strip()
                 val = val.strip().strip('"').strip("'")
                 if val.startswith("[") and val.endswith("]"):
-                    val = [v.strip().strip('"').strip("'") for v in val[1:-1].split(",") if v.strip()]
+                    val = [
+                        v.strip().strip('"').strip("'") for v in val[1:-1].split(",") if v.strip()
+                    ]
                 if key:
                     result[key] = val
         return result
@@ -149,6 +291,7 @@ def _parse_frontmatter_dict(text: str) -> Dict[str, Any]:
 # ------------------------------------------------------------------ Ontology term expansion
 
 _ontology_cache: Dict[str, Tuple[float, Dict[str, List[str]]]] = {}
+
 
 def _load_ontology(output_dir: Optional[Path]) -> Dict[str, List[str]]:
     """Load ontology.yaml and build synonym expansion map.
@@ -175,6 +318,7 @@ def _load_ontology(output_dir: Optional[Path]) -> Dict[str, List[str]]:
         if cached and cached[0] == mtime:
             return cached[1]
         import yaml
+
         with open(onto_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
         if not isinstance(data, dict) or "terms" not in data:
@@ -321,13 +465,13 @@ _NOTE_TYPE_AUTHORITY: Dict[str, float] = {
     "workaround": 0.05,
 }
 _STATUS_AUTHORITY: Dict[str, float] = {
-    "draft": -0.25,       # unreviewed knowledge sinks below verified content
+    "draft": -0.25,  # unreviewed knowledge sinks below verified content
     "stable": 0.05,
     "deprecated": -0.35,
 }
-_SCENARIO_AUTHORITY = 0.15   # L2 scenario blocks (wiki/scenarios/)
-_DOCTRINE_AUTHORITY = 0.20   # L3 project doctrine (doctrine.md)
-_SOURCE_AUTHORITY = -0.20    # raw/sources/ third-party material
+_SCENARIO_AUTHORITY = 0.15  # L2 scenario blocks (wiki/scenarios/)
+_DOCTRINE_AUTHORITY = 0.20  # L3 project doctrine (doctrine.md)
+_SOURCE_AUTHORITY = -0.20  # raw/sources/ third-party material
 _AUTHORITY_MIN, _AUTHORITY_MAX = 0.7, 1.3
 
 
@@ -348,8 +492,17 @@ def _doc_authority(doc_key: str, source: str, content: str = "") -> float:
     elif source == "note" or dk.startswith("notes/"):
         fm = _parse_frontmatter_dict(content) if content else {}
         meta = fm.get("metadata") if isinstance(fm.get("metadata"), dict) else {}
-        note_type = str(fm.get("type") or fm.get("note_type")
-                        or meta.get("type") or meta.get("note_type") or "").strip().lower()
+        note_type = (
+            str(
+                fm.get("type")
+                or fm.get("note_type")
+                or meta.get("type")
+                or meta.get("note_type")
+                or ""
+            )
+            .strip()
+            .lower()
+        )
         status = str(fm.get("status") or meta.get("status") or "").strip().lower()
         offset += _NOTE_TYPE_AUTHORITY.get(note_type, 0.0)
         offset += _STATUS_AUTHORITY.get(status, 0.0)
@@ -496,6 +649,7 @@ def _load_retrieval_usage_map(
         return {}
     try:
         from codewiki.mcp.tools import telemetry
+
         usage = telemetry.aggregate_usage(Path(output_dir))
     except Exception as e:
         logger.debug("Failed to load telemetry usage: %s", e)
@@ -523,6 +677,7 @@ def _load_usage_schema(output_dir: Optional[Path]) -> dict:
         return {}
     try:
         from codewiki.src.config import SCHEMA_FILENAME
+
         name = SCHEMA_FILENAME
     except Exception:
         name = "schema.yaml"
@@ -539,6 +694,7 @@ def _load_usage_schema(output_dir: Optional[Path]) -> dict:
     if mtime is not None:
         try:
             import yaml
+
             with open(p, "r", encoding="utf-8") as fh:
                 loaded = yaml.safe_load(fh) or {}
             if isinstance(loaded, dict):
@@ -566,58 +722,107 @@ def _usage_context(
 
 # ------------------------------------------------------------------ ComponentMeta / LazyStore
 
+
 @dataclass
 class ComponentMeta:
-    id: str; name: str; component_type: str; file_path: str; relative_path: str
-    start_line: int = 0; end_line: int = 0; language: str = ""
+    id: str
+    name: str
+    component_type: str
+    file_path: str
+    relative_path: str
+    start_line: int = 0
+    end_line: int = 0
+    language: str = ""
     depends_on: Set[str] = field(default_factory=set)
-    node_type: Optional[str] = None; base_classes: Optional[List[str]] = None
-    class_name: Optional[str] = None; display_name: Optional[str] = None
-    qualified_name: Optional[str] = None; has_docstring: bool = False
+    node_type: Optional[str] = None
+    base_classes: Optional[List[str]] = None
+    class_name: Optional[str] = None
+    display_name: Optional[str] = None
+    qualified_name: Optional[str] = None
+    has_docstring: bool = False
     parameters: Optional[List[str]] = None
 
     def to_node(self, source_code: str = "", docstring: str = "") -> Node:
         return Node(
-            id=self.id, name=self.name, component_type=self.component_type,
-            file_path=self.file_path, relative_path=self.relative_path,
-            start_line=self.start_line, end_line=self.end_line,
-            language=self.language, depends_on=self.depends_on,
-            node_type=self.node_type, base_classes=self.base_classes,
-            class_name=self.class_name, display_name=self.display_name,
-            qualified_name=self.qualified_name, has_docstring=self.has_docstring,
-            parameters=self.parameters, source_code=source_code, docstring=docstring)
+            id=self.id,
+            name=self.name,
+            component_type=self.component_type,
+            file_path=self.file_path,
+            relative_path=self.relative_path,
+            start_line=self.start_line,
+            end_line=self.end_line,
+            language=self.language,
+            depends_on=self.depends_on,
+            node_type=self.node_type,
+            base_classes=self.base_classes,
+            class_name=self.class_name,
+            display_name=self.display_name,
+            qualified_name=self.qualified_name,
+            has_docstring=self.has_docstring,
+            parameters=self.parameters,
+            source_code=source_code,
+            docstring=docstring,
+        )
 
 
 class LazyComponentStore:
     def __init__(self, cache, metas: Dict[str, ComponentMeta], lru_size=_DEFAULT_LRU_SIZE):
-        self._cache = cache; self._metas = metas
-        self._lru: OrderedDict[str, Node] = OrderedDict(); self._lru_size = lru_size
+        self._cache = cache
+        self._metas = metas
+        self._lru: OrderedDict[str, Node] = OrderedDict()
+        self._lru_size = lru_size
 
     def __getitem__(self, k: str) -> Node:
-        if k in self._lru: n = self._lru.pop(k); self._lru[k] = n; return n
+        if k in self._lru:
+            n = self._lru.pop(k)
+            self._lru[k] = n
+            return n
         n = self._cache.get_component(k)
-        if n is None: raise KeyError(k)
+        if n is None:
+            raise KeyError(k)
         self._lru[k] = n
-        if len(self._lru) > self._lru_size: self._lru.popitem(last=False)
+        if len(self._lru) > self._lru_size:
+            self._lru.popitem(last=False)
         return n
-    def __contains__(self, k): return k in self._metas
-    def __len__(self): return len(self._metas)
-    def __iter__(self): return iter(self._metas)
+
+    def __contains__(self, k):
+        return k in self._metas
+
+    def __len__(self):
+        return len(self._metas)
+
+    def __iter__(self):
+        return iter(self._metas)
+
     def get(self, k, d=None):
-        try: return self[k]
-        except KeyError: return d
-    def items(self): return self._metas.items()
-    def keys(self): return self._metas.keys()
-    def values(self): return self._metas.values()
-    def meta(self, k) -> Optional[ComponentMeta]: return self._metas.get(k)
-    def invalidate(self, k): self._lru.pop(k, None)
+        try:
+            return self[k]
+        except KeyError:
+            return d
+
+    def items(self):
+        return self._metas.items()
+
+    def keys(self):
+        return self._metas.keys()
+
+    def values(self):
+        return self._metas.values()
+
+    def meta(self, k) -> Optional[ComponentMeta]:
+        return self._metas.get(k)
+
+    def invalidate(self, k):
+        self._lru.pop(k, None)
+
 
 # ------------------------------------------------------------------ AnalysisCache
+
 
 class AnalysisCache:
     def __init__(self, repo_path: Path, db_path: Optional[Path] = None):
         self.repo_path = Path(repo_path).resolve()
-        self.db_path = (Path(db_path) if db_path else self.repo_path / _CACHE_DIR / _DB_FILENAME)
+        self.db_path = Path(db_path) if db_path else self.repo_path / _CACHE_DIR / _DB_FILENAME
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: Optional[sqlite3.Connection] = None
 
@@ -705,7 +910,8 @@ class AnalysisCache:
         # Migration: add authority column for existing databases (P0 authority ranking)
         try:
             self.conn.execute(
-                "ALTER TABLE search_index ADD COLUMN authority REAL NOT NULL DEFAULT 1.0")
+                "ALTER TABLE search_index ADD COLUMN authority REAL NOT NULL DEFAULT 1.0"
+            )
             self.conn.commit()
         except Exception:
             pass  # Column already exists
@@ -715,19 +921,32 @@ class AnalysisCache:
     def _mget(self, k: str, d: str = "") -> str:
         r = self.conn.execute("SELECT value FROM repo_meta WHERE key=?", (k,)).fetchone()
         return r["value"] if r else d
+
     def _mset(self, k: str, v: str):
-        self.conn.execute("INSERT OR REPLACE INTO repo_meta VALUES(?,?)", (k, v)); self.conn.commit()
+        self.conn.execute("INSERT OR REPLACE INTO repo_meta VALUES(?,?)", (k, v))
+        self.conn.commit()
 
     def get_last_commit_id(self) -> Optional[str]:
-        cid = self._mget("last_commit_id"); return cid if cid else None
-    def set_last_commit_id(self, cid: str): self._mset("last_commit_id", cid)
+        cid = self._mget("last_commit_id")
+        return cid if cid else None
+
+    def set_last_commit_id(self, cid: str):
+        self._mset("last_commit_id", cid)
+
     def get_output_dir(self) -> Optional[str]:
         """Return the output_dir recorded by the last analyze_repo, if any."""
-        od = self._mget("output_dir"); return od if od else None
-    def set_output_dir(self, od: str): self._mset("output_dir", od)
+        od = self._mget("output_dir")
+        return od if od else None
+
+    def set_output_dir(self, od: str):
+        self._mset("output_dir", od)
+
     def get_component_count(self) -> int:
-        r = self.conn.execute("SELECT COUNT(*) as c FROM components").fetchone(); return r["c"] if r else 0
-    def is_fresh(self) -> bool: return self.get_component_count() > 0
+        r = self.conn.execute("SELECT COUNT(*) as c FROM components").fetchone()
+        return r["c"] if r else 0
+
+    def is_fresh(self) -> bool:
+        return self.get_component_count() > 0
 
     # -- symbol map --
 
@@ -799,19 +1018,21 @@ class AnalysisCache:
                 extra = json.loads(r["extra_json"]) if r["extra_json"] else {}
             except Exception:
                 pass
-            result.append({
-                "route_key": r["route_key"],
-                "protocol": r["protocol"],
-                "method": r["method"],
-                "path": r["path"],
-                "role": r["role"],
-                "component_id": r["component_id"],
-                "repo_name": r["repo_name"],
-                "file_path": r["file_path"],
-                "line_number": r["line_number"],
-                "framework": r["framework"],
-                "extra": extra,
-            })
+            result.append(
+                {
+                    "route_key": r["route_key"],
+                    "protocol": r["protocol"],
+                    "method": r["method"],
+                    "path": r["path"],
+                    "role": r["role"],
+                    "component_id": r["component_id"],
+                    "repo_name": r["repo_name"],
+                    "file_path": r["file_path"],
+                    "line_number": r["line_number"],
+                    "framework": r["framework"],
+                    "extra": extra,
+                }
+            )
         return result
 
     def get_routes_by_role(self, role: str) -> List[Dict]:
@@ -819,7 +1040,8 @@ class AnalysisCache:
         rows = self.conn.execute(
             "SELECT route_key, protocol, method, path, role, component_id, "
             "repo_name, file_path, line_number, framework, extra_json "
-            "FROM routes WHERE role=?", (role,),
+            "FROM routes WHERE role=?",
+            (role,),
         ).fetchall()
         result: List[Dict] = []
         for r in rows:
@@ -828,19 +1050,21 @@ class AnalysisCache:
                 extra = json.loads(r["extra_json"]) if r["extra_json"] else {}
             except Exception:
                 pass
-            result.append({
-                "route_key": r["route_key"],
-                "protocol": r["protocol"],
-                "method": r["method"],
-                "path": r["path"],
-                "role": r["role"],
-                "component_id": r["component_id"],
-                "repo_name": r["repo_name"],
-                "file_path": r["file_path"],
-                "line_number": r["line_number"],
-                "framework": r["framework"],
-                "extra": extra,
-            })
+            result.append(
+                {
+                    "route_key": r["route_key"],
+                    "protocol": r["protocol"],
+                    "method": r["method"],
+                    "path": r["path"],
+                    "role": r["role"],
+                    "component_id": r["component_id"],
+                    "repo_name": r["repo_name"],
+                    "file_path": r["file_path"],
+                    "line_number": r["line_number"],
+                    "framework": r["framework"],
+                    "extra": extra,
+                }
+            )
         return result
 
     def remove_routes_by_file(self, fp: str) -> int:
@@ -864,20 +1088,36 @@ class AnalysisCache:
 
     def get_component(self, cid: str) -> Optional[Node]:
         r = self.conn.execute("SELECT * FROM components WHERE id=?", (cid,)).fetchone()
-        if not r: return None
+        if not r:
+            return None
         extra = _parse_row(r)
-        return Node(id=r["id"], name=r["name"], component_type=r["component_type"],
-                    file_path=r["file_path"], relative_path=r["relative_path"],
-                    start_line=r["start_line"], end_line=r["end_line"],
-                    language=r["language"], depends_on=extra[0], node_type=r["node_type"],
-                    base_classes=extra[1], class_name=r["class_name"],
-                    display_name=r["display_name"], qualified_name=r["qualified_name"],
-                    has_docstring=bool(r["has_docstring"]), docstring=r["docstring"] or "",
-                    parameters=extra[2], source_code="")
+        return Node(
+            id=r["id"],
+            name=r["name"],
+            component_type=r["component_type"],
+            file_path=r["file_path"],
+            relative_path=r["relative_path"],
+            start_line=r["start_line"],
+            end_line=r["end_line"],
+            language=r["language"],
+            depends_on=extra[0],
+            node_type=r["node_type"],
+            base_classes=extra[1],
+            class_name=r["class_name"],
+            display_name=r["display_name"],
+            qualified_name=r["qualified_name"],
+            has_docstring=bool(r["has_docstring"]),
+            docstring=r["docstring"] or "",
+            parameters=extra[2],
+            source_code="",
+        )
 
-    def batch_insert_components(self, components: Dict[str, Node],
-                                leaf_nodes: Optional[List[str]] = None,
-                                incremental: bool = False):
+    def batch_insert_components(
+        self,
+        components: Dict[str, Node],
+        leaf_nodes: Optional[List[str]] = None,
+        incremental: bool = False,
+    ):
         if not components:
             return
         c = self.conn
@@ -913,13 +1153,21 @@ class AnalysisCache:
 
         rows = [
             (
-                n.id, n.name, n.component_type, n.file_path, n.relative_path,
-                n.start_line, n.end_line,
+                n.id,
+                n.name,
+                n.component_type,
+                n.file_path,
+                n.relative_path,
+                n.start_line,
+                n.end_line,
                 (n.language or "").strip() or "unknown",
                 n.node_type,
                 json.dumps(n.base_classes) if n.base_classes else None,
-                n.class_name, n.display_name, n.qualified_name,
-                1 if n.has_docstring else 0, n.docstring or "",
+                n.class_name,
+                n.display_name,
+                n.qualified_name,
+                1 if n.has_docstring else 0,
+                n.docstring or "",
                 json.dumps(n.parameters) if n.parameters else None,
                 json.dumps(sorted(n.depends_on)) if n.depends_on else "[]",
                 "{}",
@@ -970,8 +1218,12 @@ class AnalysisCache:
                 (json.dumps(leaf_nodes),),
             )
         self.conn.commit()
-        logger.info("Cached %d components (%s), %d dep edges",
-                     len(components), "incremental" if incremental else "full", len(deps))
+        logger.info(
+            "Cached %d components (%s), %d dep edges",
+            len(components),
+            "incremental" if incremental else "full",
+            len(deps),
+        )
 
     def get_stale_components(self, new_components: Dict[str, "Node"]) -> Dict[str, List[str]]:
         """Compare incoming components against stored content hashes.
@@ -1009,8 +1261,12 @@ class AnalysisCache:
         deleted = [cid for cid in stored if cid not in new_ids]
 
         if added or modified or deleted:
-            logger.info("Stale detection: %d added, %d modified, %d deleted",
-                        len(added), len(modified), len(deleted))
+            logger.info(
+                "Stale detection: %d added, %d modified, %d deleted",
+                len(added),
+                len(modified),
+                len(deleted),
+            )
         return {"added": added, "modified": modified, "deleted": deleted}
 
     def get_leaf_nodes(self) -> List[str]:
@@ -1021,18 +1277,29 @@ class AnalysisCache:
         rows = self.conn.execute(
             "SELECT id,name,component_type,file_path,relative_path,start_line,end_line,"
             "language,node_type,base_classes,class_name,display_name,qualified_name,"
-            "has_docstring,parameters,depends_on FROM components").fetchall()
+            "has_docstring,parameters,depends_on FROM components"
+        ).fetchall()
         out: Dict[str, ComponentMeta] = {}
         for r in rows:
             extra = _parse_row(r)
             out[r["id"]] = ComponentMeta(
-                id=r["id"], name=r["name"], component_type=r["component_type"],
-                file_path=r["file_path"], relative_path=r["relative_path"],
-                start_line=r["start_line"], end_line=r["end_line"],
-                language=r["language"] or "", depends_on=extra[0], node_type=r["node_type"],
-                base_classes=extra[1], class_name=r["class_name"],
-                display_name=r["display_name"], qualified_name=r["qualified_name"],
-                has_docstring=bool(r["has_docstring"]), parameters=extra[2])
+                id=r["id"],
+                name=r["name"],
+                component_type=r["component_type"],
+                file_path=r["file_path"],
+                relative_path=r["relative_path"],
+                start_line=r["start_line"],
+                end_line=r["end_line"],
+                language=r["language"] or "",
+                depends_on=extra[0],
+                node_type=r["node_type"],
+                base_classes=extra[1],
+                class_name=r["class_name"],
+                display_name=r["display_name"],
+                qualified_name=r["qualified_name"],
+                has_docstring=bool(r["has_docstring"]),
+                parameters=extra[2],
+            )
         return out
 
     def remove_by_file(self, fp: str) -> int:
@@ -1081,9 +1348,7 @@ class AnalysisCache:
         if ids:
             for chunk in _sql_chunks(ids):
                 ph = ",".join("?" * len(chunk))
-                self.conn.execute(
-                    f"DELETE FROM components WHERE id IN ({ph})", chunk
-                )
+                self.conn.execute(f"DELETE FROM components WHERE id IN ({ph})", chunk)
                 self.conn.execute(
                     f"DELETE FROM dependencies WHERE source_id IN ({ph}) OR target_id IN ({ph})",
                     chunk + chunk,
@@ -1095,22 +1360,37 @@ class AnalysisCache:
 
     def get_depends_on(self, cid: str) -> List[str]:
         r = self.conn.execute("SELECT depends_on FROM components WHERE id=?", (cid,)).fetchone()
-        if not r: return []
-        try: return json.loads(r["depends_on"]) or []
-        except Exception: return []
+        if not r:
+            return []
+        try:
+            return json.loads(r["depends_on"]) or []
+        except Exception:
+            return []
 
     def get_depended_by(self, cid: str) -> List[str]:
-        return [r["source_id"] for r in self.conn.execute(
-            "SELECT source_id FROM dependencies WHERE target_id=?", (cid,)).fetchall()]
+        return [
+            r["source_id"]
+            for r in self.conn.execute(
+                "SELECT source_id FROM dependencies WHERE target_id=?", (cid,)
+            ).fetchall()
+        ]
 
     def get_all_deps(self, direction="both") -> List[Dict[str, str]]:
         res = []
         if direction in ("depends_on", "both"):
-            for r in self.conn.execute("SELECT source_id,target_id FROM dependencies ORDER BY source_id"):
-                res.append({"source": r["source_id"], "target": r["target_id"], "direction": "depends_on"})
+            for r in self.conn.execute(
+                "SELECT source_id,target_id FROM dependencies ORDER BY source_id"
+            ):
+                res.append(
+                    {"source": r["source_id"], "target": r["target_id"], "direction": "depends_on"}
+                )
         if direction in ("depended_by", "both"):
-            for r in self.conn.execute("SELECT target_id,source_id FROM dependencies ORDER BY target_id"):
-                res.append({"source": r["target_id"], "target": r["source_id"], "direction": "depended_by"})
+            for r in self.conn.execute(
+                "SELECT target_id,source_id FROM dependencies ORDER BY target_id"
+            ):
+                res.append(
+                    {"source": r["target_id"], "target": r["source_id"], "direction": "depended_by"}
+                )
         return res
 
     # -- file fingerprints --
@@ -1124,12 +1404,16 @@ class AnalysisCache:
                 head = f.read(65536)
             h = hashlib.sha256(head).hexdigest()
             return s.st_mtime, s.st_size, h
-        except OSError: return None
+        except OSError:
+            return None
 
     def update_file_fingerprints(self, paths: List[str], commit_id=""):
         rows = [(p, *f, commit_id) for p in paths if (f := self._hash_file(p))]
-        if rows: self.conn.executemany(
-            "INSERT OR REPLACE INTO file_fingerprints VALUES(?,?,?,?,?)", rows); self.conn.commit()
+        if rows:
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO file_fingerprints VALUES(?,?,?,?,?)", rows
+            )
+            self.conn.commit()
 
     def remove_file_fingerprints(self, paths: List[str]):
         """Drop fingerprint rows for files that no longer exist on disk.
@@ -1142,21 +1426,23 @@ class AnalysisCache:
             return
         for chunk in _sql_chunks(paths):
             ph = ",".join("?" * len(chunk))
-            self.conn.execute(
-                f"DELETE FROM file_fingerprints WHERE file_path IN ({ph})", chunk
-            )
+            self.conn.execute(f"DELETE FROM file_fingerprints WHERE file_path IN ({ph})", chunk)
         self.conn.commit()
 
     def get_all_fingerprints(self) -> Dict[str, Dict[str, Any]]:
-        return {r["file_path"]: dict(mtime=r["mtime"], size=r["size"],
-                content_hash=r["content_hash"], commit_id=r["commit_id"])
-                for r in self.conn.execute("SELECT * FROM file_fingerprints").fetchall()}
+        return {
+            r["file_path"]: dict(
+                mtime=r["mtime"],
+                size=r["size"],
+                content_hash=r["content_hash"],
+                commit_id=r["commit_id"],
+            )
+            for r in self.conn.execute("SELECT * FROM file_fingerprints").fetchall()
+        }
 
     def get_cached_file_paths(self) -> Set[str]:
         """Return set of all file paths that have cached components."""
-        rows = self.conn.execute(
-            "SELECT DISTINCT relative_path FROM components"
-        ).fetchall()
+        rows = self.conn.execute("SELECT DISTINCT relative_path FROM components").fetchall()
         return {r["relative_path"] for r in rows}
 
     def get_components_by_files(self, file_paths: Set[str]) -> Dict[str, Node]:
@@ -1167,171 +1453,310 @@ class AnalysisCache:
         norm_paths = [fp.replace("\\", "/") for fp in file_paths]
         for chunk in _sql_chunks(norm_paths):
             ph = ",".join("?" * len(chunk))
-            rows.extend(self.conn.execute(
-                f"SELECT * FROM components WHERE replace(relative_path, '\\', '/') IN ({ph})",
-                chunk,
-            ).fetchall())
+            rows.extend(
+                self.conn.execute(
+                    f"SELECT * FROM components WHERE replace(relative_path, '\\', '/') IN ({ph})",
+                    chunk,
+                ).fetchall()
+            )
         result: Dict[str, Node] = {}
         for r in rows:
             extra = _parse_row(r)
             result[r["id"]] = Node(
-                id=r["id"], name=r["name"], component_type=r["component_type"],
-                file_path=r["file_path"], relative_path=r["relative_path"],
-                start_line=r["start_line"], end_line=r["end_line"],
-                language=r["language"], depends_on=extra[0], node_type=r["node_type"],
-                base_classes=extra[1], class_name=r["class_name"],
-                display_name=r["display_name"], qualified_name=r["qualified_name"],
-                has_docstring=bool(r["has_docstring"]), docstring=r["docstring"] or "",
-                parameters=extra[2], source_code="",
+                id=r["id"],
+                name=r["name"],
+                component_type=r["component_type"],
+                file_path=r["file_path"],
+                relative_path=r["relative_path"],
+                start_line=r["start_line"],
+                end_line=r["end_line"],
+                language=r["language"],
+                depends_on=extra[0],
+                node_type=r["node_type"],
+                base_classes=extra[1],
+                class_name=r["class_name"],
+                display_name=r["display_name"],
+                qualified_name=r["qualified_name"],
+                has_docstring=bool(r["has_docstring"]),
+                docstring=r["docstring"] or "",
+                parameters=extra[2],
+                source_code="",
             )
         return result
 
     # -- git change detection --
 
-    _SRC_EXTS = {".py", ".pyx", ".java", ".js", ".jsx", ".ts", ".tsx", ".c", ".h",
-                 ".cpp", ".hpp", ".cc", ".hh", ".cs", ".kt", ".kts", ".go", ".php"}
+    _SRC_EXTS = {
+        ".py",
+        ".pyx",
+        ".java",
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".c",
+        ".h",
+        ".cpp",
+        ".hpp",
+        ".cc",
+        ".hh",
+        ".cs",
+        ".kt",
+        ".kts",
+        ".go",
+        ".php",
+    }
 
     def detect_changes(self) -> Optional[Dict[str, Any]]:
-        ch = self._git_detect(); return ch if ch is not None else self._fp_detect()
+        ch = self._git_detect()
+        return ch if ch is not None else self._fp_detect()
 
     def _git_detect(self) -> Optional[Dict[str, Any]]:
-        try: import git; repo = git.Repo(self.repo_path, search_parent_directories=True)
-        except Exception: return None
+        try:
+            import git
+
+            repo = git.Repo(self.repo_path, search_parent_directories=True)
+        except Exception:
+            return None
         prev = self.get_last_commit_id()
-        if not prev: return None
-        try: cur = repo.head.commit.hexsha
-        except Exception: return None
+        if not prev:
+            return None
+        try:
+            cur = repo.head.commit.hexsha
+        except Exception:
+            return None
         git_root = Path(repo.working_dir).resolve()
-        try: sp = self.repo_path.resolve().relative_to(git_root).as_posix()
-        except ValueError: sp = ""
-        if sp == ".": sp = ""
+        try:
+            sp = self.repo_path.resolve().relative_to(git_root).as_posix()
+        except ValueError:
+            sp = ""
+        if sp == ".":
+            sp = ""
 
         def _n(p: str) -> Optional[str]:
-            if sp and not p.startswith(sp + "/"): return None
-            p = p[len(sp)+1:] if sp else p
+            if sp and not p.startswith(sp + "/"):
+                return None
+            p = p[len(sp) + 1 :] if sp else p
             return None if p.startswith(".codewiki/") else p
 
         ch, seen = [], set()
-        def add(r): 
-            if r and (p := _n(r)) and p not in seen: ch.append(p); seen.add(p)
+
+        def add(r):
+            if r and (p := _n(r)) and p not in seen:
+                ch.append(p)
+                seen.add(p)
+
         if prev != cur:
             try:
                 for d in repo.commit(prev).diff(cur):
-                    add(d.a_path); add(d.b_path)
+                    add(d.a_path)
+                    add(d.b_path)
             except Exception:
-                logger.warning("Commit %s unreachable", prev); return None
+                logger.warning("Commit %s unreachable", prev)
+                return None
         try:
             for d in list(repo.index.diff("HEAD")) + list(repo.index.diff(None)):
-                add(d.a_path); add(d.b_path)
-            for item in repo.untracked_files: add(item)
-        except Exception: pass
+                add(d.a_path)
+                add(d.b_path)
+            for item in repo.untracked_files:
+                add(item)
+        except Exception:
+            pass
         return {"changed_files": ch, "method": "git", "current_commit": cur}
 
     def _fp_detect(self) -> Optional[Dict[str, Any]]:
         cached = self.get_all_fingerprints()
-        if not cached: return None
+        if not cached:
+            return None
         ch, existing = [], set()
         for dp, dns, fns in os.walk(str(self.repo_path)):
-            dns[:] = [d for d in dns if not d.startswith(".") and d not in ("node_modules","__pycache__","venv",".venv")]
+            dns[:] = [
+                d
+                for d in dns
+                if not d.startswith(".")
+                and d not in ("node_modules", "__pycache__", "venv", ".venv")
+            ]
             rd = Path(dp).relative_to(self.repo_path)
             for fn in fns:
-                if Path(fn).suffix.lower() not in self._SRC_EXTS: continue
-                rp = (rd / fn).as_posix() if rd != Path(".") else fn; existing.add(rp)
-                cfp = self._hash_file(rp); prev = cached.get(rp)
+                if Path(fn).suffix.lower() not in self._SRC_EXTS:
+                    continue
+                rp = (rd / fn).as_posix() if rd != Path(".") else fn
+                existing.add(rp)
+                cfp = self._hash_file(rp)
+                prev = cached.get(rp)
                 if cfp is None:
-                    if prev is not None: ch.append(rp); continue
-                if prev is None: ch.append(rp); continue
-                if abs(cfp[0] - prev["mtime"]) > 1.0 or cfp[1] != prev["size"] or cfp[2] != prev["content_hash"]:
+                    if prev is not None:
+                        ch.append(rp)
+                        continue
+                if prev is None:
+                    ch.append(rp)
+                    continue
+                if (
+                    abs(cfp[0] - prev["mtime"]) > 1.0
+                    or cfp[1] != prev["size"]
+                    or cfp[2] != prev["content_hash"]
+                ):
                     ch.append(rp)
         for cp in cached:
-            if cp not in existing: ch.append(cp)
-        return {"changed_files": ch, "method": "fingerprint",
-                "no_changes": True} if not ch else {"changed_files": ch, "method": "fingerprint"}
+            if cp not in existing:
+                ch.append(cp)
+        return (
+            {"changed_files": ch, "method": "fingerprint", "no_changes": True}
+            if not ch
+            else {"changed_files": ch, "method": "fingerprint"}
+        )
 
     # -- BM25 search --
     # (tokeniser, stopwords and snippet extractor are now module-level;
     #  see _tokenize, _STOPWORDS, _extract_snippet above)
 
     def build_search_index(self, output_dir: Path) -> Dict[str, Any]:
-        od = Path(output_dir); c = self.conn
-        c.execute("DELETE FROM search_index"); c.execute("DELETE FROM search_token_index")
+        od = Path(output_dir)
+        c = self.conn
+        c.execute("DELETE FROM search_index")
+        c.execute("DELETE FROM search_token_index")
         c.execute("DELETE FROM search_stats")
         from codewiki.src.config import WIKI_SYSTEM_FILES, WIKI_DIR
+
         dc = nc = sc = 0
 
         # Scan wiki/ subdirectories recursively for doc pages
         wiki_dir = od / WIKI_DIR
         if wiki_dir.is_dir():
             for md in sorted(wiki_dir.rglob("*.md")):
-                if not md.is_file(): continue
-                if md.name in WIKI_SYSTEM_FILES: continue
-                try: ct = md.read_text(encoding="utf-8", errors="replace")
-                except OSError: continue
-                if "<!-- crosslinks" in ct: ct = ct.split("<!-- crosslinks")[0]
-                if not ct.strip(): continue
-                title = _extract_title(ct) or md.stem.replace("_"," ").title()
+                if not md.is_file():
+                    continue
+                if md.name in WIKI_SYSTEM_FILES:
+                    continue
+                try:
+                    ct = md.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if "<!-- crosslinks" in ct:
+                    ct = ct.split("<!-- crosslinks")[0]
+                if not ct.strip():
+                    continue
+                title = _extract_title(ct) or md.stem.replace("_", " ").title()
                 tokens = _tokenize(_build_indexable_text(ct))
-                if not tokens: continue
-                tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
-                try: fk = str(md.relative_to(od)).replace("\\", "/")
-                except ValueError: fk = md.name
-                c.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
-                          (fk, title, "doc", len(tokens), json.dumps(tf), _doc_authority(fk, "doc", ct)))
-                for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
+                if not tokens:
+                    continue
+                tf = {}
+                [tf.update({t: tf.get(t, 0) + 1}) for t in tokens]
+                try:
+                    fk = str(md.relative_to(od)).replace("\\", "/")
+                except ValueError:
+                    fk = md.name
+                c.execute(
+                    "INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                    (fk, title, "doc", len(tokens), json.dumps(tf), _doc_authority(fk, "doc", ct)),
+                )
+                for t, f in tf.items():
+                    c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
                 dc += 1
 
         # Also scan root-level .md files (for repos without wiki/ dir)
         for md in sorted(od.iterdir()):
-            if not md.is_file() or md.suffix != ".md": continue
-            if md.name in WIKI_SYSTEM_FILES: continue
-            try: ct = md.read_text(encoding="utf-8", errors="replace")
-            except OSError: continue
-            if "<!-- crosslinks" in ct: ct = ct.split("<!-- crosslinks")[0]
-            if not ct.strip(): continue
-            title = _extract_title(ct) or md.stem.replace("_"," ").title()
+            if not md.is_file() or md.suffix != ".md":
+                continue
+            if md.name in WIKI_SYSTEM_FILES:
+                continue
+            try:
+                ct = md.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if "<!-- crosslinks" in ct:
+                ct = ct.split("<!-- crosslinks")[0]
+            if not ct.strip():
+                continue
+            title = _extract_title(ct) or md.stem.replace("_", " ").title()
             tokens = _tokenize(_build_indexable_text(ct))
-            if not tokens: continue
-            tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
-            c.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
-                      (md.name, title, "doc", len(tokens), json.dumps(tf), _doc_authority(md.name, "doc", ct)))
-            for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, md.name, f))
+            if not tokens:
+                continue
+            tf = {}
+            [tf.update({t: tf.get(t, 0) + 1}) for t in tokens]
+            c.execute(
+                "INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                (
+                    md.name,
+                    title,
+                    "doc",
+                    len(tokens),
+                    json.dumps(tf),
+                    _doc_authority(md.name, "doc", ct),
+                ),
+            )
+            for t, f in tf.items():
+                c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, md.name, f))
             dc += 1
 
         # Scan notes/ directory
         nd = od / "notes"
         if nd.is_dir():
             for nf in sorted(nd.iterdir()):
-                if not nf.is_file() or nf.suffix != ".md": continue
-                try: ct = nf.read_text(encoding="utf-8", errors="replace")
-                except OSError: continue
-                if not ct.strip(): continue
+                if not nf.is_file() or nf.suffix != ".md":
+                    continue
+                try:
+                    ct = nf.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if not ct.strip():
+                    continue
                 title = _extract_frontmatter(ct, "title") or nf.stem
                 tokens = _tokenize(_build_indexable_text(ct))
-                if not tokens: continue
-                tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
+                if not tokens:
+                    continue
+                tf = {}
+                [tf.update({t: tf.get(t, 0) + 1}) for t in tokens]
                 fk = f"notes/{nf.name}"
-                c.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
-                          (fk, title, "note", len(tokens), json.dumps(tf), _doc_authority(fk, "note", ct)))
-                for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
+                c.execute(
+                    "INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                    (
+                        fk,
+                        title,
+                        "note",
+                        len(tokens),
+                        json.dumps(tf),
+                        _doc_authority(fk, "note", ct),
+                    ),
+                )
+                for t, f in tf.items():
+                    c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
                 nc += 1
 
         # Scan raw/sources/ for third-party document text
         raw_dir = od / "raw" / "sources"
         if raw_dir.is_dir():
             for sf in sorted(raw_dir.iterdir()):
-                if not sf.is_file(): continue
-                if sf.suffix not in (".md", ".txt", ".rst"): continue
-                try: ct = sf.read_text(encoding="utf-8", errors="replace")
-                except OSError: continue
-                if not ct.strip(): continue
+                if not sf.is_file():
+                    continue
+                if sf.suffix not in (".md", ".txt", ".rst"):
+                    continue
+                try:
+                    ct = sf.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if not ct.strip():
+                    continue
                 title = sf.stem.replace("_", " ").replace("-", " ").title()
                 tokens = _tokenize(_build_indexable_text(ct))
-                if not tokens: continue
-                tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
+                if not tokens:
+                    continue
+                tf = {}
+                [tf.update({t: tf.get(t, 0) + 1}) for t in tokens]
                 fk = f"raw/sources/{sf.name}"
-                c.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
-                          (fk, title, "source", len(tokens), json.dumps(tf), _doc_authority(fk, "source", ct)))
-                for t, f in tf.items(): c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
+                c.execute(
+                    "INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                    (
+                        fk,
+                        title,
+                        "source",
+                        len(tokens),
+                        json.dumps(tf),
+                        _doc_authority(fk, "source", ct),
+                    ),
+                )
+                for t, f in tf.items():
+                    c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
                 sc += 1
 
         td = dc + nc + sc
@@ -1343,8 +1768,8 @@ class AnalysisCache:
         # (index_freshness.ensure_fresh compares sampled file mtimes to this)
         try:
             import time as _time
-            c.execute("INSERT INTO search_stats VALUES('index_built_at',?)",
-                      (str(_time.time()),))
+
+            c.execute("INSERT INTO search_stats VALUES('index_built_at',?)", (str(_time.time()),))
         except Exception:
             pass
         self.conn.commit()
@@ -1356,17 +1781,30 @@ class AnalysisCache:
             logger.warning("Link graph build failed (non-fatal): %s", e)
             graph_info = {"edges": 0, "docs_scanned": 0}
 
-        return {"docs_indexed": dc, "notes_indexed": nc, "sources_indexed": sc,
-                "total_docs": td, "graph_edges": graph_info.get("edges", 0)}
+        return {
+            "docs_indexed": dc,
+            "notes_indexed": nc,
+            "sources_indexed": sc,
+            "total_docs": td,
+            "graph_edges": graph_info.get("edges", 0),
+        }
 
-    def search(self, query: str, *, scope="", include_notes=True,
-               max_results=10, score_threshold=0.1,
-               output_dir: Optional[Path] = None,
-               type_filter: Optional[str] = None,
-               hop: int = 0, decay: float = 0.5,
-               expand_terms: Optional[List[str]] = None,
-               apply_authority: bool = True,
-               apply_usage: bool = True) -> List[Dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        *,
+        scope="",
+        include_notes=True,
+        max_results=10,
+        score_threshold=0.1,
+        output_dir: Optional[Path] = None,
+        type_filter: Optional[str] = None,
+        hop: int = 0,
+        decay: float = 0.5,
+        expand_terms: Optional[List[str]] = None,
+        apply_authority: bool = True,
+        apply_usage: bool = True,
+    ) -> List[Dict[str, Any]]:
         """BM25 search with authority and usage-heat weighting.
 
         ``apply_authority=False`` / ``apply_usage=False`` exempt a call from
@@ -1376,15 +1814,11 @@ class AnalysisCache:
         still carry the ``authority`` / ``usage`` fields for transparency.
         """
         c = self.conn
-        r = c.execute(
-            "SELECT value FROM search_stats WHERE key='total_docs'"
-        ).fetchone()
+        r = c.execute("SELECT value FROM search_stats WHERE key='total_docs'").fetchone()
         if not r or int(r["value"]) == 0:
             return []
         n = int(r["value"])
-        r = c.execute(
-            "SELECT value FROM search_stats WHERE key='avg_doc_len'"
-        ).fetchone()
+        r = c.execute("SELECT value FROM search_stats WHERE key='avg_doc_len'").fetchone()
         avg_dl = float(r["value"]) if r else 1.0
 
         # Usage-signal context (U1): always loaded (results expose a `usage`
@@ -1418,6 +1852,7 @@ class AnalysisCache:
             else:
                 # page_type filter (module, entity, concept, etc.)
                 from codewiki.src.config import PAGE_TYPE_DIRS
+
                 page_type_dir = PAGE_TYPE_DIRS.get(type_filter, type_filter + "s")
                 allowed_source_types = {"doc"}
 
@@ -1449,9 +1884,11 @@ class AnalysisCache:
                 path_lower = dk.lower().replace("\\", "/")
                 stem = Path(dk).stem.lower().replace("_", " ")
                 # Match by: stem equality, path prefix, or path component
-                if (stem != scope_norm.replace("_", " ")
-                        and not path_lower.startswith(scope_norm + "/")
-                        and f"/{scope_norm}/" not in f"/{path_lower}"):
+                if (
+                    stem != scope_norm.replace("_", " ")
+                    and not path_lower.startswith(scope_norm + "/")
+                    and f"/{scope_norm}/" not in f"/{path_lower}"
+                ):
                     continue
             # Single merged query: title, source, doc_len, authority
             doc_row = c.execute(
@@ -1481,8 +1918,8 @@ class AnalysisCache:
                 doc_matched.append(qt)
                 df = df_cache.get(qt, 1)
                 idf = max(0.0, math.log((n - df + 0.5) / (df + 0.5) + 1.0))
-                score += idf * (tfr["tf"] * (_K1 + 1)) / (
-                    tfr["tf"] + _K1 * (1 - _B + _B * dl / avg_dl)
+                score += (
+                    idf * (tfr["tf"] * (_K1 + 1)) / (tfr["tf"] + _K1 * (1 - _B + _B * dl / avg_dl))
                 )
             # Authority weighting: multiply AFTER BM25, BEFORE the title floor
             # (otherwise the floor would rescue penalised draft notes).
@@ -1493,7 +1930,8 @@ class AnalysisCache:
             u_hits, u_last, u_adopted = usage_map.get(dk, (0, None, 0))
             heat = (
                 compute_usage_heat(u_hits, u_last, usage_cfg, adopted_count=u_adopted)
-                if heat_on else 1.0
+                if heat_on
+                else 1.0
             )
             score *= heat
             # Developer notes are short; BM25 scores are naturally low and would
@@ -1572,49 +2010,64 @@ class AnalysisCache:
                 # Heat applies wherever authority applies (U1: same position).
                 ex_hits, ex_last, ex_adopted = usage_map.get(ex["file"], (0, None, 0))
                 ex_heat = (
-                    compute_usage_heat(
-                        ex_hits, ex_last, usage_cfg, adopted_count=ex_adopted
-                    ) if heat_on else 1.0
+                    compute_usage_heat(ex_hits, ex_last, usage_cfg, adopted_count=ex_adopted)
+                    if heat_on
+                    else 1.0
                 )
-                results.append({
-                    "file": ex["file"],
-                    "title": doc_row["title"],
-                    "source": doc_row["source"],
-                    "snippet": snippet,
-                    "relevance_score": round(ex["score"] * ex_auth * ex_heat, 4),
-                    "authority": round(ex_auth, 2),
-                    "usage": {
-                        "hit_count": ex_hits,
-                        "last_hit": ex_last,
-                        "adopted_count": ex_adopted,
-                    },
-                    "hop": ex["hop"],
-                    "via": ex["via"],
-                })
+                results.append(
+                    {
+                        "file": ex["file"],
+                        "title": doc_row["title"],
+                        "source": doc_row["source"],
+                        "snippet": snippet,
+                        "relevance_score": round(ex["score"] * ex_auth * ex_heat, 4),
+                        "authority": round(ex_auth, 2),
+                        "usage": {
+                            "hit_count": ex_hits,
+                            "last_hit": ex_last,
+                            "adopted_count": ex_adopted,
+                        },
+                        "hop": ex["hop"],
+                        "via": ex["via"],
+                    }
+                )
                 existing_keys.add(ex["file"])
 
         return results
 
     def update_search_doc(self, output_dir: Path, filepath: Path):
-        try: fk = str(filepath.resolve().relative_to(Path(output_dir).resolve()))
-        except ValueError: fk = filepath.name
+        try:
+            fk = str(filepath.resolve().relative_to(Path(output_dir).resolve()))
+        except ValueError:
+            fk = filepath.name
         fk = fk.replace("\\", "/")  # doc_key must match build_full_index's forward-slash shape
         ap = Path(output_dir) / fk
         if not ap.exists():
-            self.conn.execute("DELETE FROM search_index WHERE doc_key=?",(fk,))
-            self.conn.execute("DELETE FROM search_token_index WHERE doc_key=?",(fk,)); self.conn.commit(); return
-        try: ct = ap.read_text(encoding="utf-8", errors="replace")
-        except OSError: return
-        if "<!-- crosslinks" in ct: ct = ct.split("<!-- crosslinks")[0]
+            self.conn.execute("DELETE FROM search_index WHERE doc_key=?", (fk,))
+            self.conn.execute("DELETE FROM search_token_index WHERE doc_key=?", (fk,))
+            self.conn.commit()
+            return
+        try:
+            ct = ap.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        if "<!-- crosslinks" in ct:
+            ct = ct.split("<!-- crosslinks")[0]
         src = "note" if fk.startswith("notes/") else "doc"
         tokens = _tokenize(_build_indexable_text(ct))
-        self.conn.execute("DELETE FROM search_index WHERE doc_key=?",(fk,))
-        self.conn.execute("DELETE FROM search_token_index WHERE doc_key=?",(fk,))
+        self.conn.execute("DELETE FROM search_index WHERE doc_key=?", (fk,))
+        self.conn.execute("DELETE FROM search_token_index WHERE doc_key=?", (fk,))
         if tokens:
-            tf = {}; [tf.update({t: tf.get(t,0)+1}) for t in tokens]
-            self.conn.execute("INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
-                              (fk, filepath.stem, src, len(tokens), json.dumps(tf), _doc_authority(fk, src, ct)))
-            for t, f in tf.items(): self.conn.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
+            tf = {}
+            [tf.update({t: tf.get(t, 0) + 1}) for t in tokens]
+            self.conn.execute(
+                "INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                (fk, filepath.stem, src, len(tokens), json.dumps(tf), _doc_authority(fk, src, ct)),
+            )
+            for t, f in tf.items():
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f)
+                )
         self._refresh_index_built_at()
         self.conn.commit()
 
@@ -1631,10 +2084,12 @@ class AnalysisCache:
         """
         try:
             import time as _time
+
             self.conn.execute(
                 "INSERT INTO search_stats VALUES('index_built_at',?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (str(_time.time()),))
+                (str(_time.time()),),
+            )
             self.conn.commit()
         except Exception as e:
             logger.debug("search_stats index_built_at refresh failed: %s", e)
@@ -1673,6 +2128,7 @@ class AnalysisCache:
         edges: Set[Tuple[str, str, str]] = set()
 
         from codewiki.src.config import WIKI_SYSTEM_FILES, WIKI_DIR
+
         wiki_dir = od / WIKI_DIR
         scan_dirs = [wiki_dir] if wiki_dir.is_dir() else [od]
         # Also scan root-level .md files
@@ -1709,7 +2165,8 @@ class AnalysisCache:
                 for m in self._WIKILINK_RE.finditer(body):
                     target_raw = m.group(1).strip()
                     resolved = self._resolve_link_target(
-                        target_raw, stem_to_key, title_to_key, all_docs)
+                        target_raw, stem_to_key, title_to_key, all_docs
+                    )
                     if resolved and resolved != source_key:
                         edges.add((source_key, resolved, "wikilink"))
 
@@ -1733,8 +2190,11 @@ class AnalysisCache:
         return {"edges": len(edges), "docs_scanned": len(all_docs)}
 
     def _resolve_link_target(
-        self, target: str, stem_to_key: Dict[str, str],
-        title_to_key: Dict[str, str], all_docs: Dict[str, str],
+        self,
+        target: str,
+        stem_to_key: Dict[str, str],
+        title_to_key: Dict[str, str],
+        all_docs: Dict[str, str],
     ) -> Optional[str]:
         """Resolve a [[wikilink]] target to a doc_key."""
         t = target.strip().lower().replace(".md", "")
@@ -1751,7 +2211,10 @@ class AnalysisCache:
         return None
 
     def _resolve_md_href(
-        self, href: str, source_key: str, all_docs: Dict[str, str],
+        self,
+        href: str,
+        source_key: str,
+        all_docs: Dict[str, str],
     ) -> Optional[str]:
         """Resolve a markdown [text](path.md) href to a doc_key."""
         # Join href relative to source's directory, then normalize ../ segments
@@ -1779,8 +2242,12 @@ class AnalysisCache:
         return None
 
     def graph_expand(
-        self, seed_docs: List[Tuple[str, float]], *,
-        hop: int = 1, decay: float = 0.5, min_score: float = 0.05,
+        self,
+        seed_docs: List[Tuple[str, float]],
+        *,
+        hop: int = 1,
+        decay: float = 0.5,
+        min_score: float = 0.05,
         max_expand: int = 30,
     ) -> List[Dict[str, Any]]:
         """BFS expansion from seed docs along wiki_links edges.
@@ -1832,8 +2299,10 @@ class AnalysisCache:
                     if nb in discovered and discovered[nb]["score"] >= next_score:
                         continue
                     discovered[nb] = {
-                        "file": nb, "score": round(next_score, 4),
-                        "hop": cur_hop + 1, "via": doc_key,
+                        "file": nb,
+                        "score": round(next_score, 4),
+                        "hop": cur_hop + 1,
+                        "via": doc_key,
                     }
                     next_frontier.append((nb, next_score, cur_hop + 1, doc_key))
             frontier = next_frontier
@@ -1848,13 +2317,9 @@ class AnalysisCache:
         """Get pages linked to/from a given doc (for 'related' field in results)."""
         c = self.conn
         related: Dict[str, str] = {}  # doc_key → direction
-        for row in c.execute(
-            "SELECT target_doc FROM wiki_links WHERE source_doc=?", (doc_key,)
-        ):
+        for row in c.execute("SELECT target_doc FROM wiki_links WHERE source_doc=?", (doc_key,)):
             related[row["target_doc"]] = "out"
-        for row in c.execute(
-            "SELECT source_doc FROM wiki_links WHERE target_doc=?", (doc_key,)
-        ):
+        for row in c.execute("SELECT source_doc FROM wiki_links WHERE target_doc=?", (doc_key,)):
             if row["source_doc"] in related:
                 related[row["source_doc"]] = "both"
             else:
@@ -1863,47 +2328,61 @@ class AnalysisCache:
         # Get titles for related pages
         result = []
         for dk, direction in list(related.items())[:limit]:
-            row = c.execute(
-                "SELECT title FROM search_index WHERE doc_key=?", (dk,)
-            ).fetchone()
-            result.append({
-                "file": dk,
-                "title": row["title"] if row else Path(dk).stem,
-                "direction": direction,
-            })
+            row = c.execute("SELECT title FROM search_index WHERE doc_key=?", (dk,)).fetchone()
+            result.append(
+                {
+                    "file": dk,
+                    "title": row["title"] if row else Path(dk).stem,
+                    "direction": direction,
+                }
+            )
         return result
 
+
 # ------------------------------------------------------------------ helpers
+
 
 def _parse_row(r: sqlite3.Row) -> Tuple[Set[str], Optional[List], Optional[List]]:
     deps = set()
     try:
         raw = r["depends_on"]
-        if raw and raw != "[]": deps = set(json.loads(raw))
-    except Exception: pass
+        if raw and raw != "[]":
+            deps = set(json.loads(raw))
+    except Exception:
+        pass
     bc = None
     try:
         raw = r["base_classes"]
-        if raw: bc = json.loads(raw)
-    except Exception: pass
+        if raw:
+            bc = json.loads(raw)
+    except Exception:
+        pass
     params = None
     try:
         raw = r["parameters"]
-        if raw: params = json.loads(raw)
-    except Exception: pass
+        if raw:
+            params = json.loads(raw)
+    except Exception:
+        pass
     return deps, bc, params
+
 
 def _extract_title(content: str) -> Optional[str]:
     for line in content.splitlines()[:30]:
         s = line.strip()
-        if s.startswith("# "): return s[2:].strip()
+        if s.startswith("# "):
+            return s[2:].strip()
     return None
 
+
 def _extract_frontmatter(content: str, key: str) -> Optional[str]:
-    if not content.startswith("---"): return None
+    if not content.startswith("---"):
+        return None
     try:
         end = content.index("---", 3)
         for line in content[3:end].splitlines():
-            if line.startswith(f"{key}:"): return line[len(key)+1:].strip().strip('"').strip("'")
-    except ValueError: pass
+            if line.startswith(f"{key}:"):
+                return line[len(key) + 1 :].strip().strip('"').strip("'")
+    except ValueError:
+        pass
     return None

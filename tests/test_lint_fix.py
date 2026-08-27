@@ -116,20 +116,12 @@ def test_fix_clears_broken_links_computed_on_old_index(tmp_path):
     """
     output_dir = _make_wiki(tmp_path)
 
-    result_before = _run_lint(
-        output_dir, checks=["stale_refs", "broken_links"]
-    )
+    result_before = _run_lint(output_dir, checks=["stale_refs", "broken_links"])
     assert any(
-        "2026-08-01-deleted-note" in str(i.get("message", ""))
-        for i in result_before["issues"]
+        "2026-08-01-deleted-note" in str(i.get("message", "")) for i in result_before["issues"]
     )
 
-    result = _run_lint(
-        output_dir, fix=True, checks=["stale_refs", "broken_links"]
-    )
+    result = _run_lint(output_dir, fix=True, checks=["stale_refs", "broken_links"])
     assert [i for i in result["issues"] if i["check"] == "stale_refs"] == []
     assert [i for i in result["issues"] if i["check"] == "broken_links"] == []
-    assert not any(
-        "2026-08-01-deleted-note" in str(i.get("message", ""))
-        for i in result["issues"]
-    )
+    assert not any("2026-08-01-deleted-note" in str(i.get("message", "")) for i in result["issues"])

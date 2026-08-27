@@ -9,6 +9,7 @@ Covers docs/新鲜度机制设计方案.md acceptance criteria:
   - backfill script is idempotent and converts verified[] into freshness
   - wiki_stats exposes freshness {due, fresh} reusing the same judgment
 """
+
 from __future__ import annotations
 
 import json
@@ -40,15 +41,21 @@ def _mk_wiki(tmp_path, freshness=None, default_stale_days=90) -> Path:
     conv = {"default_stale_days": default_stale_days}
     if freshness is not None:
         conv["freshness"] = freshness
-    (od / "schema.yaml").write_text(
-        yaml.safe_dump({"conventions": conv}), encoding="utf-8"
-    )
+    (od / "schema.yaml").write_text(yaml.safe_dump({"conventions": conv}), encoding="utf-8")
     return od
 
 
-def _write_note(od: Path, name: str, *, ntype="decision", status="stable",
-                stale_after=None, date=None, verified=None,
-                title="T") -> Path:
+def _write_note(
+    od: Path,
+    name: str,
+    *,
+    ntype="decision",
+    status="stable",
+    stale_after=None,
+    date=None,
+    verified=None,
+    title="T",
+) -> Path:
     fm = {"type": ntype, "title": title, "status": status}
     if date:
         fm["metadata"] = {"date": date}
@@ -58,8 +65,7 @@ def _write_note(od: Path, name: str, *, ntype="decision", status="stable",
         fm["verified"] = verified
     p = od / "notes" / name
     p.write_text(
-        "---\n" + yaml.safe_dump(fm, allow_unicode=True, sort_keys=False)
-        + "---\n\nbody\n",
+        "---\n" + yaml.safe_dump(fm, allow_unicode=True, sort_keys=False) + "---\n\nbody\n",
         encoding="utf-8",
     )
     return p
@@ -72,6 +78,7 @@ def _stats_due(issues) -> list:
 def _touch(od: Path, rel_path: str, last_hit: str) -> None:
     """Seed one hit event (T2: telemetry jsonl replaces the stats table)."""
     from tests.telemetry_seed import seed_hits
+
     seed_hits(od, {rel_path: (1, last_hit)})
 
 
@@ -84,15 +91,18 @@ FUTURE = (TODAY + timedelta(days=30)).strftime("%Y-%m-%d")
 # 1. Config fallback chain (F2 helper)
 # --------------------------------------------------------------------------- #
 def test_fallback_chain_by_type():
-    schema = {"conventions": {"default_stale_days": 90, "freshness": {
-        "default_window_days": 180, "by_type": {"workaround": 45}}}}
+    schema = {
+        "conventions": {
+            "default_stale_days": 90,
+            "freshness": {"default_window_days": 180, "by_type": {"workaround": 45}},
+        }
+    }
     assert freshness_window_days("workaround", schema) == 45
     assert freshness_window_days("WORKAROUND", schema) == 45  # case-insensitive
 
 
 def test_fallback_chain_default_window():
-    schema = {"conventions": {"default_stale_days": 90, "freshness": {
-        "default_window_days": 180}}}
+    schema = {"conventions": {"default_stale_days": 90, "freshness": {"default_window_days": 180}}}
     assert freshness_window_days("unknown_type", schema) == 180
 
 
@@ -139,12 +149,17 @@ def test_judge_retrieval_defer():
 def test_judge_date_fallback_uses_type_window():
     # No stale_after -> fall back to metadata.date + type window
     old = (TODAY - timedelta(days=100)).strftime("%Y-%m-%d")
-    schema_cfg = load_freshness_config({"conventions": {"freshness": {
-        "default_window_days": 180, "by_type": {"workaround": 45}}}})
+    schema_cfg = load_freshness_config(
+        {"conventions": {"freshness": {"default_window_days": 180, "by_type": {"workaround": 45}}}}
+    )
     # workaround, 100 days old, 45d window -> due
-    assert evaluate_note_freshness({"date": old, "type": "workaround"}, schema_cfg)["state"] == "due"
+    assert (
+        evaluate_note_freshness({"date": old, "type": "workaround"}, schema_cfg)["state"] == "due"
+    )
     # decision, 100 days old, 365d default -> fresh
-    assert evaluate_note_freshness({"date": old, "type": "decision"}, schema_cfg)["state"] == "fresh"
+    assert (
+        evaluate_note_freshness({"date": old, "type": "decision"}, schema_cfg)["state"] == "fresh"
+    )
 
 
 def test_judge_no_signal_is_fresh():
@@ -162,16 +177,27 @@ def _read_fm(od: Path, name: str) -> dict:
 
 
 def test_ingest_writes_type_window(tmp_path):
-    od = _mk_wiki(tmp_path, freshness={
-        "default_window_days": 180,
-        "by_type": {"workaround": 45, "decision": 365},
-    })
+    od = _mk_wiki(
+        tmp_path,
+        freshness={
+            "default_window_days": 180,
+            "by_type": {"workaround": 45, "decision": 365},
+        },
+    )
     store = SessionStore()
     for ntype in ("workaround", "decision"):
-        r = json.loads(handle_ingest_note({
-            "output_dir": str(od), "title": f"n-{ntype}",
-            "note_type": ntype, "content": "body", "status": "draft",
-        }, store))
+        r = json.loads(
+            handle_ingest_note(
+                {
+                    "output_dir": str(od),
+                    "title": f"n-{ntype}",
+                    "note_type": ntype,
+                    "content": "body",
+                    "status": "draft",
+                },
+                store,
+            )
+        )
         assert r["status"] == "ingested", r
         name = Path(r["note_path"]).name
         fm = _read_fm(od, name)
@@ -181,14 +207,11 @@ def test_ingest_writes_type_window(tmp_path):
 
 
 def test_confirm_renews_by_type_window(tmp_path):
-    od = _mk_wiki(tmp_path, freshness={
-        "default_window_days": 180, "by_type": {"workaround": 45}})
+    od = _mk_wiki(tmp_path, freshness={"default_window_days": 180, "by_type": {"workaround": 45}})
     # Old workaround note whose stale_after has lapsed
-    _write_note(od, "w.md", ntype="workaround", status="draft",
-                stale_after=PAST)
+    _write_note(od, "w.md", ntype="workaround", status="draft", stale_after=PAST)
     store = SessionStore()
-    r = json.loads(handle_confirm_note(
-        {"output_dir": str(od), "note_file": "w.md"}, store))
+    r = json.loads(handle_confirm_note({"output_dir": str(od), "note_file": "w.md"}, store))
     assert "error" not in r, r
     fm = _read_fm(od, "w.md")
     assert fm["status"] == "stable"
@@ -212,8 +235,7 @@ def test_lint_flags_lapsed_stale_after(tmp_path):
 
 
 def test_lint_retrieval_defer(tmp_path):
-    od = _mk_wiki(tmp_path, freshness={
-        "default_window_days": 180, "retrieval_defer_days": 60})
+    od = _mk_wiki(tmp_path, freshness={"default_window_days": 180, "retrieval_defer_days": 60})
     _write_note(od, "lapsed.md", stale_after=PAST)
     _touch(od, "notes/lapsed.md", (TODAY - timedelta(days=2)).strftime("%Y-%m-%d"))
     assert _stats_due(_check_stale_notes(od)) == []
@@ -228,16 +250,19 @@ def test_lint_skips_draft_and_deprecated(tmp_path):
 
 def test_lint_dispatch_reads_schema_config(tmp_path):
     # Tight window configured -> dispatch (no hardcoded args) must honor it.
-    od = _mk_wiki(tmp_path, freshness={
-        "default_window_days": 180, "by_type": {"workaround": 5}})
+    od = _mk_wiki(tmp_path, freshness={"default_window_days": 180, "by_type": {"workaround": 5}})
     # workaround confirmed 10 days ago (window 5) with a fresh date field:
     # old logic (date-age 90d) would NOT flag; new type-aware logic MUST.
-    _write_note(od, "wa.md", ntype="workaround", status="stable",
-                date=(TODAY - timedelta(days=10)).strftime("%Y-%m-%d"),
-                stale_after=(TODAY - timedelta(days=5)).strftime("%Y-%m-%d"))
+    _write_note(
+        od,
+        "wa.md",
+        ntype="workaround",
+        status="stable",
+        date=(TODAY - timedelta(days=10)).strftime("%Y-%m-%d"),
+        stale_after=(TODAY - timedelta(days=5)).strftime("%Y-%m-%d"),
+    )
     store = SessionStore()
-    resp = json.loads(handle_lint_wiki(
-        {"output_dir": str(od), "checks": ["stale_notes"]}, store))
+    resp = json.loads(handle_lint_wiki({"output_dir": str(od), "checks": ["stale_notes"]}, store))
     files = [i["file"] for i in resp.get("issues", []) if i["check"] == "stale_notes"]
     assert files == ["notes/wa.md"]
 
@@ -246,8 +271,11 @@ def test_lint_no_double_report_with_okf(tmp_path):
     od = _mk_wiki(tmp_path, freshness={"default_window_days": 180})
     _write_note(od, "lapsed.md", stale_after=PAST)
     store = SessionStore()
-    resp = json.loads(handle_lint_wiki(
-        {"output_dir": str(od), "checks": ["stale_notes", "okf_conformance"]}, store))
+    resp = json.loads(
+        handle_lint_wiki(
+            {"output_dir": str(od), "checks": ["stale_notes", "okf_conformance"]}, store
+        )
+    )
     lapsed_issues = [i for i in resp.get("issues", []) if i["file"] == "notes/lapsed.md"]
     checks = {i["check"] for i in lapsed_issues}
     assert checks == {"stale_notes"}  # not double-reported by okf_conformance
@@ -260,8 +288,12 @@ def test_okf_still_audits_notes_when_stale_check_absent(tmp_path):
     assert len(issues) == 1
     # Without stale_notes in checks, okf_conformance still flags the note.
     from codewiki.mcp.tools.wiki_lint import _check_okf_conformance
-    okf = [i for i in _check_okf_conformance(od, skip_notes_staleness=False)
-           if i["file"] == "notes/lapsed.md"]
+
+    okf = [
+        i
+        for i in _check_okf_conformance(od, skip_notes_staleness=False)
+        if i["file"] == "notes/lapsed.md"
+    ]
     assert any("stale_after" in i["message"] for i in okf)
 
 
@@ -270,6 +302,7 @@ def test_okf_still_audits_notes_when_stale_check_absent(tmp_path):
 # --------------------------------------------------------------------------- #
 def _run_migrate(od: Path, dry_run=False):
     import importlib.util
+
     spec = importlib.util.spec_from_file_location(
         "migrate_freshness",
         Path(__file__).resolve().parents[1] / "scripts" / "migrate_freshness.py",
@@ -280,13 +313,16 @@ def _run_migrate(od: Path, dry_run=False):
 
 
 def test_backfill_renews_from_verified_and_is_idempotent(tmp_path):
-    od = _mk_wiki(tmp_path, freshness={
-        "default_window_days": 180, "by_type": {"decision": 365}})
+    od = _mk_wiki(tmp_path, freshness={"default_window_days": 180, "by_type": {"decision": 365}})
     verified_at = TODAY - timedelta(days=10)
-    _write_note(od, "v.md", ntype="decision", status="stable",
-                stale_after=PAST,
-                verified=[{"by": "human:alice",
-                           "at": verified_at.strftime("%Y-%m-%dT00:00:00Z")}])
+    _write_note(
+        od,
+        "v.md",
+        ntype="decision",
+        status="stable",
+        stale_after=PAST,
+        verified=[{"by": "human:alice", "at": verified_at.strftime("%Y-%m-%dT00:00:00Z")}],
+    )
     _write_note(od, "nv.md", ntype="decision", status="stable", stale_after=PAST)
 
     stats = _run_migrate(od)
@@ -305,8 +341,14 @@ def test_backfill_renews_from_verified_and_is_idempotent(tmp_path):
 def test_backfill_dry_run_writes_nothing(tmp_path):
     od = _mk_wiki(tmp_path, freshness={"by_type": {"decision": 365}})
     verified_at = TODAY - timedelta(days=10)
-    _write_note(od, "v.md", ntype="decision", status="stable", stale_after=PAST,
-                verified=[{"by": "x", "at": verified_at.strftime("%Y-%m-%dT00:00:00Z")}])
+    _write_note(
+        od,
+        "v.md",
+        ntype="decision",
+        status="stable",
+        stale_after=PAST,
+        verified=[{"by": "x", "at": verified_at.strftime("%Y-%m-%dT00:00:00Z")}],
+    )
     before = (od / "notes" / "v.md").read_text(encoding="utf-8")
     stats = _run_migrate(od, dry_run=True)
     assert stats["updated"] == 1

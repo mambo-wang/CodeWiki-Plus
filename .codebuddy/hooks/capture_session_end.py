@@ -52,6 +52,7 @@ so a failure never surfaces to the IDE.
 
 Stdout is emitted in the CodeBuddy-expected ``{continue, systemMessage}`` shape.
 """
+
 from __future__ import annotations
 
 import json
@@ -59,7 +60,6 @@ import os
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]  # <repo>/.codebuddy/hooks/ -> <repo>
@@ -166,9 +166,12 @@ def main() -> int:
             json.dump(event, fh)
 
     cmd = [
-        sys.executable, "-m", "codewiki.mcp._ide_hook",
+        sys.executable,
+        "-m",
+        "codewiki.mcp._ide_hook",
         "--enable",
-        "--repo-path", repo_path,
+        "--repo-path",
+        repo_path,
     ]
     if tmp:
         cmd += ["--conversation", tmp]
@@ -185,8 +188,12 @@ def main() -> int:
         child_env = dict(env)
         if tmp:
             child_env["CODEWIKI_HOOK_EVENT_FILE"] = tmp
-        kwargs: dict = {"cwd": str(REPO), "env": child_env, "stdout": subprocess.DEVNULL,
-                        "stderr": subprocess.DEVNULL}
+        kwargs: dict = {
+            "cwd": str(REPO),
+            "env": child_env,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+        }
         if sys.platform == "win32":
             kwargs["creationflags"] = getattr(subprocess, "DETACHED_PROCESS", 0)
         else:
@@ -195,12 +202,14 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001 - never crash the IDE hook
         # If we cannot even spawn the child, surface a non-blocking hint but
         # still let the session end cleanly.
-        print(json.dumps({"continue": True,
-                          "systemMessage": f"team-memory capture not started: {e}"}))
+        print(
+            json.dumps({"continue": True, "systemMessage": f"team-memory capture not started: {e}"})
+        )
         return 0
 
-    print(json.dumps({"continue": True,
-                      "systemMessage": "team-memory capture started in background"}))
+    print(
+        json.dumps({"continue": True, "systemMessage": "team-memory capture started in background"})
+    )
     return 0
 
 

@@ -101,7 +101,9 @@ struct, _ = analyze_repository_structure_only("https://github.com/owner/repo")
 # 跨服务匹配
 from codewiki.src.be.dependency_analyzer.analysis.cross_service_matcher import CrossServiceMatcher
 from codewiki.src.be.dependency_analyzer.analysis.topology_visualizer import TopologyVisualizer
-m = CrossServiceMatcher(); m.add_repo_routes("svc-a", routes_a)
+
+m = CrossServiceMatcher()
+m.add_repo_routes("svc-a", routes_a)
 topo = m.match()
 print(TopologyVisualizer().render_all(topo))
 ```

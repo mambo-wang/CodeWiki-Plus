@@ -6,6 +6,7 @@ the first user message. These blocks must be stripped from the archived raw
 transcript so only the human-AI dialogue survives. <user_query> is real user
 input and must keep its inner text (shell removed).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -65,8 +66,15 @@ def test_real_world_sample():
     out = _strip_system_injection(raw)
     assert "你好" in out
     assert "有什么我可以帮你的吗" in out
-    for noise in ("<user_info>", "<rules>", "<git_status>", "<project_context>",
-                  "<additional_data>", "OS Version", "AGENTS.md"):
+    for noise in (
+        "<user_info>",
+        "<rules>",
+        "<git_status>",
+        "<project_context>",
+        "<additional_data>",
+        "OS Version",
+        "AGENTS.md",
+    ):
         assert noise not in out
 
 

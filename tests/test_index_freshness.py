@@ -12,6 +12,7 @@ Covers docs/团队知识库支持优化设计方案.md §3 acceptance criteria:
     _resolve_db_path resolves relative cache_db against repo root; legacy
     absolute entries still honoured; missing absolute falls back to layout
 """
+
 from __future__ import annotations
 
 import json
@@ -56,8 +57,9 @@ class TestFreshnessSelfHeal:
             encoding="utf-8",
         )
         res = search(od, "端口冲突", session=None)
-        assert any(r["file"] == "notes/fresh-note.md" for r in res), \
+        assert any(r["file"] == "notes/fresh-note.md" for r in res), (
             "pulled note must be findable after self-heal rebuild"
+        )
 
     def test_deleted_note_gone_after_heal(self, tmp_path):
         od = _mk_wiki(tmp_path)
@@ -68,7 +70,7 @@ class TestFreshnessSelfHeal:
         )
         _reset_throttle()
         search(od, "临时经验", session=None)  # indexed
-        note.unlink()                          # (simulated) removed upstream
+        note.unlink()  # (simulated) removed upstream
         _reset_throttle()
         res = search(od, "临时经验", session=None)
         assert not any(r["file"] == "notes/temp-note.md" for r in res)
@@ -92,8 +94,9 @@ class TestFreshnessSelfHeal:
         )
         _reset_throttle()
         res = search(od, "zonecheck", session=None)
-        assert any("confirmable" in r["file"] for r in res), \
+        assert any("confirmable" in r["file"] for r in res), (
             "content-only change must trigger rebuild via mtime sampling"
+        )
 
     def test_fresh_index_no_rebuild(self, tmp_path):
         od = _mk_wiki(tmp_path)
@@ -108,9 +111,11 @@ class TestFreshnessSelfHeal:
         _reset_throttle()
         calls = []
         orig = fr.scan_disk_inventory
+
         def counting(od_):
             calls.append(1)
             return orig(od_)
+
         fr.scan_disk_inventory = counting
         try:
             fr.ensure_fresh(od)
@@ -130,12 +135,12 @@ class TestFreshnessSelfHeal:
         od = _mk_wiki(tmp_path)
         _reset_throttle()
         (od / "wiki" / "modules" / "newmod.md").write_text(
-            "---\ntype: Module\ntitle: 新模块文档\n---\n\n"
-            "新模块处理供应链供应链追溯。\n",
+            "---\ntype: Module\ntitle: 新模块文档\n---\n\n新模块处理供应链供应链追溯。\n",
             encoding="utf-8",
         )
-        out = json.loads(handle_query_wiki(
-            {"output_dir": str(od), "query": "供应链追溯"}, SessionStore()))
+        out = json.loads(
+            handle_query_wiki({"output_dir": str(od), "query": "供应链追溯"}, SessionStore())
+        )
         assert any("newmod" in r["file"] for r in out["results"])
 
 
@@ -146,12 +151,19 @@ class TestProjectJsonRelative:
         (repo / ".codewiki").mkdir()
         (repo / ".codewiki" / "analysis_cache.db").write_text("x", encoding="utf-8")
         (repo / "repowiki" / ".meta" / "project.json").write_text(
-            json.dumps({"repo_name": "repo", "output_dir": "repowiki",
-                        "cache_db": ".codewiki/analysis_cache.db"}),
+            json.dumps(
+                {
+                    "repo_name": "repo",
+                    "output_dir": "repowiki",
+                    "cache_db": ".codewiki/analysis_cache.db",
+                }
+            ),
             encoding="utf-8",
         )
-        assert _resolve_db_path(repo / "repowiki") == \
-            (repo / ".codewiki" / "analysis_cache.db").resolve()
+        assert (
+            _resolve_db_path(repo / "repowiki")
+            == (repo / ".codewiki" / "analysis_cache.db").resolve()
+        )
 
     def test_legacy_absolute_still_works(self, tmp_path):
         repo = tmp_path / "repo"
@@ -160,7 +172,8 @@ class TestProjectJsonRelative:
         db.parent.mkdir()
         db.write_text("x", encoding="utf-8")
         (repo / "repowiki" / ".meta" / "project.json").write_text(
-            json.dumps({"cache_db": str(db)}), encoding="utf-8")
+            json.dumps({"cache_db": str(db)}), encoding="utf-8"
+        )
         assert _resolve_db_path(repo / "repowiki") == db.resolve()
 
     def test_missing_absolute_falls_back(self, tmp_path):
@@ -170,14 +183,13 @@ class TestProjectJsonRelative:
         fallback = repo / ".codewiki" / "analysis_cache.db"
         fallback.write_text("x", encoding="utf-8")
         (repo / "repowiki" / ".meta" / "project.json").write_text(
-            json.dumps({"cache_db": "D:\\gone\\machine\\analysis_cache.db"}),
-            encoding="utf-8")
+            json.dumps({"cache_db": "D:\\gone\\machine\\analysis_cache.db"}), encoding="utf-8"
+        )
         assert _resolve_db_path(repo / "repowiki") == fallback.resolve()
 
     def test_json_index_stores_built_at(self, tmp_path):
         od = _mk_wiki(tmp_path)
-        data = json.loads(
-            (od / ".meta" / "search_index.json").read_text(encoding="utf-8"))
+        data = json.loads((od / ".meta" / "search_index.json").read_text(encoding="utf-8"))
         assert float(data.get("built_at") or 0) > 0
 
 
@@ -188,8 +200,8 @@ class TestT3IndexMdHealing:
         _reset_throttle()
         idx_md = od / "wiki" / "index.md"
         if idx_md.exists():
-            idx_md.unlink()          # simulate a lost/corrupted catalog
-        (od / "notes" / "another.md").write_text(   # trigger staleness
+            idx_md.unlink()  # simulate a lost/corrupted catalog
+        (od / "notes" / "another.md").write_text(  # trigger staleness
             "---\ntype: pitfall\ntitle: 另一踩坑\n---\n\n内容正文 bodytext\n",
             encoding="utf-8",
         )
@@ -199,9 +211,11 @@ class TestT3IndexMdHealing:
     def test_gitignore_excludes_search_index(self):
         """T3: search_index.json stays out of version control."""
         import subprocess
+
         out = subprocess.run(
             ["git", "check-ignore", "repowiki/.meta/search_index.json"],
             cwd=str(Path(__file__).resolve().parents[1]),
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert out.returncode == 0, "search_index.json must be gitignored"

@@ -27,15 +27,19 @@ logger = logging.getLogger(__name__)
 def _read_source_from_disk(node) -> str:
     """Re-read component source from the original file using line range."""
     fp = getattr(node, "file_path", "")
-    sl = getattr(node, "start_line", 0); el = getattr(node, "end_line", 0)
-    if not fp: return ""
+    sl = getattr(node, "start_line", 0)
+    el = getattr(node, "end_line", 0)
+    if not fp:
+        return ""
     try:
         with open(fp, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
-        if sl > 0 and el > 0: return "".join(lines[max(0, sl - 1):el])
+        if sl > 0 and el > 0:
+            return "".join(lines[max(0, sl - 1) : el])
         return "".join(lines)
     except Exception as e:
-        logger.warning("Failed to read source for %s: %s", fp, e); return ""
+        logger.warning("Failed to read source for %s: %s", fp, e)
+        return ""
 
 
 def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
@@ -44,28 +48,39 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     if not repo_path.exists():
         return json.dumps({"error": f"Repository not found: {repo_path}"})
 
-    output_dir = Path(arguments.get("output_dir", str(repo_path / "repowiki"))).expanduser().resolve()
+    output_dir = (
+        Path(arguments.get("output_dir", str(repo_path / "repowiki"))).expanduser().resolve()
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     import tempfile
     from codewiki.src.config import Config, MAX_DEPTH
+
     # Use a temp dir for the legacy JSON output — we write to SQLite instead
     _tmp = Path(tempfile.mkdtemp(prefix="codewiki_"))
     config = Config(
-        repo_path=str(repo_path), output_dir=str(_tmp),
+        repo_path=str(repo_path),
+        output_dir=str(_tmp),
         dependency_graph_dir=str(_tmp / "dependency_graphs"),
-        docs_dir=str(output_dir), max_depth=MAX_DEPTH,
-        llm_base_url="not-needed", llm_api_key="not-needed",
-        main_model="unused", cluster_model="unused",
+        docs_dir=str(output_dir),
+        max_depth=MAX_DEPTH,
+        llm_base_url="not-needed",
+        llm_api_key="not-needed",
+        main_model="unused",
+        cluster_model="unused",
     )
 
-    include = arguments.get("include_patterns"); exclude = arguments.get("exclude_patterns")
+    include = arguments.get("include_patterns")
+    exclude = arguments.get("exclude_patterns")
     doc_type = arguments.get("doc_type", "design")
     custom_instructions = arguments.get("custom_instructions")
     ai: Dict[str, Any] = {"doc_type": doc_type}
-    if include: ai["include_patterns"] = [p.strip() for p in include.split(",")]
-    if exclude: ai["exclude_patterns"] = [p.strip() for p in exclude.split(",")]
-    if custom_instructions: ai["custom_instructions"] = custom_instructions
+    if include:
+        ai["include_patterns"] = [p.strip() for p in include.split(",")]
+    if exclude:
+        ai["exclude_patterns"] = [p.strip() for p in exclude.split(",")]
+    if custom_instructions:
+        ai["custom_instructions"] = custom_instructions
     config.agent_instructions = ai
 
     # Get or create shared cache for this repo
@@ -118,9 +133,12 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     # Full parse (writes legacy JSONs to _tmp — clean up afterwards)
     from codewiki.src.be.dependency_analyzer import DependencyGraphBuilder
     import shutil
+
     builder = DependencyGraphBuilder(config)
     try:
-        components, leaf_nodes, routes = builder.build_dependency_graph(skip_file_paths=skip_file_paths)
+        components, leaf_nodes, routes = builder.build_dependency_graph(
+            skip_file_paths=skip_file_paths
+        )
     finally:
         shutil.rmtree(str(_tmp), ignore_errors=True)
 
@@ -140,8 +158,10 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         # and would otherwise overwrite the full list in repo_meta.
         try:
             from codewiki.src.be.dependency_analyzer.topo_sort import (
-                build_graph_from_components, get_leaf_nodes,
+                build_graph_from_components,
+                get_leaf_nodes,
             )
+
             graph = build_graph_from_components(components)
             raw_leafs = get_leaf_nodes(graph, components)
             valid_types = {"class", "interface", "struct"}
@@ -149,8 +169,10 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
             if not available_types & valid_types:
                 valid_types.add("function")
             leaf_nodes = [
-                n for n in raw_leafs
-                if isinstance(n, str) and n in components
+                n
+                for n in raw_leafs
+                if isinstance(n, str)
+                and n in components
                 and components[n].component_type in valid_types
             ]
             logger.info("Recomputed %d leaf nodes on merged graph", len(leaf_nodes))
@@ -165,7 +187,9 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     is_incremental = bool(cached_unchanged_components)
     try:
         cache.batch_insert_components(components, leaf_nodes, incremental=is_incremental)
-        logger.info("Components cached to SQLite (%s mode)", "incremental" if is_incremental else "full")
+        logger.info(
+            "Components cached to SQLite (%s mode)", "incremental" if is_incremental else "full"
+        )
     except Exception as e:
         logger.warning("SQLite cache write failed (continuing in memory): %s", e)
 
@@ -183,7 +207,9 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     if detect_services_flag:
         try:
             cross_service_info = _run_monorepo_cross_service(
-                repo_path, output_dir, cache,
+                repo_path,
+                output_dir,
+                cache,
             )
         except Exception as e:
             logger.warning("Monorepo cross-service analysis failed (non-fatal): %s", e)
@@ -192,21 +218,32 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     metas: Dict[str, ComponentMeta] = {}
     for comp_id, node in components.items():
         metas[comp_id] = ComponentMeta(
-            id=node.id, name=node.name, component_type=node.component_type,
-            file_path=node.file_path, relative_path=node.relative_path,
-            start_line=node.start_line, end_line=node.end_line,
-            language=(node.language or "").strip() or "unknown", depends_on=node.depends_on,
-            node_type=node.node_type, base_classes=node.base_classes,
-            class_name=node.class_name, display_name=node.display_name,
-            qualified_name=node.qualified_name, has_docstring=node.has_docstring,
+            id=node.id,
+            name=node.name,
+            component_type=node.component_type,
+            file_path=node.file_path,
+            relative_path=node.relative_path,
+            start_line=node.start_line,
+            end_line=node.end_line,
+            language=(node.language or "").strip() or "unknown",
+            depends_on=node.depends_on,
+            node_type=node.node_type,
+            base_classes=node.base_classes,
+            class_name=node.class_name,
+            display_name=node.display_name,
+            qualified_name=node.qualified_name,
+            has_docstring=node.has_docstring,
             parameters=node.parameters,
         )
     lazy_store = LazyComponentStore(cache, metas)
 
     # Create session
     session = store.create(
-        repo_path=str(repo_path), output_dir=str(output_dir),
-        components=lazy_store, leaf_nodes=leaf_nodes, cache=cache,
+        repo_path=str(repo_path),
+        output_dir=str(output_dir),
+        components=lazy_store,
+        leaf_nodes=leaf_nodes,
+        cache=cache,
     )
     # Remember the analysis options so watch-mode incremental re-parses
     # apply the same include/exclude filtering (see tools/watch.py).
@@ -218,6 +255,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
 
     # Record analyzed commit
     from codewiki.cli.utils.repo_validator import get_git_commit_hash
+
     session.analyzed_commit = get_git_commit_hash(repo_path) or None
     if session.analyzed_commit:
         cache.set_last_commit_id(session.analyzed_commit)
@@ -229,6 +267,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     # Persist repo_path ↔ output_dir mapping (enables session-free SQLite access)
     try:
         from codewiki.src.config import meta_join, PROJECT_FILENAME
+
         meta_dir = Path(meta_join(output_dir, ""))
         meta_dir.mkdir(parents=True, exist_ok=True)
         # T1b: relative paths so project.json stays valid on teammates'
@@ -244,7 +283,8 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
             "cache_db": ".codewiki/analysis_cache.db",  # relative to repo root
         }
         Path(meta_join(output_dir, PROJECT_FILENAME)).write_text(
-            json.dumps(project_info, ensure_ascii=False, indent=2), encoding="utf-8")
+            json.dumps(project_info, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     except Exception as e:
         logger.warning("Failed to write project.json: %s", e)
 
@@ -272,26 +312,38 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         workspace.write_json("changes.json", changes_info)
 
     # 5. Summary
-    summary = {"session_id": session.session_id, "repo_name": repo_path.name,
-               "repo_path": str(repo_path), "output_dir": str(output_dir),
-               "total_components": len(metas), "total_leaf_nodes": len(leaf_nodes),
-               "languages": langs, "leaf_nodes_preview": leaf_nodes[:20]}
+    summary = {
+        "session_id": session.session_id,
+        "repo_name": repo_path.name,
+        "repo_path": str(repo_path),
+        "output_dir": str(output_dir),
+        "total_components": len(metas),
+        "total_leaf_nodes": len(leaf_nodes),
+        "languages": langs,
+        "leaf_nodes_preview": leaf_nodes[:20],
+    }
     workspace.write_json("summary.json", summary)
 
     # 6. Schema
     schema_info = None
     try:
         from codewiki.mcp.tools.schema_generator import generate_schema
+
         module_names = []
         from codewiki.src.config import meta_resolve
+
         mtp = Path(meta_resolve(output_dir, "module_tree.json"))
         if mtp.exists():
             try:
                 mt = json.loads(mtp.read_text(encoding="utf-8"))
-                if isinstance(mt, dict): module_names = list(mt.keys())
-            except Exception: pass
+                if isinstance(mt, dict):
+                    module_names = list(mt.keys())
+            except Exception:
+                pass
         # schema_generator needs a dict; pass the lazy store (works for len() and iteration)
-        schema_info = generate_schema(repo_path.name, metas, list(langs.keys()), output_dir, module_names)
+        schema_info = generate_schema(
+            repo_path.name, metas, list(langs.keys()), output_dir, module_names
+        )
         workspace.write_json("schema.json", schema_info)
     except Exception as e:
         logger.warning("Schema generation skipped: %s", e)
@@ -299,7 +351,10 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     # 7. Index/log
     try:
         from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
-        append_log(str(output_dir), "analyze_repo", f"分析仓库 {repo_path.name}，{len(metas)} 个组件")
+
+        append_log(
+            str(output_dir), "analyze_repo", f"分析仓库 {repo_path.name}，{len(metas)} 个组件"
+        )
         rebuild_index(str(output_dir))
     except Exception as e:
         logger.warning("Index/log update failed: %s", e)
@@ -316,6 +371,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     # 7c. Update overview_stale in metadata.json
     try:
         from codewiki.src.config import meta_resolve, PROJECT_FILENAME
+
         meta_path = Path(meta_resolve(output_dir, "metadata.json"))
         if meta_path.exists():
             metadata = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -335,6 +391,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         cache.save_symbol_map(symbol_map)
         # Compat: keep a compact JSON copy for tools that read it directly
         from codewiki.src.config import meta_join
+
         meta_dir = Path(meta_join(output_dir, ""))
         meta_dir.mkdir(parents=True, exist_ok=True)
         symbol_map_path = Path(meta_join(output_dir, "symbol_map.json"))
@@ -358,14 +415,20 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         logger.warning("Fingerprint update failed: %s", e)
 
     # Release source_code from memory
-    for node in components.values(): node.source_code = None
+    for node in components.values():
+        node.source_code = None
 
     # -- MCP response --
     result = {
         "session_id": session.session_id,
         "workspace_dir": str(workspace.root),
-        "repo_name": repo_path.name, "output_dir": str(output_dir),
-        "stats": {"total_components": len(metas), "total_leaf_nodes": len(leaf_nodes), "languages": langs},
+        "repo_name": repo_path.name,
+        "output_dir": str(output_dir),
+        "stats": {
+            "total_components": len(metas),
+            "total_leaf_nodes": len(leaf_nodes),
+            "languages": langs,
+        },
         "files": {
             "summary": str(workspace.root / "summary.json"),
             "schema": str(output_dir / "schema.yaml"),
@@ -387,13 +450,17 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     if changes_info and not changes_info.get("no_changes"):
         result["hint"] = (
             "Incremental update detected. Only update affected modules. "
-            + changes_info.get("hint", ""))
+            + changes_info.get("hint", "")
+        )
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
 def _build_no_change_response(
-    repo_path: Path, output_dir: Path, store: SessionStore,
-    cache: AnalysisCache, changes_info: Dict,
+    repo_path: Path,
+    output_dir: Path,
+    store: SessionStore,
+    cache: AnalysisCache,
+    changes_info: Dict,
 ) -> str:
     """Build session from cached data when no changes are detected."""
     metas = cache.get_all_metas()
@@ -401,10 +468,14 @@ def _build_no_change_response(
     lazy_store = LazyComponentStore(cache, metas)
 
     session = store.create(
-        repo_path=str(repo_path), output_dir=str(output_dir),
-        components=lazy_store, leaf_nodes=leaf_nodes, cache=cache,
+        repo_path=str(repo_path),
+        output_dir=str(output_dir),
+        components=lazy_store,
+        leaf_nodes=leaf_nodes,
+        cache=cache,
     )
     from codewiki.cli.utils.repo_validator import get_git_commit_hash
+
     session.analyzed_commit = get_git_commit_hash(repo_path) or None
     try:
         cache.set_output_dir(str(output_dir))
@@ -423,24 +494,39 @@ def _build_no_change_response(
         langs[lang] = langs.get(lang, 0) + 1
     workspace.write_json("changes.json", changes_info)
 
-    summary = {"session_id": session.session_id, "repo_name": repo_path.name,
-               "repo_path": str(repo_path), "output_dir": str(output_dir),
-               "total_components": len(metas), "total_leaf_nodes": len(leaf_nodes),
-               "languages": langs, "leaf_nodes_preview": leaf_nodes[:20]}
+    summary = {
+        "session_id": session.session_id,
+        "repo_name": repo_path.name,
+        "repo_path": str(repo_path),
+        "output_dir": str(output_dir),
+        "total_components": len(metas),
+        "total_leaf_nodes": len(leaf_nodes),
+        "languages": langs,
+        "leaf_nodes_preview": leaf_nodes[:20],
+    }
     workspace.write_json("summary.json", summary)
 
-    return json.dumps({
-        "session_id": session.session_id,
-        "workspace_dir": str(workspace.root),
-        "repo_name": repo_path.name, "output_dir": str(output_dir),
-        "stats": {"total_components": len(metas), "total_leaf_nodes": len(leaf_nodes), "languages": langs},
-        "files": {
-            "summary": str(workspace.root / "summary.json"),
+    return json.dumps(
+        {
+            "session_id": session.session_id,
+            "workspace_dir": str(workspace.root),
+            "repo_name": repo_path.name,
+            "output_dir": str(output_dir),
+            "stats": {
+                "total_components": len(metas),
+                "total_leaf_nodes": len(leaf_nodes),
+                "languages": langs,
+            },
+            "files": {
+                "summary": str(workspace.root / "summary.json"),
+            },
+            "changes": changes_info,
+            "cache_mode": "sqlite",
+            "hint": "No changes detected since last analysis. Documentation is up to date.",
         },
-        "changes": changes_info,
-        "cache_mode": "sqlite",
-        "hint": "No changes detected since last analysis. Documentation is up to date.",
-    }, indent=2, ensure_ascii=False)
+        indent=2,
+        ensure_ascii=False,
+    )
 
 
 def _run_monorepo_cross_service(
@@ -467,7 +553,8 @@ def _run_monorepo_cross_service(
 
     logger.info(
         "Monorepo cross-service: %d sub-services detected in %s",
-        len(services), repo_path.name,
+        len(services),
+        repo_path.name,
     )
 
     # Load the FULL route set from cache (includes unchanged routes in
@@ -498,7 +585,9 @@ def _run_monorepo_cross_service(
         CrossServiceMatcher,
     )
     from codewiki.src.be.dependency_analyzer.models.cross_service import (
-        RouteNode, RouteProtocol, RouteRole,
+        RouteNode,
+        RouteProtocol,
+        RouteRole,
     )
 
     matcher = CrossServiceMatcher()
@@ -532,29 +621,35 @@ def _run_monorepo_cross_service(
     topology = matcher.match()
     logger.info(
         "Intra-repo cross-service matching: %d routes → %d links, %d unmatched",
-        len(topology.routes), len(topology.links), len(topology.unmatched_routes),
+        len(topology.routes),
+        len(topology.links),
+        len(topology.unmatched_routes),
     )
 
     # Render topology as Markdown
     from codewiki.src.be.dependency_analyzer.analysis.topology_visualizer import (
         TopologyVisualizer,
     )
+
     viz = TopologyVisualizer()
     cross_service_md = viz.render_overview_section(topology)
 
     # Persist results to <output_dir>/.meta/
     try:
         from codewiki.src.config import meta_join
+
         meta_dir = Path(meta_join(output_dir, ""))
         meta_dir.mkdir(parents=True, exist_ok=True)
 
         links_data = [link.model_dump() for link in topology.links]
         (meta_dir / "cross_service_links.json").write_text(
-            json.dumps(links_data, ensure_ascii=False, indent=2), encoding="utf-8",
+            json.dumps(links_data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
         routes_data = [route.model_dump() for route in topology.routes]
         (meta_dir / "workspace_routes.json").write_text(
-            json.dumps(routes_data, ensure_ascii=False, indent=2), encoding="utf-8",
+            json.dumps(routes_data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
         logger.info("Cross-service results persisted to %s", meta_dir)
     except Exception as e:
@@ -563,15 +658,18 @@ def _run_monorepo_cross_service(
     # Run InfraScanner for supplementary service discovery
     try:
         from codewiki.src.be.dependency_analyzer.analysis.infra_scanner import InfraScanner
+
         scanner = InfraScanner(str(repo_path))
         infra_services = scanner.scan()
         if infra_services:
             from codewiki.src.config import meta_join
+
             meta_dir = Path(meta_join(output_dir, ""))
             meta_dir.mkdir(parents=True, exist_ok=True)
             infra_data = {name: svc.to_dict() for name, svc in infra_services.items()}
             (meta_dir / "infra_services.json").write_text(
-                json.dumps(infra_data, ensure_ascii=False, indent=2), encoding="utf-8",
+                json.dumps(infra_data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
             )
     except Exception as e:
         logger.debug("Infra scanner skipped: %s", e)
@@ -643,24 +741,31 @@ def _detect_doc_changes(
 ) -> Optional[Dict[str, Any]]:
     """Detect documentation-level changes since last generation (legacy JSON fallback)."""
     from codewiki.src.config import meta_resolve
+
     mp = Path(meta_resolve(output_dir, "metadata.json"))
     mtp = Path(meta_resolve(output_dir, "module_tree.json"))
-    if not mp.exists() or not mtp.exists(): return None
+    if not mp.exists() or not mtp.exists():
+        return None
     try:
         md = json.loads(mp.read_text(encoding="utf-8"))
         mt = json.loads(mtp.read_text(encoding="utf-8"))
-    except Exception: return None
+    except Exception:
+        return None
 
     # Git detection from metadata.json
     changes = _detect_git_from_meta(repo_path, md, output_dir)
     if changes is None:
         changes = _detect_mtime_from_meta(repo_path, md)
 
-    if changes is None: return None
+    if changes is None:
+        return None
     cf = changes["changed_files"]
     if not cf:
-        return {"has_previous": True, "no_changes": True,
-                "method": changes.get("method","unknown")}
+        return {
+            "has_previous": True,
+            "no_changes": True,
+            "method": changes.get("method", "unknown"),
+        }
     affected, cascade = _find_affected_modules(mt, cf, components=components)
 
     # Precise overview stale check: only mark overview stale if it actually
@@ -671,75 +776,131 @@ def _detect_doc_changes(
     if overview_stale:
         cascade.add("overview")
 
-    return {"has_previous": True, "no_changes": False,
-            "method": changes.get("method","unknown"),
-            "changed_files": cf, "affected_modules": sorted(affected),
-            "cascade_modules": sorted(cascade),
-            "overview_stale": overview_stale,
-            "hint": f"Only {len(affected)} module(s) need updating."
-                    + (" Overview.md is stale." if overview_stale else "")}
+    return {
+        "has_previous": True,
+        "no_changes": False,
+        "method": changes.get("method", "unknown"),
+        "changed_files": cf,
+        "affected_modules": sorted(affected),
+        "cascade_modules": sorted(cascade),
+        "overview_stale": overview_stale,
+        "hint": f"Only {len(affected)} module(s) need updating."
+        + (" Overview.md is stale." if overview_stale else ""),
+    }
 
 
 def _detect_git_from_meta(repo_path: Path, metadata: Dict, output_dir: Path) -> Optional[Dict]:
     try:
-        import git; repo = git.Repo(repo_path, search_parent_directories=True)
-    except Exception: return None
+        import git
+
+        repo = git.Repo(repo_path, search_parent_directories=True)
+    except Exception:
+        return None
     prev = metadata.get("generation_info", {}).get("commit_id")
-    if not prev: return None
-    try: cur = repo.head.commit.hexsha
-    except Exception: return None
+    if not prev:
+        return None
+    try:
+        cur = repo.head.commit.hexsha
+    except Exception:
+        return None
     git_root = Path(repo.working_dir).resolve()
-    try: sp = repo_path.resolve().relative_to(git_root).as_posix()
-    except ValueError: sp = ""
-    if sp == ".": sp = ""
+    try:
+        sp = repo_path.resolve().relative_to(git_root).as_posix()
+    except ValueError:
+        sp = ""
+    if sp == ".":
+        sp = ""
 
     od_rel = ""
     try:
         od_rel = Path(output_dir).resolve().relative_to(repo_path.resolve()).as_posix()
-        if od_rel == ".": od_rel = ""
-    except Exception: pass
+        if od_rel == ".":
+            od_rel = ""
+    except Exception:
+        pass
 
     def _n(p: str) -> Optional[str]:
-        if sp and not p.startswith(sp + "/"): return None
-        p = p[len(sp)+1:] if sp else p
-        if p.startswith(".codewiki/"): return None
-        if od_rel and (p == od_rel or p.startswith(od_rel + "/")): return None
+        if sp and not p.startswith(sp + "/"):
+            return None
+        p = p[len(sp) + 1 :] if sp else p
+        if p.startswith(".codewiki/"):
+            return None
+        if od_rel and (p == od_rel or p.startswith(od_rel + "/")):
+            return None
         return p
 
     ch, seen = [], set()
-    def add(r): 
-        if r and (p := _n(r)) and p not in seen: ch.append(p); seen.add(p)
+
+    def add(r):
+        if r and (p := _n(r)) and p not in seen:
+            ch.append(p)
+            seen.add(p)
+
     if prev != cur:
         try:
-            for d in repo.commit(prev).diff(cur): add(d.a_path); add(d.b_path)
+            for d in repo.commit(prev).diff(cur):
+                add(d.a_path)
+                add(d.b_path)
         except Exception:
-            logger.warning("Commit %s unreachable", prev); return None
+            logger.warning("Commit %s unreachable", prev)
+            return None
     try:
         for d in list(repo.index.diff("HEAD")) + list(repo.index.diff(None)):
-            add(d.a_path); add(d.b_path)
-        for item in repo.untracked_files: add(item)
-    except Exception: pass
+            add(d.a_path)
+            add(d.b_path)
+        for item in repo.untracked_files:
+            add(item)
+    except Exception:
+        pass
     return {"changed_files": ch, "method": "git"}
 
 
 def _detect_mtime_from_meta(repo_path: Path, metadata: Dict) -> Optional[Dict]:
     ts = metadata.get("generation_info", {}).get("timestamp")
-    if not ts: return None
+    if not ts:
+        return None
     try:
         from datetime import datetime
+
         prev = datetime.fromisoformat(ts).timestamp()
-    except Exception: return None
-    exts = {".py",".java",".js",".jsx",".ts",".tsx",".c",".h",".cpp",".hpp",".cc",".hh",".cs",".kt",".kts",".go",".php",".rs"}
+    except Exception:
+        return None
+    exts = {
+        ".py",
+        ".java",
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".c",
+        ".h",
+        ".cpp",
+        ".hpp",
+        ".cc",
+        ".hh",
+        ".cs",
+        ".kt",
+        ".kts",
+        ".go",
+        ".php",
+        ".rs",
+    }
     ch = []
     for dp, dns, fns in os.walk(repo_path):
-        dns[:] = [d for d in dns if not d.startswith(".") and d not in ("node_modules","__pycache__","venv",".venv")]
+        dns[:] = [
+            d
+            for d in dns
+            if not d.startswith(".") and d not in ("node_modules", "__pycache__", "venv", ".venv")
+        ]
         for fn in fns:
             fp = Path(dp) / fn
-            if fp.suffix.lower() not in exts: continue
+            if fp.suffix.lower() not in exts:
+                continue
             try:
                 if fp.stat().st_mtime > prev:
                     ch.append(fp.relative_to(repo_path).as_posix())
-            except OSError: continue
+            except OSError:
+                continue
     return {"changed_files": ch, "method": "mtime"}
 
 
@@ -767,12 +928,15 @@ def _find_affected_modules(
                 resolve_files_to_components,
                 transitive_impact,
             )
+
             start_ids = resolve_files_to_components(components, changed_files)
             if start_ids:
                 graph = build_graph_from_components(components)
                 result = transitive_impact(
-                    graph, set(start_ids),
-                    max_depth=10, direction="depended_by",
+                    graph,
+                    set(start_ids),
+                    max_depth=10,
+                    direction="depended_by",
                 )
                 affected_ids = set(result["affected"].keys())
 
@@ -798,13 +962,14 @@ def _find_affected_modules(
                     cascade.add("overview")
                 return affected, cascade
         except Exception:
-            logger.debug("Graph-based impact failed, falling back to path matching",
-                         exc_info=True)
+            logger.debug("Graph-based impact failed, falling back to path matching", exc_info=True)
 
     # --- File-path fallback (original logic) ---------------------------
     affected, cascade = set(), set()
+
     def _walk(tree, parents=None):
-        if parents is None: parents = []
+        if parents is None:
+            parents = []
         for mn, mi in tree.items():
             comps = mi.get("components", [])
             hit = False
@@ -812,16 +977,23 @@ def _find_affected_modules(
                 cf = c.split("::")[0]
                 for chf in changed_files:
                     if cf == chf or cf.endswith("/" + chf) or chf.endswith("/" + cf):
-                        hit = True; break
+                        hit = True
+                        break
                     if chf.startswith(cf + "/") or cf.startswith(chf + "/"):
-                        hit = True; break
-                if hit: break
+                        hit = True
+                        break
+                if hit:
+                    break
             if hit:
-                affected.add(mn); cascade.update(parents)
+                affected.add(mn)
+                cascade.update(parents)
             children = mi.get("children", {})
-            if isinstance(children, dict) and children: _walk(children, parents + [mn])
+            if isinstance(children, dict) and children:
+                _walk(children, parents + [mn])
+
     _walk(module_tree)
-    if affected: cascade.add("overview")
+    if affected:
+        cascade.add("overview")
     return affected, cascade
 
 
@@ -831,6 +1003,7 @@ def _extract_overview_refs(output_dir: Path) -> Set[str]:
     Returns a set of module names (slugs) that overview.md links to.
     """
     import re
+
     overview_path = output_dir / "overview.md"
     if not overview_path.exists():
         return set()
@@ -870,6 +1043,7 @@ def _extract_overview_refs(output_dir: Path) -> Set[str]:
 def _save_overview_refs(output_dir: Path, refs: Set[str]):
     """Save overview refs to .meta/overview_refs.json."""
     from codewiki.src.config import meta_join
+
     meta_dir = Path(meta_join(output_dir, ""))
     meta_dir.mkdir(parents=True, exist_ok=True)
     refs_path = meta_dir / "overview_refs.json"
@@ -882,6 +1056,7 @@ def _save_overview_refs(output_dir: Path, refs: Set[str]):
 def _load_overview_refs(output_dir: Path) -> Set[str]:
     """Load overview refs from .meta/overview_refs.json."""
     from codewiki.src.config import meta_join
+
     meta_dir = Path(meta_join(output_dir, ""))
     refs_path = meta_dir / "overview_refs.json"
     if not refs_path.exists():

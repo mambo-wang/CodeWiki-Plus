@@ -42,8 +42,24 @@ logger = logging.getLogger(__name__)
 
 # Source extensions the analyzers cover (mirrors cache.py _SRC_EXTS).
 _SRC_EXTS = {
-    ".py", ".pyx", ".java", ".js", ".jsx", ".ts", ".tsx", ".c", ".h",
-    ".cpp", ".hpp", ".cc", ".hh", ".cs", ".kt", ".kts", ".go", ".php",
+    ".py",
+    ".pyx",
+    ".java",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".c",
+    ".h",
+    ".cpp",
+    ".hpp",
+    ".cc",
+    ".hh",
+    ".cs",
+    ".kt",
+    ".kts",
+    ".go",
+    ".php",
 }
 
 _HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
@@ -54,6 +70,7 @@ _NEW_FILE_RE = re.compile(r"^\+\+\+ b/(.*)$")
 # ------------------------------------------------------------------
 # Diff parsing (pure text, no git required — unit-testable)
 # ------------------------------------------------------------------
+
 
 @dataclass
 class FileChange:
@@ -116,9 +133,20 @@ def parse_unified_diff(diff_text: str) -> List[FileChange]:
             continue
         # Metadata lines ("+++ b/x", "--- a/x", "index ...", "new file mode",
         # "Binary files differ", "\\ No newline at end of file") are not hunks.
-        if line.startswith(("+++ ", "--- ", "index ", "new file mode",
-                            "deleted file mode", "similarity index", "rename from",
-                            "rename to", "Binary files", "\\ No newline")):
+        if line.startswith(
+            (
+                "+++ ",
+                "--- ",
+                "index ",
+                "new file mode",
+                "deleted file mode",
+                "similarity index",
+                "rename from",
+                "rename to",
+                "Binary files",
+                "\\ No newline",
+            )
+        ):
             continue
         if line.startswith("+"):
             current.added_lines.append(new_line)
@@ -139,6 +167,7 @@ def parse_unified_diff(diff_text: str) -> List[FileChange]:
 # ------------------------------------------------------------------
 # Git diff acquisition
 # ------------------------------------------------------------------
+
 
 def _git_diff_since(repo: Any, since: str) -> str:
     """Committed range diff ``since..HEAD`` as unified text."""
@@ -227,7 +256,9 @@ def collect_git_changes(
             n_lines = len(full.read_text(encoding="utf-8", errors="replace").splitlines())
         except OSError:
             continue
-        untracked.append(FileChange(path=kept, added_lines=list(range(1, n_lines + 1)), is_untracked=True))
+        untracked.append(
+            FileChange(path=kept, added_lines=list(range(1, n_lines + 1)), is_untracked=True)
+        )
 
     return {
         "changes": changes + untracked,
@@ -240,6 +271,7 @@ def collect_git_changes(
 # ------------------------------------------------------------------
 # Changed-function location (line numbers → component spans)
 # ------------------------------------------------------------------
+
 
 def _file_components(components: Any) -> Dict[str, List[Tuple[str, int, int]]]:
     """Build relative_path → [(comp_id, start_line, end_line)] index."""
@@ -292,7 +324,10 @@ def locate_changed_components(
         if fc.is_untracked:
             untracked_files.append(fc.path)
             file_level.append(
-                {"file": fc.path, "reason": "untracked file not in analysis graph — re-run analyze_repo"}
+                {
+                    "file": fc.path,
+                    "reason": "untracked file not in analysis graph — re-run analyze_repo",
+                }
             )
             continue
 
@@ -308,9 +343,9 @@ def locate_changed_components(
         # Deleted lines anchored outside any component (e.g. whole function
         # removed, or deleted at module level) — report, do not drop silently.
         anchored_outside = [
-            ln for ln in fc.deleted_anchors if not any(
-                start <= ln <= end for _, start, end in file_comps
-            )
+            ln
+            for ln in fc.deleted_anchors
+            if not any(start <= ln <= end for _, start, end in file_comps)
         ]
         for ln in anchored_outside:
             deleted_unlocated.append({"file": fc.path, "anchor_line": ln})
@@ -343,7 +378,10 @@ def _is_test_path(rel: str) -> bool:
     if _TEST_DIR_RE.search(p):
         return True
     name = p.rsplit("/", 1)[-1]
-    return any(name.startswith(m) or name.endswith(m) for m in ("test_", "Test", "Tests", "_test", "_spec", ".test", ".spec"))
+    return any(
+        name.startswith(m) or name.endswith(m)
+        for m in ("test_", "Test", "Tests", "_test", "_spec", ".test", ".spec")
+    )
 
 
 def _strip_ext(name: str) -> str:
@@ -359,9 +397,16 @@ def _test_candidates_for(source: str) -> List[str]:
     dirpath = "/".join(parts[:-1])
     cands: List[str] = []
     for fmt in (
-        "test_{stem}.py", "test_{stem}.go", "{stem}Test.java", "{stem}Tests.java",
-        "{stem}_test.py", "{stem}_test.go", "{stem}.test.js", "{stem}.test.ts",
-        "{stem}.spec.js", "{stem}.spec.ts",
+        "test_{stem}.py",
+        "test_{stem}.go",
+        "{stem}Test.java",
+        "{stem}Tests.java",
+        "{stem}_test.py",
+        "{stem}_test.go",
+        "{stem}.test.js",
+        "{stem}.test.ts",
+        "{stem}.spec.js",
+        "{stem}.spec.ts",
     ):
         fname = fmt.format(stem=stem)
         cands.append(f"{dirpath}/{fname}" if dirpath else fname)
@@ -433,6 +478,7 @@ def suggest_tests(
 # Main handler
 # ------------------------------------------------------------------
 
+
 def handle_analyze_changes(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -461,7 +507,9 @@ def handle_analyze_changes(
     session = resolve_session(arguments, store)
     if session is None:
         return json.dumps(
-            {"error": "Session not found. Provide a valid repo_path pointing to a previously analyzed repository."}
+            {
+                "error": "Session not found. Provide a valid repo_path pointing to a previously analyzed repository."
+            }
         )
 
     components = session.components
@@ -472,12 +520,12 @@ def handle_analyze_changes(
     max_depth = min(int(arguments.get("max_depth", 10)), 50)
 
     if not since and not worktree:
-        return json.dumps({"error": "Provide 'since' (commit range) or set worktree=true (uncommitted changes)."})
+        return json.dumps(
+            {"error": "Provide 'since' (commit range) or set worktree=true (uncommitted changes)."}
+        )
 
     try:
-        git_info = collect_git_changes(
-            repo_path, since=since or None, worktree=worktree
-        )
+        git_info = collect_git_changes(repo_path, since=since or None, worktree=worktree)
     except ValueError as exc:
         return json.dumps({"error": f"Git analysis failed: {exc}"})
     except Exception as exc:
@@ -517,7 +565,7 @@ def handle_analyze_changes(
                     "changed_files": len(changes),
                     "source": git_info["source"],
                     "hint": "Changed lines fall outside analyzed components "
-                            "(untracked files or removed functions). Re-run analyze_repo for new files.",
+                    "(untracked files or removed functions). Re-run analyze_repo for new files.",
                 },
                 "changed_files": [c.path for c in changes],
                 "changed_components": [],

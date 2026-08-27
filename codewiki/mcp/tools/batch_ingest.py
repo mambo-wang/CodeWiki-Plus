@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from codewiki.mcp.session import SessionStore
 
@@ -96,23 +96,23 @@ def handle_batch_ingest(
             elif kind == "source":
                 raw = handle_ingest_source(item, store)
             else:
-                results.append({"index": i, "kind": kind, "status": "error",
-                                "error": f"Unknown kind: {kind}"})
+                results.append(
+                    {"index": i, "kind": kind, "status": "error", "error": f"Unknown kind: {kind}"}
+                )
                 failed += 1
                 continue
 
             parsed = json.loads(raw)
             if "error" in parsed:
-                results.append({"index": i, "kind": kind, "status": "error",
-                                "error": parsed["error"]})
+                results.append(
+                    {"index": i, "kind": kind, "status": "error", "error": parsed["error"]}
+                )
                 failed += 1
             else:
-                results.append({"index": i, "kind": kind, "status": "ok",
-                                "detail": parsed})
+                results.append({"index": i, "kind": kind, "status": "ok", "detail": parsed})
                 succeeded += 1
         except Exception as e:
-            results.append({"index": i, "kind": kind, "status": "error",
-                            "error": str(e)})
+            results.append({"index": i, "kind": kind, "status": "error", "error": str(e)})
             failed += 1
 
     # Single index rebuild at the end
@@ -126,8 +126,10 @@ def handle_batch_ingest(
         output_dir.mkdir(parents=True, exist_ok=True)
         try:
             from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
-            append_log(str(output_dir), "batch_ingest",
-                       f"批量导入完成: {succeeded} 成功, {failed} 失败")
+
+            append_log(
+                str(output_dir), "batch_ingest", f"批量导入完成: {succeeded} 成功, {failed} 失败"
+            )
             rebuild_index(str(output_dir))
         except Exception as e:
             logger.warning("Post-batch index rebuild failed: %s", e)
@@ -135,14 +137,19 @@ def handle_batch_ingest(
         # Rebuild search index
         try:
             from codewiki.mcp.tools.wiki_search import build_full_index
+
             build_full_index(output_dir, session=session)
         except Exception:
             pass
 
-    return json.dumps({
-        "status": "completed",
-        "total": len(items),
-        "succeeded": succeeded,
-        "failed": failed,
-        "results": results,
-    }, indent=2, ensure_ascii=False)
+    return json.dumps(
+        {
+            "status": "completed",
+            "total": len(items),
+            "succeeded": succeeded,
+            "failed": failed,
+            "results": results,
+        },
+        indent=2,
+        ensure_ascii=False,
+    )

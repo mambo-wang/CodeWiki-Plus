@@ -758,9 +758,9 @@ def test_compact_submit_rewrites_and_archives(tmp_path, monkeypatch):
     from pathlib import Path
 
     # File-domain compaction: the caller's own per-user file is rewritten.
-    text = (
-        Path(repo) / "repowiki" / "tasks" / task_id / "memories" / "alice.md"
-    ).read_text(encoding="utf-8")
+    text = (Path(repo) / "repowiki" / "tasks" / task_id / "memories" / "alice.md").read_text(
+        encoding="utf-8"
+    )
     assert text.startswith(tm._SUMMARY_HEADING)
     assert "早期记忆摘要" in text
     assert "memories-archive/alice.md，截至" in text and "共 25 条" in text
@@ -808,9 +808,9 @@ def test_compact_submit_legacy_entries_get_synthetic_heading(tmp_path, monkeypat
 
     # Legacy converges into the caller's own file: kept entries land there,
     # and the legacy single file is REMOVED (attribution now explicit).
-    text = (
-        Path(repo) / "repowiki" / "tasks" / task_id / "memories" / "alice.md"
-    ).read_text(encoding="utf-8")
+    text = (Path(repo) / "repowiki" / "tasks" / task_id / "memories" / "alice.md").read_text(
+        encoding="utf-8"
+    )
     assert "旧条目44" in text and "旧条目25" in text
     assert not (Path(repo) / "repowiki" / "tasks" / task_id / "memories.md").exists()
 
@@ -854,9 +854,9 @@ def test_compact_second_round_appends_archive_and_carries_summary(tmp_path, monk
     # Archive is append-only: round-1 originals (记忆0..24) AND round-2 (记忆25..44) present.
     assert "记忆0" in archive and "记忆44" in archive
     # Old summary replaced by the new one in the caller's own file.
-    text = (
-        Path(repo) / "repowiki" / "tasks" / task_id / "memories" / "alice.md"
-    ).read_text(encoding="utf-8")
+    text = (Path(repo) / "repowiki" / "tasks" / task_id / "memories" / "alice.md").read_text(
+        encoding="utf-8"
+    )
     assert "第二轮摘要" in text and "第一轮摘要" not in text
     assert "新记忆124" in text  # latest entries kept
 
@@ -931,7 +931,9 @@ def test_layered_loading_own_full_others_summary_plus_two(tmp_path, monkeypatch)
     task_id = r["task"]["id"]
 
     for i in range(3):
-        _call(tm.handle_add_task_memory, output_dir=_od(repo), task_id=task_id, content=f"我的记忆{i}")
+        _call(
+            tm.handle_add_task_memory, output_dir=_od(repo), task_id=task_id, content=f"我的记忆{i}"
+        )
 
     bob_text = (
         f"{tm._SUMMARY_HEADING}\n\nbob 的早期工作摘要。\n\n> 指针行。\n\n"
@@ -1043,7 +1045,9 @@ def test_user_id_change_old_file_becomes_warm_layer(tmp_path, monkeypatch):
     r = _call(tm.handle_create_task, output_dir=_od(repo), title="身份变更")
     task_id = r["task"]["id"]
 
-    _call(tm.handle_add_task_memory, output_dir=_od(repo), task_id=task_id, content="alice 时的记忆")
+    _call(
+        tm.handle_add_task_memory, output_dir=_od(repo), task_id=task_id, content="alice 时的记忆"
+    )
     _write_user_mem(
         repo,
         task_id,
@@ -1146,7 +1150,9 @@ def test_index_drops_entries_whose_dir_is_gone(tmp_path):
     lst = _call(tm.handle_list_tasks, output_dir=_od(repo))
     ids = [t["id"] for t in lst["tasks"]]
     assert keep_id in ids and gone_id not in ids
-    data = json.loads((Path(repo) / "repowiki" / "tasks" / ".index.json").read_text(encoding="utf-8"))
+    data = json.loads(
+        (Path(repo) / "repowiki" / "tasks" / ".index.json").read_text(encoding="utf-8")
+    )
     assert gone_id not in [t["id"] for t in data["tasks"]]
 
 

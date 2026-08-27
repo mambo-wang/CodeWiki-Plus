@@ -12,9 +12,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import shutil
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,6 +25,7 @@ logger = logging.getLogger(__name__)
 def _load_registry(output_dir: Path) -> Dict[str, Any]:
     """Load source_registry.json from output_dir/.meta/. Falls back to root for compat."""
     from codewiki.src.config import SOURCE_REGISTRY_FILENAME, META_DIR
+
     # Prefer .meta/ location, fallback to root (backward compat)
     meta_path = output_dir / META_DIR / SOURCE_REGISTRY_FILENAME
     root_path = output_dir / SOURCE_REGISTRY_FILENAME
@@ -34,7 +34,9 @@ def _load_registry(output_dir: Path) -> Dict[str, Any]:
         return {"sources": {}, "version": 1}
     try:
         data = json.loads(reg_path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) and "sources" in data else {"sources": {}, "version": 1}
+        return (
+            data if isinstance(data, dict) and "sources" in data else {"sources": {}, "version": 1}
+        )
     except (json.JSONDecodeError, OSError):
         return {"sources": {}, "version": 1}
 
@@ -42,6 +44,7 @@ def _load_registry(output_dir: Path) -> Dict[str, Any]:
 def _save_registry(output_dir: Path, registry: Dict[str, Any]) -> None:
     """Persist source_registry.json to output_dir/.meta/."""
     from codewiki.src.config import SOURCE_REGISTRY_FILENAME, META_DIR
+
     meta_dir = output_dir / META_DIR
     meta_dir.mkdir(parents=True, exist_ok=True)
     reg_path = meta_dir / SOURCE_REGISTRY_FILENAME
@@ -95,6 +98,7 @@ def _merge_okf_sources_entry(page_path: Path, entry: Dict[str, Any]) -> None:
         return
     try:
         import yaml
+
         data = yaml.safe_load(content[3:end])
         if not isinstance(data, dict):
             return
@@ -108,12 +112,14 @@ def _merge_okf_sources_entry(page_path: Path, entry: Dict[str, Any]) -> None:
         sources.append(entry)
         data["sources"] = sources
         new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        page_path.write_text(f"---\n{new_fm}---{content[end + 3:]}", encoding="utf-8")
+        page_path.write_text(f"---\n{new_fm}---{content[end + 3 :]}", encoding="utf-8")
     except Exception as e:
         logger.debug("OKF sources merge skipped for %s: %s", page_path, e)
 
 
-def _ensure_source_frontmatter(dest_path: Path, name: str, description: str, output_dir: Optional[Path] = None) -> None:
+def _ensure_source_frontmatter(
+    dest_path: Path, name: str, description: str, output_dir: Optional[Path] = None
+) -> None:
     """Ensure an ingested raw/sources markdown file carries OKF frontmatter.
 
     OKF v0.2 §11 conformance applies to every non-reserved .md in the
@@ -132,6 +138,7 @@ def _ensure_source_frontmatter(dest_path: Path, name: str, description: str, out
     if content.startswith("---"):
         return  # keep whatever the source document already declares
     from codewiki.src.frontmatter import inject_okf_frontmatter
+
     fm = inject_okf_frontmatter(
         content,
         type_="Source",
@@ -196,13 +203,17 @@ def _inject_source_refs(output_dir: Path, related_pages: List[str], source_name:
                         # Find end of the list (next non-indented, non-list line)
                         insert_idx = i + 1
                         while insert_idx < len(lines) and (
-                            lines[insert_idx].startswith("  ") or lines[insert_idx].strip().startswith("- ")
+                            lines[insert_idx].startswith("  ")
+                            or lines[insert_idx].strip().startswith("- ")
                         ):
                             insert_idx += 1
                         break
                 if insert_idx is not None:
                     # Avoid duplicate
-                    if f'- "{source_name}"' not in frontmatter and f"- {source_name}" not in frontmatter:
+                    if (
+                        f'- "{source_name}"' not in frontmatter
+                        and f"- {source_name}" not in frontmatter
+                    ):
                         lines.insert(insert_idx, f'  - "{source_name}"')
                         frontmatter = "\n".join(lines)
             else:
@@ -270,17 +281,22 @@ def handle_ingest_source(
         for existing_name, info in registry.get("sources", {}).items():
             if isinstance(info, dict) and info.get("content_hash") == hash_key:
                 if info.get("status") != "retracted":
-                    return json.dumps({
-                        "status": "duplicate",
-                        "name": name,
-                        "existing_name": existing_name,
-                        "content_hash": f"sha256:{content_hash[:16]}...",
-                        "message": f"Content identical to existing source '{existing_name}'. "
-                                   f"Use a different file or retract the existing source first.",
-                    }, indent=2, ensure_ascii=False)
+                    return json.dumps(
+                        {
+                            "status": "duplicate",
+                            "name": name,
+                            "existing_name": existing_name,
+                            "content_hash": f"sha256:{content_hash[:16]}...",
+                            "message": f"Content identical to existing source '{existing_name}'. "
+                            f"Use a different file or retract the existing source first.",
+                        },
+                        indent=2,
+                        ensure_ascii=False,
+                    )
 
     # Ensure raw/sources/ directory exists
     from codewiki.src.config import RAW_SOURCES_DIR
+
     raw_sources = output_dir / RAW_SOURCES_DIR
     raw_sources.mkdir(parents=True, exist_ok=True)
     # Ensure .meta/ exists for registry and search index
@@ -328,26 +344,31 @@ def handle_ingest_source(
     # LLM Wiki: update log
     try:
         from codewiki.mcp.tools.wiki_index import append_log
-        append_log(str(output_dir), "ingest_source",
-                   f"导入外部文档: {name} ({source_type})")
+
+        append_log(str(output_dir), "ingest_source", f"导入外部文档: {name} ({source_type})")
     except Exception:
         pass
 
     # Update search index for the new source
     try:
         from codewiki.mcp.tools.wiki_search import build_full_index
+
         build_full_index(output_dir, session=session)
     except Exception as e:
         logger.warning("Search index rebuild failed (non-fatal): %s", e)
 
-    return json.dumps({
-        "status": "ingested",
-        "name": name,
-        "source_type": source_type,
-        "stored_at": str(dest_path.relative_to(output_dir)),
-        "description": description,
-        "version": version,
-    }, indent=2, ensure_ascii=False)
+    return json.dumps(
+        {
+            "status": "ingested",
+            "name": name,
+            "source_type": source_type,
+            "stored_at": str(dest_path.relative_to(output_dir)),
+            "description": description,
+            "version": version,
+        },
+        indent=2,
+        ensure_ascii=False,
+    )
 
 
 def handle_retract_source(
@@ -393,14 +414,18 @@ def handle_retract_source(
     # dry_run: report what would happen without mutating anything
     if dry_run:
         would_clean = _count_source_refs(output_dir, name) if mode == "remove_refs" else 0
-        return json.dumps({
-            "status": "dry_run",
-            "name": name,
-            "mode": mode,
-            "would_move_to_trash": (mode == "remove_refs" and bool(source_rel_path)),
-            "source_file": source_rel_path,
-            "would_clean_refs": would_clean,
-        }, indent=2, ensure_ascii=False)
+        return json.dumps(
+            {
+                "status": "dry_run",
+                "name": name,
+                "mode": mode,
+                "would_move_to_trash": (mode == "remove_refs" and bool(source_rel_path)),
+                "source_file": source_rel_path,
+                "would_clean_refs": would_clean,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
 
     if mode == "remove_refs":
         # Move the source file to .trash/ instead of permanent deletion
@@ -411,7 +436,10 @@ def handle_retract_source(
                 trash_dir.mkdir(parents=True, exist_ok=True)
                 dest = trash_dir / source_abs.name
                 if dest.exists():
-                    dest = trash_dir / f"{source_abs.stem}_{int(datetime.now().timestamp())}{source_abs.suffix}"
+                    dest = (
+                        trash_dir
+                        / f"{source_abs.stem}_{int(datetime.now().timestamp())}{source_abs.suffix}"
+                    )
                 shutil.move(str(source_abs), str(dest))
             except OSError as e:
                 logger.warning("Failed to move source file to trash: %s", e)
@@ -431,29 +459,35 @@ def handle_retract_source(
     # LLM Wiki: update log
     try:
         from codewiki.mcp.tools.wiki_index import append_log
-        append_log(str(output_dir), "retract_source",
-                   f"撤回外部文档: {name} (mode={mode})")
+
+        append_log(str(output_dir), "retract_source", f"撤回外部文档: {name} (mode={mode})")
     except Exception:
         pass
 
     # Rebuild search index
     try:
         from codewiki.mcp.tools.wiki_search import build_full_index
+
         build_full_index(output_dir, session=session)
     except Exception:
         pass
 
-    return json.dumps({
-        "status": "retracted",
-        "name": name,
-        "mode": mode,
-        "cleaned_refs": cleaned_refs,
-    }, indent=2, ensure_ascii=False)
+    return json.dumps(
+        {
+            "status": "retracted",
+            "name": name,
+            "mode": mode,
+            "cleaned_refs": cleaned_refs,
+        },
+        indent=2,
+        ensure_ascii=False,
+    )
 
 
 def _body_ref_patterns(source_name: str):
     """Regexes for in-body references that retract must clean."""
     import re
+
     return (
         # Legacy annotation: [^src:name] / [^src:name:range]
         re.compile(rf"\[\^src:{re.escape(source_name)}(?::[^\]]*)?\]"),
@@ -477,6 +511,7 @@ def _frontmatter_mentions(content: str, source_name: str) -> bool:
     fm = content[3:end]
     try:
         import yaml
+
         data = yaml.safe_load(fm)
     except Exception:
         data = None
@@ -490,14 +525,16 @@ def _frontmatter_mentions(content: str, source_name: str) -> bool:
         if isinstance(sources, dict):
             sources = [sources]
         if isinstance(sources, list) and any(
-                isinstance(s, dict) and s.get("id") == source_name for s in sources):
+            isinstance(s, dict) and s.get("id") == source_name for s in sources
+        ):
             return True
         return False
     # YAML parse failed → permissive textual fallback
     import re
-    return bool(re.search(
-        rf"^source_ref:\s*[\"']?{re.escape(source_name)}[\"']?\s*$",
-        fm, re.MULTILINE))
+
+    return bool(
+        re.search(rf"^source_ref:\s*[\"']?{re.escape(source_name)}[\"']?\s*$", fm, re.MULTILINE)
+    )
 
 
 def _count_source_refs(output_dir: Path, source_name: str) -> int:
@@ -517,8 +554,9 @@ def _count_source_refs(output_dir: Path, source_name: str) -> int:
                 content = md_file.read_text(encoding="utf-8")
             except OSError:
                 continue
-            if (any(p.search(content) for p in patterns)
-                    or _frontmatter_mentions(content, source_name)):
+            if any(p.search(content) for p in patterns) or _frontmatter_mentions(
+                content, source_name
+            ):
                 count += 1
     return count
 
@@ -539,6 +577,7 @@ def _strip_okf_sources_entry(md_file: Path, source_name: str) -> bool:
         return False
     try:
         import yaml
+
         data = yaml.safe_load(content[3:end])
         if not isinstance(data, dict):
             return False
@@ -547,8 +586,7 @@ def _strip_okf_sources_entry(md_file: Path, source_name: str) -> bool:
             sources = [sources]
         if not isinstance(sources, list):
             return False
-        kept = [s for s in sources
-                if not (isinstance(s, dict) and s.get("id") == source_name)]
+        kept = [s for s in sources if not (isinstance(s, dict) and s.get("id") == source_name)]
         if len(kept) == len(sources):
             return False
         if kept:
@@ -556,7 +594,7 @@ def _strip_okf_sources_entry(md_file: Path, source_name: str) -> bool:
         else:
             data.pop("sources", None)
         new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        md_file.write_text(f"---\n{new_fm}---{content[end + 3:]}", encoding="utf-8")
+        md_file.write_text(f"---\n{new_fm}---{content[end + 3 :]}", encoding="utf-8")
         return True
     except Exception:
         return False
@@ -580,6 +618,7 @@ def _strip_source_ref_fields(md_file: Path, source_name: str) -> bool:
         return False
     try:
         import yaml
+
         data = yaml.safe_load(content[3:end])
         if not isinstance(data, dict):
             return False
@@ -599,7 +638,7 @@ def _strip_source_ref_fields(md_file: Path, source_name: str) -> bool:
         if not changed:
             return False
         new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        md_file.write_text(f"---\n{new_fm}---{content[end + 3:]}", encoding="utf-8")
+        md_file.write_text(f"---\n{new_fm}---{content[end + 3 :]}", encoding="utf-8")
         return True
     except Exception:
         return False

@@ -19,11 +19,11 @@ def detect_cycles(graph: Dict[str, Set[str]]) -> List[List[str]]:
     """
     Detect cycles in a dependency graph using Tarjan's algorithm to find
     strongly connected components.
-    
+
     Args:
         graph: A dependency graph represented as adjacency lists
                (node -> set of dependencies)
-    
+
     Returns:
         A list of lists, where each inner list contains the nodes in a cycle
     """
@@ -34,7 +34,7 @@ def detect_cycles(graph: Dict[str, Set[str]]) -> List[List[str]]:
     onstack = set()  # nodes currently on the stack
     stack = []  # stack of nodes
     result = []  # list of cycles (strongly connected components)
-    
+
     def strongconnect(node):
         # Set the depth index for node
         index[node] = index_counter[0]
@@ -42,7 +42,7 @@ def detect_cycles(graph: Dict[str, Set[str]]) -> List[List[str]]:
         index_counter[0] += 1
         stack.append(node)
         onstack.add(node)
-        
+
         # Consider successors
         for successor in graph.get(node, set()):
             if successor not in index:
@@ -52,7 +52,7 @@ def detect_cycles(graph: Dict[str, Set[str]]) -> List[List[str]]:
             elif successor in onstack:
                 # Successor is on the stack and hence in the current SCC
                 lowlink[node] = min(lowlink[node], index[successor])
-        
+
         # If node is a root node, pop the stack and generate an SCC
         if lowlink[node] == index[node]:
             # Start a new strongly connected component
@@ -63,46 +63,47 @@ def detect_cycles(graph: Dict[str, Set[str]]) -> List[List[str]]:
                 scc.append(successor)
                 if successor == node:
                     break
-            
+
             # Only include SCCs with more than one node (actual cycles)
             if len(scc) > 1:
                 result.append(scc)
-    
+
     # Visit each node
     for node in graph:
         if node not in index:
             strongconnect(node)
-    
+
     return result
+
 
 def resolve_cycles(graph: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
     """
     Resolve cycles in a dependency graph by identifying strongly connected
     components and breaking cycles.
-    
+
     Args:
         graph: A dependency graph represented as adjacency lists
                (node -> set of dependencies)
-    
+
     Returns:
         A new acyclic graph with the same nodes but with cycles broken
     """
     # Detect cycles (SCCs)
     cycles = detect_cycles(graph)
-    
+
     if not cycles:
         logger.debug("No cycles detected in the dependency graph")
         return graph
-    
+
     logger.debug(f"Detected {len(cycles)} cycles in the dependency graph")
-    
+
     # Create a copy of the graph to modify
     new_graph = {node: deps.copy() for node, deps in graph.items()}
-    
+
     # Process each cycle
     for i, cycle in enumerate(cycles):
-        logger.debug(f"Cycle {i+1}: {' -> '.join(cycle)}")
-        
+        logger.debug(f"Cycle {i + 1}: {' -> '.join(cycle)}")
+
         # Strategy: Break the cycle by removing the "weakest" dependency
         # Here, we just arbitrarily remove the last edge to make the graph acyclic
         # In a real-world scenario, you might use heuristics to determine which edge to break
@@ -110,31 +111,32 @@ def resolve_cycles(graph: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
         for j in range(len(cycle) - 1):
             current = cycle[j]
             next_node = cycle[j + 1]
-            
+
             if next_node in new_graph[current]:
                 logger.debug(f"Breaking cycle by removing dependency: {current} -> {next_node}")
                 new_graph[current].remove(next_node)
                 break
-    
+
     return new_graph
+
 
 def topological_sort(graph: Dict[str, Set[str]]) -> List[str]:
     """
     Perform a topological sort on a dependency graph.
-    
+
     Args:
         graph: A dependency graph represented as adjacency lists
                (node -> set of dependencies)
-    
+
     Returns:
         A list of nodes in topological order (dependencies first)
     """
     # First, check for and resolve cycles
     acyclic_graph = resolve_cycles(graph)
-    
+
     # Initialize in-degree counter for all nodes
     in_degree = {node: 0 for node in acyclic_graph}
-    
+
     # Build reverse adjacency list for O(V+E) Kahn's algorithm:
     # reverse_adj[node] = node's dependencies, so processing node only
     # touches its direct deps instead of scanning all V nodes (O(V×E) → O(V+E)).
@@ -144,157 +146,157 @@ def topological_sort(graph: Dict[str, Set[str]]) -> List[str]:
             if dep in in_degree:
                 in_degree[dep] += 1
                 reverse_adj[node].append(dep)
-    
+
     # Queue of nodes with no dependencies (in-degree of 0)
     queue = deque([node for node, degree in in_degree.items() if degree == 0])
-    
+
     # Result list to store the topological order
     result = []
-    
+
     # Process nodes in topological order
     while queue:
         node = queue.popleft()
         result.append(node)
-        
+
         # Reduce in-degree only for nodes that actually depend on current node
         for dependent in reverse_adj.get(node, []):
             in_degree[dependent] -= 1
             if in_degree[dependent] == 0:
                 queue.append(dependent)
-    
+
     # Check if the sort was successful (all nodes included)
     if len(result) != len(acyclic_graph):
         logger.warning("Topological sort failed: graph has cycles that weren't resolved")
         # Return all nodes in some order to avoid breaking the process
         return list(acyclic_graph.keys())
-    
+
     # Reverse the result to get dependencies first
     return result[::-1]
+
 
 def dependency_first_dfs(graph: Dict[str, Set[str]]) -> List[str]:
     """
     Perform a depth-first traversal of the dependency graph, starting from root nodes
     that have no dependencies.
-    
+
     The graph uses natural dependency direction:
     - If A depends on B, the graph has an edge A → B
     - This means an edge from X to Y represents "X depends on Y"
     - Root nodes (nodes with no incoming edges/dependencies) are processed first,
       followed by nodes that depend on them
-    
+
     Args:
         graph: A dependency graph with natural direction (A→B if A depends on B)
-    
+
     Returns:
         A list of nodes in an order where dependencies come before their dependents
     """
     # First, resolve cycles to ensure we have a DAG
     acyclic_graph = resolve_cycles(graph)
-    
+
     # Find root nodes (nodes with no dependencies)
     root_nodes = []
     # Create a reverse graph to easily check if a node has incoming edges
     has_incoming_edge = {node: False for node in acyclic_graph}
-    
+
     for node, deps in acyclic_graph.items():
         for dep in deps:
             has_incoming_edge[dep] = True
-    
+
     # Nodes with no incoming edges are root nodes
     for node in acyclic_graph:
         if not has_incoming_edge.get(node, False) and node in acyclic_graph:
             root_nodes.append(node)
-    
+
     if not root_nodes:
         logger.warning("No root nodes found in the graph, using arbitrary starting point")
         root_nodes = list(acyclic_graph.keys())[:1]  # Use the first node as starting point
-    
+
     # Track visited nodes
     visited = set()
     result = []
-    
+
     # DFS function that processes dependencies first
     def dfs(node):
         if node in visited:
             return
         visited.add(node)
-        
+
         # Visit all dependencies first
         for dep in sorted(acyclic_graph.get(node, set())):
             dfs(dep)
-        
+
         # Add this node to the result after all its dependencies
         result.append(node)
-    
+
     # Start DFS from each root node
     for root in sorted(root_nodes):
         dfs(root)
-    
+
     # Check if all nodes were visited
     if len(result) != len(acyclic_graph):
         # Some nodes weren't visited - try to visit remaining nodes
         for node in sorted(acyclic_graph.keys()):
             if node not in visited:
                 dfs(node)
-    
+
     return result
+
 
 def build_graph_from_components(components: Dict[str, Any]) -> Dict[str, Set[str]]:
     """
     Build a dependency graph from a collection of code components.
-    
+
     The graph uses the natural dependency direction:
     - If A depends on B, we create an edge A → B
     - This means an edge from node X to node Y represents "X depends on Y"
     - Root nodes (nodes with no dependencies) are components that don't depend on anything
-    
+
     Args:
         components: A dictionary of code components, where each component
                    has a 'depends_on' attribute
-    
+
     Returns:
         A dependency graph with natural dependency direction
     """
     graph = {}
-    
+
     for comp_id, component in components.items():
         # Initialize the node's adjacency list
         if comp_id not in graph:
             graph[comp_id] = set()
-        
+
         # Add dependencies
         for dep_id in component.depends_on:
             # Only include dependencies that are actual components in our repository
             if dep_id in components:
                 graph[comp_id].add(dep_id)
-    
-    return graph 
+
+    return graph
 
 
 def get_leaf_nodes(graph: Dict[str, Set[str]], components: Dict[str, Node]) -> List[str]:
     """
     Find leaf nodes (nodes that no other nodes depend on) and build dependency trees
     showing the full dependency chain from each leaf back to the ultimate dependencies.
-    
+
     The graph uses natural dependency direction:
     - If A depends on B, the graph has an edge A → B
     - Leaf nodes are nodes that appear in no other node's dependency set
     - Each tree shows the dependency chain: leaf → its dependencies → their dependencies, etc.
-    
+
     Args:
         graph: A dependency graph with natural direction (A→B if A depends on B)
-    
+
     Returns:
         A list of leaf nodes
     """
     # First, resolve cycles to ensure we have a DAG
     acyclic_graph = resolve_cycles(graph)
-    
+
     # Find leaf nodes (nodes that no other nodes depend on)
     leaf_nodes = set(acyclic_graph.keys())
 
-    
-    
     def concise_node(leaf_nodes: Set[str]) -> Set[str]:
         concise_leaf_nodes = set()
         for node in leaf_nodes:
@@ -303,15 +305,15 @@ def get_leaf_nodes(graph: Dict[str, Set[str]], components: Dict[str, Node]) -> L
                 concise_leaf_nodes.add(node.replace(".__init__", ""))
             else:
                 concise_leaf_nodes.add(node)
-        
+
         keep_leaf_nodes = []
-        
+
         # Determine if we should include functions based on available component types
         # For C-based projects, we need to include functions since they don't have classes
         available_types = set()
         for comp in components.values():
             available_types.add(comp.component_type)
-        
+
         # Valid types for leaf nodes - include functions for C-based codebases
         valid_types = {"class", "interface", "struct"}
         # If no classes/interfaces/structs are found, include functions
@@ -320,10 +322,17 @@ def get_leaf_nodes(graph: Dict[str, Set[str]], components: Dict[str, Node]) -> L
 
         for leaf_node in leaf_nodes:
             # Skip any leaf nodes that are clearly error strings or invalid identifiers
-            if not isinstance(leaf_node, str) or leaf_node.strip() == "" or any(err_keyword in leaf_node.lower() for err_keyword in ['error', 'exception', 'failed', 'invalid']):
+            if (
+                not isinstance(leaf_node, str)
+                or leaf_node.strip() == ""
+                or any(
+                    err_keyword in leaf_node.lower()
+                    for err_keyword in ["error", "exception", "failed", "invalid"]
+                )
+            ):
                 logger.debug(f"Skipping invalid leaf node identifier: '{leaf_node}'")
                 continue
-                
+
             if leaf_node in components:
                 if components[leaf_node].component_type in valid_types:
                     keep_leaf_nodes.append(leaf_node)
@@ -344,27 +353,30 @@ def get_leaf_nodes(graph: Dict[str, Set[str]], components: Dict[str, Node]) -> L
         logger.warning(
             "Leaf nodes (%d) exceed threshold (%d, %.0f%% of %d components); "
             "pruning nodes that are dependencies of other nodes",
-            len(concise_leaf_nodes), leaf_threshold,
-            leaf_threshold / max(len(components), 1) * 100, len(components),
+            len(concise_leaf_nodes),
+            leaf_threshold,
+            leaf_threshold / max(len(components), 1) * 100,
+            len(components),
         )
         # Remove nodes that are dependencies of other nodes
         for node, deps in acyclic_graph.items():
             for dep in deps:
                 leaf_nodes.discard(dep)
-        
+
         concise_leaf_nodes = concise_node(leaf_nodes)
         logger.info("After pruning: %d leaf nodes remain", len(concise_leaf_nodes))
-    
+
     if not leaf_nodes:
         logger.warning("No leaf nodes found in the graph")
         return []
-    
+
     return concise_leaf_nodes
 
 
 # ---------------------------------------------------------------------------
 # Transitive impact analysis
 # ---------------------------------------------------------------------------
+
 
 def build_reverse_graph(graph: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
     """Build the reverse adjacency list.
@@ -499,13 +511,17 @@ def transitive_impact(
     """
     if direction == "both":
         fwd = transitive_impact(
-            graph, start_nodes,
-            max_depth=max_depth, direction="depends_on",
+            graph,
+            start_nodes,
+            max_depth=max_depth,
+            direction="depends_on",
             track_paths=track_paths,
         )
         rev = transitive_impact(
-            graph, start_nodes,
-            max_depth=max_depth, direction="depended_by",
+            graph,
+            start_nodes,
+            max_depth=max_depth,
+            direction="depended_by",
             track_paths=track_paths,
         )
         # Merge: keep the smaller depth when a node appears in both
@@ -594,4 +610,4 @@ def resolve_files_to_components(
             ):
                 matched.append(comp_id)
                 break
-    return matched 
+    return matched

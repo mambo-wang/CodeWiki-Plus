@@ -8,12 +8,13 @@ methodology without needing its own copy of the prompts.
 
 from __future__ import annotations
 
-import json, logging
+import json
+import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from codewiki.mcp.session import SessionStore, SessionState
-from codewiki.mcp.tools.workspace_result import write_result, _FILE_THRESHOLD
+from codewiki.mcp.session import SessionStore
+from codewiki.mcp.tools.workspace_result import _FILE_THRESHOLD
 
 logger = logging.getLogger(__name__)
 from codewiki.src.be.prompt_template import (
@@ -23,7 +24,6 @@ from codewiki.src.be.prompt_template import (
     format_system_prompt,
     format_leaf_system_prompt,
     format_cluster_prompt,
-    format_user_prompt,
 )
 
 
@@ -41,6 +41,7 @@ def _build_schema_constraints(output_dir: Optional[str]) -> str:
         return ""
     try:
         import yaml
+
         schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
     except Exception:
         return ""
@@ -57,7 +58,9 @@ def _build_schema_constraints(output_dir: Optional[str]) -> str:
             if isinstance(section, dict):
                 title = section.get("title", "")
                 mermaid = section.get("mermaid_diagram", False)
-                lines.append(f"  - {title}" + (" (must include Mermaid diagram)" if mermaid else ""))
+                lines.append(
+                    f"  - {title}" + (" (must include Mermaid diagram)" if mermaid else "")
+                )
             elif isinstance(section, str):
                 lines.append(f"  - {section}")
         if lines:
@@ -94,7 +97,9 @@ def _build_schema_constraints(output_dir: Optional[str]) -> str:
     # LLM Wiki: extraction granularity
     granularity = schema.get("extraction_granularity", "")
     if granularity:
-        parts.append(f"Extraction granularity: {granularity} (focused=3-7 items, standard=moderate, exhaustive=comprehensive)")
+        parts.append(
+            f"Extraction granularity: {granularity} (focused=3-7 items, standard=moderate, exhaustive=comprehensive)"
+        )
 
     # Project purpose (defined in schema.yaml)
     purpose_text = schema.get("purpose", "")
@@ -146,14 +151,22 @@ def _build_schema_constraints(output_dir: Optional[str]) -> str:
 
 # Hardcoded fallback for doc_type hints (used when schema.yaml has no doc_types)
 _FALLBACK_DOC_TYPE_HINTS = {
-    "api": {"module": "Focus on API documentation: endpoints, parameters, return types, and usage examples."},
+    "api": {
+        "module": "Focus on API documentation: endpoints, parameters, return types, and usage examples."
+    },
     "architecture": {
         "module": "Focus on architecture documentation: system design, component relationships, and data flow.",
         "overview": "Focus on system-level architecture: show how modules relate, data flows between components, and the overall layered design. Include a high-level Mermaid architecture diagram.",
     },
-    "user-guide": {"module": "Focus on user guide documentation: how to use features, step-by-step tutorials."},
-    "developer": {"module": "Focus on developer documentation: code structure, contribution guidelines, and implementation details."},
-    "business": {"module": "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details."},
+    "user-guide": {
+        "module": "Focus on user guide documentation: how to use features, step-by-step tutorials."
+    },
+    "developer": {
+        "module": "Focus on developer documentation: code structure, contribution guidelines, and implementation details."
+    },
+    "business": {
+        "module": "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details."
+    },
     "design": {
         "module": "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity.",
         "overview": "Focus on system-level architecture: show how modules relate to each other, data flows between components, overall layered design, and key architectural decisions. Provide a high-level view that helps readers understand the system's structural blueprint. Include Mermaid diagrams for the architecture overview.",
@@ -366,19 +379,30 @@ def handle_get_prompt(
     repo_path = arguments.get("repo_path")
     if output_dir_arg:
         from pathlib import Path
+
         output_dir = str(Path(output_dir_arg).expanduser().resolve())
         # No session/workspace here; large prompts stay inline.
         session = None
     elif repo_path:
         from pathlib import Path
-        rp = str(Path(repo_path).expanduser().resolve()) if Path(repo_path).is_absolute() else str((Path.cwd() / repo_path).expanduser().resolve())
+
+        rp = (
+            str(Path(repo_path).expanduser().resolve())
+            if Path(repo_path).is_absolute()
+            else str((Path.cwd() / repo_path).expanduser().resolve())
+        )
         output_dir = str(Path(rp) / "repowiki")
         # Try to find active session for workspace access
         session = store.find_or_restore(rp)
         # Create a lightweight workspace for large prompt writing if no active session
         if session is None:
             from codewiki.mcp.workspace import SessionWorkspace
-            session = type('obj', (object,), {'output_dir': output_dir, 'workspace': SessionWorkspace(Path(rp), 'prompt')})()
+
+            session = type(
+                "obj",
+                (object,),
+                {"output_dir": output_dir, "workspace": SessionWorkspace(Path(rp), "prompt")},
+            )()
     else:
         session = None
         output_dir = None
@@ -393,16 +417,20 @@ def handle_get_prompt(
 
     if prompt_type not in _PROMPT_CATALOG:
         available = list(_PROMPT_CATALOG.keys())
-        return json.dumps({
-            "error": f"Unknown prompt_type: {prompt_type}",
-            "available_types": available,
-        })
+        return json.dumps(
+            {
+                "error": f"Unknown prompt_type: {prompt_type}",
+                "available_types": available,
+            }
+        )
 
     catalog_entry = _PROMPT_CATALOG[prompt_type]
 
     # Inject schema constraints from schema.yaml into variables for _resolve_prompt
     schema_constraints = _build_schema_constraints(output_dir)
-    variables['_has_caller_ci'] = "custom_instructions" in variables and variables["custom_instructions"]
+    variables["_has_caller_ci"] = (
+        "custom_instructions" in variables and variables["custom_instructions"]
+    )
     if schema_constraints:
         caller_ci = variables.get("custom_instructions")
         if caller_ci:
@@ -413,6 +441,7 @@ def handle_get_prompt(
     # Inject doc_types config from schema for doc_type hint resolution
     if output_dir:
         from codewiki.mcp.tools.page_router import load_schema
+
         try:
             schema = load_schema(output_dir)
             variables["_doc_types"] = schema.get("doc_types", {})
@@ -436,19 +465,24 @@ def handle_get_prompt(
     }
 
     # Write to file when content is large and session is available
-    if (session and getattr(session, "workspace", None)
-            and len(content.encode("utf-8")) > _FILE_THRESHOLD):
-        file_path = session.workspace.write_text(
-            f"prompt_{prompt_type}.txt", content
+    if (
+        session
+        and getattr(session, "workspace", None)
+        and len(content.encode("utf-8")) > _FILE_THRESHOLD
+    ):
+        file_path = session.workspace.write_text(f"prompt_{prompt_type}.txt", content)
+        return json.dumps(
+            {
+                "prompt_type": prompt_type,
+                "description": catalog_entry["description"],
+                "usage_hint": catalog_entry["usage_hint"],
+                "file": str(file_path),
+                "content_length": len(content),
+                "hint": "Read the file for the full prompt content.",
+            },
+            indent=2,
+            ensure_ascii=False,
         )
-        return json.dumps({
-            "prompt_type": prompt_type,
-            "description": catalog_entry["description"],
-            "usage_hint": catalog_entry["usage_hint"],
-            "file": str(file_path),
-            "content_length": len(content),
-            "hint": "Read the file for the full prompt content.",
-        }, indent=2, ensure_ascii=False)
 
     return json.dumps(result, indent=2, ensure_ascii=False)
 
@@ -562,7 +596,9 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
     """Resolve a prompt template with optional variable substitution."""
 
     if prompt_type == "cluster":
-        potential_core_components = variables.get("potential_core_components", "<POTENTIAL_CORE_COMPONENTS placeholder>")
+        potential_core_components = variables.get(
+            "potential_core_components", "<POTENTIAL_CORE_COMPONENTS placeholder>"
+        )
         module_tree = variables.get("module_tree", {})
         module_name = variables.get("module_name", None)
         return format_cluster_prompt(
@@ -600,10 +636,12 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
         # Return the template with placeholders filled as possible
         return USER_PROMPT.format(
             module_name=module_name,
-            module_tree=json.dumps(module_tree, indent=2) if module_tree else "<MODULE_TREE placeholder>",
+            module_tree=json.dumps(module_tree, indent=2)
+            if module_tree
+            else "<MODULE_TREE placeholder>",
             formatted_core_component_codes=variables.get(
                 "formatted_core_component_codes",
-                "<CORE_COMPONENT_CODES placeholder — use read_code_components to get source code>"
+                "<CORE_COMPONENT_CODES placeholder — use read_code_components to get source code>",
             ),
         )
 
@@ -619,10 +657,14 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
                 custom_instructions = doc_type_hint
         custom_section = ""
         if custom_instructions:
-            custom_section = f"\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
+            custom_section = (
+                f"\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
+            )
         return MODULE_OVERVIEW_PROMPT.format(
             module_name=module_name,
-            repo_structure=repo_structure if isinstance(repo_structure, str) else json.dumps(repo_structure, indent=4),
+            repo_structure=repo_structure
+            if isinstance(repo_structure, str)
+            else json.dumps(repo_structure, indent=4),
             custom_instructions=custom_section,
         )
 
@@ -638,10 +680,14 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
                 custom_instructions = doc_type_hint
         custom_section = ""
         if custom_instructions:
-            custom_section = f"\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
+            custom_section = (
+                f"\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
+            )
         return REPO_OVERVIEW_PROMPT.format(
             repo_name=repo_name,
-            repo_structure=repo_structure if isinstance(repo_structure, str) else json.dumps(repo_structure, indent=4),
+            repo_structure=repo_structure
+            if isinstance(repo_structure, str)
+            else json.dumps(repo_structure, indent=4),
             custom_instructions=custom_section,
         )
 
@@ -649,8 +695,13 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
         from codewiki.src.be.prompt_template import WORKSPACE_OVERVIEW_PROMPT
 
         workspace_name = variables.get("workspace_name", "WORKSPACE")
-        services_summary = variables.get("services_summary", "<SERVICES placeholder — paste the Services table from overview.md>")
-        cross_service_data = variables.get("cross_service_data", "<CROSS_SERVICE placeholder — paste the Service Topology + Cross-Service Summary from overview.md>")
+        services_summary = variables.get(
+            "services_summary", "<SERVICES placeholder — paste the Services table from overview.md>"
+        )
+        cross_service_data = variables.get(
+            "cross_service_data",
+            "<CROSS_SERVICE placeholder — paste the Service Topology + Cross-Service Summary from overview.md>",
+        )
         custom_instructions = variables.get("custom_instructions", None)
         doc_type_hint = _resolve_doc_type_hint(variables, "overview")
         if doc_type_hint:
@@ -660,7 +711,9 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
                 custom_instructions = doc_type_hint
         custom_section = ""
         if custom_instructions:
-            custom_section = f"\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
+            custom_section = (
+                f"\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
+            )
         return WORKSPACE_OVERVIEW_PROMPT.format(
             workspace_name=workspace_name,
             services_summary=services_summary,
@@ -891,7 +944,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "```yaml\n"
             "---\n"
             "type: entity\n"
-            "title: \"<Entity Name>\"\n"
+            'title: "<Entity Name>"\n'
             "aliases: [<alternate names for search boost>]\n"
             "category: <class|interface|enum|data_model|service>\n"
             "tags: [<semantic tags>]\n"
@@ -908,7 +961,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "- Compiler, not author: factual statements reuse the source document's own sentences, annotated with\n"
             "  `[^src:<source_name>:<line_range>]`. Light reordering, deduplication, and joining are fine;\n"
             "  do NOT rephrase for style or expand short statements into longer ones.\n"
-            "- No rhetorical filler: phrases like \"旨在帮助…\", \"该平台致力于…\", \"具有重要意义\" must NOT appear\n"
+            '- No rhetorical filler: phrases like "旨在帮助…", "该平台致力于…", "具有重要意义" must NOT appear\n'
             "  unless literally present in the source.\n"
             "- Scope discipline: every statement must be about the page title itself. Reject material that clearly\n"
             "  belongs to a different but related thing.\n"
@@ -926,7 +979,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "```yaml\n"
             "---\n"
             "type: concept\n"
-            "title: \"<Concept Name>\"\n"
+            'title: "<Concept Name>"\n'
             "aliases: [<alternate names>]\n"
             "domain: <architectural domain>\n"
             "tags: [<semantic tags>]\n"
@@ -943,7 +996,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "- Compiler, not author: factual statements reuse the source document's own sentences, annotated with\n"
             "  `[^src:<source_name>:<line_range>]`. Light reordering, deduplication, and joining are fine;\n"
             "  do NOT rephrase for style or expand short statements into longer ones.\n"
-            "- No rhetorical filler: phrases like \"旨在帮助…\", \"该平台致力于…\", \"具有重要意义\" must NOT appear\n"
+            '- No rhetorical filler: phrases like "旨在帮助…", "该平台致力于…", "具有重要意义" must NOT appear\n'
             "  unless literally present in the source.\n"
             "- Scope discipline: every statement must be about the page title itself. Reject material that clearly\n"
             "  belongs to a different but related concept.\n"
@@ -962,10 +1015,10 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "```yaml\n"
             "---\n"
             "type: source\n"
-            "title: \"<Source Title>\"\n"
-            "origin: \"<original document identifier>\"\n"
+            'title: "<Source Title>"\n'
+            'origin: "<original document identifier>"\n'
             "source_type: <pdf|md|docx|html>\n"
-            "version: \"<version or date>\"\n"
+            'version: "<version or date>"\n'
             "tags: [<semantic tags>]\n"
             "---\n"
             "```\n\n"
@@ -980,9 +1033,9 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "  each annotated with `[^src:<name>:<line_range>]`. Do NOT invent, synthesize, or infer information\n"
             "  not explicitly present in the source.\n"
             "- Stay close to source wording: reuse the source's own sentences; do NOT rephrase for style or pad with\n"
-            "  rhetorical filler (\"旨在帮助…\", \"具有重要意义\" etc.).\n"
+            '  rhetorical filler ("旨在帮助…", "具有重要意义" etc.).\n'
             "- Empty content rule: if the source carries no substantive extractable text, say so explicitly\n"
-            "  (\"No textual content was extractable from this document.\"). Do NOT invent a topic or guess from\n"
+            '  ("No textual content was extractable from this document."). Do NOT invent a topic or guess from\n'
             "  the filename — uploaded files often have uninformative names."
         )
 
@@ -995,7 +1048,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "```yaml\n"
             "---\n"
             "type: comparison\n"
-            "title: \"<A> vs <B>\"\n"
+            'title: "<A> vs <B>"\n'
             "subjects: [<list of compared items>]\n"
             "tags: [<semantic tags>]\n"
             "---\n"
@@ -1018,7 +1071,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "```yaml\n"
             "---\n"
             "type: query\n"
-            "title: \"<Query Title>\"\n"
+            'title: "<Query Title>"\n'
             "query_date: <YYYY-MM-DD>\n"
             "query_status: <open|resolved|archived>\n"
             "tags: [<semantic tags>]\n"
@@ -1053,13 +1106,13 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "### Step 3: Routing\n\n"
             "| Knowledge type | Write method |\n"
             "|---|---|\n"
-            "| Technical choice / trade-off | `ingest_note(note_type=\"decision\")` |\n"
-            "| Pitfall / gotcha | `ingest_note(note_type=\"pitfall\")` |\n"
-            "| Lesson learned (debug journey, corrected assumption) | `ingest_note(note_type=\"lesson\")` |\n"
-            "| Architectural fact discovered | `ingest_note(note_type=\"architecture\")` |\n"
-            "| Temporary workaround (with recovery condition) | `ingest_note(note_type=\"workaround\")` |\n"
-            "| Multi-option comparison (with table) | `write_doc_file(page_type=\"comparison\")` |\n"
-            "| Research conclusion archive | `write_doc_file(page_type=\"query\")` |\n\n"
+            '| Technical choice / trade-off | `ingest_note(note_type="decision")` |\n'
+            '| Pitfall / gotcha | `ingest_note(note_type="pitfall")` |\n'
+            '| Lesson learned (debug journey, corrected assumption) | `ingest_note(note_type="lesson")` |\n'
+            '| Architectural fact discovered | `ingest_note(note_type="architecture")` |\n'
+            '| Temporary workaround (with recovery condition) | `ingest_note(note_type="workaround")` |\n'
+            '| Multi-option comparison (with table) | `write_doc_file(page_type="comparison")` |\n'
+            '| Research conclusion archive | `write_doc_file(page_type="query")` |\n\n'
             "### Step 4: Draft Format\n\n"
             "Present to user for confirmation before writing:\n\n"
             "```\n"
@@ -1091,16 +1144,16 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "### Output format:\n"
             "```json\n"
             "{\n"
-            "  \"taxonomy_plan\": {\n"
-            "    \"wiki/modules/\": [<list of module page slugs>],\n"
-            "    \"wiki/entities/\": [<list of entity page slugs>],\n"
-            "    \"wiki/concepts/\": [<list of concept page slugs>],\n"
-            "    \"wiki/sources/\": [<list of source page slugs>],\n"
-            "    \"wiki/comparisons/\": [<list of comparison page slugs>],\n"
-            "    \"wiki/queries/\": [<list of query page slugs>]\n"
+            '  "taxonomy_plan": {\n'
+            '    "wiki/modules/": [<list of module page slugs>],\n'
+            '    "wiki/entities/": [<list of entity page slugs>],\n'
+            '    "wiki/concepts/": [<list of concept page slugs>],\n'
+            '    "wiki/sources/": [<list of source page slugs>],\n'
+            '    "wiki/comparisons/": [<list of comparison page slugs>],\n'
+            '    "wiki/queries/": [<list of query page slugs>]\n'
             "  },\n"
-            "  \"suggested_aliases\": {\n"
-            "    \"<page_slug>\": [<alternate names>]\n"
+            '  "suggested_aliases": {\n'
+            '    "<page_slug>": [<alternate names>]\n'
             "  }\n"
             "}\n"
             "```\n\n"
@@ -1113,9 +1166,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
 
     elif prompt_type == "extraction_scan":
         granularity = (
-            variables.get("granularity")
-            or variables.get("_schema_granularity")
-            or "standard"
+            variables.get("granularity") or variables.get("_schema_granularity") or "standard"
         )
         return (
             f"## Extraction Scan Template (granularity: {granularity})\n\n"
@@ -1129,31 +1180,31 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "  If unsure, LEAVE IT OUT — a clean focused index beats a comprehensive noisy one.\n"
             "- **standard**: main subjects PLUS substantively discussed items — those with a dedicated paragraph,\n"
             "  a multi-point list, or at least 2-3 sentences of context. EXCLUDE comma-separated list mentions\n"
-            "  (e.g. \"Tech stack: A, B, C, D\" without individual discussion), one-off mentions, parenthetical references.\n"
+            '  (e.g. "Tech stack: A, B, C, D" without individual discussion), one-off mentions, parenthetical references.\n'
             "  When in doubt about a marginal item, prefer to EXCLUDE it.\n"
             "- **exhaustive**: every named entity and recognizable concept, including concrete well-known\n"
             "  technologies/standards/methodologies mentioned even once by name. EXCLUDE only truly generic\n"
-            "  terms (\"server\", \"function\", \"data\") and items appearing only inside URLs or citations.\n\n"
+            '  terms ("server", "function", "data") and items appearing only inside URLs or citations.\n\n'
             f"Current granularity: **{granularity}**\n\n"
             "### Extraction format:\n"
             "```json\n"
             "{\n"
-            "  \"items\": [\n"
+            '  "items": [\n'
             "    {\n"
-            "      \"title\": \"<item title>\",\n"
-            "      \"type\": \"<entity|concept|decision|pitfall>\",\n"
-            "      \"summary\": \"<1-2 sentence summary>\",\n"
-            "      \"aliases\": [\"<names referring to the EXACT same item>\"],\n"
-            "      \"source_ref\": \"[^src:<source_name>:<line_range>]\",\n"
-            "      \"target_page\": \"<wiki/<type_dir>/<slug>.md>\"\n"
+            '      "title": "<item title>",\n'
+            '      "type": "<entity|concept|decision|pitfall>",\n'
+            '      "summary": "<1-2 sentence summary>",\n'
+            '      "aliases": ["<names referring to the EXACT same item>"],\n'
+            '      "source_ref": "[^src:<source_name>:<line_range>]",\n'
+            '      "target_page": "<wiki/<type_dir>/<slug>.md>"\n'
             "    }\n"
             "  ]\n"
             "}\n"
             "```\n\n"
             "### Rules:\n"
             "- Each item must reference its source location — the line range where the item is SUBSTANTIVELY discussed, not a passing mention\n"
-            "- aliases only include names for the EXACT same item: official abbreviations (\"IBM\" for \"International Business Machines\"),\n"
-            "  full/short name variants (\"腾讯\" for \"腾讯控股\"), translations (\"Apple\" for \"苹果公司\").\n"
+            '- aliases only include names for the EXACT same item: official abbreviations ("IBM" for "International Business Machines"),\n'
+            '  full/short name variants ("腾讯" for "腾讯控股"), translations ("Apple" for "苹果公司").\n'
             "  NEVER include parent categories, related products, generic terms, or broader concepts. Use [] if none.\n"
             "- Type separation: specific named things (people, orgs, products, services, APIs) go to entity;\n"
             "  abstract ideas (patterns, methodologies, theories, protocols) go to concept.\n"
@@ -1175,18 +1226,18 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "2. The match is a **name variation**: abbreviation ↔ full name, translation, or minor spelling difference.\n"
             "3. Types are compatible: entities merge with entities, concepts merge with concepts. **Never merge an entity into a concept or vice versa.**\n\n"
             "### Examples of CORRECT merges:\n"
-            "- \"Acme Corp\" → \"Acme Corporation\" (same company, abbreviation)\n"
-            "- \"RAG\" → \"Retrieval-Augmented Generation\" (same concept, acronym)\n"
-            "- \"苹果公司\" → \"Apple Inc.\" (same entity, translation)\n\n"
+            '- "Acme Corp" → "Acme Corporation" (same company, abbreviation)\n'
+            '- "RAG" → "Retrieval-Augmented Generation" (same concept, acronym)\n'
+            '- "苹果公司" → "Apple Inc." (same entity, translation)\n\n'
             "### Examples of INCORRECT merges — do NOT merge these:\n"
-            "- \"混元模型\" ≠ \"通义模型\" (competing products in the same category are DIFFERENT entities)\n"
-            "- \"iPhone 15\" ≠ \"华为 Mate 60\" (different specific products in the same category)\n"
-            "- \"GPT-4\" ≠ \"GPT-3.5\" (different versions of a product are distinct entities)\n"
-            "- \"AI 安全\" ≠ \"内容审核机制\" (related topics, but different concepts)\n"
-            "- \"机器学习\" ≠ \"神经网络\" (neural networks are a subset of ML, not the same concept)\n"
-            "- \"居民身份证\" ≠ \"工作居住证\" (both government-issued documents but completely different credentials)\n"
-            "- \"学位证\" ≠ \"毕业证\" (both educational documents but distinct)\n"
-            "- \"运动员注册\" ≠ \"学历认证\" (both involve verification, but completely different domains)\n\n"
+            '- "混元模型" ≠ "通义模型" (competing products in the same category are DIFFERENT entities)\n'
+            '- "iPhone 15" ≠ "华为 Mate 60" (different specific products in the same category)\n'
+            '- "GPT-4" ≠ "GPT-3.5" (different versions of a product are distinct entities)\n'
+            '- "AI 安全" ≠ "内容审核机制" (related topics, but different concepts)\n'
+            '- "机器学习" ≠ "神经网络" (neural networks are a subset of ML, not the same concept)\n'
+            '- "居民身份证" ≠ "工作居住证" (both government-issued documents but completely different credentials)\n'
+            '- "学位证" ≠ "毕业证" (both educational documents but distinct)\n'
+            '- "运动员注册" ≠ "学历认证" (both involve verification, but completely different domains)\n\n'
             "### Key principle: related ≠ same\n"
             "Two items sharing a few characters in their name, or belonging to the same domain / category / industry,\n"
             "is NOT a reason to merge. ABSOLUTELY DO NOT merge different products, different companies, different versions,\n"
@@ -1200,12 +1251,12 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "### Decision output format:\n"
             "```json\n"
             "{\n"
-            "  \"decisions\": [\n"
+            '  "decisions": [\n'
             "    {\n"
-            "      \"title\": \"<item title>\",\n"
-            "      \"action\": \"<create|merge|drop>\",\n"
-            "      \"merge_target\": \"<wiki path of existing page, only when action=merge>\",\n"
-            "      \"reason\": \"<one sentence justification>\"\n"
+            '      "title": "<item title>",\n'
+            '      "action": "<create|merge|drop>",\n'
+            '      "merge_target": "<wiki path of existing page, only when action=merge>",\n'
+            '      "reason": "<one sentence justification>"\n'
             "    }\n"
             "  ]\n"
             "}\n"

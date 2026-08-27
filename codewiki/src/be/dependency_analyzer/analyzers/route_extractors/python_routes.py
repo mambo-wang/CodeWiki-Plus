@@ -4,6 +4,7 @@ Uses Python's built-in ``ast`` module (same parser as the existing
 PythonASTAnalyzer) to detect server-side route decorators and client-side
 HTTP calls.
 """
+
 from __future__ import annotations
 
 import ast
@@ -12,10 +13,13 @@ import os
 from typing import List, Optional
 
 from codewiki.src.be.dependency_analyzer.models.cross_service import (
-    RouteNode, RouteProtocol, RouteRole,
+    RouteNode,
+    RouteProtocol,
+    RouteRole,
 )
 from codewiki.src.be.dependency_analyzer.utils.path_canonicalizer import (
-    canonicalize_path, make_route_key,
+    canonicalize_path,
+    make_route_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,13 +28,13 @@ logger = logging.getLogger(__name__)
 
 # decorator.func.attr  →  (method, framework)
 _DECORATOR_METHOD_MAP = {
-    "get":    ("GET",    "fastapi"),
-    "post":   ("POST",   "fastapi"),
-    "put":    ("PUT",    "fastapi"),
+    "get": ("GET", "fastapi"),
+    "post": ("POST", "fastapi"),
+    "put": ("PUT", "fastapi"),
     "delete": ("DELETE", "fastapi"),
-    "patch":  ("PATCH",  "fastapi"),
-    "head":   ("HEAD",   "fastapi"),
-    "options":("OPTIONS","fastapi"),
+    "patch": ("PATCH", "fastapi"),
+    "head": ("HEAD", "fastapi"),
+    "options": ("OPTIONS", "fastapi"),
 }
 
 _FLASK_ROUTE_ATTRS = {"route"}
@@ -42,24 +46,24 @@ _DJANGO_PATH_FUNCS = {"path", "re_path", "url"}
 
 _CLIENT_LIBRARIES = {
     # module.method  →  (method, framework)
-    "requests.get":    ("GET",    "requests"),
-    "requests.post":   ("POST",   "requests"),
-    "requests.put":    ("PUT",    "requests"),
+    "requests.get": ("GET", "requests"),
+    "requests.post": ("POST", "requests"),
+    "requests.put": ("PUT", "requests"),
     "requests.delete": ("DELETE", "requests"),
-    "requests.patch":  ("PATCH",  "requests"),
-    "requests.head":   ("HEAD",   "requests"),
-    "requests.request":(None,     "requests"),  # method from 1st arg
-    "httpx.get":       ("GET",    "httpx"),
-    "httpx.post":      ("POST",   "httpx"),
-    "httpx.put":       ("PUT",    "httpx"),
-    "httpx.delete":    ("DELETE", "httpx"),
-    "httpx.patch":     ("PATCH",  "httpx"),
-    "httpx.request":   (None,     "httpx"),
-    "aiohttp.get":     ("GET",    "aiohttp"),
-    "aiohttp.post":    ("POST",   "aiohttp"),
-    "aiohttp.put":     ("PUT",    "aiohttp"),
-    "aiohttp.delete":  ("DELETE", "aiohttp"),
-    "aiohttp.patch":   ("PATCH",  "aiohttp"),
+    "requests.patch": ("PATCH", "requests"),
+    "requests.head": ("HEAD", "requests"),
+    "requests.request": (None, "requests"),  # method from 1st arg
+    "httpx.get": ("GET", "httpx"),
+    "httpx.post": ("POST", "httpx"),
+    "httpx.put": ("PUT", "httpx"),
+    "httpx.delete": ("DELETE", "httpx"),
+    "httpx.patch": ("PATCH", "httpx"),
+    "httpx.request": (None, "httpx"),
+    "aiohttp.get": ("GET", "aiohttp"),
+    "aiohttp.post": ("POST", "aiohttp"),
+    "aiohttp.put": ("PUT", "aiohttp"),
+    "aiohttp.delete": ("DELETE", "aiohttp"),
+    "aiohttp.patch": ("PATCH", "aiohttp"),
 }
 
 _HTTP_METHODS_UPPER = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
@@ -105,9 +109,7 @@ class _RouteVisitor(ast.NodeVisitor):
     # ---- helpers ----
 
     def _make_component_id(self, name: str) -> str:
-        return _component_id_from_context(
-            self.file_path, name, self._current_class or ""
-        )
+        return _component_id_from_context(self.file_path, name, self._current_class or "")
 
     def _extract_string_arg(self, node: ast.expr) -> Optional[str]:
         """Extract a string literal from an AST expression."""
@@ -144,20 +146,22 @@ class _RouteVisitor(ast.NodeVisitor):
                         path = self._extract_string_arg(args[0])
                         if path:
                             method, fw = _DECORATOR_METHOD_MAP[attr]
-                            self.routes.append(RouteNode(
-                                route_key=make_route_key(method, path),
-                                protocol=RouteProtocol.HTTP,
-                                method=method,
-                                path=canonicalize_path(path),
-                                role=RouteRole.SERVER,
-                                component_id=self._make_component_id(
-                                    self._current_func or "unknown"
-                                ),
-                                repo_name=self.repo_name,
-                                file_path=self.file_path,
-                                line_number=lineno,
-                                framework=fw,
-                            ))
+                            self.routes.append(
+                                RouteNode(
+                                    route_key=make_route_key(method, path),
+                                    protocol=RouteProtocol.HTTP,
+                                    method=method,
+                                    path=canonicalize_path(path),
+                                    role=RouteRole.SERVER,
+                                    component_id=self._make_component_id(
+                                        self._current_func or "unknown"
+                                    ),
+                                    repo_name=self.repo_name,
+                                    file_path=self.file_path,
+                                    line_number=lineno,
+                                    framework=fw,
+                                )
+                            )
                             return
 
                 # Flask: @app.route("/path", methods=["GET"])
@@ -175,20 +179,22 @@ class _RouteVisitor(ast.NodeVisitor):
                                         if m and m.upper() in _HTTP_METHODS_UPPER:
                                             method = m.upper()
                                             break
-                            self.routes.append(RouteNode(
-                                route_key=make_route_key(method, path),
-                                protocol=RouteProtocol.HTTP,
-                                method=method,
-                                path=canonicalize_path(path),
-                                role=RouteRole.SERVER,
-                                component_id=self._make_component_id(
-                                    self._current_func or "unknown"
-                                ),
-                                repo_name=self.repo_name,
-                                file_path=self.file_path,
-                                line_number=lineno,
-                                framework="flask",
-                            ))
+                            self.routes.append(
+                                RouteNode(
+                                    route_key=make_route_key(method, path),
+                                    protocol=RouteProtocol.HTTP,
+                                    method=method,
+                                    path=canonicalize_path(path),
+                                    role=RouteRole.SERVER,
+                                    component_id=self._make_component_id(
+                                        self._current_func or "unknown"
+                                    ),
+                                    repo_name=self.repo_name,
+                                    file_path=self.file_path,
+                                    line_number=lineno,
+                                    framework="flask",
+                                )
+                            )
                             return
 
             # Django: path("route/", view_func)
@@ -243,18 +249,20 @@ class _RouteVisitor(ast.NodeVisitor):
             method = method_hint or "GET"
             comp_id = self._make_component_id(self._current_func or "unknown")
 
-            self.routes.append(RouteNode(
-                route_key=make_route_key(method, path),
-                protocol=RouteProtocol.HTTP,
-                method=method,
-                path=canonicalize_path(path),
-                role=RouteRole.CLIENT,
-                component_id=comp_id,
-                repo_name=self.repo_name,
-                file_path=self.file_path,
-                line_number=node.lineno,
-                framework=framework,
-            ))
+            self.routes.append(
+                RouteNode(
+                    route_key=make_route_key(method, path),
+                    protocol=RouteProtocol.HTTP,
+                    method=method,
+                    path=canonicalize_path(path),
+                    role=RouteRole.CLIENT,
+                    component_id=comp_id,
+                    repo_name=self.repo_name,
+                    file_path=self.file_path,
+                    line_number=node.lineno,
+                    framework=framework,
+                )
+            )
             return
 
         # Pattern: instance.method(...)  e.g. c.get("/path") where c is a
@@ -276,18 +284,20 @@ class _RouteVisitor(ast.NodeVisitor):
                 if not path:
                     return
                 comp_id = self._make_component_id(self._current_func or "unknown")
-                self.routes.append(RouteNode(
-                    route_key=make_route_key(method, path),
-                    protocol=RouteProtocol.HTTP,
-                    method=method,
-                    path=canonicalize_path(path),
-                    role=RouteRole.CLIENT,
-                    component_id=comp_id,
-                    repo_name=self.repo_name,
-                    file_path=self.file_path,
-                    line_number=node.lineno,
-                    framework=framework,
-                ))
+                self.routes.append(
+                    RouteNode(
+                        route_key=make_route_key(method, path),
+                        protocol=RouteProtocol.HTTP,
+                        method=method,
+                        path=canonicalize_path(path),
+                        role=RouteRole.CLIENT,
+                        component_id=comp_id,
+                        repo_name=self.repo_name,
+                        file_path=self.file_path,
+                        line_number=node.lineno,
+                        framework=framework,
+                    )
+                )
 
     # ---- AST visitor methods ----
 
@@ -369,7 +379,7 @@ def _strip_url_to_path(url: str) -> str:
     # Full URL — strip scheme + host
     for scheme in ("https://", "http://"):
         if url.startswith(scheme):
-            rest = url[len(scheme):]
+            rest = url[len(scheme) :]
             slash = rest.find("/")
             if slash != -1:
                 return rest[slash:]

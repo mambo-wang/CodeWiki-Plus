@@ -225,7 +225,7 @@ CodeWiki-CN 是 LLM Wiki 生成器：tree-sitter 解析代码 → LLM 生成 Mar
 ```python
 class Node(BaseModel):
     id, name, component_type, file_path, relative_path
-    depends_on: Set[str]            # 唯一的"边"——扁平依赖集合
+    depends_on: Set[str]  # 唯一的"边"——扁平依赖集合
     source_code, start_line, end_line
     has_docstring, docstring, parameters
     node_type, base_classes, class_name

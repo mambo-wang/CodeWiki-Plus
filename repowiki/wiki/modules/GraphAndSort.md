@@ -106,15 +106,19 @@ components, leaf_nodes, routes = builder.build_dependency_graph()
 
 # 叶优先全序（底层依赖在前）
 from codewiki.src.be.dependency_analyzer.topo_sort import (
-    build_graph_from_components, topological_sort
+    build_graph_from_components,
+    topological_sort,
 )
+
 graph = build_graph_from_components(components)
-order = topological_sort(graph)   # 文档生成按此顺序遍历
+order = topological_sort(graph)  # 文档生成按此顺序遍历
 
 # 文件变更影响分析
 from codewiki.src.be.dependency_analyzer.topo_sort import (
-    transitive_impact, resolve_files_to_components
+    transitive_impact,
+    resolve_files_to_components,
 )
+
 changed = resolve_files_to_components(components, ["src/api/handler.py"])
 impact = transitive_impact(graph, set(changed), direction="depended_by", max_depth=5)
 ```

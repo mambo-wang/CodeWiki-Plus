@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 class TimeoutError(Exception):
     """Raised when file parsing exceeds timeout."""
+
     pass
 
 
@@ -48,12 +49,12 @@ def timeout(seconds):
     signal.signal() raises ValueError, so we skip the timeout protection
     and parse without it instead of failing every file.
     """
+
     def signal_handler(signum, frame):
         raise TimeoutError(f"File parsing exceeded {seconds}s timeout")
 
     use_signal = (
-        hasattr(signal, "SIGALRM")
-        and threading.current_thread() is threading.main_thread()
+        hasattr(signal, "SIGALRM") and threading.current_thread() is threading.main_thread()
     )
     if not use_signal:
         # Windows / non-main thread: SIGALRM unavailable, skip timeout
@@ -80,8 +81,9 @@ class CallGraphAnalyzer:
         self._python_external_import_roots: set = set()
         logger.debug("CallGraphAnalyzer initialized.")
 
-    def analyze_code_files(self, code_files: List[Dict], base_dir: str,
-                           skip_file_paths: Optional[Set[str]] = None) -> Dict:
+    def analyze_code_files(
+        self, code_files: List[Dict], base_dir: str, skip_file_paths: Optional[Set[str]] = None
+    ) -> Dict:
         """
         Complete analysis: Analyze all files to build complete call graph with all nodes.
 
@@ -98,9 +100,11 @@ class CallGraphAnalyzer:
         """
         if skip_file_paths:
             original_count = len(code_files)
-            code_files = [f for f in code_files if f.get('path') not in skip_file_paths]
-            logger.info(f"Incremental mode: skipping {original_count - len(code_files)} unchanged files, "
-                        f"parsing {len(code_files)} changed files")
+            code_files = [f for f in code_files if f.get("path") not in skip_file_paths]
+            logger.info(
+                f"Incremental mode: skipping {original_count - len(code_files)} unchanged files, "
+                f"parsing {len(code_files)} changed files"
+            )
 
         logger.debug(f"Starting analysis of {len(code_files)} files")
         logger.info(f"📊 Parsing {len(code_files)} source files (this may take a few minutes)...")
@@ -116,23 +120,27 @@ class CallGraphAnalyzer:
         files_analyzed = 0
         files_failed = 0
         start_time = time.time()
-        
+
         for idx, file_info in enumerate(code_files, 1):
-            file_path = file_info['path']
+            file_path = file_info["path"]
             try:
                 # Log progress every file with elapsed time
                 if idx % max(1, len(code_files) // 10) == 0 or idx <= 5:
                     elapsed = time.time() - start_time
                     rate = idx / elapsed if elapsed > 0 else 0
                     remaining = (len(code_files) - idx) / rate if rate > 0 else 0
-                    logger.info(f"  [{idx}/{len(code_files)}] {file_path} ({elapsed:.1f}s elapsed, ~{remaining:.1f}s remaining)")
-                
+                    logger.info(
+                        f"  [{idx}/{len(code_files)}] {file_path} ({elapsed:.1f}s elapsed, ~{remaining:.1f}s remaining)"
+                    )
+
                 self._analyze_code_file(base_dir, file_info)
                 files_analyzed += 1
             except Exception as e:
                 files_failed += 1
-                logger.warning(f"  ⚠️  [{idx}/{len(code_files)}] Failed to analyze {file_path}: {str(e)[:100]}")
-        
+                logger.warning(
+                    f"  ⚠️  [{idx}/{len(code_files)}] Failed to analyze {file_path}: {str(e)[:100]}"
+                )
+
         elapsed_time = time.time() - start_time
         logger.info(
             f"✓ Analysis complete: {files_analyzed}/{len(code_files)} files analyzed, "
@@ -358,8 +366,9 @@ class CallGraphAnalyzer:
             repo_dir: Repository base directory
         """
         try:
-
-            from codewiki.src.be.dependency_analyzer.analyzers.javascript import analyze_javascript_file_treesitter
+            from codewiki.src.be.dependency_analyzer.analyzers.javascript import (
+                analyze_javascript_file_treesitter,
+            )
 
             functions, relationships = analyze_javascript_file_treesitter(
                 file_path, content, repo_path=repo_dir
@@ -376,15 +385,16 @@ class CallGraphAnalyzer:
 
     def _analyze_typescript_file(self, file_path: str, content: str, repo_dir: str):
         """
-        Analyze TypeScript file using tree-sitter based AST analyzer 
+        Analyze TypeScript file using tree-sitter based AST analyzer
 
         Args:
             file_path: Relative path to the TypeScript file
             content: File content string
         """
         try:
-
-            from codewiki.src.be.dependency_analyzer.analyzers.typescript import analyze_typescript_file_treesitter
+            from codewiki.src.be.dependency_analyzer.analyzers.typescript import (
+                analyze_typescript_file_treesitter,
+            )
 
             functions, relationships = analyze_typescript_file_treesitter(
                 file_path, content, repo_path=repo_dir
@@ -398,8 +408,6 @@ class CallGraphAnalyzer:
 
         except Exception as e:
             logger.error(f"Failed to analyze TypeScript file {file_path}: {e}", exc_info=True)
-
-
 
     def _analyze_c_file(self, file_path: str, content: str, repo_dir: str):
         """
@@ -430,9 +438,7 @@ class CallGraphAnalyzer:
         """
         from codewiki.src.be.dependency_analyzer.analyzers.cpp import analyze_cpp_file
 
-        functions, relationships = analyze_cpp_file(
-            file_path, content, repo_path=repo_dir
-        )
+        functions, relationships = analyze_cpp_file(file_path, content, repo_path=repo_dir)
 
         for func in functions:
             func_id = func.id if func.id else f"{file_path}:{func.name}"
@@ -622,7 +628,9 @@ class CallGraphAnalyzer:
                     packages[func_info.language].add(package)
         return packages
 
-    def _is_external_callee(self, language: Optional[str], callee: str, dotted_packages: Dict[str, set]) -> bool:
+    def _is_external_callee(
+        self, language: Optional[str], callee: str, dotted_packages: Dict[str, set]
+    ) -> bool:
         """Classify a still-unresolved callee as external, after project
         resolution has had its chance.
 
@@ -677,6 +685,7 @@ class CallGraphAnalyzer:
         name that is unique within the caller's language resolves even when
         another language defines the same name, and names made ambiguous only
         by foreign-language components keep resolving as before."""
+
         def make() -> Dict[str, Dict[str, List[str]]]:
             return {"exact": defaultdict(list), "simple": defaultdict(list)}
 
@@ -722,13 +731,17 @@ class CallGraphAnalyzer:
             "by_lang": dict(by_lang),
         }
 
-    def _resolve_callee(self, relationship: CallRelationship, indexes: Dict[str, Dict]) -> Optional[str]:
+    def _resolve_callee(
+        self, relationship: CallRelationship, indexes: Dict[str, Dict]
+    ) -> Optional[str]:
         caller = self.functions.get(relationship.caller)
         caller_language = caller.language if caller else None
 
         lang_indexes = indexes["by_lang"].get(caller_language) if caller_language else None
         if lang_indexes:
-            match = self._resolve_callee_in(relationship, lang_indexes["exact"], lang_indexes["simple"])
+            match = self._resolve_callee_in(
+                relationship, lang_indexes["exact"], lang_indexes["simple"]
+            )
             if match:
                 return match
 
@@ -850,7 +863,15 @@ class CallGraphAnalyzer:
                 node_classes.append("lang-typescript")
             elif language == "c":
                 node_classes.append("lang-c")
-            elif language == "cpp" or file_ext in [".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hxx", ".h++"]:
+            elif language == "cpp" or file_ext in [
+                ".cpp",
+                ".cc",
+                ".cxx",
+                ".c++",
+                ".hpp",
+                ".hxx",
+                ".h++",
+            ]:
                 node_classes.append("lang-cpp")
             elif file_ext in [".kt", ".kts"]:
                 node_classes.append("lang-kotlin")
@@ -967,12 +988,12 @@ class CallGraphAnalyzer:
 
         selected_func_ids = sorted_func_ids[:target_count]
 
-        original_func_count = len(self.functions)
+        len(self.functions)
         self.functions = {
             fid: func for fid, func in self.functions.items() if fid in selected_func_ids
         }
 
-        original_rel_count = len(self.call_relationships)
+        len(self.call_relationships)
         self.call_relationships = [
             rel
             for rel in self.call_relationships

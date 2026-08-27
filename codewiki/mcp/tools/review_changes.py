@@ -60,6 +60,7 @@ _SLUG_RE = re.compile(r"[^\w\u4e00-\u9fff-]+")
 # Source reading (version-aware) + change-line annotation
 # ------------------------------------------------------------------
 
+
 def _read_versioned_lines(git_root: str, rel_path: str, since: Optional[str]) -> List[str]:
     """File lines from HEAD (``since`` mode) or the working tree."""
     if since:
@@ -128,14 +129,11 @@ def _build_changed_sources(
             all_lines = _read_versioned_lines(git_root, rel, None)
 
         if start_line > 0 and end_line > 0:
-            comp_lines = all_lines[max(0, start_line - 1):end_line]
+            comp_lines = all_lines[max(0, start_line - 1) : end_line]
         else:
             comp_lines = all_lines
 
-        header = (
-            f"### {cid}\n"
-            f"# file: {rel}  lines {start_line}-{end_line}\n"
-        )
+        header = f"### {cid}\n# file: {rel}  lines {start_line}-{end_line}\n"
         body = _annotate_lines(comp_lines, max(1, start_line), changed_lines)
         by_file.setdefault(rel, []).append(header + body)
 
@@ -216,8 +214,11 @@ def _build_target(
         except Exception as exc:  # pragma: no cover - graph build failure degrades, not fatal
             logger.warning("Impact computation failed: %s", exc)
 
-    suggested = suggest_tests(components, {a["component_id"] for a in affected_list} | start_ids,
-                              repo_path=session.repo_path)
+    suggested = suggest_tests(
+        components,
+        {a["component_id"] for a in affected_list} | start_ids,
+        repo_path=session.repo_path,
+    )
 
     return {
         "diff_summary": {
@@ -235,6 +236,7 @@ def _build_target(
 # ------------------------------------------------------------------
 # Axis evidence collectors (deterministic)
 # ------------------------------------------------------------------
+
 
 def _read_spec_file(path: Path) -> Optional[str]:
     try:
@@ -319,7 +321,9 @@ def _query_wiki(store: SessionStore, session: Any, arguments: Dict[str, Any]) ->
     try:
         return json.loads(handle_query_wiki(call, store))
     except Exception as exc:
-        logger.warning("query_wiki failed (%s): %s", arguments.get("query") or arguments.get("mode"), exc)
+        logger.warning(
+            "query_wiki failed (%s): %s", arguments.get("query") or arguments.get("mode"), exc
+        )
         return {}
 
 
@@ -431,6 +435,7 @@ def _collect_general_evidence(repo_path: str, changes: List[FileChange]) -> Dict
 # Submit: report validation + archiving
 # ------------------------------------------------------------------
 
+
 def _slugify(title: str) -> str:
     slug = _SLUG_RE.sub("-", title).strip("-")
     return slug[:40] or "report"
@@ -529,6 +534,7 @@ def _handle_submit(arguments: Dict[str, Any], session: Any) -> str:
 # Main handler
 # ------------------------------------------------------------------
 
+
 def handle_review_changes(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -558,13 +564,17 @@ def handle_review_changes(
     session = resolve_session(arguments, store)
     if session is None:
         return json.dumps(
-            {"error": "Session not found. Provide a valid repo_path pointing to a previously analyzed repository."},
+            {
+                "error": "Session not found. Provide a valid repo_path pointing to a previously analyzed repository."
+            },
             ensure_ascii=False,
         )
 
     mode = arguments.get("mode", "prepare")
     if mode not in ("prepare", "submit"):
-        return json.dumps({"error": f"Invalid mode {mode!r}: expected 'prepare' or 'submit'."}, ensure_ascii=False)
+        return json.dumps(
+            {"error": f"Invalid mode {mode!r}: expected 'prepare' or 'submit'."}, ensure_ascii=False
+        )
 
     if mode == "submit":
         return _handle_submit(arguments, session)
@@ -574,7 +584,10 @@ def handle_review_changes(
     spec_paths: List[str] = list(arguments.get("spec_paths") or [])
     focus = arguments.get("focus", "all")
     if focus not in ("all",) + _AXES:
-        return json.dumps({"error": f"Invalid focus {focus!r}: expected 'all' or one of {_AXES}."}, ensure_ascii=False)
+        return json.dumps(
+            {"error": f"Invalid focus {focus!r}: expected 'all' or one of {_AXES}."},
+            ensure_ascii=False,
+        )
 
     try:
         git_info = collect_git_changes(session.repo_path, since=since, worktree=True)
@@ -595,7 +608,9 @@ def handle_review_changes(
             "query": {"repo_path": session.repo_path, "since": since, "focus": focus},
             "target": {
                 "diff_summary": {"changed_files": 0, "added_lines": 0, "deleted_lines": 0},
-                "changed_components": [], "changed_sources": {}, "affected_components": [],
+                "changed_components": [],
+                "changed_sources": {},
+                "affected_components": [],
                 "suggested_tests": [],
             },
             "evidence": {},

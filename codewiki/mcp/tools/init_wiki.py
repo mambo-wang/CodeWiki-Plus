@@ -26,8 +26,12 @@ _ONTOLOGY_TEMPLATE_PKG = Path(__file__).resolve().parents[2] / "templates" / "on
 _ONTOLOGY_TEMPLATE = _ONTOLOGY_TEMPLATE_PKG if _ONTOLOGY_TEMPLATE_PKG.exists() else None
 
 # Review checklist override template: project-level merge layer for review_changes
-_REVIEW_CHECKLIST_TEMPLATE_PKG = Path(__file__).resolve().parents[2] / "templates" / "review_checklist.yaml"
-_REVIEW_CHECKLIST_TEMPLATE = _REVIEW_CHECKLIST_TEMPLATE_PKG if _REVIEW_CHECKLIST_TEMPLATE_PKG.exists() else None
+_REVIEW_CHECKLIST_TEMPLATE_PKG = (
+    Path(__file__).resolve().parents[2] / "templates" / "review_checklist.yaml"
+)
+_REVIEW_CHECKLIST_TEMPLATE = (
+    _REVIEW_CHECKLIST_TEMPLATE_PKG if _REVIEW_CHECKLIST_TEMPLATE_PKG.exists() else None
+)
 
 # Subdirectories to create under output_dir
 _WIKI_SUBDIRS = [
@@ -63,14 +67,15 @@ def handle_init_wiki(arguments: dict) -> str:
     # a wiki in a non-existent path or inside a file due to a typo.
     if not repo_path_p.exists():
         return json.dumps(
-            {"error": f"repo_path does not exist: {repo_path_p}. "
-                     "Provide a valid repository path."},
+            {"error": f"repo_path does not exist: {repo_path_p}. Provide a valid repository path."},
             ensure_ascii=False,
         )
     if not repo_path_p.is_dir():
         return json.dumps(
-            {"error": f"repo_path is not a directory: {repo_path_p}. "
-                     "Provide a valid repository directory path."},
+            {
+                "error": f"repo_path is not a directory: {repo_path_p}. "
+                "Provide a valid repository directory path."
+            },
             ensure_ascii=False,
         )
 

@@ -125,9 +125,7 @@ def install_hooks(ide: str, create_dir: bool, repo_path: str) -> None:
             targets = [target]
         else:
             if create_dir:
-                raise IdeWiringError(
-                    "--create-dir only makes sense together with --ide <name>."
-                )
+                raise IdeWiringError("--create-dir only makes sense together with --ide <name>.")
             targets = detect_ide_dirs(repo_path)
         if not targets:
             click.secho(

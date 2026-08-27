@@ -9,6 +9,7 @@ Covers docs/知识飞轮增强设计方案-P1三项.md §4 acceptance criteria:
   - suggested page_type routing (pitfall → query, lesson → concept)
   - promote-note workflow prompt: handler content + registration
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -54,7 +55,7 @@ def _write_note(
         "---",
         f"type: {note_type}",
         f"title: {name.removesuffix('.md')}",
-        "tags: [\"test\"]",
+        'tags: ["test"]',
         "metadata:",
     ]
     if date:
@@ -67,9 +68,7 @@ def _write_note(
         fm.append("  - by: codewiki/1.0")
         fm.append(f"    at: {verified_at}")
     fm.append("---")
-    (od / "notes" / name).write_text(
-        "\n".join(fm) + "\n\nbody content\n", encoding="utf-8"
-    )
+    (od / "notes" / name).write_text("\n".join(fm) + "\n\nbody content\n", encoding="utf-8")
 
 
 def _seed_adoption(od: Path, doc_path: str, count: int) -> None:
@@ -81,6 +80,7 @@ def _seed_adoption(od: Path, doc_path: str, count: int) -> None:
 def _seed_stats_table(od: Path, doc_path: str) -> None:
     """Seed hit events so wiki_stats has usage rows to report (T2 jsonl)."""
     from tests.telemetry_seed import seed_hits
+
     seed_hits(od, {doc_path: (5, _days_ago(1))})
 
 
@@ -117,7 +117,9 @@ class TestPromotionCandidates:
     def test_promoted_to_marker_excludes(self, tmp_path):
         od = _mk_wiki(tmp_path)
         _write_note(
-            od, "note-a.md", date=_days_ago(15),
+            od,
+            "note-a.md",
+            date=_days_ago(15),
             promoted_to="wiki/queries/note-a.md",
         )
         _seed_adoption(od, "notes/note-a.md", 5)
@@ -154,9 +156,9 @@ class TestAgeFallback:
     def test_verified_at_used_when_no_date(self, tmp_path):
         od = _mk_wiki(tmp_path)
         _write_note(
-            od, "note-a.md",
-            verified_at=(datetime.now() - timedelta(days=20)).strftime(
-                "%Y-%m-%dT%H:%M:%SZ"),
+            od,
+            "note-a.md",
+            verified_at=(datetime.now() - timedelta(days=20)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
         _seed_adoption(od, "notes/note-a.md", 3)
         cands = _promotion_candidates(od)
@@ -165,10 +167,10 @@ class TestAgeFallback:
     def test_date_preferred_over_verified(self, tmp_path):
         od = _mk_wiki(tmp_path)
         _write_note(
-            od, "note-a.md",
+            od,
+            "note-a.md",
             date=_days_ago(30),
-            verified_at=(datetime.now() - timedelta(days=1)).strftime(
-                "%Y-%m-%dT%H:%M:%SZ"),
+            verified_at=(datetime.now() - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
         _seed_adoption(od, "notes/note-a.md", 3)
         cands = _promotion_candidates(od)
@@ -211,10 +213,10 @@ class TestTypeRouting:
 class TestSchemaOverride:
     def test_min_adopted_override(self, tmp_path):
         import yaml
+
         od = _mk_wiki(tmp_path)
         (od / "schema.yaml").write_text(
-            yaml.safe_dump({"conventions": {"promotion": {
-                "min_adopted": 1, "min_age_days": 14}}}),
+            yaml.safe_dump({"conventions": {"promotion": {"min_adopted": 1, "min_age_days": 14}}}),
             encoding="utf-8",
         )
         _write_note(od, "note-a.md", date=_days_ago(15))
@@ -224,10 +226,10 @@ class TestSchemaOverride:
 
     def test_min_age_days_override(self, tmp_path):
         import yaml
+
         od = _mk_wiki(tmp_path)
         (od / "schema.yaml").write_text(
-            yaml.safe_dump({"conventions": {"promotion": {
-                "min_adopted": 3, "min_age_days": 30}}}),
+            yaml.safe_dump({"conventions": {"promotion": {"min_adopted": 3, "min_age_days": 30}}}),
             encoding="utf-8",
         )
         _write_note(od, "note-a.md", date=_days_ago(20))
@@ -237,6 +239,7 @@ class TestSchemaOverride:
     def test_config_from_repo_schema_files(self):
         # The shipped schema templates must carry the promotion thresholds.
         import yaml
+
         root = Path(__file__).resolve().parent.parent
         for rel in ("schema.yaml", "codewiki/templates/schema.yaml"):
             data = yaml.safe_load((root / rel).read_text(encoding="utf-8"))
@@ -254,9 +257,7 @@ class TestWikiStatsMounting:
         _write_note(od, "note-a.md", date=_days_ago(15))
         _seed_stats_table(od, "notes/note-a.md")
         _seed_adoption(od, "notes/note-a.md", 3)
-        out = json.loads(
-            handle_wiki_stats({"output_dir": str(od)}, SessionStore())
-        )
+        out = json.loads(handle_wiki_stats({"output_dir": str(od)}, SessionStore()))
         assert "promotion_candidates" in out
         cands = out["promotion_candidates"]
         assert len(cands) == 1
@@ -269,9 +270,7 @@ class TestWikiStatsMounting:
         _write_note(od, "note-a.md", date=_days_ago(15))
         _seed_stats_table(od, "notes/note-a.md")
         _seed_adoption(od, "notes/note-a.md", 1)
-        out = json.loads(
-            handle_wiki_stats({"output_dir": str(od)}, SessionStore())
-        )
+        out = json.loads(handle_wiki_stats({"output_dir": str(od)}, SessionStore()))
         assert "promotion_candidates" not in out
 
     def test_ranked_by_adopted_count(self, tmp_path):
@@ -282,7 +281,8 @@ class TestWikiStatsMounting:
         _seed_adoption(od, "notes/note-high.md", 7)
         cands = _promotion_candidates(od)
         assert [c["file"] for c in cands] == [
-            "notes/note-high.md", "notes/note-low.md",
+            "notes/note-high.md",
+            "notes/note-low.md",
         ]
 
 
@@ -296,12 +296,14 @@ class _FakeServer:
         def deco(fn):
             self._list = fn
             return fn
+
         return deco
 
     def get_prompt(self):
         def deco(fn):
             self._get = fn
             return fn
+
         return deco
 
 
@@ -332,10 +334,12 @@ class TestPromoteNotePrompt:
         assert "不删除" in text
 
     def test_handler_interpolates_arguments(self):
-        text = _prompt_promote_note({
-            "note_file": "notes/2026-08-01-port-conflict.md",
-            "output_dir": "D:/repo/repowiki",
-        })
+        text = _prompt_promote_note(
+            {
+                "note_file": "notes/2026-08-01-port-conflict.md",
+                "output_dir": "D:/repo/repowiki",
+            }
+        )
         assert "notes/2026-08-01-port-conflict.md" in text
         assert "D:/repo/repowiki" in text
 

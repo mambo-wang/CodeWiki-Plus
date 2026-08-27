@@ -83,10 +83,11 @@ cfg = from_cli_args(
 print(cfg.output_dir, cfg.main_model)
 
 # 元数据路径统一解析
-config_path = cfg.meta_resolve("config.json")   # -> .../wiki/.meta/config.json
+config_path = cfg.meta_resolve("config.json")  # -> .../wiki/.meta/config.json
 
 # 文件读写经单例
 from codewiki.src.utils import file_manager
+
 file_manager.save_text(config_path, "# wiki config")
 data = file_manager.load_json(cfg.meta_resolve("metadata.json"))
 ```

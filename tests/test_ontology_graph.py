@@ -7,6 +7,7 @@ to the planned ontology-activation feature (see
 repo.  These tests are skipped until the feature lands; once the modules exist
 they will run automatically.
 """
+
 from __future__ import annotations
 
 import textwrap
@@ -23,6 +24,7 @@ from codewiki.mcp.tools.extract_ontology import extract_ontology, extract_and_wr
 
 # --- fixtures --------------------------------------------------------------
 
+
 def _write_page(d: Path, rel: str, body: str) -> None:
     p = d / rel
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -36,7 +38,10 @@ def wiki_output(tmp_path: Path) -> Path:
     od.mkdir()
     (od / "wiki").mkdir()
     # OrderService entity with a relations table
-    _write_page(od, "wiki/entities/OrderService.md", textwrap.dedent("""
+    _write_page(
+        od,
+        "wiki/entities/OrderService.md",
+        textwrap.dedent("""
         ---
         title: OrderService
         page_type: entity
@@ -51,9 +56,13 @@ def wiki_output(tmp_path: Path) -> Path:
         | calls | PaymentGateway | 调用支付 |
 
         Body text with [[Account]] wikilink.
-    """).lstrip())
+    """).lstrip(),
+    )
     # Account entity (no relations section)
-    _write_page(od, "wiki/entities/Account.md", textwrap.dedent("""
+    _write_page(
+        od,
+        "wiki/entities/Account.md",
+        textwrap.dedent("""
         ---
         title: Account
         page_type: entity
@@ -61,20 +70,26 @@ def wiki_output(tmp_path: Path) -> Path:
         ---
         # Account
         Account body.
-    """).lstrip())
+    """).lstrip(),
+    )
     # A relation target that does NOT exist yet -> placeholder
-    _write_page(od, "wiki/entities/PaymentGateway.md", textwrap.dedent("""
+    _write_page(
+        od,
+        "wiki/entities/PaymentGateway.md",
+        textwrap.dedent("""
         ---
         title: PaymentGateway
         page_type: entity
         ---
         # PaymentGateway
         Exists.
-    """).lstrip())
+    """).lstrip(),
+    )
     return od
 
 
 # --- P0.1 extraction -------------------------------------------------------
+
 
 def test_extract_types_and_relations(wiki_output: Path):
     all_docs = {
@@ -107,19 +122,23 @@ def test_extract_and_write_merges_idempotently(wiki_output: Path):
     }
     # Pre-seed ontology.yaml with a hand-authored relation (must be preserved)
     onto = wiki_output / "ontology.yaml"
-    onto.write_text(textwrap.dedent("""
+    onto.write_text(
+        textwrap.dedent("""
         types: []
         relations:
           - from: ManualService
             relation: depends_on
             to: Account
             note: hand-authored
-    """).lstrip(), encoding="utf-8")
+    """).lstrip(),
+        encoding="utf-8",
+    )
 
     info = extract_and_write(wiki_output, all_docs, ontology_path=onto, write_stubs=True)
     assert info["relations"] >= 4  # 3 extracted + 1 hand
     # hand-authored preserved
     import yaml
+
     data = yaml.safe_load(onto.read_text(encoding="utf-8"))
     hand = [r for r in data["relations"] if r.get("from") == "ManualService"]
     assert hand and hand[0].get("note") == "hand-authored"
@@ -130,8 +149,10 @@ def test_extract_and_write_merges_idempotently(wiki_output: Path):
 
 # --- P0.2 consumption via graph_expand ------------------------------------
 
+
 def test_graph_expand_consumes_ontology_relations(wiki_output: Path):
     from codewiki.mcp.cache import AnalysisCache
+
     all_docs = {
         "wiki/entities/OrderService.md": "OrderService",
         "wiki/entities/Account.md": "Account",
@@ -145,7 +166,8 @@ def test_graph_expand_consumes_ontology_relations(wiki_output: Path):
         cache.build_search_index(wiki_output)
         # seed from Account, hop 1 should reach OrderService via ontology edge
         expanded = cache.graph_expand(
-            [("wiki/entities/Account.md", 1.0)], hop=1, output_dir=wiki_output)
+            [("wiki/entities/Account.md", 1.0)], hop=1, output_dir=wiki_output
+        )
         files = {e["file"] for e in expanded}
         # OrderService depends_on Account -> edge Account->OrderService exists
         assert "wiki/entities/OrderService.md" in files
@@ -155,15 +177,18 @@ def test_graph_expand_consumes_ontology_relations(wiki_output: Path):
 
 # --- P1 lint ---------------------------------------------------------------
 
+
 def test_lint_ontology_stale_flags_broken_relation(wiki_output: Path):
     from codewiki.mcp.tools.wiki_lint import _check_ontology_stale
+
     all_docs = {
         "wiki/entities/OrderService.md": "OrderService",
         "wiki/entities/Account.md": "Account",
         "wiki/entities/PaymentGateway.md": "PaymentGateway",
     }
-    extract_and_write(wiki_output, all_docs, ontology_path=wiki_output / "ontology.yaml",
-                      write_stubs=False)
+    extract_and_write(
+        wiki_output, all_docs, ontology_path=wiki_output / "ontology.yaml", write_stubs=False
+    )
     issues = _check_ontology_stale(wiki_output)
     # OrderItem is referenced but has no page and no stub -> error
     error_msgs = [i["message"] for i in issues if i["severity"] == "error"]
@@ -172,8 +197,10 @@ def test_lint_ontology_stale_flags_broken_relation(wiki_output: Path):
 
 # --- P2 view ---------------------------------------------------------------
 
+
 def test_generate_ontology_view_full(wiki_output: Path):
     from codewiki.mcp.tools.ontology_view import generate_ontology_view
+
     all_docs = {
         "wiki/entities/OrderService.md": "OrderService",
         "wiki/entities/Account.md": "Account",
@@ -192,5 +219,6 @@ def test_generate_ontology_view_full(wiki_output: Path):
 
 def test_generate_ontology_view_impact_requires_root(wiki_output: Path):
     from codewiki.mcp.tools.ontology_view import generate_ontology_view
+
     res = generate_ontology_view(output_dir=str(wiki_output), view_type="impact")
     assert "error" in res

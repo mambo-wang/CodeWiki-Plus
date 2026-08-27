@@ -106,12 +106,14 @@ _DOCTRINE_SYSTEM = (
 # --------------------------------------------------------------------------- #
 def _doctrine_path(output_dir: Path) -> Path:
     from codewiki.src.config import WIKI_DIR
+
     return Path(output_dir) / WIKI_DIR / DOCTRINE_FILENAME
 
 
 def _max_chars(output_dir: Path) -> int:
     try:
         from codewiki.mcp.tools.page_router import load_schema
+
         schema = load_schema(str(output_dir)) or {}
         v = (schema.get("conventions") or {}).get("aggregation", {}).get("doctrine_max_chars")
         if v:
@@ -129,7 +131,7 @@ def _read_body(path: Path) -> str:
     if text.startswith("---"):
         end = text.find("---", 3)
         if end >= 0:
-            return text[end + 3:].strip()
+            return text[end + 3 :].strip()
     return text.strip()
 
 
@@ -145,6 +147,7 @@ def _scene_updated_after(path: Path, last_doctrine_at: Optional[str]) -> bool:
         return True
     try:
         import yaml
+
         text = path.read_text(encoding="utf-8")
         end = text.find("---", 3)
         fm = yaml.safe_load(text[3:end]) if text.startswith("---") and end > 0 else {}
@@ -178,7 +181,9 @@ def handle_refresh_doctrine(arguments: Dict[str, Any], store: Any) -> str:
     elif arguments.get("repo_path"):
         output_dir = Path(arguments["repo_path"]).expanduser().resolve() / "repowiki"
     else:
-        return json.dumps({"error": "output_dir or repo_path is required (or pass an active session)."})
+        return json.dumps(
+            {"error": "output_dir or repo_path is required (or pass an active session)."}
+        )
 
     mode = str(arguments.get("mode") or "prepare").lower()
     if mode not in ("prepare", "submit"):
@@ -218,59 +223,71 @@ def handle_refresh_doctrine(arguments: Dict[str, Any], store: Any) -> str:
             f"counter {doctrine_counter} >= threshold {cfg['doctrine_threshold']}"
             if doctrine_counter >= cfg["doctrine_threshold"]
             else f"manual refresh (counter {doctrine_counter} < threshold "
-                 f"{cfg['doctrine_threshold']})"
+            f"{cfg['doctrine_threshold']})"
         )
-        return json.dumps({
-            "status": "prepared",
-            "mode": "prepare",
-            "trigger": trigger,
-            "doctrine_exists": bool(current),
-            "current_doctrine": current,
-            "char_cap": _max_chars(output_dir),
-            "stats": {
-                "confirmed_notes": confirmed,
-                "scenes": len(scenarios),
-                "changed_scenes": len(changed),
+        return json.dumps(
+            {
+                "status": "prepared",
+                "mode": "prepare",
+                "trigger": trigger,
+                "doctrine_exists": bool(current),
+                "current_doctrine": current,
+                "char_cap": _max_chars(output_dir),
+                "stats": {
+                    "confirmed_notes": confirmed,
+                    "scenes": len(scenarios),
+                    "changed_scenes": len(changed),
+                },
+                "changed_scenes": changed,
+                "scenarios_index": scenarios,
+                "system_prompt": _DOCTRINE_SYSTEM,
+                "next": (
+                    "Read the changed scene files (view_repo_file) plus the current "
+                    "doctrine; apply the six dimensions / five filters / incremental "
+                    "strategy; then submit the FINAL doctrine Markdown (<= the char "
+                    "cap) via mode='submit'. If changes only carry project state or "
+                    "low-level facts, choose NO-CHANGE and skip the refresh. When "
+                    "this refresh was prompted by an aggregation_hint reminder, ask "
+                    "the user first."
+                ),
             },
-            "changed_scenes": changed,
-            "scenarios_index": scenarios,
-            "system_prompt": _DOCTRINE_SYSTEM,
-            "next": (
-                "Read the changed scene files (view_repo_file) plus the current "
-                "doctrine; apply the six dimensions / five filters / incremental "
-                "strategy; then submit the FINAL doctrine Markdown (<= the char "
-                "cap) via mode='submit'. If changes only carry project state or "
-                "low-level facts, choose NO-CHANGE and skip the refresh. When "
-                "this refresh was prompted by an aggregation_hint reminder, ask "
-                "the user first."
-            ),
-        }, indent=2, ensure_ascii=False)
+            indent=2,
+            ensure_ascii=False,
+        )
 
     # ---- mode == "submit" ----
     content = str(arguments.get("content") or "").strip()
     if not content:
-        return json.dumps({"error": "mode='submit' requires non-empty 'content' (the final doctrine Markdown)."})
+        return json.dumps(
+            {"error": "mode='submit' requires non-empty 'content' (the final doctrine Markdown)."}
+        )
 
     cap = _max_chars(output_dir)
     if len(content) > cap:
-        return json.dumps({
-            "status": "rejected",
-            "error": (
-                f"Doctrine exceeds the hard cap: {len(content)} > {cap} chars. "
-                "Compress further (merge principles, drop project-bound "
-                "fragments) and re-submit."
-            ),
-            "chars": len(content),
-            "char_cap": cap,
-        }, indent=2, ensure_ascii=False)
+        return json.dumps(
+            {
+                "status": "rejected",
+                "error": (
+                    f"Doctrine exceeds the hard cap: {len(content)} > {cap} chars. "
+                    "Compress further (merge principles, drop project-bound "
+                    "fragments) and re-submit."
+                ),
+                "chars": len(content),
+                "char_cap": cap,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
 
     from codewiki.mcp.tools.note_consolidation import _scan_scenarios
+
     scenarios = _scan_scenarios(output_dir)
 
     # OKF frontmatter (status=draft: the doctrine passes the normal
     # confirmation gate via confirm_note / batch_set_status like other pages).
     try:
         from codewiki.mcp.tools.knowledge_loop import _okf_actor
+
         actor = _okf_actor(arguments.get("by"))
     except Exception:
         actor = "codewiki"
@@ -306,24 +323,31 @@ def handle_refresh_doctrine(arguments: Dict[str, Any], store: Any) -> str:
 
     try:
         from codewiki.mcp.tools.wiki_search import build_full_index
+
         build_full_index(output_dir)
     except Exception as e:
         logger.warning("search index rebuild failed after doctrine refresh: %s", e)
 
-    return json.dumps({
-        "status": "completed",
-        "mode": "submit",
-        "doctrine_file": str(path.relative_to(output_dir)).replace("\\", "/"),
-        "chars": len(content),
-        "char_cap": cap,
-        "source_scenarios": len(scene_files),
-        "counters": {
-            "notes_since_last_doctrine": int(new_state.get("notes_since_last_doctrine") or 0),
-            "notes_since_last_consolidation": int(new_state.get("notes_since_last_consolidation") or 0),
+    return json.dumps(
+        {
+            "status": "completed",
+            "mode": "submit",
+            "doctrine_file": str(path.relative_to(output_dir)).replace("\\", "/"),
+            "chars": len(content),
+            "char_cap": cap,
+            "source_scenarios": len(scene_files),
+            "counters": {
+                "notes_since_last_doctrine": int(new_state.get("notes_since_last_doctrine") or 0),
+                "notes_since_last_consolidation": int(
+                    new_state.get("notes_since_last_consolidation") or 0
+                ),
+            },
+            "message": (
+                "Doctrine written as status=draft — review it and promote via "
+                "confirm_note(note_file='wiki/doctrine.md') or batch_set_status. "
+                "query_wiki(mode='overview') now injects it automatically."
+            ),
         },
-        "message": (
-            "Doctrine written as status=draft — review it and promote via "
-            "confirm_note(note_file='wiki/doctrine.md') or batch_set_status. "
-            "query_wiki(mode='overview') now injects it automatically."
-        ),
-    }, indent=2, ensure_ascii=False)
+        indent=2,
+        ensure_ascii=False,
+    )

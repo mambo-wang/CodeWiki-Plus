@@ -84,9 +84,7 @@ def rebuild_index(output_dir: str | Path) -> None:
         index_path = wiki_dir / INDEX_FILENAME
 
         # --- Collect wiki pages by type ---
-        type_entries: Dict[str, List[Dict[str, str]]] = {
-            pt: [] for pt in PAGE_TYPE_DIRS
-        }
+        type_entries: Dict[str, List[Dict[str, str]]] = {pt: [] for pt in PAGE_TYPE_DIRS}
         # Root-level wiki/ files (doctrine.md, reading-guide.md, ...) — not a
         # subdirectory page type, but real pages that must appear in the index
         # so they are reachable (and not flagged as orphans).
@@ -136,7 +134,9 @@ def rebuild_index(output_dir: str | Path) -> None:
                     {
                         "title": fm.get("title", note_file.stem),
                         "type": fm.get("type", "note"),
-                        "date": str(fm.get("date", "") or (fm.get("metadata") or {}).get("date", "")),
+                        "date": str(
+                            fm.get("date", "") or (fm.get("metadata") or {}).get("date", "")
+                        ),
                         "relpath": f"../{NOTES_DIR}/{note_file.name}",
                     }
                 )
@@ -249,10 +249,7 @@ def append_log(
     with _log_create_lock:
         if not log_path.exists():
             header = (
-                "# 操作日志\n"
-                "\n"
-                "> 按日期倒序分组的操作记录，由系统自动维护（OKF v0.2 §9 格式）\n"
-                "\n"
+                "# 操作日志\n\n> 按日期倒序分组的操作记录，由系统自动维护（OKF v0.2 §9 格式）\n\n"
             )
             try:
                 log_path.write_text(header, encoding="utf-8")
@@ -314,12 +311,20 @@ def _extract_doc_title_and_summary(filepath: Path) -> Tuple[str, str]:
     fm = _parse_note_frontmatter(filepath)  # generic frontmatter parser
     fm_title = fm.get("title")
     fm_desc = fm.get("description")
-    if isinstance(fm_title, str) and fm_title.strip() and \
-       isinstance(fm_desc, str) and fm_desc.strip():
+    if (
+        isinstance(fm_title, str)
+        and fm_title.strip()
+        and isinstance(fm_desc, str)
+        and fm_desc.strip()
+    ):
         return fm_title.strip(), fm_desc.strip()[:120]
 
-    title: Optional[str] = fm_title.strip() if isinstance(fm_title, str) and fm_title.strip() else None
-    summary: Optional[str] = fm_desc.strip()[:120] if isinstance(fm_desc, str) and fm_desc.strip() else None
+    title: Optional[str] = (
+        fm_title.strip() if isinstance(fm_title, str) and fm_title.strip() else None
+    )
+    summary: Optional[str] = (
+        fm_desc.strip()[:120] if isinstance(fm_desc, str) and fm_desc.strip() else None
+    )
     try:
         with open(filepath, encoding="utf-8", errors="replace") as f:
             for i, line in enumerate(f):
@@ -429,9 +434,7 @@ def _render_index(
         parts.append("## 入门指引")
         parts.append("")
         for entry in root_entries:
-            parts.append(
-                f"* [{entry['title']}]({entry['relpath']}) - {entry['summary']}"
-            )
+            parts.append(f"* [{entry['title']}]({entry['relpath']}) - {entry['summary']}")
         parts.append("")
 
     # Render each page type section (§8 bullet lists)
@@ -442,9 +445,7 @@ def _render_index(
         parts.append(f"## {label}")
         parts.append("")
         for entry in entries:
-            parts.append(
-                f"* [{entry['title']}]({entry['relpath']}) - {entry['summary']}"
-            )
+            parts.append(f"* [{entry['title']}]({entry['relpath']}) - {entry['summary']}")
         parts.append("")
 
     # Notes section
@@ -453,9 +454,7 @@ def _render_index(
         parts.append("")
         for entry in note_entries:
             meta = f" ({entry['type']}, {entry['date']})" if entry.get("date") else ""
-            parts.append(
-                f"* [{entry['title']}]({entry['relpath']}) - {entry['type']}{meta}"
-            )
+            parts.append(f"* [{entry['title']}]({entry['relpath']}) - {entry['type']}{meta}")
         parts.append("")
 
     return "\n".join(parts)

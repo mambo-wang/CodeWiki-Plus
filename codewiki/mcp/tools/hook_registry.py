@@ -53,6 +53,7 @@ def load_registry() -> Dict:
     data: Dict = {"version": 1, "families": {}, "agents": []}
     try:
         import yaml
+
         loaded = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         if isinstance(loaded, dict):
             families = loaded.get("families")
@@ -133,11 +134,13 @@ def support_matrix_markdown() -> str:
     ]
     rows = []
     for agent in load_registry().get("agents", []):
-        rows.append((
-            str(agent.get("id", "?")),
-            str(agent.get("family", "?")),
-            bool(agent.get("verified", False)),
-        ))
+        rows.append(
+            (
+                str(agent.get("id", "?")),
+                str(agent.get("family", "?")),
+                bool(agent.get("verified", False)),
+            )
+        )
     # verified first, then alphabetical
     for aid, fam, verified in sorted(rows, key=lambda r: (not r[2], r[0])):
         tier = "已验证" if verified else "理论支持"

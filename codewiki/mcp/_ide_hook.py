@@ -73,14 +73,10 @@ def _extract_inline_turns(data: Dict[str, Any]) -> Optional[list]:
     keeps the in-memory payload consistent).
     """
     _KEEP = {"user", "assistant"}
-    for key in ("conversation", "messages", "turns",
-                "transcript_turns", "chat"):
+    for key in ("conversation", "messages", "turns", "transcript_turns", "chat"):
         val = data.get(key)
         if isinstance(val, list) and val:
-            kept = [
-                t for t in val
-                if isinstance(t, dict) and t.get("role") in _KEEP
-            ]
+            kept = [t for t in val if isinstance(t, dict) and t.get("role") in _KEEP]
             return kept if kept else val
     return None
 
@@ -101,8 +97,7 @@ def _load_event(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
         if isinstance(data, dict):
             # Mirror the stdin branch: if a transcript path is provided, load it.
             if "transcript_path" in data or "transcript" in data:
-                loaded = _load_transcript(
-                    data.get("transcript_path") or data.get("transcript"))
+                loaded = _load_transcript(data.get("transcript_path") or data.get("transcript"))
                 data = dict(data)
                 if loaded is not None:
                     data["conversation"] = loaded
@@ -142,8 +137,7 @@ def _load_event(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
                 # path is provided we load it; otherwise we keep the raw event
                 # and let the caller decide (it cannot synthesize turns).
                 if "transcript_path" in data or "transcript" in data:
-                    loaded = _load_transcript(data.get("transcript_path")
-                                              or data.get("transcript"))
+                    loaded = _load_transcript(data.get("transcript_path") or data.get("transcript"))
                     data = dict(data)
                     if loaded is not None:
                         data["conversation"] = loaded
@@ -251,10 +245,16 @@ def _extract_codebuddy_message_text(msg_data: dict) -> str:
     return ""
 
 
-_NOISE_BLOCK_TYPES = frozenset({
-    "tool-call", "tool_call", "tool-result", "tool_result",
-    "reasoning", "thinking",
-})
+_NOISE_BLOCK_TYPES = frozenset(
+    {
+        "tool-call",
+        "tool_call",
+        "tool-result",
+        "tool_result",
+        "reasoning",
+        "thinking",
+    }
+)
 
 
 def _text_from_content_blocks(blocks: list) -> str:
@@ -354,19 +354,29 @@ def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(
         description="IDE hook: capture a conversation into repowiki/raw/ (no distillation)."
     )
-    parser.add_argument("--enable", action="store_true",
-                        help="Enable the hook for this invocation "
-                             "(otherwise requires CODEWIKI_TEAM_MEMORY_HOOK=1).")
-    parser.add_argument("--conversation", help="Path to a JSON file with the "
-                        "conversation payload (list of turns or {turns: [...]}).")
-    parser.add_argument("--repo-path", help="Absolute path to the repo "
-                        "(used to resolve repowiki/raw/).")
+    parser.add_argument(
+        "--enable",
+        action="store_true",
+        help="Enable the hook for this invocation "
+        "(otherwise requires CODEWIKI_TEAM_MEMORY_HOOK=1).",
+    )
+    parser.add_argument(
+        "--conversation",
+        help="Path to a JSON file with the conversation payload (list of turns or {turns: [...]}).",
+    )
+    parser.add_argument(
+        "--repo-path", help="Absolute path to the repo (used to resolve repowiki/raw/)."
+    )
     parser.add_argument("--session-id", help="Active session id (optional).")
     parser.add_argument("--link-to", help="Wiki object id this conversation relates to.")
-    parser.add_argument("--task-id", help="Task id this conversation is bound to "
-                        "(stamped into raw frontmatter so distillation routes memories back).")
-    parser.add_argument("--keep-raw", action="store_true",
-                        help="Hint distill_conversation to retain the raw file.")
+    parser.add_argument(
+        "--task-id",
+        help="Task id this conversation is bound to "
+        "(stamped into raw frontmatter so distillation routes memories back).",
+    )
+    parser.add_argument(
+        "--keep-raw", action="store_true", help="Hint distill_conversation to retain the raw file."
+    )
     args = parser.parse_args(argv)
 
     # The wrapper passes the temp event file path via this env var so we can
@@ -403,9 +413,11 @@ def main(argv: Optional[list] = None) -> int:
     if not conversation:
         hook_event = event.get("hook_event_name") or event.get("event")
         if hook_event in ("SessionEnd", "Stop", "PreCompact") and "session_id" in event:
-            print(f"ide-hook: {hook_event} event has no conversation turns and no "
-                  "usable transcript_path; capturing the event envelope only "
-                  "(the IDE did not provide an inline transcript).")
+            print(
+                f"ide-hook: {hook_event} event has no conversation turns and no "
+                "usable transcript_path; capturing the event envelope only "
+                "(the IDE did not provide an inline transcript)."
+            )
             # Fall through: capture the event envelope as a minimal record.
             # NOTE: role must be "user" (not "system") -- capture_conversation
             # drops every role outside {user, assistant} in _extract_transcript,
@@ -413,14 +425,17 @@ def main(argv: Optional[list] = None) -> int:
             # test_envelope_does_not_supersede_full_transcript). The envelope
             # body carries no system-injection tags, so stripping is a no-op.
             is_envelope = True
-            conversation = [{
-                "role": "user",
-                "content": (f"[team-memory] {hook_event} hook fired but the IDE "
-                            "provided no inline transcript and no readable "
-                            "transcript_path. Raw event envelope preserved for "
-                            "diagnosis. Event keys: "
-                            + ", ".join(sorted(event.keys())) + "."),
-            }]
+            conversation = [
+                {
+                    "role": "user",
+                    "content": (
+                        f"[team-memory] {hook_event} hook fired but the IDE "
+                        "provided no inline transcript and no readable "
+                        "transcript_path. Raw event envelope preserved for "
+                        "diagnosis. Event keys: " + ", ".join(sorted(event.keys())) + "."
+                    ),
+                }
+            ]
         else:
             print("ide-hook: payload has no 'conversation' turns; nothing to capture.")
             return 0
@@ -441,18 +456,12 @@ def main(argv: Optional[list] = None) -> int:
         # captures sharing the same source_session_id; if the envelope carried
         # it, a later SessionEnd without transcript would overwrite a
         # previously captured full transcript (data loss).
-        "source_session_id": (
-            "" if is_envelope
-            else (_pick("session_id", args.session_id) or "")
-        ),
+        "source_session_id": ("" if is_envelope else (_pick("session_id", args.session_id) or "")),
         # Task binding, stamped into raw frontmatter so distill_conversation can
         # route distilled memories back to the task. Like source_session_id, the
         # envelope (no real transcript) must NOT carry task_id — it is not a real
         # conversation and would otherwise pollute per-task memory routing.
-        "task_id": (
-            "" if is_envelope
-            else (_pick("task_id", args.task_id) or "")
-        ),
+        "task_id": ("" if is_envelope else (_pick("task_id", args.task_id) or "")),
     }
     if not arguments["repo_path"]:
         print("ide-hook: repo_path is required to resolve repowiki/raw/.", file=sys.stderr)

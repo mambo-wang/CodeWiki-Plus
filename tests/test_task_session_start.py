@@ -145,8 +145,7 @@ def test_doctrine_injected_when_present(tmp_path):
     wiki = tmp_path / "repowiki" / "wiki"
     wiki.mkdir(parents=True, exist_ok=True)
     (wiki / "doctrine.md").write_text(
-        "---\ntype: Doctrine\nstatus: stable\n---\n\n"
-        "## Operating Thesis\n\nWrite deep modules.\n",
+        "---\ntype: Doctrine\nstatus: stable\n---\n\n## Operating Thesis\n\nWrite deep modules.\n",
         encoding="utf-8",
     )
 

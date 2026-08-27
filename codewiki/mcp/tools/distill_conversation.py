@@ -1644,7 +1644,7 @@ def handle_distill_conversation(
                 {
                     "error": (
                         "mode='submit' requires 'distilled' or 'distilled_file': a "
-                        "mapping of conversation_id (e.g. \"conv-20260808T113515Z\") to "
+                        'mapping of conversation_id (e.g. "conv-20260808T113515Z") to '
                         'the extraction JSON shaped {"notes": [...]}. For large '
                         "payloads, write the extraction JSON to a file first (write_to_file) "
                         "and pass only the path via 'distilled_file'."

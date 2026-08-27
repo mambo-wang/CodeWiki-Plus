@@ -63,6 +63,7 @@ class PydanticAIBackend(LLMBackend):
     ) -> Dict[str, Any]:
         config = self._config
         from codewiki.src.config import meta_resolve
+
         module_tree_path = meta_resolve(working_dir, MODULE_TREE_FILENAME)
         module_tree = file_manager.load_json(module_tree_path)
 

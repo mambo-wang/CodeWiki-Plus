@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
 
 from mcp.types import Tool
 
@@ -90,20 +89,21 @@ TOOLS = [
 # Private helpers
 # ------------------------------------------------------------------
 
+
 def _load_config():
     """Load CodeWiki configuration from ~/.codewiki/config.json + keyring."""
     from codewiki.cli.config_manager import ConfigManager
+
     manager = ConfigManager()
     if not manager.load():
-        raise RuntimeError(
-            "CodeWiki not configured. Run 'codewiki config set' first."
-        )
+        raise RuntimeError("CodeWiki not configured. Run 'codewiki config set' first.")
     return manager
 
 
 # ------------------------------------------------------------------
 # Handlers
 # ------------------------------------------------------------------
+
 
 async def handle_generate_docs(arguments: dict) -> str:
     """Legacy generate_docs — requires CodeWiki LLM configuration."""
@@ -119,19 +119,27 @@ async def handle_generate_docs(arguments: dict) -> str:
     api_key = manager.get_api_key()
 
     from codewiki.src.be.backend import is_caw_provider
+
     caw_mode = bool(config) and is_caw_provider(getattr(config, "provider", ""))
     if not api_key and not caw_mode:
-        return json.dumps({"error": "API key not configured. Run 'codewiki config set --api-key <key>'"})
+        return json.dumps(
+            {"error": "API key not configured. Run 'codewiki config set --api-key <key>'"}
+        )
 
     agent_instructions = {}
     if arguments.get("doc_type"):
         agent_instructions["doc_type"] = arguments["doc_type"]
     if arguments.get("include_patterns"):
-        agent_instructions["include_patterns"] = [p.strip() for p in arguments["include_patterns"].split(",")]
+        agent_instructions["include_patterns"] = [
+            p.strip() for p in arguments["include_patterns"].split(",")
+        ]
     if arguments.get("exclude_patterns"):
-        agent_instructions["exclude_patterns"] = [p.strip() for p in arguments["exclude_patterns"].split(",")]
+        agent_instructions["exclude_patterns"] = [
+            p.strip() for p in arguments["exclude_patterns"].split(",")
+        ]
 
     from codewiki.src.config import Config as BackendConfig, set_cli_context
+
     set_cli_context(True)
 
     backend_config = BackendConfig.from_cli(
@@ -150,7 +158,10 @@ async def handle_generate_docs(arguments: dict) -> str:
 
     from codewiki.cli.utils.repo_validator import get_git_commit_hash
     from codewiki.src.be.documentation_generator import DocumentationGenerator
-    doc_gen = DocumentationGenerator(backend_config, commit_id=get_git_commit_hash(repo_path) or None)
+
+    doc_gen = DocumentationGenerator(
+        backend_config, commit_id=get_git_commit_hash(repo_path) or None
+    )
     await doc_gen.run()
 
     generated_files = []
@@ -174,11 +185,14 @@ async def handle_get_module_tree(arguments: dict, store=None) -> str:
     output_dir = raw_od.resolve() if raw_od.is_absolute() else (repo_path / raw_od).resolve()
 
     from codewiki.src.config import meta_resolve
+
     module_tree_path = Path(meta_resolve(output_dir, "module_tree.json"))
     if not module_tree_path.exists():
-        return json.dumps({
-            "error": f"Module tree not found at {module_tree_path}. Run 'codewiki generate' first."
-        })
+        return json.dumps(
+            {
+                "error": f"Module tree not found at {module_tree_path}. Run 'codewiki generate' first."
+            }
+        )
 
     module_tree = json.loads(module_tree_path.read_text(encoding="utf-8"))
 

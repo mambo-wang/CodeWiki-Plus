@@ -65,8 +65,10 @@ from datetime import datetime, timedelta, timezone
 
 _TZ_CST = timezone(timedelta(hours=8))
 
+
 def _now_iso() -> str:
     return datetime.now(_TZ_CST).strftime("%Y-%m-%dT%H:%M:%S+08:00")
+
 
 def inject_okf_frontmatter(
     body: str,
@@ -78,7 +80,7 @@ def inject_okf_frontmatter(
     sources: list[dict] | None = None,
     status: str = "draft",
     extra: dict | None = None,
-    stale_days: int | None = None,   # None = 不写；0 = 当下过期
+    stale_days: int | None = None,  # None = 不写；0 = 当下过期
 ) -> str:
     fm: dict = {
         "type": type_,
@@ -356,10 +358,9 @@ def _check_okf_conformance(output_dir: Path):
     md_files = list(output_dir.rglob("*.md"))
     # 排除暂存/调试目录
     md_files = [
-        f for f in md_files
-        if "/.meta/" not in str(f)
-        and "/.trash/" not in str(f)
-        and "/.hook-debug/" not in str(f)
+        f
+        for f in md_files
+        if "/.meta/" not in str(f) and "/.trash/" not in str(f) and "/.hook-debug/" not in str(f)
     ]
     # 保留文件豁免 frontmatter 检查
     for md_file in md_files:

@@ -3,6 +3,7 @@
 Each extractor is a callable ``(file_path, content, repo_name) -> List[RouteNode]``.
 Register extractors in the ``EXTRACTORS`` dict keyed by file extension.
 """
+
 from __future__ import annotations
 
 from typing import Callable, Dict, List, Optional
