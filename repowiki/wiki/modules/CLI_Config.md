@@ -148,27 +148,39 @@ flowchart TD
 ```python
 # 保存并校验配置
 from codewiki.cli.config_manager import ConfigManager
+
 cm = ConfigManager()
-cm.save(api_key="sk-...", base_url="https://api.openai.com/v1",
-        main_model="gpt-4o", cluster_model="gpt-4o-mini")
+cm.save(
+    api_key="sk-...",
+    base_url="https://api.openai.com/v1",
+    main_model="gpt-4o",
+    cluster_model="gpt-4o-mini",
+)
 assert cm.is_configured()
 
 # 生成后端配置（桥接）
 from codewiki.src.config import Config
+
 cfg = cm.get_config().to_backend_config(
-    repo_path="/repo", output_dir="docs", api_key=cm.get_api_key())
+    repo_path="/repo", output_dir="docs", api_key=cm.get_api_key()
+)
 
 # 创建文档分支并提交
 from codewiki.cli.git_manager import GitManager
+
 gm = GitManager("/repo")
 gm.create_documentation_branch(force=True)
 sha = gm.commit_documentation(Path("docs"))
 
 # 生成静态查看器
 from codewiki.cli.html_generator import HTMLGenerator
+
 HTMLGenerator().generate(
-    output_path=Path("docs/index.html"), title="My Repo",
-    docs_dir=Path("docs"), repository_url="https://github.com/u/r")
+    output_path=Path("docs/index.html"),
+    title="My Repo",
+    docs_dir=Path("docs"),
+    repository_url="https://github.com/u/r",
+)
 ```
 
 ## 扩展点

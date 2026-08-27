@@ -42,7 +42,8 @@ def _note_related(fm_block: str) -> List[str]:
     if bl:
         out = [
             v.strip().lstrip("-").strip().strip("'\"")
-            for v in bl.group(1).splitlines() if v.strip()
+            for v in bl.group(1).splitlines()
+            if v.strip()
         ]
     return out
 
@@ -66,6 +67,7 @@ def affected_notes(
         return []
     od = Path(output_dir)
     from codewiki.src.config import NOTES_DIR
+
     notes_dir = od / NOTES_DIR
     if not notes_dir.is_dir():
         return []
@@ -80,14 +82,15 @@ def affected_notes(
             continue
         block = m.group(1)
         related = _note_related(block)
-        matched = next(
-            (r for r in related if _norm(r) in wanted), None
-        )
+        matched = next((r for r in related if _norm(r) in wanted), None)
         if matched is None:
             continue
         title = next(
-            (ln.split(":", 1)[1].strip().strip("'\"")
-             for ln in block.splitlines() if ln.startswith("title:")),
+            (
+                ln.split(":", 1)[1].strip().strip("'\"")
+                for ln in block.splitlines()
+                if ln.startswith("title:")
+            ),
             note_path.stem,
         )
         ntype = ""
@@ -100,14 +103,16 @@ def affected_notes(
             if ln.startswith("status:"):
                 status = ln.split(":", 1)[1].strip()
                 break
-        hits.append({
-            "file": str(note_path.relative_to(od)).replace("\\", "/"),
-            "title": title,
-            "note_type": ntype,
-            "status": status,
-            "matched_module": matched,
-            "_mtime": note_path.stat().st_mtime,
-        })
+        hits.append(
+            {
+                "file": str(note_path.relative_to(od)).replace("\\", "/"),
+                "title": title,
+                "note_type": ntype,
+                "status": status,
+                "matched_module": matched,
+                "_mtime": note_path.stat().st_mtime,
+            }
+        )
     hits.sort(key=lambda h: -h["_mtime"])
     for h in hits:
         h.pop("_mtime")

@@ -38,6 +38,7 @@ def detect_services(repo_path: Path) -> Dict[str, Path]:
 ```python
 # 子服务检测 + 跨服务分析
 from ...analysis.service_detector import detect_services
+
 services = detect_services(repo_path)
 cross_service_info = {}
 if len(services) >= 2:
@@ -46,7 +47,9 @@ if len(services) >= 2:
     # 2. 更新缓存中的 repo_name
     cache.batch_insert_routes(retagged_routes, incremental=False)
     # 3. 运行 CrossServiceMatcher
-    cross_service_info = _run_intra_repo_cross_service(repo_path, output_dir, services, retagged_routes)
+    cross_service_info = _run_intra_repo_cross_service(
+        repo_path, output_dir, services, retagged_routes
+    )
 ```
 
 路由重分配逻辑（新增辅助函数 `_retag_routes_by_service`）：

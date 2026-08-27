@@ -75,10 +75,10 @@ def generate_reading_guide(
         lines: List[str] = [
             "---",
             "type: Concept",
-            "title: \"阅读指南\"",
+            'title: "阅读指南"',
             f"generated: {{ by: codewiki/reading_guide.py, at: {generated_at} }}",
             "stale_after: 2099-12-31",
-            "description: \"> 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。\"",
+            'description: "> 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。"',
             "---",
             "# 阅读指南",
             "",
@@ -96,12 +96,18 @@ def generate_reading_guide(
             meta = components.get(comp_id)
             name = getattr(meta, "name", comp_id) if meta else comp_id
             ctype = getattr(meta, "component_type", "?") if meta else "?"
-            fpath = (getattr(meta, "relative_path", "") or getattr(meta, "file_path", "")) if meta else ""
+            fpath = (
+                (getattr(meta, "relative_path", "") or getattr(meta, "file_path", ""))
+                if meta
+                else ""
+            )
             mod = comp_module_idx.get(comp_id, "-")
             dep_count = len(reverse.get(comp_id, set()))
             # Truncate long paths for table readability
             short_path = fpath if len(fpath) <= 50 else "..." + fpath[-47:]
-            lines.append(f"| {i} | `{name}` | {ctype} | {mod} | {dep_count} | {score:.4f} | {short_path} |")
+            lines.append(
+                f"| {i} | `{name}` | {ctype} | {mod} | {dep_count} | {score:.4f} | {short_path} |"
+            )
 
         # Module-level summary
         if comp_module_idx:
@@ -113,21 +119,25 @@ def generate_reading_guide(
 
             top_mods = sorted(mod_scores.items(), key=lambda x: -x[1])[:10]
             if top_mods:
-                lines.extend([
-                    "",
-                    "## 模块重要性排名",
-                    "",
-                    "| # | 模块 | 累计 PageRank |",
-                    "|---|------|---------------|",
-                ])
+                lines.extend(
+                    [
+                        "",
+                        "## 模块重要性排名",
+                        "",
+                        "| # | 模块 | 累计 PageRank |",
+                        "|---|------|---------------|",
+                    ]
+                )
                 for i, (mod, sc) in enumerate(top_mods, 1):
                     lines.append(f"| {i} | {mod} | {sc:.4f} |")
 
-        lines.extend([
-            "",
-            "---",
-            f"*基于 {len(components)} 个组件、{sum(len(d) for d in graph.values())} 条依赖边计算。*",
-        ])
+        lines.extend(
+            [
+                "",
+                "---",
+                f"*基于 {len(components)} 个组件、{sum(len(d) for d in graph.values())} 条依赖边计算。*",
+            ]
+        )
 
         # Write file
         wiki_dir = Path(output_dir) / "wiki"

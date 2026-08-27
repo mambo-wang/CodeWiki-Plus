@@ -57,6 +57,7 @@ def test_core_modules_import() -> None:
     import codewiki.src.be.agent_tools.generate_sub_module_documentations
     import codewiki.src.be.agent_tools.read_code_components
     import codewiki.src.be.agent_tools.str_replace_editor
+
     try:
         import codewiki.src.be.caw_toolkit  # noqa: F401
     except ImportError as exc:

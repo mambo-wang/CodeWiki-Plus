@@ -1,69 +1,69 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 import argparse
 import os
 import re
-import sys
 
 # Constants
-OUTPUT_BASE_DIR = 'output'
-DEPENDENCY_GRAPHS_DIR = 'dependency_graphs'
-DOCS_DIR = 'docs'
-META_DIR = '.meta'
-FIRST_MODULE_TREE_FILENAME = 'first_module_tree.json'
-MODULE_TREE_FILENAME = 'module_tree.json'
-OVERVIEW_FILENAME = 'overview.md'
+OUTPUT_BASE_DIR = "output"
+DEPENDENCY_GRAPHS_DIR = "dependency_graphs"
+DOCS_DIR = "docs"
+META_DIR = ".meta"
+FIRST_MODULE_TREE_FILENAME = "first_module_tree.json"
+MODULE_TREE_FILENAME = "module_tree.json"
+OVERVIEW_FILENAME = "overview.md"
 # LLM Wiki constants
-SCHEMA_FILENAME = 'schema.yaml'
-NOTES_DIR = 'notes'
-INDEX_FILENAME = 'index.md'
-LOG_FILENAME = 'log.md'
-SEARCH_INDEX_FILENAME = 'search_index.db'
-SYMBOL_MAP_FILENAME = 'symbol_map.json'
+SCHEMA_FILENAME = "schema.yaml"
+NOTES_DIR = "notes"
+INDEX_FILENAME = "index.md"
+LOG_FILENAME = "log.md"
+SEARCH_INDEX_FILENAME = "search_index.db"
+SYMBOL_MAP_FILENAME = "symbol_map.json"
 # LLM Wiki knowledge layer — structured layout constants
-WIKI_DIR = 'wiki'
-RAW_DIR = 'raw'
-RAW_SOURCES_DIR = 'raw/sources'
+WIKI_DIR = "wiki"
+RAW_DIR = "raw"
+RAW_SOURCES_DIR = "raw/sources"
 # L0 archive (team-memory fusion): distilled conversations are moved here for
 # permanent provenance. Link-only layer — NOT indexed for BM25 search; reached
 # by following note source_ref links (view_repo_file). raw/ stays the pending
 # staging queue.
-CONVERSATIONS_DIR = 'conversations'
+CONVERSATIONS_DIR = "conversations"
 # Task memory layer — per-task knowledge store (task.md + memories.md + index)
-TASKS_DIR = 'tasks'
-TASKS_INDEX_FILENAME = '.index.json'
-TASKS_MEMORIES_FILENAME = 'memories.md'
-TASK_BINDINGS_DIR = 'task_bindings'
-SOURCE_REGISTRY_FILENAME = 'source_registry.json'
-ISSUES_FILENAME = 'issues.json'
-PROJECT_FILENAME = 'project.json'
+TASKS_DIR = "tasks"
+TASKS_INDEX_FILENAME = ".index.json"
+TASKS_MEMORIES_FILENAME = "memories.md"
+TASK_BINDINGS_DIR = "task_bindings"
+SOURCE_REGISTRY_FILENAME = "source_registry.json"
+ISSUES_FILENAME = "issues.json"
+PROJECT_FILENAME = "project.json"
 # Mapping from page_type to subdirectory name under wiki/
 PAGE_TYPE_DIRS = {
-    'module': 'modules',
-    'entity': 'entities',
-    'concept': 'concepts',
-    'source': 'sources',
-    'comparison': 'comparisons',
-    'query': 'queries',
+    "module": "modules",
+    "entity": "entities",
+    "concept": "concepts",
+    "source": "sources",
+    "comparison": "comparisons",
+    "query": "queries",
     # P2 (team-memory fusion): L2 work-method scene blocks — consolidated
     # reusable knowledge (SOP / judgment logic / taboos / principles) distilled
     # from confirmed notes via consolidate_notes.
-    'scenario': 'scenarios',
+    "scenario": "scenarios",
 }
 # Files excluded from wiki index and search (system files)
-WIKI_SYSTEM_FILES = {'index.md', 'log.md', 'overview.md', 'schema.yaml'}
+WIKI_SYSTEM_FILES = {"index.md", "log.md", "overview.md", "schema.yaml"}
 
 # OKF v0.2 actor convention (§7): '<producer>/<version>' for agents and tools
 # (e.g. ``reference_agent/gemini-2.5-pro``), 'human:<id>' for people,
 # 'process:<id>' for pipelines.  Single source of truth for the actor string
 # used in `generated.by` / `verified[].by` fields.
-ACTOR_NAME = 'codewiki'
-OKF_VERSION = '0.2'
+ACTOR_NAME = "codewiki"
+OKF_VERSION = "0.2"
 
 
 def actor_id() -> str:
     """Return the OKF actor id for this tool, e.g. ``codewiki/5.2.0`` (§7)."""
     from codewiki import __version__
+
     return f"{ACTOR_NAME}/{__version__}"
 
 
@@ -88,8 +88,11 @@ def _git_config_value(key: str) -> str:
     try:
         proc = subprocess.run(
             ["git", "config", key],
-            capture_output=True, text=True, timeout=2,
-            encoding="utf-8", errors="replace",
+            capture_output=True,
+            text=True,
+            timeout=2,
+            encoding="utf-8",
+            errors="replace",
         )
         if proc.returncode == 0:
             return (proc.stdout or "").strip()
@@ -221,27 +224,32 @@ MAX_TOKEN_PER_LEAF_MODULE = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE
 # CLI context detection
 _CLI_CONTEXT = False
 
+
 def set_cli_context(enabled: bool = True):
     """Set whether we're running in CLI context (vs web app)."""
     global _CLI_CONTEXT
     _CLI_CONTEXT = enabled
 
+
 def is_cli_context() -> bool:
     """Check if running in CLI context."""
     return _CLI_CONTEXT
 
+
 # LLM services
 # In CLI mode, these will be loaded from ~/.codewiki/config.json + keyring
 # In web app mode, use environment variables
-MAIN_MODEL = os.getenv('MAIN_MODEL', 'claude-sonnet-4')
-FALLBACK_MODEL_1 = os.getenv('FALLBACK_MODEL_1', 'glm-4p5')
-CLUSTER_MODEL = os.getenv('CLUSTER_MODEL', MAIN_MODEL)
-LLM_BASE_URL = os.getenv('LLM_BASE_URL', 'http://0.0.0.0:4000/')
-LLM_API_KEY = os.getenv('LLM_API_KEY', 'sk-1234')
+MAIN_MODEL = os.getenv("MAIN_MODEL", "claude-sonnet-4")
+FALLBACK_MODEL_1 = os.getenv("FALLBACK_MODEL_1", "glm-4p5")
+CLUSTER_MODEL = os.getenv("CLUSTER_MODEL", MAIN_MODEL)
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://0.0.0.0:4000/")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-1234")
+
 
 @dataclass
 class Config:
     """Configuration class for CodeWiki."""
+
     repo_path: str
     output_dir: str
     dependency_graph_dir: str
@@ -264,77 +272,79 @@ class Config:
     max_token_per_leaf_module: int = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE
     # Agent instructions for customization
     agent_instructions: Optional[Dict[str, Any]] = None
-    
+
     @property
     def include_patterns(self) -> Optional[List[str]]:
         """Get file include patterns from agent instructions."""
         if self.agent_instructions:
-            return self.agent_instructions.get('include_patterns')
+            return self.agent_instructions.get("include_patterns")
         return None
-    
+
     @property
     def exclude_patterns(self) -> Optional[List[str]]:
         """Get file exclude patterns from agent instructions."""
         if self.agent_instructions:
-            return self.agent_instructions.get('exclude_patterns')
+            return self.agent_instructions.get("exclude_patterns")
         return None
-    
+
     @property
     def focus_modules(self) -> Optional[List[str]]:
         """Get focus modules from agent instructions."""
         if self.agent_instructions:
-            return self.agent_instructions.get('focus_modules')
+            return self.agent_instructions.get("focus_modules")
         return None
-    
+
     @property
     def doc_type(self) -> Optional[str]:
         """Get documentation type from agent instructions."""
         if self.agent_instructions:
-            return self.agent_instructions.get('doc_type')
+            return self.agent_instructions.get("doc_type")
         return None
-    
+
     @property
     def custom_instructions(self) -> Optional[str]:
         """Get custom instructions from agent instructions."""
         if self.agent_instructions:
-            return self.agent_instructions.get('custom_instructions')
+            return self.agent_instructions.get("custom_instructions")
         return None
-    
+
     def get_prompt_addition(self) -> str:
         """Generate prompt additions based on agent instructions."""
         if not self.agent_instructions:
             return ""
-        
+
         additions = []
-        
+
         if self.doc_type:
             doc_type_instructions = {
-                'api': "Focus on API documentation: endpoints, parameters, return types, and usage examples.",
-                'architecture': "Focus on architecture documentation: system design, component relationships, and data flow.",
-                'user-guide': "Focus on user guide documentation: how to use features, step-by-step tutorials.",
-                'developer': "Focus on developer documentation: code structure, contribution guidelines, and implementation details.",
-                'business': "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details.",
-                'design': "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity.",
+                "api": "Focus on API documentation: endpoints, parameters, return types, and usage examples.",
+                "architecture": "Focus on architecture documentation: system design, component relationships, and data flow.",
+                "user-guide": "Focus on user guide documentation: how to use features, step-by-step tutorials.",
+                "developer": "Focus on developer documentation: code structure, contribution guidelines, and implementation details.",
+                "business": "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details.",
+                "design": "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity.",
             }
             if self.doc_type.lower() in doc_type_instructions:
                 additions.append(doc_type_instructions[self.doc_type.lower()])
             else:
                 additions.append(f"Focus on generating {self.doc_type} documentation.")
-        
+
         if self.focus_modules:
-            additions.append(f"Pay special attention to and provide more detailed documentation for these modules: {', '.join(self.focus_modules)}")
-        
+            additions.append(
+                f"Pay special attention to and provide more detailed documentation for these modules: {', '.join(self.focus_modules)}"
+            )
+
         if self.custom_instructions:
             additions.append(f"Additional instructions: {self.custom_instructions}")
-        
+
         return "\n".join(additions) if additions else ""
-    
+
     @classmethod
-    def from_args(cls, args: argparse.Namespace) -> 'Config':
+    def from_args(cls, args: argparse.Namespace) -> "Config":
         """Create configuration from parsed arguments."""
         repo_name = os.path.basename(os.path.normpath(args.repo_path))
-        sanitized_repo_name = ''.join(c if c.isalnum() else '_' for c in repo_name)
-        
+        sanitized_repo_name = "".join(c if c.isalnum() else "_" for c in repo_name)
+
         return cls(
             repo_path=args.repo_path,
             output_dir=OUTPUT_BASE_DIR,
@@ -345,9 +355,9 @@ class Config:
             llm_api_key=LLM_API_KEY,
             main_model=MAIN_MODEL,
             cluster_model=CLUSTER_MODEL,
-            fallback_model=FALLBACK_MODEL_1
+            fallback_model=FALLBACK_MODEL_1,
         )
-    
+
     @classmethod
     def from_cli(
         cls,
@@ -366,8 +376,8 @@ class Config:
         max_token_per_module: int = DEFAULT_MAX_TOKEN_PER_MODULE,
         max_token_per_leaf_module: int = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE,
         max_depth: int = MAX_DEPTH,
-        agent_instructions: Optional[Dict[str, Any]] = None
-    ) -> 'Config':
+        agent_instructions: Optional[Dict[str, Any]] = None,
+    ) -> "Config":
         """
         Create configuration for CLI context.
 
@@ -392,7 +402,7 @@ class Config:
         Returns:
             Config instance
         """
-        repo_name = os.path.basename(os.path.normpath(repo_path))
+        os.path.basename(os.path.normpath(repo_path))
         base_output_dir = os.path.join(output_dir, "temp")
 
         return cls(
@@ -413,5 +423,5 @@ class Config:
             max_tokens=max_tokens,
             max_token_per_module=max_token_per_module,
             max_token_per_leaf_module=max_token_per_leaf_module,
-            agent_instructions=agent_instructions
+            agent_instructions=agent_instructions,
         )

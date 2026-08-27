@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Dict
 
 import yaml
 
@@ -83,6 +83,7 @@ def invalidate_schema_cache(output_dir: str | Path | None = None) -> None:
 # Path resolution
 # ---------------------------------------------------------------------------
 
+
 def resolve_wiki_paths(output_dir: str | Path, schema: dict | None = None) -> dict:
     """Return a complete mapping of logical names to filesystem paths.
 
@@ -101,18 +102,18 @@ def resolve_wiki_paths(output_dir: str | Path, schema: dict | None = None) -> di
     wiki = od / WIKI_DIR
 
     paths: Dict[str, Path] = {
-        "modules":      wiki / PAGE_TYPE_DIRS["module"],
-        "entities":     wiki / PAGE_TYPE_DIRS["entity"],
-        "concepts":     wiki / PAGE_TYPE_DIRS["concept"],
-        "sources":      wiki / PAGE_TYPE_DIRS["source"],
-        "comparisons":  wiki / PAGE_TYPE_DIRS["comparison"],
-        "queries":      wiki / PAGE_TYPE_DIRS["query"],
-        "notes":        od / NOTES_DIR,
-        "raw_sources":  od / RAW_SOURCES_DIR,
-        "index":        wiki / INDEX_FILENAME,
-        "log":          wiki / LOG_FILENAME,
-        "overview":     wiki / OVERVIEW_FILENAME,
-        "schema":       od / SCHEMA_FILENAME,
+        "modules": wiki / PAGE_TYPE_DIRS["module"],
+        "entities": wiki / PAGE_TYPE_DIRS["entity"],
+        "concepts": wiki / PAGE_TYPE_DIRS["concept"],
+        "sources": wiki / PAGE_TYPE_DIRS["source"],
+        "comparisons": wiki / PAGE_TYPE_DIRS["comparison"],
+        "queries": wiki / PAGE_TYPE_DIRS["query"],
+        "notes": od / NOTES_DIR,
+        "raw_sources": od / RAW_SOURCES_DIR,
+        "index": wiki / INDEX_FILENAME,
+        "log": wiki / LOG_FILENAME,
+        "overview": wiki / OVERVIEW_FILENAME,
+        "schema": od / SCHEMA_FILENAME,
     }
 
     # Allow schema.page_types to override directory names.
@@ -285,6 +286,14 @@ def is_wiki_system_file(path: Path, output_dir: str | Path) -> bool:
 def ensure_wiki_dirs(output_dir: str | Path, schema: dict | None = None) -> None:
     """Create all wiki subdirectories if they don't exist yet."""
     paths = resolve_wiki_paths(output_dir, schema)
-    for key in ("modules", "entities", "concepts", "sources",
-                "comparisons", "queries", "notes", "raw_sources"):
+    for key in (
+        "modules",
+        "entities",
+        "concepts",
+        "sources",
+        "comparisons",
+        "queries",
+        "notes",
+        "raw_sources",
+    ):
         paths[key].mkdir(parents=True, exist_ok=True)

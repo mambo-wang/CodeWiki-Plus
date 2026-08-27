@@ -138,6 +138,7 @@ def looks_like_search_happened(turns: List[Dict[str, str]]) -> bool:
 # ``.meta/telemetry/<user>.jsonl`` is the single source of truth.
 # --------------------------------------------------------------------------- #
 
+
 def record_adoption_events(
     output_dir: Path,
     capture_key: str,
@@ -163,6 +164,7 @@ def record_adoption_events(
         return 0
     try:
         from codewiki.mcp.tools import telemetry
+
         existing = telemetry.adopted_docs_for_key(output_dir, capture_key)
         inserted = 0
         for p in doc_paths:
@@ -186,6 +188,7 @@ def load_adoption_counts(output_dir: Path) -> Dict[str, int]:
     """
     try:
         from codewiki.mcp.tools import telemetry
+
         usage = telemetry.aggregate_usage(Path(output_dir))
         return {
             doc: int(entry.get("adopted", 0))

@@ -112,6 +112,7 @@ def _read_frontmatter(path: Path) -> Optional[Dict[str, Any]]:
         return None
     try:
         import yaml
+
         data = yaml.safe_load(text[3:end])
         return data if isinstance(data, dict) else None
     except Exception:
@@ -126,7 +127,7 @@ def _read_body(path: Path) -> str:
     if text.startswith("---"):
         end = text.find("---", 3)
         if end >= 0:
-            return text[end + 3:].strip()
+            return text[end + 3 :].strip()
     return text.strip()
 
 
@@ -143,6 +144,7 @@ def _update_frontmatter_meta(path: Path, updates: Dict[str, Any]) -> bool:
         return False
     try:
         import yaml
+
         data = yaml.safe_load(text[3:end])
         if not isinstance(data, dict):
             return False
@@ -151,9 +153,8 @@ def _update_frontmatter_meta(path: Path, updates: Dict[str, Any]) -> bool:
             meta = {}
         meta.update(updates)
         data["metadata"] = meta
-        new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False,
-                                default_flow_style=False)
-        path.write_text(f"---\n{new_fm}---{text[end + 3:]}", encoding="utf-8")
+        new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        path.write_text(f"---\n{new_fm}---{text[end + 3 :]}", encoding="utf-8")
         return True
     except Exception as e:
         logger.warning("frontmatter update failed for %s: %s", path, e)
@@ -173,6 +174,7 @@ def _append_meta_list(path: Path, key: str, values: List[str]) -> bool:
         return False
     try:
         import yaml
+
         data = yaml.safe_load(text[3:end])
         if not isinstance(data, dict):
             return False
@@ -189,9 +191,8 @@ def _append_meta_list(path: Path, key: str, values: List[str]) -> bool:
                 existing.append(v)
         meta[key] = existing
         data["metadata"] = meta
-        new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False,
-                                default_flow_style=False)
-        path.write_text(f"---\n{new_fm}---{text[end + 3:]}", encoding="utf-8")
+        new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        path.write_text(f"---\n{new_fm}---{text[end + 3 :]}", encoding="utf-8")
         return True
     except Exception as e:
         logger.warning("frontmatter list append failed for %s: %s", path, e)
@@ -207,6 +208,7 @@ def _norm_rel(p: str, output_dir: Path) -> str:
 # --------------------------------------------------------------------------- #
 def _scenarios_dir(output_dir: Path) -> Path:
     from codewiki.src.config import WIKI_DIR, PAGE_TYPE_DIRS
+
     return Path(output_dir) / WIKI_DIR / PAGE_TYPE_DIRS["scenario"]
 
 
@@ -225,19 +227,24 @@ def _scan_scenarios(output_dir: Path) -> List[Dict[str, Any]]:
             heat = int(meta.get("heat") or 0)
         except (TypeError, ValueError):
             heat = 0
-        out.append({
-            "file": _norm_rel(str(p.relative_to(output_dir)), output_dir),
-            "title": fm.get("title") or p.stem,
-            "summary": str(meta.get("summary") or "")[:_SUMMARY_CHARS],
-            "heat": heat,
-            "updated": str(fm.get("generated", {}).get("at", "")) if isinstance(fm.get("generated"), dict) else "",
-        })
+        out.append(
+            {
+                "file": _norm_rel(str(p.relative_to(output_dir)), output_dir),
+                "title": fm.get("title") or p.stem,
+                "summary": str(meta.get("summary") or "")[:_SUMMARY_CHARS],
+                "heat": heat,
+                "updated": str(fm.get("generated", {}).get("at", ""))
+                if isinstance(fm.get("generated"), dict)
+                else "",
+            }
+        )
     return out
 
 
 def _pending_confirmed_notes(output_dir: Path, limit: int) -> List[Dict[str, Any]]:
     """Stable notes not yet absorbed into a scene block (no consolidated_into)."""
     from codewiki.src.config import NOTES_DIR
+
     notes_dir = Path(output_dir) / NOTES_DIR
     out: List[Dict[str, Any]] = []
     if not notes_dir.is_dir():
@@ -254,14 +261,16 @@ def _pending_confirmed_notes(output_dir: Path, limit: int) -> List[Dict[str, Any
         scene = ""
         if isinstance(meta.get("scene"), str):
             scene = meta["scene"]
-        out.append({
-            "file": _norm_rel(str(p.relative_to(output_dir)), output_dir),
-            "title": fm.get("title") or p.stem,
-            "note_type": fm.get("type") or "general",
-            "scene": scene,
-            "severity": str(meta.get("severity") or ""),
-            "preview": body[:_SUMMARY_CHARS],
-        })
+        out.append(
+            {
+                "file": _norm_rel(str(p.relative_to(output_dir)), output_dir),
+                "title": fm.get("title") or p.stem,
+                "note_type": fm.get("type") or "general",
+                "scene": scene,
+                "severity": str(meta.get("severity") or ""),
+                "preview": body[:_SUMMARY_CHARS],
+            }
+        )
         if len(out) >= limit:
             break
     return out
@@ -288,6 +297,7 @@ def _cleanup_soft_deleted(output_dir: Path) -> List[str]:
 # --------------------------------------------------------------------------- #
 def _capacity(output_dir: Path, live_count: int) -> Dict[str, Any]:
     from codewiki.mcp.tools.aggregation_state import read_config
+
     max_scenes = read_config(output_dir)["max_scenarios"]
     if live_count >= max_scenes:
         warning = "red"
@@ -340,30 +350,36 @@ def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
         pending = _pending_confirmed_notes(output_dir, limit)
         state = agg.load_state(output_dir)
         cfg = agg.read_config(output_dir)
-        return json.dumps({
-            "status": "prepared",
-            "mode": "prepare",
-            "counters": {
-                "notes_since_last_consolidation": int(state.get("notes_since_last_consolidation") or 0),
-                "consolidation_threshold": cfg["consolidation_threshold"],
-                "last_consolidation_at": state.get("last_consolidation_at"),
+        return json.dumps(
+            {
+                "status": "prepared",
+                "mode": "prepare",
+                "counters": {
+                    "notes_since_last_consolidation": int(
+                        state.get("notes_since_last_consolidation") or 0
+                    ),
+                    "consolidation_threshold": cfg["consolidation_threshold"],
+                    "last_consolidation_at": state.get("last_consolidation_at"),
+                },
+                "capacity": capacity,
+                "pending_notes": pending,
+                "pending_total": len(pending),
+                "scenarios_index": scenarios,
+                "system_prompt": _CONSOLIDATE_SYSTEM,
+                "next": (
+                    "(1) Read pending notes (view_repo_file) — metadata.scene groups "
+                    "related ones; (2) read the scene files you plan to UPDATE/MERGE; "
+                    "(3) write blocks with write_doc_file(page_type='scenario'); obey "
+                    "the capacity warning (red=merge first, orange=update only); "
+                    "(4) reject_note fully-absorbed source notes with "
+                    "reason='consolidated into <scene title>'; (5) submit the report. "
+                    "If this consolidation was triggered by an aggregation_hint "
+                    "reminder, confirm with the user before starting."
+                ),
             },
-            "capacity": capacity,
-            "pending_notes": pending,
-            "pending_total": len(pending),
-            "scenarios_index": scenarios,
-            "system_prompt": _CONSOLIDATE_SYSTEM,
-            "next": (
-                "(1) Read pending notes (view_repo_file) — metadata.scene groups "
-                "related ones; (2) read the scene files you plan to UPDATE/MERGE; "
-                "(3) write blocks with write_doc_file(page_type='scenario'); obey "
-                "the capacity warning (red=merge first, orange=update only); "
-                "(4) reject_note fully-absorbed source notes with "
-                "reason='consolidated into <scene title>'; (5) submit the report. "
-                "If this consolidation was triggered by an aggregation_hint "
-                "reminder, confirm with the user before starting."
-            ),
-        }, indent=2, ensure_ascii=False)
+            indent=2,
+            ensure_ascii=False,
+        )
 
     # ---- mode == "submit" ----
     report = arguments.get("report")
@@ -373,13 +389,15 @@ def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
         except json.JSONDecodeError:
             return json.dumps({"error": "report must be a JSON object."})
     if not isinstance(report, dict):
-        return json.dumps({
-            "error": (
-                "mode='submit' requires 'report': {scenarios: [{file, action, "
-                "source_notes, summary?, heat?}]} with action in "
-                "created|updated|merged|deleted."
-            ),
-        })
+        return json.dumps(
+            {
+                "error": (
+                    "mode='submit' requires 'report': {scenarios: [{file, action, "
+                    "source_notes, summary?, heat?}]} with action in "
+                    "created|updated|merged|deleted."
+                ),
+            }
+        )
     entries = report.get("scenarios")
     if not isinstance(entries, list) or not entries:
         return json.dumps({"error": "report.scenarios must be a non-empty list."})
@@ -409,10 +427,12 @@ def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
         if action == "deleted":
             if path.is_file():
                 if _read_body(path) != _SOFT_DELETE_MARKER:
-                    errors.append({
-                        "file": rel,
-                        "error": "action=deleted requires the file body to be exactly [DELETED]",
-                    })
+                    errors.append(
+                        {
+                            "file": rel,
+                            "error": "action=deleted requires the file body to be exactly [DELETED]",
+                        }
+                    )
                     continue
             processed.append({"file": rel, "action": "deleted"})
             continue
@@ -422,23 +442,27 @@ def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
             continue
         fm = _read_frontmatter(path)
         if fm is None or str(fm.get("type", "")).lower() != "scenario":
-            errors.append({
-                "file": rel,
-                "error": "frontmatter must carry type: Scenario (write via write_doc_file page_type='scenario')",
-            })
+            errors.append(
+                {
+                    "file": rel,
+                    "error": "frontmatter must carry type: Scenario (write via write_doc_file page_type='scenario')",
+                }
+            )
             continue
 
         # Provenance: scene ← source notes (bidirectional links)
         source_notes = [
             _norm_rel(str(s), output_dir)
-            for s in (entry.get("source_notes") or []) if str(s).strip()
+            for s in (entry.get("source_notes") or [])
+            if str(s).strip()
         ]
         if source_notes:
             _append_meta_list(path, "source_notes", source_notes)
             from codewiki.src.config import NOTES_DIR
+
             notes_dir = Path(output_dir) / NOTES_DIR
             for src in source_notes:
-                note_path = (Path(output_dir) / src)
+                note_path = Path(output_dir) / src
                 if note_path.is_file():
                     _append_meta_list(note_path, "consolidated_into", [rel])
                 elif (notes_dir / Path(src).name).is_file():
@@ -458,41 +482,51 @@ def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
         if meta_updates:
             _update_frontmatter_meta(path, meta_updates)
 
-        processed.append({
-            "file": rel,
-            "action": action,
-            "source_notes": len(source_notes),
-        })
+        processed.append(
+            {
+                "file": rel,
+                "action": action,
+                "source_notes": len(source_notes),
+            }
+        )
 
     if errors:
-        return json.dumps({
-            "status": "error",
-            "mode": "submit",
-            "errors": errors,
-            "processed": processed,
-            "message": (
-                f"{len(errors)} report entr(y/ies) failed validation; counters "
-                "NOT reset. Fix the reported issues and re-submit."
-            ),
-        }, indent=2, ensure_ascii=False)
+        return json.dumps(
+            {
+                "status": "error",
+                "mode": "submit",
+                "errors": errors,
+                "processed": processed,
+                "message": (
+                    f"{len(errors)} report entr(y/ies) failed validation; counters "
+                    "NOT reset. Fix the reported issues and re-submit."
+                ),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
 
     # Soft-delete cleanup + capacity enforcement
     removed = _cleanup_soft_deleted(output_dir)
     live = _scan_scenarios(output_dir)
     capacity = _capacity(output_dir, len(live))
     if capacity["warning"] == "red":
-        return json.dumps({
-            "status": "capacity_exceeded",
-            "mode": "submit",
-            "processed": processed,
-            "removed_deleted": removed,
-            "capacity": capacity,
-            "message": (
-                f"Scenario count {capacity['current']} exceeds the cap "
-                f"{capacity['max']}. MERGE similar scenes (and mark the losers "
-                "[DELETED]) until below the cap, then re-submit. Counters NOT reset."
-            ),
-        }, indent=2, ensure_ascii=False)
+        return json.dumps(
+            {
+                "status": "capacity_exceeded",
+                "mode": "submit",
+                "processed": processed,
+                "removed_deleted": removed,
+                "capacity": capacity,
+                "message": (
+                    f"Scenario count {capacity['current']} exceeds the cap "
+                    f"{capacity['max']}. MERGE similar scenes (and mark the losers "
+                    "[DELETED]) until below the cap, then re-submit. Counters NOT reset."
+                ),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
 
     state = agg.mark_consolidated(output_dir)
 
@@ -520,24 +554,31 @@ def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
     # Rebuild the search index so scene blocks become queryable immediately.
     try:
         from codewiki.mcp.tools.wiki_search import build_full_index
+
         build_full_index(output_dir)
     except Exception as e:  # indexing is best-effort
         logger.warning("search index rebuild failed after consolidate: %s", e)
 
-    return json.dumps({
-        "status": "completed",
-        "mode": "submit",
-        "processed": processed,
-        "removed_deleted": removed,
-        "capacity": capacity,
-        "counters": {
-            "notes_since_last_consolidation": int(state.get("notes_since_last_consolidation") or 0),
-            "notes_since_last_doctrine": int(state.get("notes_since_last_doctrine") or 0),
+    return json.dumps(
+        {
+            "status": "completed",
+            "mode": "submit",
+            "processed": processed,
+            "removed_deleted": removed,
+            "capacity": capacity,
+            "counters": {
+                "notes_since_last_consolidation": int(
+                    state.get("notes_since_last_consolidation") or 0
+                ),
+                "notes_since_last_doctrine": int(state.get("notes_since_last_doctrine") or 0),
+            },
+            **({"doctrine_hint": doctrine_hint} if doctrine_hint else {}),
+            "message": (
+                f"Consolidation recorded: {len(processed)} scene operation(s). "
+                "Counter reset. Confirm the new/updated scene blocks are reviewed; "
+                "source notes absorbed into scenes should be retired via reject_note."
+            ),
         },
-        **({"doctrine_hint": doctrine_hint} if doctrine_hint else {}),
-        "message": (
-            f"Consolidation recorded: {len(processed)} scene operation(s). "
-            "Counter reset. Confirm the new/updated scene blocks are reviewed; "
-            "source notes absorbed into scenes should be retired via reject_note."
-        ),
-    }, indent=2, ensure_ascii=False)
+        indent=2,
+        ensure_ascii=False,
+    )

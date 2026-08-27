@@ -8,7 +8,6 @@ runs, preserves user customizations while updating auto-inferred fields.
 from __future__ import annotations
 
 import logging
-import re
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -61,9 +60,7 @@ _DEFAULT_CONVENTIONS = {
 # below _DEFAULT_CONVENTIONS to keep the dict literal readable).
 from codewiki.mcp.tools.note_types import DEFAULT_NOTE_TYPES  # noqa: E402
 
-_DEFAULT_CONVENTIONS["note_types"] = {
-    t: dict(spec) for t, spec in DEFAULT_NOTE_TYPES.items()
-}
+_DEFAULT_CONVENTIONS["note_types"] = {t: dict(spec) for t, spec in DEFAULT_NOTE_TYPES.items()}
 
 _DEFAULT_REQUIRED_SECTIONS = [
     {"title": "Architecture Overview", "mermaid_diagram": True},
@@ -97,14 +94,22 @@ _DEFAULT_EXPORT = {
 _DEFAULT_DOC_TYPES = {
     "default": "design",
     "types": {
-        "api": {"module": "Focus on API documentation: endpoints, parameters, return types, and usage examples."},
+        "api": {
+            "module": "Focus on API documentation: endpoints, parameters, return types, and usage examples."
+        },
         "architecture": {
             "module": "Focus on architecture documentation: system design, component relationships, and data flow.",
             "overview": "Focus on system-level architecture: show how modules relate, data flows between components, and the overall layered design. Include a high-level Mermaid architecture diagram.",
         },
-        "user-guide": {"module": "Focus on user guide documentation: how to use features, step-by-step tutorials."},
-        "developer": {"module": "Focus on developer documentation: code structure, contribution guidelines, and implementation details."},
-        "business": {"module": "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details."},
+        "user-guide": {
+            "module": "Focus on user guide documentation: how to use features, step-by-step tutorials."
+        },
+        "developer": {
+            "module": "Focus on developer documentation: code structure, contribution guidelines, and implementation details."
+        },
+        "business": {
+            "module": "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details."
+        },
         "design": {
             "module": "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity.",
             "overview": "Focus on system-level architecture: show how modules relate to each other, data flows between components, overall layered design, and key architectural decisions. Provide a high-level view that helps readers understand the system's structural blueprint. Include Mermaid diagrams for the architecture overview.",
@@ -115,7 +120,18 @@ _DEFAULT_DOC_TYPES = {
 # Default code routing rules (Roadmap 2.1)
 _DEFAULT_CODE_ROUTING = {
     "boilerplate_patterns": {
-        "suffix": ["DTO", "VO", "Request", "Response", "Entity", "PO", "Model", "Mapper", "Repository", "Dao"],
+        "suffix": [
+            "DTO",
+            "VO",
+            "Request",
+            "Response",
+            "Entity",
+            "PO",
+            "Model",
+            "Mapper",
+            "Repository",
+            "Dao",
+        ],
         "annotation": ["@Data", "@Getter", "@Entity", "@Table", "@Document"],
     },
     "business_patterns": {
@@ -140,35 +156,48 @@ _DEFAULT_PAGE_TYPES = {
         "directory": "wiki/entities",
         "description": "关键类、接口、数据模型、API 端点的独立文档",
         "required_sections": [
-            "职责描述", "公开 API", "使用示例", "依赖关系",
+            "职责描述",
+            "公开 API",
+            "使用示例",
+            "依赖关系",
         ],
     },
     "concept": {
         "directory": "wiki/concepts",
         "description": "设计模式、架构理念、领域概念的文档",
         "required_sections": [
-            "概念定义", "适用场景", "在本项目中的应用",
+            "概念定义",
+            "适用场景",
+            "在本项目中的应用",
         ],
     },
     "source": {
         "directory": "wiki/sources",
         "description": "第三方文档（SDK/API/框架文档）的摘要",
         "required_sections": [
-            "文档概述", "关键 API/概念", "与本项目相关的部分",
+            "文档概述",
+            "关键 API/概念",
+            "与本项目相关的部分",
         ],
     },
     "comparison": {
         "directory": "wiki/comparisons",
         "description": "方案对比、技术选型分析",
         "required_sections": [
-            "背景与目标", "候选方案", "对比分析", "结论与决策",
+            "背景与目标",
+            "候选方案",
+            "对比分析",
+            "结论与决策",
         ],
     },
     "query": {
         "directory": "wiki/queries",
         "description": "方案设计决策记录，包含推理过程和权衡",
         "required_sections": [
-            "问题描述", "调研过程", "方案权衡", "决策结论",
+            "问题描述",
+            "调研过程",
+            "方案权衡",
+            "决策结论",
         ],
     },
 }

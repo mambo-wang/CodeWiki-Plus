@@ -201,8 +201,11 @@ def test_prepare_end_to_end():
     check("changed_sources annotated", bool(pkg["target"].get("changed_sources")))
 
     # focus restrict
-    out_focus = json.loads(handle_review_changes(
-        {"repo_path": REPO_PATH, "mode": "prepare", "focus": "general"}, store))
+    out_focus = json.loads(
+        handle_review_changes(
+            {"repo_path": REPO_PATH, "mode": "prepare", "focus": "general"}, store
+        )
+    )
     pkg_focus = json.loads(Path(out_focus["file"]).read_text(encoding="utf-8"))
     ev = pkg_focus.get("evidence", {})
     check("focus=general restricts axes", set(ev.keys()) == {"general"}, detail=str(ev.keys()))
@@ -246,10 +249,16 @@ def test_axis_key_mapping():
             conv = rc._collect_convention_evidence(None, fake_session)
             check("convention hits non-empty", bool(conv["hits"]), str(conv["hits"])[:200])
             if conv["hits"]:
-                check("convention path from file key",
-                      conv["hits"][0]["path"] == "notes/note-1.md", str(conv["hits"][0]))
-                check("convention score from relevance_score",
-                      conv["hits"][0]["score"] == 2.5, str(conv["hits"][0]))
+                check(
+                    "convention path from file key",
+                    conv["hits"][0]["path"] == "notes/note-1.md",
+                    str(conv["hits"][0]),
+                )
+                check(
+                    "convention score from relevance_score",
+                    conv["hits"][0]["score"] == 2.5,
+                    str(conv["hits"][0]),
+                )
             check("doctrine extracted", conv.get("doctrine") == "DOCTRINE", str(conv)[:120])
 
             changes = [FileChange(path="codewiki/mcp/tools/foo.py", added_lines=[1])]
@@ -259,8 +268,11 @@ def test_axis_key_mapping():
                 h = mod["hits"][0]
                 check("module path from file key", h["path"] == "notes/note-1.md", str(h))
                 check("module type from note frontmatter", h["type"] == "pitfall", str(h))
-                check("module related_modules from note frontmatter",
-                      h["related_modules"] == ["codewiki/mcp/tools"], str(h))
+                check(
+                    "module related_modules from note frontmatter",
+                    h["related_modules"] == ["codewiki/mcp/tools"],
+                    str(h),
+                )
                 check("module score from relevance_score", h["score"] == 2.5, str(h))
         finally:
             rc._query_wiki = orig

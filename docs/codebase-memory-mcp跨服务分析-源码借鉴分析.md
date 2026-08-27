@@ -187,14 +187,16 @@ def match_cross_service_routes(workspace_routes):
     for qn, route in workspace_routes.items():
         if route.callers and route.handler:
             for caller in route.callers:
-                cross_links.append(CrossServiceLink(
-                    source_repo=caller.repo,
-                    source_func=caller.name,
-                    target_repo=route.handler.repo,
-                    target_func=route.handler.name,
-                    route=qn,
-                    protocol="HTTP"
-                ))
+                cross_links.append(
+                    CrossServiceLink(
+                        source_repo=caller.repo,
+                        source_func=caller.name,
+                        target_repo=route.handler.repo,
+                        target_func=route.handler.name,
+                        route=qn,
+                        protocol="HTTP",
+                    )
+                )
     return cross_links
 ```
 
@@ -211,16 +213,17 @@ def match_cross_service_routes(workspace_routes):
 ```python
 import re
 
+
 def canon_path(path: str) -> str:
     """将各种框架的路径参数语法统一为 {}"""
     # :name (Express/Rails) → {}
-    path = re.sub(r':([a-zA-Z_]\w*)', '{}', path)
+    path = re.sub(r":([a-zA-Z_]\w*)", "{}", path)
     # {name} (Spring/Axum) → {}
-    path = re.sub(r'\{[^}]+\}', '{}', path)
+    path = re.sub(r"\{[^}]+\}", "{}", path)
     # <name> 或 <int:name> (Flask) → {}
-    path = re.sub(r'<[^>]+>', '{}', path)
+    path = re.sub(r"<[^>]+>", "{}", path)
     # ${...} (JS template) → {}
-    path = re.sub(r'\$\{[^}]+\}', '{}', path)
+    path = re.sub(r"\$\{[^}]+\}", "{}", path)
     return path
 ```
 

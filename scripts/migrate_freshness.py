@@ -82,7 +82,7 @@ def split_frontmatter(text: str):
     end = text.find("---", 3)
     if end < 0:
         return None, None
-    return text[3:end], text[end + 3:]
+    return text[3:end], text[end + 3 :]
 
 
 def parse_day(value: Any) -> Optional[datetime]:
@@ -204,7 +204,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Backfill stale_after from historical verified events (idempotent)."
     )
-    parser.add_argument("output_dir", help="repowiki output directory (contains notes/ and schema.yaml)")
+    parser.add_argument(
+        "output_dir", help="repowiki output directory (contains notes/ and schema.yaml)"
+    )
     parser.add_argument("--dry-run", action="store_true", help="report without writing")
     args = parser.parse_args()
 

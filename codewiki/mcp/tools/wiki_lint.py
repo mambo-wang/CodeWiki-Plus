@@ -23,13 +23,25 @@ _SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 
 # All available check names
 _ALL_CHECKS = {
-    "stale_refs", "undocumented", "broken_links", "cycles", "coverage",
-    "orphan_pages", "no_outlinks", "missing_aliases", "stale_sources",
-    "superseded_pages", "overview_stale", "unsupported_claims",
-    "isolated_components", "stale_notes", "note_clusters",
+    "stale_refs",
+    "undocumented",
+    "broken_links",
+    "cycles",
+    "coverage",
+    "orphan_pages",
+    "no_outlinks",
+    "missing_aliases",
+    "stale_sources",
+    "superseded_pages",
+    "overview_stale",
+    "unsupported_claims",
+    "isolated_components",
+    "stale_notes",
+    "note_clusters",
     "okf_conformance",
     # P2 (team-memory fusion): L2 scene block hygiene
-    "scenario_capacity", "scenario_orphan",
+    "scenario_capacity",
+    "scenario_orphan",
     # P1 B-line: hot-but-never-adopted notes (usage utility dimension)
     "low_adoption",
 }
@@ -50,24 +62,43 @@ _LEGACY_STATUS_MAP = {
 # OKF v0.2 §4/§5/§7 standard top-level fields (P2).  Producer-private
 # extensions must live under ``metadata``; anything else at the top level
 # triggers an okf_conformance warning so new docs don't leak private keys.
-_OKF_TOP_LEVEL_KEYS = frozenset({
-    "type", "title", "description", "aliases",
-    "status", "verified", "stale_after", "generated",
-    "tags", "sources", "metadata",
-})
+_OKF_TOP_LEVEL_KEYS = frozenset(
+    {
+        "type",
+        "title",
+        "description",
+        "aliases",
+        "status",
+        "verified",
+        "stale_after",
+        "generated",
+        "tags",
+        "sources",
+        "metadata",
+    }
+)
 # Legacy top-level extensions that may still appear on older pages.  They are
 # producer-private under OKF §4/§5 and should be folded under ``metadata``
 # (migrate_okf.py --fold-private does this).  They stay tolerated here — and
 # line-based consumers (wiki_index note date, lint note_clusters, cache.py
 # boost) keep reading them via the indented ``key: value`` rows — so folding
 # remains backwards-compatible.
-_OKF_LEGACY_TOP_LEVEL_KEYS = frozenset({
-    "severity", "origin", "root_cause",
-    "source_refs", "chunk_refs",
-    "related_modules", "related_components", "source_ref",
-    "summary", "keywords", "date",
-    "reject_reason",  # knowledge_loop reject() 写入的拒绝原因（migrate_okf --fold-private 会折叠进 metadata）
-})
+_OKF_LEGACY_TOP_LEVEL_KEYS = frozenset(
+    {
+        "severity",
+        "origin",
+        "root_cause",
+        "source_refs",
+        "chunk_refs",
+        "related_modules",
+        "related_components",
+        "source_ref",
+        "summary",
+        "keywords",
+        "date",
+        "reject_reason",  # knowledge_loop reject() 写入的拒绝原因（migrate_okf --fold-private 会折叠进 metadata）
+    }
+)
 
 # Regex patterns for markdown links
 _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]\(([^\)]+\.md)\)")
@@ -82,9 +113,11 @@ def _strip_code_blocks(content: str) -> str:
     `` `[text](x.md)` ``) must not be treated as real references by the
     linter, otherwise they produce false-positive broken-link errors.
     """
+
     # Replace fenced blocks with equivalent blank lines to preserve line numbering
     def _blank_fenced(m: re.Match) -> str:
         return "\n" * m.group(0).count("\n")
+
     stripped = re.sub(r"(?ms)^[ \t]*(?:```|~~~).*?^[ \t]*(?:```|~~~)", _blank_fenced, content)
     # Drop inline code spans (`...`).  `[^`\n]*` is single-line scoped: a lone
     # unmatched backtick in prose (e.g. a truncated code ref) must never swallow
@@ -125,14 +158,14 @@ def _build_anchor_map(output_dir: Path) -> Dict[str, str]:
         for line in text[3:end].splitlines():
             s = line.strip()
             if s.startswith("title:"):
-                t = s.split(":", 1)[1].strip().strip('"\'')
+                t = s.split(":", 1)[1].strip().strip("\"'")
                 if t:
                     title_to_rel[t.lower()] = rel
                     title_to_rel[t.lower().replace(" ", "-")] = rel
             elif s.startswith("aliases:"):
                 raw = s.split(":", 1)[1].strip().strip("[]")
                 for a in raw.split(","):
-                    a = a.strip().strip('"\'')
+                    a = a.strip().strip("\"'")
                     if a:
                         title_to_rel[a.lower()] = rel
     return title_to_rel
@@ -202,6 +235,7 @@ def _get_output_dir(session: Optional[SessionState], arguments: Dict) -> Optiona
 def _load_module_tree(output_dir: Path) -> Optional[dict]:
     """Load module_tree.json from output directory."""
     from codewiki.src.config import meta_resolve
+
     mt_path = Path(meta_resolve(output_dir, "module_tree.json"))
     if not mt_path.exists():
         return None
@@ -245,6 +279,7 @@ def _get_documented_components(module_tree: dict) -> Set[str]:
 #  Individual checks
 # ---------------------------------------------------------------------------
 
+
 def _check_stale_refs(
     output_dir: Path,
     module_tree: Optional[dict],
@@ -254,9 +289,9 @@ def _check_stale_refs(
     if not module_tree:
         return issues
 
-    valid_modules = _get_all_module_names(module_tree)
+    _get_all_module_names(module_tree)
     # Recursively collect all .md files for valid_files set
-    valid_files = {f.name for f in output_dir.rglob("*.md")}
+    {f.name for f in output_dir.rglob("*.md")}
 
     for md_file in output_dir.rglob("*.md"):
         if _SCRATCH_DIR_NAMES.intersection(md_file.parts):
@@ -283,32 +318,36 @@ def _check_stale_refs(
                 # Resolve relative to source file's directory
                 resolved = (md_file.parent / ref_file).resolve()
                 if not resolved.exists():
-                    issues.append({
-                        "check": "stale_refs",
-                        "severity": "error",
-                        "message": f"Reference to non-existent file '{ref_file}' (module '{ref_name}')",
-                        "file": str(md_file.relative_to(output_dir)),
-                        "line": line_no,
-                        "suggestion": f"Remove or update the reference to '{ref_name}'",
-                    })
+                    issues.append(
+                        {
+                            "check": "stale_refs",
+                            "severity": "error",
+                            "message": f"Reference to non-existent file '{ref_file}' (module '{ref_name}')",
+                            "file": str(md_file.relative_to(output_dir)),
+                            "line": line_no,
+                            "suggestion": f"Remove or update the reference to '{ref_name}'",
+                        }
+                    )
 
             # Check simple [text](file.md) patterns (skip http links)
             for match in _MD_LINK_RE.finditer(line):
-                ref_text = match.group(1)
+                match.group(1)
                 ref_file = match.group(2)
                 if ref_file.startswith(("http://", "https://")):
                     continue
                 # Resolve relative to source file's directory
                 resolved = (md_file.parent / ref_file).resolve()
                 if not resolved.exists():
-                    issues.append({
-                        "check": "stale_refs",
-                        "severity": "error",
-                        "message": f"Broken link to '{ref_file}'",
-                        "file": str(md_file.relative_to(output_dir)),
-                        "line": line_no,
-                        "suggestion": f"Update the link target or remove the reference",
-                    })
+                    issues.append(
+                        {
+                            "check": "stale_refs",
+                            "severity": "error",
+                            "message": f"Broken link to '{ref_file}'",
+                            "file": str(md_file.relative_to(output_dir)),
+                            "line": line_no,
+                            "suggestion": "Update the link target or remove the reference",
+                        }
+                    )
 
     return issues
 
@@ -347,14 +386,16 @@ def _check_broken_links(
                 # Resolve relative to source file's directory
                 target = (md_file.parent / file_part).resolve()
                 if not target.exists():
-                    issues.append({
-                        "check": "broken_links",
-                        "severity": "error",
-                        "message": f"Link target '{ref_file}' does not exist",
-                        "file": str(md_file.relative_to(output_dir)),
-                        "line": line_no,
-                        "suggestion": "Fix the link path or create the target file",
-                    })
+                    issues.append(
+                        {
+                            "check": "broken_links",
+                            "severity": "error",
+                            "message": f"Link target '{ref_file}' does not exist",
+                            "file": str(md_file.relative_to(output_dir)),
+                            "line": line_no,
+                            "suggestion": "Fix the link path or create the target file",
+                        }
+                    )
 
     return issues
 
@@ -382,17 +423,19 @@ def _check_undocumented(
         if count < threshold:
             break
         if comp_id not in documented:
-            issues.append({
-                "check": "undocumented",
-                "severity": "warning",
-                "message": (
-                    f"High-impact component '{comp_id}' "
-                    f"({count} dependents) has no documentation coverage"
-                ),
-                "component_id": comp_id,
-                "depended_by_count": count,
-                "suggestion": "Add this component to a module or create dedicated documentation",
-            })
+            issues.append(
+                {
+                    "check": "undocumented",
+                    "severity": "warning",
+                    "message": (
+                        f"High-impact component '{comp_id}' "
+                        f"({count} dependents) has no documentation coverage"
+                    ),
+                    "component_id": comp_id,
+                    "depended_by_count": count,
+                    "suggestion": "Add this component to a module or create dedicated documentation",
+                }
+            )
 
     return issues
 
@@ -410,16 +453,19 @@ def _check_cycles(
             build_graph_from_components,
             detect_cycles,
         )
+
         graph = build_graph_from_components(components)
         cycles = detect_cycles(graph)
         for cycle in cycles[:10]:  # cap at 10 cycles
-            issues.append({
-                "check": "cycles",
-                "severity": "info",
-                "message": f"Circular dependency detected: {' → '.join(cycle[:5])}{'...' if len(cycle) > 5 else ''}",
-                "components": cycle,
-                "suggestion": "Consider refactoring to break the cycle (e.g. via interface or event pattern)",
-            })
+            issues.append(
+                {
+                    "check": "cycles",
+                    "severity": "info",
+                    "message": f"Circular dependency detected: {' → '.join(cycle[:5])}{'...' if len(cycle) > 5 else ''}",
+                    "components": cycle,
+                    "suggestion": "Consider refactoring to break the cycle (e.g. via interface or event pattern)",
+                }
+            )
     except Exception as e:
         logger.warning("Cycle detection skipped: %s", e)
 
@@ -443,6 +489,7 @@ def _check_isolated_components(
             build_graph_from_components,
             find_isolated_nodes,
         )
+
         graph = build_graph_from_components(components)
         isolated = find_isolated_nodes(graph)
 
@@ -457,34 +504,40 @@ def _check_isolated_components(
         by_file: Dict[str, List[str]] = defaultdict(list)
         for comp_id in reported:
             meta = components.get(comp_id)
-            fpath = getattr(meta, "relative_path", "") or getattr(meta, "file_path", "") or "unknown"
+            fpath = (
+                getattr(meta, "relative_path", "") or getattr(meta, "file_path", "") or "unknown"
+            )
             name = getattr(meta, "name", comp_id) if meta else comp_id
             by_file[fpath].append(name)
 
         for fpath, names in sorted(by_file.items()):
-            issues.append({
-                "check": "isolated_components",
-                "severity": "info",
-                "message": (
-                    f"{len(names)} isolated component(s) in {fpath}: "
-                    f"{', '.join(names[:5])}{'...' if len(names) > 5 else ''}"
-                ),
-                "file": fpath,
-                "components": [f"{fpath}::{n}" for n in names],
-                "suggestion": (
-                    "These components have no dependency relationships. "
-                    "Verify they are not dead code, or document why they exist "
-                    "(e.g. plugin entry points, scripts, deprecated code)."
-                ),
-            })
+            issues.append(
+                {
+                    "check": "isolated_components",
+                    "severity": "info",
+                    "message": (
+                        f"{len(names)} isolated component(s) in {fpath}: "
+                        f"{', '.join(names[:5])}{'...' if len(names) > 5 else ''}"
+                    ),
+                    "file": fpath,
+                    "components": [f"{fpath}::{n}" for n in names],
+                    "suggestion": (
+                        "These components have no dependency relationships. "
+                        "Verify they are not dead code, or document why they exist "
+                        "(e.g. plugin entry points, scripts, deprecated code)."
+                    ),
+                }
+            )
 
         if total > 20:
-            issues.append({
-                "check": "isolated_components",
-                "severity": "info",
-                "message": f"... and {total - 20} more isolated components (showing first 20)",
-                "suggestion": "Run with component analysis to see the full list.",
-            })
+            issues.append(
+                {
+                    "check": "isolated_components",
+                    "severity": "info",
+                    "message": f"... and {total - 20} more isolated components (showing first 20)",
+                    "suggestion": "Run with component analysis to see the full list.",
+                }
+            )
 
     except Exception as e:
         logger.warning("Isolated component detection skipped: %s", e)
@@ -507,18 +560,17 @@ def _check_coverage(
     covered = len(documented & set(components.keys()))
     pct = (covered / total * 100) if total > 0 else 0
 
-    issues.append({
-        "check": "coverage",
-        "severity": "info",
-        "message": f"Documentation coverage: {covered}/{total} components ({pct:.1f}%)",
-        "covered": covered,
-        "total": total,
-        "percentage": round(pct, 1),
-        "suggestion": (
-            "Coverage is below 50%" if pct < 50
-            else "Good coverage"
-        ),
-    })
+    issues.append(
+        {
+            "check": "coverage",
+            "severity": "info",
+            "message": f"Documentation coverage: {covered}/{total} components ({pct:.1f}%)",
+            "covered": covered,
+            "total": total,
+            "percentage": round(pct, 1),
+            "suggestion": ("Coverage is below 50%" if pct < 50 else "Good coverage"),
+        }
+    )
 
     # Per-module coverage
     def _walk(tree: dict):
@@ -529,16 +581,18 @@ def _check_coverage(
                 mod_total = len(mod_comps)
                 mod_pct = (mod_covered / mod_total * 100) if mod_total > 0 else 0
                 if mod_pct < 50:
-                    issues.append({
-                        "check": "coverage",
-                        "severity": "info",
-                        "message": f"Module '{name}': {mod_covered}/{mod_total} components ({mod_pct:.0f}%)",
-                        "module": name,
-                        "covered": mod_covered,
-                        "total": mod_total,
-                        "percentage": round(mod_pct, 1),
-                        "suggestion": "Consider adding more components to this module's documentation",
-                    })
+                    issues.append(
+                        {
+                            "check": "coverage",
+                            "severity": "info",
+                            "message": f"Module '{name}': {mod_covered}/{mod_total} components ({mod_pct:.0f}%)",
+                            "module": name,
+                            "covered": mod_covered,
+                            "total": mod_total,
+                            "percentage": round(mod_pct, 1),
+                            "suggestion": "Consider adding more components to this module's documentation",
+                        }
+                    )
             children = info.get("children", {})
             if isinstance(children, dict):
                 _walk(children)
@@ -551,6 +605,7 @@ def _check_coverage(
 # ---------------------------------------------------------------------------
 #  LLM Wiki checks
 # ---------------------------------------------------------------------------
+
 
 def _check_orphan_pages(
     output_dir: Path,
@@ -605,13 +660,15 @@ def _check_orphan_pages(
     # Find pages with no incoming links
     for rel_path, md_file in all_pages.items():
         if rel_path not in linked_targets:
-            issues.append({
-                "check": "orphan_pages",
-                "severity": "warning",
-                "message": f"Page has no incoming links",
-                "file": rel_path,
-                "suggestion": "Add cross-references from related pages",
-            })
+            issues.append(
+                {
+                    "check": "orphan_pages",
+                    "severity": "warning",
+                    "message": "Page has no incoming links",
+                    "file": rel_path,
+                    "suggestion": "Add cross-references from related pages",
+                }
+            )
 
     return issues
 
@@ -646,13 +703,15 @@ def _check_no_outlinks(
         scan = _strip_code_blocks(content)
         targets = _collect_linked_targets(scan, md_file, output_dir, anchor_map)
         if not targets:
-            issues.append({
-                "check": "no_outlinks",
-                "severity": "info",
-                "message": "Page has no outgoing links to other wiki pages",
-                "file": rel_path,
-                "suggestion": "Add cross-references to related pages for better navigation",
-            })
+            issues.append(
+                {
+                    "check": "no_outlinks",
+                    "severity": "info",
+                    "message": "Page has no outgoing links to other wiki pages",
+                    "file": rel_path,
+                    "suggestion": "Add cross-references to related pages for better navigation",
+                }
+            )
 
     return issues
 
@@ -682,27 +741,26 @@ def _check_missing_aliases(
             try:
                 end = content.index("---", 3)
                 fm = content[3:end]
-                has_aliases = any(
-                    line.strip().startswith("aliases:")
-                    for line in fm.splitlines()
-                )
+                has_aliases = any(line.strip().startswith("aliases:") for line in fm.splitlines())
                 if not has_aliases:
                     missing.append(rel_path)
             except (ValueError, IndexError):
                 pass
 
     if missing:
-        issues.append({
-            "check": "missing_aliases",
-            "severity": "info",
-            "message": (
-                f"{len(missing)} page(s) lack 'aliases' in frontmatter; "
-                "adding alternate names improves search discoverability"
-            ),
-            "count": len(missing),
-            "files": missing,
-            "suggestion": "Add 'aliases: [<alt names>]' to frontmatter when generating docs",
-        })
+        issues.append(
+            {
+                "check": "missing_aliases",
+                "severity": "info",
+                "message": (
+                    f"{len(missing)} page(s) lack 'aliases' in frontmatter; "
+                    "adding alternate names improves search discoverability"
+                ),
+                "count": len(missing),
+                "files": missing,
+                "suggestion": "Add 'aliases: [<alt names>]' to frontmatter when generating docs",
+            }
+        )
 
     return issues
 
@@ -726,7 +784,8 @@ def _check_stale_sources(
             registry = _json.loads(reg_path.read_text(encoding="utf-8"))
             sources = registry.get("sources", {})
             retracted_sources = {
-                name for name, info in sources.items()
+                name
+                for name, info in sources.items()
                 if isinstance(info, dict) and info.get("status") == "retracted"
             }
         except (json.JSONDecodeError, OSError):
@@ -750,13 +809,15 @@ def _check_stale_sources(
             for match in _SRC_REF_RE.finditer(content):
                 src_name = match.group(1)
                 if src_name in retracted_sources:
-                    issues.append({
-                        "check": "stale_sources",
-                        "severity": "warning",
-                        "message": f"References retracted source '{src_name}'",
-                        "file": rel_path,
-                        "suggestion": f"Update or remove the reference to '{src_name}'",
-                    })
+                    issues.append(
+                        {
+                            "check": "stale_sources",
+                            "severity": "warning",
+                            "message": f"References retracted source '{src_name}'",
+                            "file": rel_path,
+                            "suggestion": f"Update or remove the reference to '{src_name}'",
+                        }
+                    )
 
     return issues
 
@@ -791,21 +852,24 @@ def _check_superseded_pages(
                         rel_path = str(md_file.relative_to(output_dir))
                         # Try to extract superseded_by
                         superseded_by = ""
-                        m = re.search(r"^superseded_by:\s*[\"']?(.+?)[\"']?\s*$",
-                                      fm_text, re.MULTILINE)
+                        m = re.search(
+                            r"^superseded_by:\s*[\"']?(.+?)[\"']?\s*$", fm_text, re.MULTILINE
+                        )
                         if m:
                             superseded_by = m.group(1)
                         msg = "Page marked as superseded"
                         if superseded_by:
                             msg += f" (replaced by: {superseded_by})"
-                        issues.append({
-                            "check": "superseded_pages",
-                            "severity": "info",
-                            "message": msg,
-                            "file": rel_path,
-                            "suggestion": "Consider archiving or removing this page"
-                                          + (f"; see '{superseded_by}'" if superseded_by else ""),
-                        })
+                        issues.append(
+                            {
+                                "check": "superseded_pages",
+                                "severity": "info",
+                                "message": msg,
+                                "file": rel_path,
+                                "suggestion": "Consider archiving or removing this page"
+                                + (f"; see '{superseded_by}'" if superseded_by else ""),
+                            }
+                        )
 
     return issues
 
@@ -833,13 +897,15 @@ def _check_overview_stale_lint(
             pass
 
     if overview_stale:
-        issues.append({
-            "check": "overview_stale",
-            "severity": "warning",
-            "message": "overview.md references modules that have changed and may need updating",
-            "file": "overview.md",
-            "suggestion": "Review and update overview.md to reflect changes in referenced modules",
-        })
+        issues.append(
+            {
+                "check": "overview_stale",
+                "severity": "warning",
+                "message": "overview.md references modules that have changed and may need updating",
+                "file": "overview.md",
+                "suggestion": "Review and update overview.md to reflect changes in referenced modules",
+            }
+        )
 
     return issues
 
@@ -905,19 +971,21 @@ def _check_unsupported_claims(
             ratio = unsupported / total_claims
             if ratio > threshold:
                 rel_path = str(md_file.relative_to(output_dir))
-                issues.append({
-                    "check": "unsupported_claims",
-                    "severity": "warning",
-                    "message": (
-                        f"{unsupported}/{total_claims} business assertions lack code evidence "
-                        f"({ratio:.0%} > {threshold:.0%} threshold)"
-                    ),
-                    "file": rel_path,
-                    "suggestion": (
-                        "Add '> Evidence: `<code quote>` — <reason>' lines after each assertion, "
-                        "or mark unsupported assertions as [candidate]"
-                    ),
-                })
+                issues.append(
+                    {
+                        "check": "unsupported_claims",
+                        "severity": "warning",
+                        "message": (
+                            f"{unsupported}/{total_claims} business assertions lack code evidence "
+                            f"({ratio:.0%} > {threshold:.0%} threshold)"
+                        ),
+                        "file": rel_path,
+                        "suggestion": (
+                            "Add '> Evidence: `<code quote>` — <reason>' lines after each assertion, "
+                            "or mark unsupported assertions as [candidate]"
+                        ),
+                    }
+                )
 
     return issues
 
@@ -925,6 +993,7 @@ def _check_unsupported_claims(
 # ---------------------------------------------------------------------------
 #  Note lifecycle checks (staleness + clustering)
 # ---------------------------------------------------------------------------
+
 
 def _parse_note_frontmatter(note_path: Path) -> Optional[Dict[str, Any]]:
     """Parse a note's YAML frontmatter into a dict. Returns None on failure."""
@@ -951,7 +1020,7 @@ def _parse_note_frontmatter(note_path: Path) -> Optional[Dict[str, Any]]:
             except (json.JSONDecodeError, ValueError):
                 fm[key] = value
         else:
-            fm[key] = value.strip('"\'')
+            fm[key] = value.strip("\"'")
     return fm
 
 
@@ -980,11 +1049,12 @@ def _check_stale_notes(
     > hardcoded defaults (90/60) — dispatch passes no parameters, so bundles
     with a freshness block now actually get their configured windows.
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime
 
     issues: List[Dict[str, Any]] = []
 
     from codewiki.src.config import NOTES_DIR
+
     notes_dir = output_dir / NOTES_DIR
     if not notes_dir.is_dir():
         return issues
@@ -992,6 +1062,7 @@ def _check_stale_notes(
     # Freshness config from schema.yaml (fallback chain handled inside).
     try:
         from codewiki.mcp.tools.page_router import load_schema
+
         schema = load_schema(str(output_dir))
     except Exception:
         schema = {}
@@ -1015,6 +1086,7 @@ def _check_stale_notes(
     hit_count_map: Dict[str, int] = {}  # file_path -> hit_count (U2)
     try:
         from codewiki.mcp.tools import telemetry
+
         for fp, entry in telemetry.aggregate_usage(output_dir).items():
             hit_count_map[str(fp)] = int(entry.get("hits", 0) or 0)
             lh = entry.get("last_hit")
@@ -1038,10 +1110,7 @@ def _check_stale_notes(
             continue
 
         rel_path = str(note_file.relative_to(output_dir)).replace("\\", "/")
-        last_hit_str = (
-            retrieval_map.get(rel_path)
-            or retrieval_map.get(f"notes/{note_file.name}")
-        )
+        last_hit_str = retrieval_map.get(rel_path) or retrieval_map.get(f"notes/{note_file.name}")
 
         verdict = evaluate_note_freshness(fm, cfg, today=today, last_hit=last_hit_str)
         if verdict["state"] != "due":
@@ -1049,16 +1118,12 @@ def _check_stale_notes(
 
         due_date = verdict["due_date"] or "?"
         try:
-            overdue_days = (
-                today - datetime.strptime(due_date, "%Y-%m-%d")
-            ).days
+            overdue_days = (today - datetime.strptime(due_date, "%Y-%m-%d")).days
         except (ValueError, TypeError):
             overdue_days = 0
         title = fm.get("title", note_file.stem)
         note_type = fm.get("type", "general")
-        hit_count = hit_count_map.get(
-            rel_path, hit_count_map.get(f"notes/{note_file.name}", 0)
-        )
+        hit_count = hit_count_map.get(rel_path, hit_count_map.get(f"notes/{note_file.name}", 0))
 
         issue = {
             "check": "stale_notes",
@@ -1072,7 +1137,7 @@ def _check_stale_notes(
             "file": rel_path,
             "suggestion": (
                 f"超过 {overdue_days} 天未验证。确认仍然准确用 "
-                f"confirm_note(note_file=\"{rel_path}\") 续期"
+                f'confirm_note(note_file="{rel_path}") 续期'
                 f"（将按类型窗口刷新 stale_after），已过时用 reject_note 退役。"
             ),
         }
@@ -1123,6 +1188,7 @@ def _check_low_adoption(
     # Config from schema.yaml (fallback chain handled below).
     try:
         from codewiki.mcp.tools.page_router import load_schema
+
         schema = load_schema(str(output_dir))
     except Exception:
         schema = {}
@@ -1147,11 +1213,13 @@ def _check_low_adoption(
     # Cold-start guard: no adopted events anywhere in the bundle → the
     # adoption signal is not in use yet, skip.
     from codewiki.mcp.tools.adoption import load_adoption_counts
+
     adoption_counts = load_adoption_counts(output_dir)
     if not adoption_counts:
         return issues
 
     from codewiki.src.config import NOTES_DIR
+
     notes_dir = output_dir / NOTES_DIR
     if not notes_dir.is_dir():
         return issues
@@ -1160,6 +1228,7 @@ def _check_low_adoption(
     # stale_notes uses — one call carries hit_count / last_hit / adopted).
     try:
         from codewiki.mcp.tools import telemetry
+
         usage_agg = telemetry.aggregate_usage(output_dir)
     except Exception:
         return issues
@@ -1168,7 +1237,8 @@ def _check_low_adoption(
     hit_map: Dict[str, Tuple[int, str]] = {}  # file_path -> (hit_count, last_hit)
     for fp, entry in usage_agg.items():
         hit_map[str(fp).replace("\\", "/")] = (
-            int(entry.get("hits", 0) or 0), str(entry.get("last_hit") or ""),
+            int(entry.get("hits", 0) or 0),
+            str(entry.get("last_hit") or ""),
         )
 
     cutoff = datetime.now() - timedelta(days=recent_days)
@@ -1206,22 +1276,24 @@ def _check_low_adoption(
             continue
 
         title = fm.get("title", note_file.stem)
-        issues.append({
-            "check": "low_adoption",
-            "severity": "warning",
-            "message": (
-                f"Note '{title}' was recalled {hit_count} times recently "
-                f"but adopted {adopted} time(s) — content is likely relevant "
-                f"but not actionable enough"
-            ),
-            "file": rel_path,
-            "suggestion": (
-                "高频召回但零采纳：内容相关但可能不够 actionable。建议重写为更"
-                "可执行的形式（补充具体步骤/命令/预期结果），可用 "
-                "distill_conversation 产出草稿后 confirm_note，或用 "
-                f"edit_doc_file 直接更新 {rel_path}。"
-            ),
-        })
+        issues.append(
+            {
+                "check": "low_adoption",
+                "severity": "warning",
+                "message": (
+                    f"Note '{title}' was recalled {hit_count} times recently "
+                    f"but adopted {adopted} time(s) — content is likely relevant "
+                    f"but not actionable enough"
+                ),
+                "file": rel_path,
+                "suggestion": (
+                    "高频召回但零采纳：内容相关但可能不够 actionable。建议重写为更"
+                    "可执行的形式（补充具体步骤/命令/预期结果），可用 "
+                    "distill_conversation 产出草稿后 confirm_note，或用 "
+                    f"edit_doc_file 直接更新 {rel_path}。"
+                ),
+            }
+        )
 
     return issues
 
@@ -1239,6 +1311,7 @@ def _check_note_clusters(
     issues: List[Dict[str, Any]] = []
 
     from codewiki.src.config import NOTES_DIR
+
     notes_dir = output_dir / NOTES_DIR
     if not notes_dir.is_dir():
         return issues
@@ -1283,20 +1356,22 @@ def _check_note_clusters(
         if len(notes) > 5:
             titles += f" (+{len(notes) - 5} more)"
 
-        issues.append({
-            "check": "note_clusters",
-            "severity": "info",
-            "message": (
-                f"Module '{module}' has {len(notes)} {note_type} notes "
-                f"that may benefit from consolidation: {titles}"
-            ),
-            "file": notes[0]["file"],
-            "suggestion": (
-                f"Use get_prompt('consolidate') for guidance on merging "
-                f"these {len(notes)} {note_type} notes into a single "
-                f"authoritative note for module '{module}'."
-            ),
-        })
+        issues.append(
+            {
+                "check": "note_clusters",
+                "severity": "info",
+                "message": (
+                    f"Module '{module}' has {len(notes)} {note_type} notes "
+                    f"that may benefit from consolidation: {titles}"
+                ),
+                "file": notes[0]["file"],
+                "suggestion": (
+                    f"Use get_prompt('consolidate') for guidance on merging "
+                    f"these {len(notes)} {note_type} notes into a single "
+                    f"authoritative note for module '{module}'."
+                ),
+            }
+        )
 
     return issues
 
@@ -1304,6 +1379,7 @@ def _check_note_clusters(
 # ---------------------------------------------------------------------------
 #  P2: L2 scene block hygiene (team-memory fusion 设计方案 §4.3.4)
 # ---------------------------------------------------------------------------
+
 
 def _check_scenario_capacity(
     output_dir: Path,
@@ -1318,6 +1394,7 @@ def _check_scenario_capacity(
     try:
         from codewiki.mcp.tools.note_consolidation import _scan_scenarios
         from codewiki.mcp.tools.aggregation_state import read_config
+
         live = _scan_scenarios(output_dir)
         max_scenes = read_config(output_dir)["max_scenarios"]
     except Exception:
@@ -1325,30 +1402,34 @@ def _check_scenario_capacity(
     if not live:
         return issues
     if len(live) > max_scenes:
-        issues.append({
-            "check": "scenario_capacity",
-            "severity": "error",
-            "message": (
-                f"Scenario blocks exceed the cap: {len(live)}/{max_scenes}. "
-                "MERGE similar scenes (mark losers [DELETED]) before adding more."
-            ),
-            "file": "wiki/scenarios/",
-            "suggestion": (
-                "Run consolidate_notes(mode='prepare') and follow the RED "
-                "capacity protocol: merge first, then re-submit."
-            ),
-        })
+        issues.append(
+            {
+                "check": "scenario_capacity",
+                "severity": "error",
+                "message": (
+                    f"Scenario blocks exceed the cap: {len(live)}/{max_scenes}. "
+                    "MERGE similar scenes (mark losers [DELETED]) before adding more."
+                ),
+                "file": "wiki/scenarios/",
+                "suggestion": (
+                    "Run consolidate_notes(mode='prepare') and follow the RED "
+                    "capacity protocol: merge first, then re-submit."
+                ),
+            }
+        )
     elif len(live) == max_scenes:
-        issues.append({
-            "check": "scenario_capacity",
-            "severity": "warning",
-            "message": (
-                f"Scenario blocks at capacity: {len(live)}/{max_scenes}. "
-                "Only UPDATE is allowed until a merge frees a slot."
-            ),
-            "file": "wiki/scenarios/",
-            "suggestion": "Prefer UPDATE/MERGE on the next consolidate_notes run.",
-        })
+        issues.append(
+            {
+                "check": "scenario_capacity",
+                "severity": "warning",
+                "message": (
+                    f"Scenario blocks at capacity: {len(live)}/{max_scenes}. "
+                    "Only UPDATE is allowed until a merge frees a slot."
+                ),
+                "file": "wiki/scenarios/",
+                "suggestion": "Prefer UPDATE/MERGE on the next consolidate_notes run.",
+            }
+        )
     return issues
 
 
@@ -1367,7 +1448,8 @@ def _check_scenario_orphan(
     issues: List[Dict[str, Any]] = []
     try:
         from codewiki.mcp.tools.note_consolidation import (
-            _scan_scenarios, _read_frontmatter,
+            _scan_scenarios,
+            _read_frontmatter,
         )
     except Exception:
         return issues
@@ -1380,6 +1462,7 @@ def _check_scenario_orphan(
     retrieval_map: Dict[str, str] = {}
     try:
         from codewiki.mcp.tools import telemetry
+
         for fp, entry in telemetry.aggregate_usage(output_dir).items():
             lh = entry.get("last_hit")
             if lh:
@@ -1403,26 +1486,29 @@ def _check_scenario_orphan(
                 recently_used = True  # unparseable timestamp: be conservative
         if recently_used:
             continue
-        issues.append({
-            "check": "scenario_orphan",
-            "severity": "info",
-            "message": (
-                f"Scene block '{sc['title']}' has no source_notes provenance and "
-                f"has not been retrieved for {retrieval_gap_days}+ days — "
-                "consider reviewing, merging, or retiring it."
-            ),
-            "file": sc["file"],
-            "suggestion": (
-                "Verify the block is still valid; retire via [DELETED] on the "
-                "next consolidate_notes run if superseded."
-            ),
-        })
+        issues.append(
+            {
+                "check": "scenario_orphan",
+                "severity": "info",
+                "message": (
+                    f"Scene block '{sc['title']}' has no source_notes provenance and "
+                    f"has not been retrieved for {retrieval_gap_days}+ days — "
+                    "consider reviewing, merging, or retiring it."
+                ),
+                "file": sc["file"],
+                "suggestion": (
+                    "Verify the block is still valid; retire via [DELETED] on the "
+                    "next consolidate_notes run if superseded."
+                ),
+            }
+        )
     return issues
 
 
 # ---------------------------------------------------------------------------
 #  OKF v0.2 conformance (§11 / §12)
 # ---------------------------------------------------------------------------
+
 
 def _check_okf_conformance(
     output_dir: Path,
@@ -1498,16 +1584,18 @@ def _check_okf_conformance(
             continue
 
         if not text.startswith("---") or text.find("---", 3) < 0:
-            issues.append({
-                "check": "okf_conformance",
-                "severity": "error",
-                "message": "Missing YAML frontmatter (OKF v0.2 §11 requires a 'type' field)",
-                "file": rel_path,
-                "suggestion": (
-                    "Run `python scripts/migrate_okf.py <wiki-dir>` to backfill "
-                    "OKF frontmatter, or regenerate the page."
-                ),
-            })
+            issues.append(
+                {
+                    "check": "okf_conformance",
+                    "severity": "error",
+                    "message": "Missing YAML frontmatter (OKF v0.2 §11 requires a 'type' field)",
+                    "file": rel_path,
+                    "suggestion": (
+                        "Run `python scripts/migrate_okf.py <wiki-dir>` to backfill "
+                        "OKF frontmatter, or regenerate the page."
+                    ),
+                }
+            )
             continue
 
         # Prefer real YAML parsing (needed for nested generated/verified/sources),
@@ -1516,6 +1604,7 @@ def _check_okf_conformance(
         fm: Optional[Dict[str, Any]] = None
         try:
             import yaml
+
             end = text.find("---", 3)
             data = yaml.safe_load(text[3:end])
             if isinstance(data, dict):
@@ -1525,50 +1614,54 @@ def _check_okf_conformance(
         if fm is None:
             fm = _parse_note_frontmatter(md_file)
             if not fm:
-                issues.append({
-                    "check": "okf_conformance",
-                    "severity": "error",
-                    "message": "Frontmatter is not parseable YAML (OKF v0.2 §11)",
-                    "file": rel_path,
-                    "suggestion": "Fix the YAML frontmatter block manually or regenerate the page.",
-                })
+                issues.append(
+                    {
+                        "check": "okf_conformance",
+                        "severity": "error",
+                        "message": "Frontmatter is not parseable YAML (OKF v0.2 §11)",
+                        "file": rel_path,
+                        "suggestion": "Fix the YAML frontmatter block manually or regenerate the page.",
+                    }
+                )
                 continue
 
         # §4: type is the only required field
         page_type = fm.get("type")
         if not page_type or not str(page_type).strip():
-            issues.append({
-                "check": "okf_conformance",
-                "severity": "error",
-                "message": "Missing required 'type' field in frontmatter (OKF v0.2 §4)",
-                "file": rel_path,
-                "suggestion": (
-                    "Run `python scripts/migrate_okf.py <wiki-dir>` to backfill "
-                    "the type field, or regenerate the page."
-                ),
-            })
+            issues.append(
+                {
+                    "check": "okf_conformance",
+                    "severity": "error",
+                    "message": "Missing required 'type' field in frontmatter (OKF v0.2 §4)",
+                    "file": rel_path,
+                    "suggestion": (
+                        "Run `python scripts/migrate_okf.py <wiki-dir>` to backfill "
+                        "the type field, or regenerate the page."
+                    ),
+                }
+            )
 
         # P2: producer-private keys must not leak at the top level.  OKF §4/§5
         # standard fields plus the backward-compat legacy set are allowed; any
         # other key should be folded under `metadata:`.
-        _unknown_top = sorted(
-            set(fm) - _OKF_TOP_LEVEL_KEYS - _OKF_LEGACY_TOP_LEVEL_KEYS
-        )
+        _unknown_top = sorted(set(fm) - _OKF_TOP_LEVEL_KEYS - _OKF_LEGACY_TOP_LEVEL_KEYS)
         if _unknown_top:
-            issues.append({
-                "check": "okf_conformance",
-                "severity": "warning",
-                "message": (
-                    "Non-OKF top-level frontmatter key(s): "
-                    + ", ".join(_unknown_top)
-                    + " (OKF v0.2 §4/§5 — producer-private fields belong under `metadata:`)"
-                ),
-                "file": rel_path,
-                "suggestion": (
-                    "Fold these keys under a `metadata:` node, or regenerate "
-                    "the page with the OKF frontmatter helper."
-                ),
-            })
+            issues.append(
+                {
+                    "check": "okf_conformance",
+                    "severity": "warning",
+                    "message": (
+                        "Non-OKF top-level frontmatter key(s): "
+                        + ", ".join(_unknown_top)
+                        + " (OKF v0.2 §4/§5 — producer-private fields belong under `metadata:`)"
+                    ),
+                    "file": rel_path,
+                    "suggestion": (
+                        "Fold these keys under a `metadata:` node, or regenerate "
+                        "the page with the OKF frontmatter helper."
+                    ),
+                }
+            )
 
         # §5 status vocabulary
         status_raw = fm.get("status")
@@ -1576,45 +1669,48 @@ def _check_okf_conformance(
         if status and status not in _OKF_STATUSES:
             mapped = _LEGACY_STATUS_MAP.get(status)
             if mapped:
-                issues.append({
-                    "check": "okf_conformance",
-                    "severity": "warning",
-                    "message": (
-                        f"Legacy status '{status}' — OKF v0.2 uses '{mapped}'"
-                    ),
-                    "file": rel_path,
-                    "suggestion": (
-                        "Run `python scripts/migrate_okf.py <wiki-dir>` to migrate "
-                        "legacy lifecycle statuses to the OKF v0.2 vocabulary."
-                    ),
-                })
+                issues.append(
+                    {
+                        "check": "okf_conformance",
+                        "severity": "warning",
+                        "message": (f"Legacy status '{status}' — OKF v0.2 uses '{mapped}'"),
+                        "file": rel_path,
+                        "suggestion": (
+                            "Run `python scripts/migrate_okf.py <wiki-dir>` to migrate "
+                            "legacy lifecycle statuses to the OKF v0.2 vocabulary."
+                        ),
+                    }
+                )
             else:
-                issues.append({
-                    "check": "okf_conformance",
-                    "severity": "warning",
-                    "message": (
-                        f"Unknown status '{status}' — expected one of "
-                        f"draft/stable/deprecated (OKF v0.2 §5)"
-                    ),
-                    "file": rel_path,
-                    "suggestion": "Set status to draft, stable, or deprecated.",
-                })
+                issues.append(
+                    {
+                        "check": "okf_conformance",
+                        "severity": "warning",
+                        "message": (
+                            f"Unknown status '{status}' — expected one of "
+                            f"draft/stable/deprecated (OKF v0.2 §5)"
+                        ),
+                        "file": rel_path,
+                        "suggestion": "Set status to draft, stable, or deprecated.",
+                    }
+                )
 
         # §5 verified: mapping or list of mappings ({by, at, note?})
         verified = fm.get("verified")
         if verified is not None:
             valid = isinstance(verified, dict) or (
-                isinstance(verified, list)
-                and all(isinstance(v, dict) for v in verified)
+                isinstance(verified, list) and all(isinstance(v, dict) for v in verified)
             )
             if not valid:
-                issues.append({
-                    "check": "okf_conformance",
-                    "severity": "warning",
-                    "message": "'verified' must be a mapping or a list of {by, at} mappings (OKF v0.2 §5)",
-                    "file": rel_path,
-                    "suggestion": "Use confirm_note to record verification events correctly.",
-                })
+                issues.append(
+                    {
+                        "check": "okf_conformance",
+                        "severity": "warning",
+                        "message": "'verified' must be a mapping or a list of {by, at} mappings (OKF v0.2 §5)",
+                        "file": rel_path,
+                        "suggestion": "Use confirm_note to record verification events correctly.",
+                    }
+                )
 
         # §5 stale_after expiry
         stale_after = fm.get("stale_after")
@@ -1628,16 +1724,18 @@ def _check_okf_conformance(
                 if skip_notes_staleness and is_note:
                     pass  # handled by _check_stale_notes
                 else:
-                    issues.append({
-                        "check": "okf_conformance",
-                        "severity": "warning",
-                        "message": f"stale_after ({sa}) has passed — knowledge may be outdated",
-                        "file": rel_path,
-                        "suggestion": (
-                            "Verify the content is still accurate, then regenerate or "
-                            "update the page to renew stale_after."
-                        ),
-                    })
+                    issues.append(
+                        {
+                            "check": "okf_conformance",
+                            "severity": "warning",
+                            "message": f"stale_after ({sa}) has passed — knowledge may be outdated",
+                            "file": rel_path,
+                            "suggestion": (
+                                "Verify the content is still accurate, then regenerate or "
+                                "update the page to renew stale_after."
+                            ),
+                        }
+                    )
 
     # §12: wiki/index.md should declare okf_version
     index_path = output_dir / WIKI_DIR / INDEX_FILENAME
@@ -1652,16 +1750,18 @@ def _check_okf_conformance(
             if end > 0 and re.search(r"^okf_version:", idx_text[3:end], re.MULTILINE):
                 has_version = True
         if not has_version:
-            issues.append({
-                "check": "okf_conformance",
-                "severity": "warning",
-                "message": "wiki/index.md does not declare okf_version (OKF v0.2 §12)",
-                "file": "wiki/index.md",
-                "suggestion": (
-                    "Regenerate the index, or run `python scripts/migrate_okf.py "
-                    "<wiki-dir>` to add okf_version."
-                ),
-            })
+            issues.append(
+                {
+                    "check": "okf_conformance",
+                    "severity": "warning",
+                    "message": "wiki/index.md does not declare okf_version (OKF v0.2 §12)",
+                    "file": "wiki/index.md",
+                    "suggestion": (
+                        "Regenerate the index, or run `python scripts/migrate_okf.py "
+                        "<wiki-dir>` to add okf_version."
+                    ),
+                }
+            )
 
     return issues
 
@@ -1670,12 +1770,14 @@ def _check_okf_conformance(
 #  Main handler
 # ---------------------------------------------------------------------------
 
+
 def handle_lint_wiki(
     arguments: Dict[str, Any],
     store: SessionStore,
 ) -> str:
     """Run documentation health checks and return structured results."""
     from codewiki.mcp.tools.workspace_result import resolve_session
+
     session = resolve_session(arguments, store)
 
     checks = arguments.get("checks", ["all"])
@@ -1720,21 +1822,23 @@ def handle_lint_wiki(
         try:
             pre_stale = _check_stale_refs(output_dir, module_tree)
             if pre_stale and all(
-                Path(str(i.get("file", ""))).as_posix().endswith("wiki/index.md")
-                for i in pre_stale
+                Path(str(i.get("file", ""))).as_posix().endswith("wiki/index.md") for i in pre_stale
             ):
                 from codewiki.mcp.tools.wiki_index import rebuild_index
+
                 rebuild_index(output_dir)
                 module_tree = _load_module_tree(output_dir)
         except Exception as exc:  # keep lint non-fatal
-            all_issues.append({
-                "check": "stale_refs",
-                "severity": "error",
-                "message": f"fix=true rebuild failed: {exc}",
-                "file": "wiki/index.md",
-                "line": 1,
-                "suggestion": "Run the rebuild manually and re-lint.",
-            })
+            all_issues.append(
+                {
+                    "check": "stale_refs",
+                    "severity": "error",
+                    "message": f"fix=true rebuild failed: {exc}",
+                    "file": "wiki/index.md",
+                    "line": 1,
+                    "suggestion": "Run the rebuild manually and re-lint.",
+                }
+            )
 
     # Run selected checks
     if "stale_refs" in checks and output_dir:
@@ -1750,12 +1854,11 @@ def handle_lint_wiki(
             try:
                 import yaml
                 from codewiki.src.config import SCHEMA_FILENAME
+
                 schema_path = output_dir / SCHEMA_FILENAME
                 if schema_path.exists():
                     schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
-                    threshold = (
-                        schema.get("lint", {}).get("high_impact_threshold", 5)
-                    )
+                    threshold = schema.get("lint", {}).get("high_impact_threshold", 5)
             except Exception:
                 pass
         all_issues.extend(_check_undocumented(components, module_tree, threshold))
@@ -1815,10 +1918,12 @@ def handle_lint_wiki(
         all_issues.extend(_check_scenario_orphan(output_dir))
 
     if "okf_conformance" in checks and output_dir:
-        all_issues.extend(_check_okf_conformance(
-            output_dir,
-            skip_notes_staleness=("stale_notes" in checks),
-        ))
+        all_issues.extend(
+            _check_okf_conformance(
+                output_dir,
+                skip_notes_staleness=("stale_notes" in checks),
+            )
+        )
 
     # Deduplicate: if a link is already reported as stale_refs, don't also
     # report it as broken_links (same file + line = same underlying problem).
@@ -1828,7 +1933,8 @@ def handle_lint_wiki(
         if issue.get("check") == "stale_refs"
     }
     all_issues = [
-        issue for issue in all_issues
+        issue
+        for issue in all_issues
         if not (
             issue.get("check") == "broken_links"
             and (issue.get("file"), issue.get("line")) in stale_locations
@@ -1842,8 +1948,7 @@ def handle_lint_wiki(
 
     # Filter by severity
     filtered = [
-        issue for issue in all_issues
-        if _SEVERITY_ORDER.get(issue["severity"], 2) <= min_severity
+        issue for issue in all_issues if _SEVERITY_ORDER.get(issue["severity"], 2) <= min_severity
     ]
 
     # Sort: errors first, then warnings, then info
@@ -1883,8 +1988,8 @@ def handle_lint_wiki(
     if output_dir:
         try:
             from codewiki.mcp.tools.wiki_index import append_log
-            append_log(str(output_dir), "lint_wiki",
-                       f"检查完成: {len(filtered)} 个问题")
+
+            append_log(str(output_dir), "lint_wiki", f"检查完成: {len(filtered)} 个问题")
         except Exception:
             pass
 

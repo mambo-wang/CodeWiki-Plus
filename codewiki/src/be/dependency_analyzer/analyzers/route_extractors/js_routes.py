@@ -3,6 +3,7 @@
 Uses regex-based heuristics on raw source text (the main analyzers
 already use tree-sitter; route extraction is a lightweight post-pass).
 """
+
 from __future__ import annotations
 
 import logging
@@ -11,10 +12,13 @@ import re
 from typing import List, Optional
 
 from codewiki.src.be.dependency_analyzer.models.cross_service import (
-    RouteNode, RouteProtocol, RouteRole,
+    RouteNode,
+    RouteProtocol,
+    RouteRole,
 )
 from codewiki.src.be.dependency_analyzer.utils.path_canonicalizer import (
-    canonicalize_path, make_route_key,
+    canonicalize_path,
+    make_route_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,7 +59,7 @@ def _strip_url_to_path(url: str) -> str:
         return url
     for scheme in ("https://", "http://"):
         if url.startswith(scheme):
-            rest = url[len(scheme):]
+            rest = url[len(scheme) :]
             slash = rest.find("/")
             return rest[slash:] if slash != -1 else "/"
     return "/" + url if not url.startswith("/") else url
@@ -89,7 +93,7 @@ class _JsRouteParser:
         # Detect axios instance variables: const X = axios.create(...), const X = axios,
         # import X from 'axios'
         for m in re.finditer(
-            r'(?:const|let|var)\s+(\w+)\s*=\s*axios(?:\s*\.\s*create\s*\(|\s*[;,\n])',
+            r"(?:const|let|var)\s+(\w+)\s*=\s*axios(?:\s*\.\s*create\s*\(|\s*[;,\n])",
             self.content,
         ):
             _excluded_names.add(m.group(1))
@@ -126,21 +130,23 @@ class _JsRouteParser:
             else:
                 continue
 
-            lineno = self.content[:m.start()].count("\n") + 1
+            lineno = self.content[: m.start()].count("\n") + 1
             func_name = self._find_enclosing_function(m.start())
 
-            self.routes.append(RouteNode(
-                route_key=make_route_key(method, path),
-                protocol=RouteProtocol.HTTP,
-                method=method,
-                path=canonicalize_path(path),
-                role=RouteRole.SERVER,
-                component_id=self._make_component_id(func_name or path),
-                repo_name=self.repo_name,
-                file_path=self.file_path,
-                line_number=lineno,
-                framework="express",
-            ))
+            self.routes.append(
+                RouteNode(
+                    route_key=make_route_key(method, path),
+                    protocol=RouteProtocol.HTTP,
+                    method=method,
+                    path=canonicalize_path(path),
+                    role=RouteRole.SERVER,
+                    component_id=self._make_component_id(func_name or path),
+                    repo_name=self.repo_name,
+                    file_path=self.file_path,
+                    line_number=lineno,
+                    framework="express",
+                )
+            )
 
     # ---- NestJS ----
 
@@ -160,21 +166,23 @@ class _JsRouteParser:
             if controller_prefix:
                 path = controller_prefix.rstrip("/") + "/" + path.lstrip("/")
 
-            lineno = self.content[:m.start()].count("\n") + 1
+            lineno = self.content[: m.start()].count("\n") + 1
             func_name = self._find_enclosing_function(m.start())
 
-            self.routes.append(RouteNode(
-                route_key=make_route_key(method, path or "/"),
-                protocol=RouteProtocol.HTTP,
-                method=method,
-                path=canonicalize_path(path or "/"),
-                role=RouteRole.SERVER,
-                component_id=self._make_component_id(func_name or path),
-                repo_name=self.repo_name,
-                file_path=self.file_path,
-                line_number=lineno,
-                framework="nestjs",
-            ))
+            self.routes.append(
+                RouteNode(
+                    route_key=make_route_key(method, path or "/"),
+                    protocol=RouteProtocol.HTTP,
+                    method=method,
+                    path=canonicalize_path(path or "/"),
+                    role=RouteRole.SERVER,
+                    component_id=self._make_component_id(func_name or path),
+                    repo_name=self.repo_name,
+                    file_path=self.file_path,
+                    line_number=lineno,
+                    framework="nestjs",
+                )
+            )
 
     # ---- Client-side HTTP calls ----
 
@@ -195,10 +203,8 @@ class _JsRouteParser:
                     method = "GET"  # default, might be overridden in options
                     # Check for method in nearby options object
                     context_end = min(len(self.content), m.end() + 200)
-                    context = self.content[m.start():context_end]
-                    method_match = re.search(
-                        r'method\s*:\s*["\'`](\w+)["\'`]', context
-                    )
+                    context = self.content[m.start() : context_end]
+                    method_match = re.search(r'method\s*:\s*["\'`](\w+)["\'`]', context)
                     if method_match:
                         method = method_match.group(1).upper()
                 else:
@@ -208,7 +214,7 @@ class _JsRouteParser:
                 if not path or len(path) < 2:
                     continue
 
-                lineno = self.content[:m.start()].count("\n") + 1
+                lineno = self.content[: m.start()].count("\n") + 1
                 func_name = self._find_enclosing_function(m.start())
 
                 framework = "axios"
@@ -217,18 +223,20 @@ class _JsRouteParser:
                 elif "got" in m.group(0) or "ky" in m.group(0):
                     framework = "got"
 
-                self.routes.append(RouteNode(
-                    route_key=make_route_key(method, path),
-                    protocol=RouteProtocol.HTTP,
-                    method=method,
-                    path=canonicalize_path(path),
-                    role=RouteRole.CLIENT,
-                    component_id=self._make_component_id(func_name or "unknown"),
-                    repo_name=self.repo_name,
-                    file_path=self.file_path,
-                    line_number=lineno,
-                    framework=framework,
-                ))
+                self.routes.append(
+                    RouteNode(
+                        route_key=make_route_key(method, path),
+                        protocol=RouteProtocol.HTTP,
+                        method=method,
+                        path=canonicalize_path(path),
+                        role=RouteRole.CLIENT,
+                        component_id=self._make_component_id(func_name or "unknown"),
+                        repo_name=self.repo_name,
+                        file_path=self.file_path,
+                        line_number=lineno,
+                        framework=framework,
+                    )
+                )
 
     # ---- helpers ----
 
@@ -241,13 +249,15 @@ class _JsRouteParser:
         #   group 4: async name(
         # Group 2 must NOT match plain variable assignments like `const res = await ...`;
         # only match when RHS is a function definition (has `=>` or `function` keyword).
-        matches = list(re.finditer(
-            r'(?:function\s+(\w+)'
-            r'|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:function\b|(?:\([^)]*\)|\w+)\s*=>)'
-            r'|(\w+)\s*\([^)]*\)\s*\{'
-            r'|async\s+(\w+)\s*\()',
-            before,
-        ))
+        matches = list(
+            re.finditer(
+                r"(?:function\s+(\w+)"
+                r"|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:function\b|(?:\([^)]*\)|\w+)\s*=>)"
+                r"|(\w+)\s*\([^)]*\)\s*\{"
+                r"|async\s+(\w+)\s*\()",
+                before,
+            )
+        )
         if matches:
             last = matches[-1]
             return last.group(1) or last.group(2) or last.group(3) or last.group(4)

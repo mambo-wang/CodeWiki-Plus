@@ -4,6 +4,7 @@ Borrowed from CBM's ``cbm_route_canon_path()`` (pass_route_nodes.c:59-129).
 All parameter placeholders are unified to ``{}`` so that different
 frameworks can match against the same Route key.
 """
+
 from __future__ import annotations
 
 import re

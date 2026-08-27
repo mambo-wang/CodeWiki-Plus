@@ -24,10 +24,13 @@ def handle_view_repo_file(
 ) -> str:
     """Read a file or list a directory within the repository."""
     from codewiki.mcp.tools.workspace_result import resolve_session
+
     session = resolve_session(arguments, store)
     if session is None:
         return json.dumps(
-            {"error": "Session not found. Ensure repo_path points to a previously analyzed repository."},
+            {
+                "error": "Session not found. Ensure repo_path points to a previously analyzed repository."
+            },
             ensure_ascii=False,
         )
 
@@ -64,17 +67,21 @@ def handle_view_repo_file(
         for item in sorted(target.iterdir()):
             try:
                 stat = item.stat()
-                entries.append({
-                    "name": item.name,
-                    "type": "directory" if item.is_dir() else "file",
-                    "size": stat.st_size if item.is_file() else None,
-                })
+                entries.append(
+                    {
+                        "name": item.name,
+                        "type": "directory" if item.is_dir() else "file",
+                        "size": stat.st_size if item.is_file() else None,
+                    }
+                )
             except OSError:
-                entries.append({
-                    "name": item.name,
-                    "type": "directory" if item.is_dir() else "file",
-                    "size": None,
-                })
+                entries.append(
+                    {
+                        "name": item.name,
+                        "type": "directory" if item.is_dir() else "file",
+                        "size": None,
+                    }
+                )
         return json.dumps(
             {
                 "path": rel_path,
@@ -113,9 +120,7 @@ def handle_view_repo_file(
     # Large files: write to workspace and return the path.
     if size > _MAX_INLINE_CHARS:
         if session.workspace is not None:
-            safe_name = (
-                rel_path.replace("/", "__").replace("\\", "__")[:180]
-            )
+            safe_name = rel_path.replace("/", "__").replace("\\", "__")[:180]
             ws_path = session.workspace.root / f"view_{safe_name}"
             ws_path.write_text(content, encoding="utf-8")
             return json.dumps(

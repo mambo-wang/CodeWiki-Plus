@@ -27,25 +27,55 @@ logger = logging.getLogger(__name__)
 
 # OKF v0.2 standard top-level keys (see okf/SPEC.md §4/§5/§7).
 # Anything else written by producers should live under ``metadata``.
-_OKF_STANDARD_KEYS = frozenset({
-    "type", "title", "aliases", "description",
-    "status", "verified", "stale_after", "generated",
-    "tags", "sources",
-})
+_OKF_STANDARD_KEYS = frozenset(
+    {
+        "type",
+        "title",
+        "aliases",
+        "description",
+        "status",
+        "verified",
+        "stale_after",
+        "generated",
+        "tags",
+        "sources",
+    }
+)
 
 # Producer-private keys that were historically written at the top level and
 # must be folded under ``metadata`` by this helper.  Kept here so lint rules
 # and other consumers share one definition of "private".
-PRIVATE_FRONTMATTER_KEYS = frozenset({
-    "resource", "generated_from", "category", "domain", "version",
-    "format", "decision", "decided_at", "severity", "root_cause",
-    "captured_at", "content_hash", "turn_count", "link_to",
-    "source_session", "keep_raw", "task_id",
-    # Note-specific fields historically written at the top level (notes/)
-    "date", "summary", "keywords", "origin",
-    "related_modules", "related_components",
-    "source_ref", "source_refs", "chunk_refs",
-})
+PRIVATE_FRONTMATTER_KEYS = frozenset(
+    {
+        "resource",
+        "generated_from",
+        "category",
+        "domain",
+        "version",
+        "format",
+        "decision",
+        "decided_at",
+        "severity",
+        "root_cause",
+        "captured_at",
+        "content_hash",
+        "turn_count",
+        "link_to",
+        "source_session",
+        "keep_raw",
+        "task_id",
+        # Note-specific fields historically written at the top level (notes/)
+        "date",
+        "summary",
+        "keywords",
+        "origin",
+        "related_modules",
+        "related_components",
+        "source_ref",
+        "source_refs",
+        "chunk_refs",
+    }
+)
 
 
 def _utc_now_iso() -> str:
@@ -62,6 +92,7 @@ def _stale_after_iso(stale_days: Optional[int]) -> Optional[str]:
 def _default_actor() -> str:
     try:
         from codewiki.src.config import actor_id
+
         return actor_id()
     except Exception:
         return "codewiki"
@@ -73,12 +104,16 @@ def _schema_defaults(output_dir: Optional[Path] = None) -> Dict[str, Any]:
     Falls back to the generator's built-in defaults when the schema file is
     missing or unparseable.
     """
-    defaults: Dict[str, Any] = {"default_stale_days": 90, "okf_tags": ["codewiki", "auto-generated"]}
+    defaults: Dict[str, Any] = {
+        "default_stale_days": 90,
+        "okf_tags": ["codewiki", "auto-generated"],
+    }
     if output_dir is None:
         return defaults
     try:
         from codewiki.src.config import SCHEMA_FILENAME
         import yaml
+
         schema_path = output_dir / SCHEMA_FILENAME
         if not schema_path.is_file():
             return defaults

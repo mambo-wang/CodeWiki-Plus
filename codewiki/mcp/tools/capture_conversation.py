@@ -35,29 +35,33 @@ logger = logging.getLogger(__name__)
 # 顶层系统注入标签：IDE 会把整个系统上下文（user_info / rules / git_status /
 # project_context / additional_data 等）作为 user message 的 content 传入。
 # 这些块对知识蒸馏无价值，应在落盘前剥离。
-_SYSTEM_INJECTION_TAGS = frozenset({
-    "user_info",
-    "rules",
-    "memories",
-    "git_status",
-    "project_context",
-    "project_guidance",
-    "project_layout",
-    "additional_data",
-    "content_policy",
-    "communication",
-    "tool_calling",
-    "maximize_context_understanding",
-    "maximize_parallel_tool_calls",
-    "automations",
-    "inline_line_numbers",
-    "agent_skills",
-    "response_language",
-    # IDE 每次 user 消息注入的"避免循环"提醒块，纯系统提示，无知识价值
-    "system_reminder",
-    # AskUserQuestion 结构化问答序列化（应用 UI 交互记录，非用户知识）
-    "question_answer", "questions", "question_item",
-})
+_SYSTEM_INJECTION_TAGS = frozenset(
+    {
+        "user_info",
+        "rules",
+        "memories",
+        "git_status",
+        "project_context",
+        "project_guidance",
+        "project_layout",
+        "additional_data",
+        "content_policy",
+        "communication",
+        "tool_calling",
+        "maximize_context_understanding",
+        "maximize_parallel_tool_calls",
+        "automations",
+        "inline_line_numbers",
+        "agent_skills",
+        "response_language",
+        # IDE 每次 user 消息注入的"避免循环"提醒块，纯系统提示，无知识价值
+        "system_reminder",
+        # AskUserQuestion 结构化问答序列化（应用 UI 交互记录，非用户知识）
+        "question_answer",
+        "questions",
+        "question_item",
+    }
+)
 # 形如 <tag> ... </tag> 的成对块（含可能跨行的多行内容）。
 # 注意：不锚定行首——IDE 常把块包在 "user: <user_info> ... </user_info>"
 # 之类的行内，行首并非 '<'。
@@ -173,7 +177,8 @@ def _first_user_text(turns: List[Dict[str, str]]) -> str:
             return content
         if isinstance(content, list):
             parts = [
-                b.get("text", "") for b in content
+                b.get("text", "")
+                for b in content
                 if isinstance(b, dict) and b.get("type") == "text"
             ]
             return " ".join(p for p in parts if p)
@@ -202,9 +207,7 @@ def _resolve_output_dir(
     rp = arguments.get("repo_path")
     if rp:
         return Path(rp).expanduser().resolve() / "repowiki"
-    raise ValueError(
-        "output_dir or repo_path is required (or pass an active session)."
-    )
+    raise ValueError("output_dir or repo_path is required (or pass an active session).")
 
 
 # --------------------------------------------------------------------------- #
@@ -217,10 +220,12 @@ _KEEP_ROLES = {"user", "assistant"}
 
 # 框架级结构噪声（宽松门 _should_capture_l0 用）：这些消息不携带对话内容，
 # 只是 session/工具链自己产生的占位文本。落盘前滤掉，避免污染 raw 与 content_hash。
-_FRAMEWORK_NOISE = frozenset({
-    "(session bootstrap)",
-    "NO_REPLY",
-})
+_FRAMEWORK_NOISE = frozenset(
+    {
+        "(session bootstrap)",
+        "NO_REPLY",
+    }
+)
 _FRAMEWORK_NOISE_PREFIXES = (
     "A new session was started via",
     "Pre-compaction memory flush",
@@ -238,12 +243,21 @@ def _should_capture_l0(content: str) -> bool:
         return False
     return True
 
+
 # Content-block types that carry internal monologue / tool plumbing rather than
 # user-facing assistant text. Skipped even when nested inside a content array.
 _NOISE_BLOCK_TYPES = {
-    "thinking", "reasoning", "thought",
-    "tool_use", "tool_result", "tool_call", "function_call", "function_result",
-    "system", "system_prompt", "context",
+    "thinking",
+    "reasoning",
+    "thought",
+    "tool_use",
+    "tool_result",
+    "tool_call",
+    "function_call",
+    "function_result",
+    "system",
+    "system_prompt",
+    "context",
 }
 
 
@@ -397,14 +411,16 @@ def _rebuild_index(raw_dir: Path) -> Dict[str, Any]:
         ca = _unq(_peek_frontmatter(text, "captured_at"))
         if not ch:
             continue
-        files.append({
-            "relpath": existing.name,
-            "content_hash": ch,
-            "source_session": ss,
-            "status": st,
-            "task_id": tk,
-            "captured_at": ca,
-        })
+        files.append(
+            {
+                "relpath": existing.name,
+                "content_hash": ch,
+                "source_session": ss,
+                "status": st,
+                "task_id": tk,
+                "captured_at": ca,
+            }
+        )
     return {"files": files}
 
 
@@ -414,7 +430,7 @@ def _peek_frontmatter(text: str, key: str) -> str:
     marker = f"{key}:"
     for line in text.splitlines():
         if line.startswith(marker):
-            return line[len(marker):].strip()
+            return line[len(marker) :].strip()
     return ""
 
 
@@ -447,6 +463,7 @@ def pending_raws_by_task(output_dir: Path) -> Dict[str, List[Dict[str, str]]]:
     any read failure degrades to "no pending raws" for that file.
     """
     from codewiki.src.config import RAW_DIR
+
     raw_dir = output_dir / RAW_DIR
     if not raw_dir.is_dir():
         return {}
@@ -482,11 +499,13 @@ def pending_raws_by_task(output_dir: Path) -> Dict[str, List[Dict[str, str]]]:
                 continue
             task_id = _unq(_peek_frontmatter(text, "task_id"))
             captured_at = _unq(_peek_frontmatter(text, "captured_at"))
-        by_task.setdefault(task_id, []).append({
-            "relpath": p.name,
-            "task_id": task_id,
-            "captured_at": captured_at,
-        })
+        by_task.setdefault(task_id, []).append(
+            {
+                "relpath": p.name,
+                "task_id": task_id,
+                "captured_at": captured_at,
+            }
+        )
     return by_task
 
 
@@ -558,6 +577,7 @@ def handle_capture_conversation(
 
     # Ensure repowiki/raw/ exists
     from codewiki.src.config import RAW_DIR
+
     raw_dir = output_dir / RAW_DIR
     raw_dir.mkdir(parents=True, exist_ok=True)
 
@@ -578,9 +598,11 @@ def handle_capture_conversation(
             if entry.get("content_hash") == find_hash:
                 dup = entry.get("relpath")
                 break
-            if (find_session
-                    and entry.get("source_session") == find_session
-                    and entry.get("status") == "pending"):
+            if (
+                find_session
+                and entry.get("source_session") == find_session
+                and entry.get("status") == "pending"
+            ):
                 sup = entry.get("relpath")
         return dup, sup
 
@@ -595,12 +617,16 @@ def handle_capture_conversation(
 
     if dup_rel is not None:
         existing = raw_dir / dup_rel
-        return json.dumps({
-            "status": "duplicate",
-            "content_hash": content_hash[:24] + "...",
-            "stored_at": str(existing.relative_to(output_dir)),
-            "message": "Identical conversation already captured; skipped.",
-        }, indent=2, ensure_ascii=False)
+        return json.dumps(
+            {
+                "status": "duplicate",
+                "content_hash": content_hash[:24] + "...",
+                "stored_at": str(existing.relative_to(output_dir)),
+                "message": "Identical conversation already captured; skipped.",
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
 
     # Session-scoped supersede: Stop fires every turn and PreCompact can fire
     # mid-session, so the same IDE session is captured repeatedly with a
@@ -653,6 +679,7 @@ def handle_capture_conversation(
     now_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         from codewiki.src.config import actor_id
+
         actor = actor_id()
     except Exception:
         actor = "codewiki"
@@ -671,9 +698,8 @@ def handle_capture_conversation(
         looks_like_search_happened,
         record_adoption_events,
     )
-    adopted_docs = extract_adopted_docs(
-        turns, existing=lambda rel: (output_dir / rel).exists()
-    )
+
+    adopted_docs = extract_adopted_docs(turns, existing=lambda rel: (output_dir / rel).exists())
     adoption_inserted = 0
     if adopted_docs:
         # capture_key (T2): namespaced by user_id so the same session id on
@@ -681,15 +707,15 @@ def handle_capture_conversation(
         # back to the content hash so an identical re-capture stays
         # idempotent while a changed transcript counts its new claims.
         from codewiki.src.config import user_id
+
         capture_key = f"{user_id()}/{source_session_id or f'hash-{content_hash[:24]}'}"
         adoption_inserted = record_adoption_events(
-            output_dir, capture_key, adopted_docs,
+            output_dir,
+            capture_key,
+            adopted_docs,
             now.strftime("%Y-%m-%d"),
         )
-    adoption_nudge = bool(
-        not adopted_docs
-        and looks_like_search_happened(turns)
-    )
+    adoption_nudge = bool(not adopted_docs and looks_like_search_happened(turns))
     meta = {
         "captured_at": now_iso,
         "content_hash": content_hash,
@@ -710,6 +736,7 @@ def handle_capture_conversation(
     if task_id:
         meta["task_id"] = task_id
     from codewiki.src.frontmatter import inject_okf_frontmatter
+
     content = inject_okf_frontmatter(
         "# Conversation Transcript\n\n" + body + "\n",
         type_="Conversation",
@@ -776,27 +803,33 @@ def handle_capture_conversation(
 
     logger.info(
         "%s conversation at %s (%d turns)",
-        "Superseded" if superseded else "Captured", dest_path, len(turns),
+        "Superseded" if superseded else "Captured",
+        dest_path,
+        len(turns),
     )
 
-    return json.dumps({
-        "status": "captured",
-        "conversation_id": dest_path.stem,
-        "stored_at": str(dest_path.relative_to(output_dir)),
-        "turn_count": len(turns),
-        "content_hash": content_hash[:24] + "...",
-        "link_to": link_to,
-        "source_session": source_session_id,
-        "superseded": superseded,
-        "keep_raw": keep_raw,
-        "task_id": task_id,
-        "task_source": task_source,
-        # K-line friction readout (hook may print it to the IDE log).
-        "friction": friction,
-        # P1 A-line adoption readout: declared docs (persisted to
-        # adoption_events) + a one-shot nudge when search traces exist but
-        # nothing was declared.
-        **({"adopted_docs": adopted_docs} if adopted_docs else {}),
-        **({"adoption_inserted": adoption_inserted} if adopted_docs else {}),
-        **({"adoption_nudge": True} if adoption_nudge else {}),
-    }, indent=2, ensure_ascii=False)
+    return json.dumps(
+        {
+            "status": "captured",
+            "conversation_id": dest_path.stem,
+            "stored_at": str(dest_path.relative_to(output_dir)),
+            "turn_count": len(turns),
+            "content_hash": content_hash[:24] + "...",
+            "link_to": link_to,
+            "source_session": source_session_id,
+            "superseded": superseded,
+            "keep_raw": keep_raw,
+            "task_id": task_id,
+            "task_source": task_source,
+            # K-line friction readout (hook may print it to the IDE log).
+            "friction": friction,
+            # P1 A-line adoption readout: declared docs (persisted to
+            # adoption_events) + a one-shot nudge when search traces exist but
+            # nothing was declared.
+            **({"adopted_docs": adopted_docs} if adopted_docs else {}),
+            **({"adoption_inserted": adoption_inserted} if adopted_docs else {}),
+            **({"adoption_nudge": True} if adoption_nudge else {}),
+        },
+        indent=2,
+        ensure_ascii=False,
+    )

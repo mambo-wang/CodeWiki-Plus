@@ -8,6 +8,7 @@ Covers docs/团队记忆融合-L2场景聚合与L3-Doctrine设计方案.md §4.4
 - query_wiki(mode='overview') injects doctrine + scene navigation
 - consolidate_notes submit cascade: doctrine_hint when doctrine counter is due
 """
+
 import json
 from pathlib import Path
 
@@ -18,34 +19,48 @@ from codewiki.mcp.tools import aggregation_state as agg
 from codewiki.mcp.tools import doctrine as doc_tool
 from codewiki.mcp.tools import note_consolidation as cons
 from codewiki.mcp.tools.knowledge_loop import (
-    handle_ingest_note, handle_confirm_note, handle_query_wiki,
+    handle_ingest_note,
+    handle_confirm_note,
+    handle_query_wiki,
 )
 
 
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _set_thresholds(repo: str, cons_t: int = 10, doctrine_t: int = 50,
-                    max_scenes: int = 15, cap: int = 1200):
+def _set_thresholds(
+    repo: str, cons_t: int = 10, doctrine_t: int = 50, max_scenes: int = 15, cap: int = 1200
+):
     od = Path(repo) / "repowiki"
     od.mkdir(parents=True, exist_ok=True)
-    schema = {"conventions": {"aggregation": {
-        "consolidation_threshold": cons_t,
-        "doctrine_threshold": doctrine_t,
-        "hint_interval": 5,
-        "max_scenarios": max_scenes,
-        "doctrine_max_chars": cap,
-    }}}
+    schema = {
+        "conventions": {
+            "aggregation": {
+                "consolidation_threshold": cons_t,
+                "doctrine_threshold": doctrine_t,
+                "hint_interval": 5,
+                "max_scenarios": max_scenes,
+                "doctrine_max_chars": cap,
+            }
+        }
+    }
     (od / "schema.yaml").write_text(yaml.safe_dump(schema), encoding="utf-8")
 
 
 def _ingest_and_confirm(repo: str, title: str) -> str:
     store = SessionStore()
-    r = json.loads(handle_ingest_note({
-        "output_dir": f"{repo}/repowiki",
-        "title": title, "note_type": "decision",
-        "content": "## Background\nbody", "status": "draft",
-    }, store))
+    r = json.loads(
+        handle_ingest_note(
+            {
+                "output_dir": f"{repo}/repowiki",
+                "title": title,
+                "note_type": "decision",
+                "content": "## Background\nbody",
+                "status": "draft",
+            },
+            store,
+        )
+    )
     nf = Path(r["note_path"]).name
     handle_confirm_note({"output_dir": f"{repo}/repowiki", "note_file": nf}, store)
     return nf
@@ -54,13 +69,18 @@ def _ingest_and_confirm(repo: str, title: str) -> str:
 def _write_scenario(repo: str, name: str) -> str:
     sdir = Path(repo) / "repowiki" / "wiki" / "scenarios"
     sdir.mkdir(parents=True, exist_ok=True)
-    fm = {"type": "Scenario", "title": name, "status": "draft",
-          "generated": {"by": "test/agent", "at": "2020-01-01T00:00:00Z"},
-          "metadata": {"heat": 1, "summary": f"summary of {name}",
-                       "source_notes": ["notes/seed.md"]}}
+    fm = {
+        "type": "Scenario",
+        "title": name,
+        "status": "draft",
+        "generated": {"by": "test/agent", "at": "2020-01-01T00:00:00Z"},
+        "metadata": {"heat": 1, "summary": f"summary of {name}", "source_notes": ["notes/seed.md"]},
+    }
     p = sdir / f"{name}.md"
-    p.write_text("---\n" + yaml.safe_dump(fm, allow_unicode=True) +
-                 "---\n\n## Core SOP\ndo the thing\n", encoding="utf-8")
+    p.write_text(
+        "---\n" + yaml.safe_dump(fm, allow_unicode=True) + "---\n\n## Core SOP\ndo the thing\n",
+        encoding="utf-8",
+    )
     return f"wiki/scenarios/{name}.md"
 
 
@@ -146,8 +166,7 @@ def test_submit_does_not_keep_backups(tmp_path):
     repo = str(tmp_path)
     _set_thresholds(repo)
     for i in range(2):
-        resp = _refresh(repo, {"mode": "submit",
-                               "content": f"# Doctrine v{i}\nthesis {i}"})
+        resp = _refresh(repo, {"mode": "submit", "content": f"# Doctrine v{i}\nthesis {i}"})
         assert resp["status"] == "completed"
     bdir = Path(repo) / "repowiki" / "wiki" / ".backup"
     assert not bdir.exists() or not list(bdir.glob("doctrine-*.md"))
@@ -161,15 +180,25 @@ def test_query_wiki_overview_injects_doctrine_and_navigation(tmp_path):
     repo = str(tmp_path)
     _set_thresholds(repo)
     _write_scenario(repo, "nav-scene")
-    _refresh(repo, {"mode": "submit",
-                    "content": "# Team Operating Doctrine\n> Operating Thesis: always lint before release"})
+    _refresh(
+        repo,
+        {
+            "mode": "submit",
+            "content": "# Team Operating Doctrine\n> Operating Thesis: always lint before release",
+        },
+    )
 
     store = SessionStore()
-    resp = json.loads(handle_query_wiki({
-        "output_dir": f"{repo}/repowiki",
-        "mode": "overview",
-        "query": "",
-    }, store))
+    resp = json.loads(
+        handle_query_wiki(
+            {
+                "output_dir": f"{repo}/repowiki",
+                "mode": "overview",
+                "query": "",
+            },
+            store,
+        )
+    )
     assert "doctrine" in resp
     assert "always lint before release" in resp["doctrine"]
     assert "scene_navigation" in resp
@@ -187,14 +216,24 @@ def test_consolidate_submit_cascades_doctrine_hint(tmp_path):
     scen = _write_scenario(repo, "cascade-scene")
 
     store = SessionStore()
-    resp = json.loads(cons.handle_consolidate_notes({
-        "output_dir": f"{repo}/repowiki",
-        "mode": "submit",
-        "report": {"scenarios": [{
-            "file": scen, "action": "updated",
-            "source_notes": [f"notes/{n1}", f"notes/{n2}"],
-        }]},
-    }, store))
+    resp = json.loads(
+        cons.handle_consolidate_notes(
+            {
+                "output_dir": f"{repo}/repowiki",
+                "mode": "submit",
+                "report": {
+                    "scenarios": [
+                        {
+                            "file": scen,
+                            "action": "updated",
+                            "source_notes": [f"notes/{n1}", f"notes/{n2}"],
+                        }
+                    ]
+                },
+            },
+            store,
+        )
+    )
     assert resp["status"] == "completed"
     # doctrine counter (2) >= threshold (2) → cascade hint present
     assert "doctrine_hint" in resp
@@ -211,13 +250,23 @@ def test_consolidate_no_doctrine_hint_below_threshold(tmp_path):
     scen = _write_scenario(repo, "quiet-scene")
 
     store = SessionStore()
-    resp = json.loads(cons.handle_consolidate_notes({
-        "output_dir": f"{repo}/repowiki",
-        "mode": "submit",
-        "report": {"scenarios": [{
-            "file": scen, "action": "updated",
-            "source_notes": [f"notes/{n1}"],
-        }]},
-    }, store))
+    resp = json.loads(
+        cons.handle_consolidate_notes(
+            {
+                "output_dir": f"{repo}/repowiki",
+                "mode": "submit",
+                "report": {
+                    "scenarios": [
+                        {
+                            "file": scen,
+                            "action": "updated",
+                            "source_notes": [f"notes/{n1}"],
+                        }
+                    ]
+                },
+            },
+            store,
+        )
+    )
     assert resp["status"] == "completed"
     assert "doctrine_hint" not in resp

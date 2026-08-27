@@ -33,9 +33,20 @@ from typing import Any, Dict, List, Optional
 # User-correction keywords. Hit anywhere in a user turn's content counts as one
 # correction (at most one per turn, even when several keywords match).
 DEFAULT_CORRECTION_KEYWORDS = [
-    "不对", "你搞错", "搞错了", "不是这样", "不是这样的", "错了", "应该是",
-    "不用这样", "别这样",
-    "wrong", "incorrect", "that's not right", "redo", "重来",
+    "不对",
+    "你搞错",
+    "搞错了",
+    "不是这样",
+    "不是这样的",
+    "错了",
+    "应该是",
+    "不用这样",
+    "别这样",
+    "wrong",
+    "incorrect",
+    "that's not right",
+    "redo",
+    "重来",
 ]
 
 # Interruption markers. CodeBuddy/Claude-family transcripts append these to the
@@ -51,8 +62,8 @@ DEFAULT_MIN_USER_TURNS = 4
 _CORRECTION_WEIGHT = 20
 _INTERRUPT_WEIGHT = 20
 _REPEAT_WEIGHT = 15
-_SCALE_USER_TURNS_BONUS = 5       # user_turns >= 8
-_SCALE_TOTAL_TURNS_BONUS = 5      # total_turns >= 20
+_SCALE_USER_TURNS_BONUS = 5  # user_turns >= 8
+_SCALE_TOTAL_TURNS_BONUS = 5  # total_turns >= 20
 _SCALE_CAP = 10
 
 

@@ -223,7 +223,8 @@ class CawBackend(LLMBackend):
         from codewiki.src.be.caw_toolkit import CawToolKit  # local import to avoid cycles
 
         config = self._config
-        from codewiki.src.config import MODULE_TREE_FILENAME, meta_resolve
+        from codewiki.src.config import meta_resolve
+
         module_tree_path = meta_resolve(working_dir, MODULE_TREE_FILENAME)
         if module_tree is None:
             module_tree = file_manager.load_json(module_tree_path)
@@ -247,16 +248,16 @@ class CawBackend(LLMBackend):
         # agent call per sub-spec even when a single leaf write would suffice.
         # See generate_sub_module_documentation_tool for the pydantic-ai
         # equivalent.
-        _, components_with_code = format_potential_core_components(
-            core_component_ids, components
-        )
+        _, components_with_code = format_potential_core_components(core_component_ids, components)
         num_tokens = count_tokens(components_with_code)
         can_delegate = (
             is_complex_module(components, core_component_ids)
             and start_depth < config.max_depth
             and num_tokens >= config.max_token_per_leaf_module
         )
-        logger.info(f"Module {module_name} can delegate: {can_delegate} - is_complex_module: {is_complex_module(components, core_component_ids)} - start_depth: {start_depth} - num_tokens: {num_tokens} - max_depth: {config.max_depth} - max_token_per_leaf_module: {config.max_token_per_leaf_module}")
+        logger.info(
+            f"Module {module_name} can delegate: {can_delegate} - is_complex_module: {is_complex_module(components, core_component_ids)} - start_depth: {start_depth} - num_tokens: {num_tokens} - max_depth: {config.max_depth} - max_token_per_leaf_module: {config.max_token_per_leaf_module}"
+        )
 
         if can_delegate:
             system_prompt = format_system_prompt(module_name, custom_instructions)

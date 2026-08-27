@@ -91,7 +91,8 @@ node = Node(
     file_path="src/api/orders.py",
     relative_path="src/api/orders.py",
     depends_on={"src/db/session.py::get_session"},
-    start_line=10, end_line=42,
+    start_line=10,
+    end_line=42,
     language="python",
     component_id="src/api/orders.py::create_order",
 )
@@ -99,8 +100,14 @@ node = Node(
 result = AnalysisResult(
     repository=Repository(url=".", name="demo", clone_path="/tmp/demo", analysis_id="a1"),
     functions=[node],
-    relationships=[CallRelationship(caller=node.id, callee="src/db/session.py::get_session", call_line=21, is_resolved=True)],
-    file_tree={}, summary={"total_functions": 1}, visualization={},
+    relationships=[
+        CallRelationship(
+            caller=node.id, callee="src/db/session.py::get_session", call_line=21, is_resolved=True
+        )
+    ],
+    file_tree={},
+    summary={"total_functions": 1},
+    visualization={},
 )
 print(result.model_dump_json())
 ```

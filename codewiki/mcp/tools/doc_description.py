@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ def _first_sentences(text: str, n: int) -> str:
         return text.strip()
     if len(ends) < n:
         return text.strip()
-    return text[:ends[n - 1]].strip()
+    return text[: ends[n - 1]].strip()
 
 
 def extract_lede(body: str) -> str:
@@ -45,7 +45,8 @@ def extract_lede(body: str) -> str:
     if body.lstrip().startswith("---"):
         m = re.match(r"\A---\s*\n.*?\n---\s*\n?", body.lstrip(), re.DOTALL)
         if m:
-            body = body.lstrip()[m.end():]
+            body = body.lstrip()[m.end() :]
+
     # leading blockquote (project convention: meta blockquote) counts as lede
     # only when no plain paragraph precedes it — take the first non-empty,
     # non-heading, non-table block.
@@ -96,7 +97,7 @@ def ensure_description(path: Path) -> bool:
     block = m.group(1)
     if re.search(rb"^description:\s*\S", block, re.MULTILINE):
         return False
-    body = raw[m.end():]
+    body = raw[m.end() :]
     lede = extract_lede(body.decode("utf-8", errors="replace"))
     if not lede:
         return False
@@ -109,8 +110,8 @@ def ensure_description(path: Path) -> bool:
     fm_end = raw.find(b"\n---", 3)
     if fm_end == -1:
         return False
-    head_part = raw[:fm_end]          # ends with b"\r" on CRLF files, else content
-    tail_part = raw[fm_end:]          # starts with b"\n---"
+    head_part = raw[:fm_end]  # ends with b"\r" on CRLF files, else content
+    tail_part = raw[fm_end:]  # starts with b"\n---"
     crlf = head_part.endswith(b"\r")
     new_raw = head_part + b"\n" + line + (b"\r" if crlf else b"") + tail_part
     try:

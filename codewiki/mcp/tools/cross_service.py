@@ -3,6 +3,7 @@
 Supports listing all links, filtering by service name, HTTP method, or path,
 and tracing a specific route's call chain.
 """
+
 from __future__ import annotations
 
 import json
@@ -39,11 +40,14 @@ def handle_query_cross_service(
     # would match everything via substring/startswith, producing confusing
     # results (e.g. by_service returning all links with service: "").
     if filter_type != "all" and not filter_value.strip():
-        return json.dumps({
-            "error": f"filter_value is required when filter_type='{filter_type}'. "
-                     "Pass the service name / HTTP method / path prefix / route key "
-                     "as the 'filter_value' parameter.",
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "error": f"filter_value is required when filter_type='{filter_type}'. "
+                "Pass the service name / HTTP method / path prefix / route key "
+                "as the 'filter_value' parameter.",
+            },
+            ensure_ascii=False,
+        )
 
     # Resolve meta directory: explicit output_dir first, then auto-derive
     explicit_od = arguments.get("output_dir")
@@ -111,25 +115,29 @@ def _format_all(links: List[Dict], routes: List[Dict]) -> Dict:
         "summary": summary,
         "links": links,
         "unmatched_routes": [
-            r for r in routes
-            if not any(
-                link.get("route_key") == r.get("route_key") for link in links
-            )
+            r
+            for r in routes
+            if not any(link.get("route_key") == r.get("route_key") for link in links)
         ],
     }
 
 
 def _filter_by_service(links: List[Dict], service: str) -> Dict:
     matching = [
-        link for link in links
+        link
+        for link in links
         if service.lower() in link.get("client_repo", "").lower()
         or service.lower() in link.get("server_repo", "").lower()
     ]
     return {
         "service": service,
         "count": len(matching),
-        "as_client": [link for link in matching if service.lower() in link.get("client_repo", "").lower()],
-        "as_server": [link for link in matching if service.lower() in link.get("server_repo", "").lower()],
+        "as_client": [
+            link for link in matching if service.lower() in link.get("client_repo", "").lower()
+        ],
+        "as_server": [
+            link for link in matching if service.lower() in link.get("server_repo", "").lower()
+        ],
     }
 
 
@@ -153,16 +161,20 @@ def _trace_route(links: List[Dict], routes: List[Dict], route_key: str) -> Dict:
     clients = []
     servers = []
     for link in matching_links:
-        clients.append({
-            "repo": link.get("client_repo"),
-            "function": link.get("client_function"),
-            "component_id": link.get("client_component_id"),
-        })
-        servers.append({
-            "repo": link.get("server_repo"),
-            "function": link.get("server_function"),
-            "component_id": link.get("server_component_id"),
-        })
+        clients.append(
+            {
+                "repo": link.get("client_repo"),
+                "function": link.get("client_function"),
+                "component_id": link.get("client_component_id"),
+            }
+        )
+        servers.append(
+            {
+                "repo": link.get("server_repo"),
+                "function": link.get("server_function"),
+                "component_id": link.get("server_component_id"),
+            }
+        )
 
     return {
         "route_key": route_key,

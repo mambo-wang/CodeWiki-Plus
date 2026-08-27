@@ -37,7 +37,9 @@ def _md_to_html(md: str) -> str:
         return f"\x00CODEBLOCK{len(code_blocks) - 1}\x00"
 
     html = _MD_FENCE_RE.sub(_save_code, md)
-    html = _MD_HEADING_RE.sub(lambda m: f'<h{len(m.group(1))}>{m.group(2)}</h{len(m.group(1))}>', html)
+    html = _MD_HEADING_RE.sub(
+        lambda m: f"<h{len(m.group(1))}>{m.group(2)}</h{len(m.group(1))}>", html
+    )
     html = _MD_BOLD_RE.sub(r"<strong>\1</strong>", html)
     html = _MD_LINK_RE.sub(r'<a href="\2">\1</a>', html)
     html = _MD_UL_RE.sub(r"<li>\1</li>", html)
@@ -66,11 +68,13 @@ def _collect_wiki_pages(output_dir: Path) -> List[Dict[str, str]]:
                     title = first_h.group(1)
             except Exception:
                 content = ""
-            pages.append({
-                "id": str(rel).replace("\\", "/"),
-                "title": title,
-                "content": content,
-            })
+            pages.append(
+                {
+                    "id": str(rel).replace("\\", "/"),
+                    "title": title,
+                    "content": content,
+                }
+            )
 
     return pages
 
@@ -169,7 +173,7 @@ def generate_html_export(
             page_id = page["id"].replace("/", "-").replace(".md", "").replace(".", "-")
             nav_parts.append(
                 f'<a href="#" data-id="{page_id}" onclick="showPage(\'{page_id}\');return false;">'
-                f'{page["title"]}</a>'
+                f"{page['title']}</a>"
             )
             active = " active" if i == 0 else ""
             html_content = _md_to_html(page["content"])
@@ -188,8 +192,12 @@ def generate_html_export(
 
         export_path = out_path / "wiki-export.html"
         export_path.write_text(html, encoding="utf-8")
-        logger.info("Generated HTML export: %s (%d pages, %.1f KB)",
-                    export_path, len(pages), export_path.stat().st_size / 1024)
+        logger.info(
+            "Generated HTML export: %s (%d pages, %.1f KB)",
+            export_path,
+            len(pages),
+            export_path.stat().st_size / 1024,
+        )
         return str(export_path)
 
     except Exception as e:

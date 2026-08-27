@@ -453,8 +453,19 @@ FUNCTION_DEFINITION_PATTERNS = {
     "rust": ["fn {name}", "pub fn {name}"],
     "c": ["void {name}", "int {name}", "{name}("],
     "cpp": ["void {name}", "int {name}", "{name}("],
-    "php": ["function {name}", "public function {name}", "private function {name}", "protected function {name}"],
-    "kotlin": ["fun {name}", "private fun {name}", "public fun {name}", "internal fun {name}", "protected fun {name}"],
+    "php": [
+        "function {name}",
+        "public function {name}",
+        "private function {name}",
+        "protected function {name}",
+    ],
+    "kotlin": [
+        "fun {name}",
+        "private fun {name}",
+        "public fun {name}",
+        "internal fun {name}",
+        "protected fun {name}",
+    ],
     "general": ["{name}("],  # Fallback pattern
 }
 

@@ -76,7 +76,9 @@ class SessionWorkspace:
         """
         p = self.root / name
         if compact:
-            p.write_text(json.dumps(data, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
+            p.write_text(
+                json.dumps(data, separators=(",", ":"), ensure_ascii=False), encoding="utf-8"
+            )
         else:
             p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         return p
@@ -92,7 +94,6 @@ class SessionWorkspace:
         header = f"// Component: {component_id}\n// Language: {language}\n"
         p.write_text(header + source, encoding="utf-8")
         return p
-
 
     def write_text(self, name: str, data: str) -> Path:
         """Write arbitrary text to a workspace file and return the path."""

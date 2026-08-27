@@ -7,6 +7,7 @@ Two gate functions were added together with the team-memory L0/L1 design:
 - ``distill_conversation._should_extract_l1`` / ``_filter_transcript_lines`` --
   strict gate applied before the LLM call; drops pure-symbol/question rows.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

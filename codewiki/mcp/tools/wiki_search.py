@@ -18,11 +18,16 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from codewiki.mcp.cache import (
-    _K1, _B, _build_indexable_text,
-    _tokenize, _extract_snippet,
-    _load_ontology, _expand_with_ontology,
+    _K1,
+    _B,
+    _build_indexable_text,
+    _tokenize,
+    _extract_snippet,
+    _load_ontology,
+    _expand_with_ontology,
     _doc_authority,
-    compute_usage_heat, _usage_context,
+    compute_usage_heat,
+    _usage_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,7 +62,7 @@ def _resolve_db_path(output_dir: Path) -> Optional[Path]:
                 if not cand.is_absolute():
                     # relative → resolve against the repo root (= output_dir.parent
                     # for the standard layout; falls back to output_dir itself)
-                    cand = (od.parent / cand)
+                    cand = od.parent / cand
                 if cand.exists():
                     return cand
     except Exception:
@@ -82,9 +87,7 @@ def _open_standalone_cache(output_dir: Path, *, readonly: bool = False):
         repo_path = db_path.parent.parent  # .codewiki/analysis_cache.db → repo root
         cache = AnalysisCache(repo_path, db_path=db_path)
         # Verify search tables have data
-        r = cache.conn.execute(
-            "SELECT value FROM search_stats WHERE key='total_docs'"
-        ).fetchone()
+        r = cache.conn.execute("SELECT value FROM search_stats WHERE key='total_docs'").fetchone()
         if not r or int(r["value"]) == 0:
             cache.close()
             return None
@@ -92,60 +95,104 @@ def _open_standalone_cache(output_dir: Path, *, readonly: bool = False):
     except Exception:
         return None
 
+
 # ---- Legacy JSON index ----
+
 
 class _IndexData:
     def __init__(self):
-        self.version = 1; self.total_docs = 0; self.avg_doc_len = 0.0
-        self.doc_freq: Dict[str, int] = {}; self.docs: Dict[str, Dict] = {}
-        self.built_at: float = 0.0   # T1a: build timestamp for mtime-sampling freshness
+        self.version = 1
+        self.total_docs = 0
+        self.avg_doc_len = 0.0
+        self.doc_freq: Dict[str, int] = {}
+        self.docs: Dict[str, Dict] = {}
+        self.built_at: float = 0.0  # T1a: build timestamp for mtime-sampling freshness
+
     def to_dict(self):
-        return {"version": self.version, "total_docs": self.total_docs,
-                "avg_doc_len": round(self.avg_doc_len,2), "doc_freq": self.doc_freq,
-                "docs": self.docs,
-                "built_at": self.built_at or time.time()}
+        return {
+            "version": self.version,
+            "total_docs": self.total_docs,
+            "avg_doc_len": round(self.avg_doc_len, 2),
+            "doc_freq": self.doc_freq,
+            "docs": self.docs,
+            "built_at": self.built_at or time.time(),
+        }
+
     @classmethod
     def from_dict(cls, d):
-        i = cls(); i.version = d.get("version",1); i.total_docs = d.get("total_docs",0)
-        i.avg_doc_len = d.get("avg_doc_len",0.0); i.doc_freq = d.get("doc_freq",{})
-        i.docs = d.get("docs",{}); i.built_at = float(d.get("built_at") or 0.0); return i
+        i = cls()
+        i.version = d.get("version", 1)
+        i.total_docs = d.get("total_docs", 0)
+        i.avg_doc_len = d.get("avg_doc_len", 0.0)
+        i.doc_freq = d.get("doc_freq", {})
+        i.docs = d.get("docs", {})
+        i.built_at = float(d.get("built_at") or 0.0)
+        return i
+
     def _recompute(self):
         self.total_docs = len(self.docs)
-        tl = sum(d.get("doc_len",0) for d in self.docs.values())
+        tl = sum(d.get("doc_len", 0) for d in self.docs.values())
         self.avg_doc_len = tl / self.total_docs if self.total_docs else 0.0
         df = {}
         for di in self.docs.values():
-            for t in di.get("term_freq",{}): df[t] = df.get(t,0) + 1
+            for t in di.get("term_freq", {}):
+                df[t] = df.get(t, 0) + 1
         self.doc_freq = df
+
     def upsert(self, fk, title, source, content, *, batch=False):
         tokens = _tokenize(_build_indexable_text(content))
-        if not tokens: return
+        if not tokens:
+            return
         tf = {}
-        for t in tokens: tf[t] = tf.get(t,0) + 1
-        self.docs[fk] = {"title": title, "source": source, "doc_len": len(tokens),
-                         "term_freq": tf, "authority": _doc_authority(fk, source, content)}
-        if not batch: self._recompute()
-    def finalize(self): self._recompute()
+        for t in tokens:
+            tf[t] = tf.get(t, 0) + 1
+        self.docs[fk] = {
+            "title": title,
+            "source": source,
+            "doc_len": len(tokens),
+            "term_freq": tf,
+            "authority": _doc_authority(fk, source, content),
+        }
+        if not batch:
+            self._recompute()
+
+    def finalize(self):
+        self._recompute()
+
     def remove(self, fk):
-        if fk in self.docs: del self.docs[fk]; self._recompute(); return True
+        if fk in self.docs:
+            del self.docs[fk]
+            self._recompute()
+            return True
         return False
+
 
 def _index_path(od):
     """Search index lives in .meta/ to keep output_dir root clean."""
     from codewiki.src.config import META_DIR
+
     meta_path = Path(od) / META_DIR / _SEARCH_INDEX_FILENAME
     root_path = Path(od) / _SEARCH_INDEX_FILENAME
     # Prefer .meta/, fallback to root for backward compat (read-only)
     if meta_path.exists() or not root_path.exists():
         return meta_path
     return root_path
+
+
 def _load_index(od):
     p = _index_path(od)
-    if not p.exists(): return _IndexData()
-    try: return _IndexData.from_dict(json.loads(p.read_text(encoding="utf-8")))
-    except Exception: logger.warning("Failed to load search index"); return _IndexData()
+    if not p.exists():
+        return _IndexData()
+    try:
+        return _IndexData.from_dict(json.loads(p.read_text(encoding="utf-8")))
+    except Exception:
+        logger.warning("Failed to load search index")
+        return _IndexData()
+
+
 def _save_index(od, idx):
-    p = _index_path(od); tmp = p.with_suffix(".tmp")
+    p = _index_path(od)
+    tmp = p.with_suffix(".tmp")
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         tmp.write_text(json.dumps(idx.to_dict(), ensure_ascii=False), encoding="utf-8")
@@ -153,31 +200,45 @@ def _save_index(od, idx):
     except Exception as e:
         logger.warning("Failed to save search index: %s", e)
         if tmp.exists():
-            try: tmp.unlink()
-            except OSError: pass
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
 
 def _read_doc(fp: Path):
     try:
         ct = fp.read_text(encoding="utf-8", errors="replace")
-        if "<!-- crosslinks" in ct: ct = ct.split("<!-- crosslinks")[0]
+        if "<!-- crosslinks" in ct:
+            ct = ct.split("<!-- crosslinks")[0]
         return ct
-    except OSError: return ""
+    except OSError:
+        return ""
+
 
 def _read_note(fp: Path):
-    try: return fp.read_text(encoding="utf-8", errors="replace")
-    except OSError: return ""
+    try:
+        return fp.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
 
 def _extract_fm(ct, key):
-    if not ct.startswith("---"): return None
+    if not ct.startswith("---"):
+        return None
     try:
         end = ct.index("---", 3)
         for line in ct[3:end].splitlines():
-            if line.startswith(f"{key}:"): return line[len(key)+1:].strip().strip('"').strip("'")
-    except ValueError: pass
+            if line.startswith(f"{key}:"):
+                return line[len(key) + 1 :].strip().strip('"').strip("'")
+    except ValueError:
+        pass
     return None
+
 
 # Strip markdown links from H1 titles: "[JwtUtil](../src/JwtUtil.java)" -> "JwtUtil"
 _MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+
 
 def _extract_title(ct):
     for line in ct.splitlines()[:30]:
@@ -187,7 +248,9 @@ def _extract_title(ct):
             return title or None
     return None
 
+
 # ---- Public API ----
+
 
 def build_full_index(output_dir, session=None):
     """Build BM25 search index. Uses SQLite cache if session is available.
@@ -197,13 +260,16 @@ def build_full_index(output_dir, session=None):
     rebuild wins, the rest see the fresh index on their next freshness check.
     """
     od = Path(output_dir)
-    if not od.is_dir(): return {"docs_indexed": 0, "notes_indexed": 0, "total_tokens": 0}
+    if not od.is_dir():
+        return {"docs_indexed": 0, "notes_indexed": 0, "total_tokens": 0}
 
     with _build_lock:
         # Try SQLite cache first (active session)
         if session is not None and getattr(session, "cache", None) is not None:
-            try: return session.cache.build_search_index(od)
-            except Exception as e: logger.warning("SQLite search index failed: %s", e)
+            try:
+                return session.cache.build_search_index(od)
+            except Exception as e:
+                logger.warning("SQLite search index failed: %s", e)
 
         # Try standalone SQLite (no active session, DB exists on disk)
         if session is None:
@@ -211,6 +277,7 @@ def build_full_index(output_dir, session=None):
             if db_path is not None:
                 try:
                     from codewiki.mcp.cache import AnalysisCache
+
                     cache = AnalysisCache(db_path.parent.parent, db_path=db_path)
                     result = cache.build_search_index(od)
                     cache.close()
@@ -220,72 +287,104 @@ def build_full_index(output_dir, session=None):
 
     # Legacy JSON fallback
     with _build_lock:
-        idx = _IndexData(); dc = nc = sc = 0
+        idx = _IndexData()
+        dc = nc = sc = 0
 
         # Scan wiki/ subdirectories recursively
         from codewiki.src.config import WIKI_DIR, WIKI_SYSTEM_FILES
+
         wiki_dir = od / WIKI_DIR
         if wiki_dir.is_dir():
             for md in sorted(wiki_dir.rglob("*.md")):
-                if not md.is_file(): continue
-                if md.name in WIKI_SYSTEM_FILES: continue
+                if not md.is_file():
+                    continue
+                if md.name in WIKI_SYSTEM_FILES:
+                    continue
                 ct = _read_doc(md)
-                if not ct.strip(): continue
-                title = _extract_title(ct) or md.stem.replace("_"," ").title()
-                try: fk = str(md.relative_to(od)).replace("\\", "/")
-                except ValueError: fk = md.name
-                idx.upsert(fk, title, "doc", ct, batch=True); dc += 1
+                if not ct.strip():
+                    continue
+                title = _extract_title(ct) or md.stem.replace("_", " ").title()
+                try:
+                    fk = str(md.relative_to(od)).replace("\\", "/")
+                except ValueError:
+                    fk = md.name
+                idx.upsert(fk, title, "doc", ct, batch=True)
+                dc += 1
 
         # Also scan root-level .md files (for repos without wiki/ dir)
         for md in sorted(od.iterdir()):
-            if not md.is_file() or md.suffix != ".md": continue
-            if md.name in _SYSTEM_FILES: continue
+            if not md.is_file() or md.suffix != ".md":
+                continue
+            if md.name in _SYSTEM_FILES:
+                continue
             ct = _read_doc(md)
-            if not ct.strip(): continue
-            title = _extract_title(ct) or md.stem.replace("_"," ").title()
-            idx.upsert(md.name, title, "doc", ct, batch=True); dc += 1
+            if not ct.strip():
+                continue
+            title = _extract_title(ct) or md.stem.replace("_", " ").title()
+            idx.upsert(md.name, title, "doc", ct, batch=True)
+            dc += 1
 
         # Scan notes/
         nd = od / _NOTES_DIR
         if nd.is_dir():
             for nf in sorted(nd.iterdir()):
-                if not nf.is_file() or nf.suffix != ".md": continue
+                if not nf.is_file() or nf.suffix != ".md":
+                    continue
                 ct = _read_note(nf)
-                if not ct.strip(): continue
+                if not ct.strip():
+                    continue
                 title = _extract_fm(ct, "title") or nf.stem
-                idx.upsert(f"{_NOTES_DIR}/{nf.name}", title, "note", ct, batch=True); nc += 1
+                idx.upsert(f"{_NOTES_DIR}/{nf.name}", title, "note", ct, batch=True)
+                nc += 1
 
         # Scan raw/sources/
         raw_dir = od / "raw" / "sources"
         if raw_dir.is_dir():
             for sf in sorted(raw_dir.iterdir()):
-                if not sf.is_file(): continue
-                if sf.suffix not in (".md", ".txt", ".rst"): continue
-                try: ct = sf.read_text(encoding="utf-8", errors="replace")
-                except OSError: continue
-                if not ct.strip(): continue
+                if not sf.is_file():
+                    continue
+                if sf.suffix not in (".md", ".txt", ".rst"):
+                    continue
+                try:
+                    ct = sf.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if not ct.strip():
+                    continue
                 title = sf.stem.replace("_", " ").replace("-", " ").title()
-                idx.upsert(f"raw/sources/{sf.name}", title, "source", ct, batch=True); sc += 1
+                idx.upsert(f"raw/sources/{sf.name}", title, "source", ct, batch=True)
+                sc += 1
 
         idx.finalize()
-        idx.built_at = time.time()   # T1a: freshness mtime baseline
+        idx.built_at = time.time()  # T1a: freshness mtime baseline
         _save_index(od, idx)
-    return {"docs_indexed": dc, "notes_indexed": nc, "sources_indexed": sc,
-            "total_docs": idx.total_docs,
-            "avg_doc_len": round(idx.avg_doc_len,1), "vocabulary_size": len(idx.doc_freq)}
+    return {
+        "docs_indexed": dc,
+        "notes_indexed": nc,
+        "sources_indexed": sc,
+        "total_docs": idx.total_docs,
+        "avg_doc_len": round(idx.avg_doc_len, 1),
+        "vocabulary_size": len(idx.doc_freq),
+    }
+
 
 def update_file(output_dir, filepath, session=None):
     """Incrementally update search index for a single file."""
-    od = Path(output_dir); fp = Path(filepath)
+    od = Path(output_dir)
+    fp = Path(filepath)
     if session is not None and getattr(session, "cache", None) is not None:
-        try: session.cache.update_search_doc(od, fp); return
-        except Exception as e: logger.warning("SQLite search update failed: %s", e)
+        try:
+            session.cache.update_search_doc(od, fp)
+            return
+        except Exception as e:
+            logger.warning("SQLite search update failed: %s", e)
     # Try standalone SQLite
     if session is None:
         db_path = _resolve_db_path(od)
         if db_path is not None:
             try:
                 from codewiki.mcp.cache import AnalysisCache
+
                 cache = AnalysisCache(db_path.parent.parent, db_path=db_path)
                 cache.update_search_doc(od, fp)
                 cache.close()
@@ -293,17 +392,30 @@ def update_file(output_dir, filepath, session=None):
             except Exception as e:
                 logger.warning("Standalone SQLite update failed: %s", e)
     # Legacy fallback
-    try: fk = str(fp.resolve().relative_to(od.resolve()))
-    except ValueError: fk = fp.name
+    try:
+        fk = str(fp.resolve().relative_to(od.resolve()))
+    except ValueError:
+        fk = fp.name
     fk = fk.replace("\\", "/")  # doc_key must match build_full_index's forward-slash shape
     with _build_lock:
-        idx = _load_index(od); ap = od / fk
-        if not ap.exists(): idx.remove(fk); _save_index(od, idx); return
+        idx = _load_index(od)
+        ap = od / fk
+        if not ap.exists():
+            idx.remove(fk)
+            _save_index(od, idx)
+            return
         if fk.startswith(f"{_NOTES_DIR}/"):
-            ct = _read_note(ap); title = _extract_fm(ct,"title") or ap.stem; src = "note"
-        else: ct = _read_doc(ap); title = _extract_title(ct) or ap.stem.replace("_"," ").title(); src = "doc"
-        if ct.strip(): idx.upsert(fk, title, src, ct)
-        else: idx.remove(fk)
+            ct = _read_note(ap)
+            title = _extract_fm(ct, "title") or ap.stem
+            src = "note"
+        else:
+            ct = _read_doc(ap)
+            title = _extract_title(ct) or ap.stem.replace("_", " ").title()
+            src = "doc"
+        if ct.strip():
+            idx.upsert(fk, title, src, ct)
+        else:
+            idx.remove(fk)
         # Tool-side update: align the freshness baseline (mirror of
         # AnalysisCache.update_search_doc) so tier-3 mtime sampling in
         # ensure_fresh doesn't flag this file as stale on the next query.
@@ -311,10 +423,14 @@ def update_file(output_dir, filepath, session=None):
         idx.built_at = time.time()
         _save_index(od, idx)
 
+
 def remove_file(output_dir, filepath):
-    od = Path(output_dir); fp = Path(filepath)
-    try: fk = str(fp.resolve().relative_to(od.resolve()))
-    except ValueError: fk = fp.name
+    od = Path(output_dir)
+    fp = Path(filepath)
+    try:
+        fk = str(fp.resolve().relative_to(od.resolve()))
+    except ValueError:
+        fk = fp.name
     fk = fk.replace("\\", "/")  # doc_key must match build_full_index's forward-slash shape
     # SQLite standalone first (mirror of update_file); a delete is not a
     # content update so search_stats.index_built_at is intentionally NOT
@@ -324,6 +440,7 @@ def remove_file(output_dir, filepath):
         db_path = _resolve_db_path(od)
         if db_path is not None:
             from codewiki.mcp.cache import AnalysisCache
+
             c = AnalysisCache(db_path.parent.parent, db_path=db_path)
             try:
                 c.conn.execute("DELETE FROM search_index WHERE doc_key=?", (fk,))
@@ -337,11 +454,26 @@ def remove_file(output_dir, filepath):
     # Legacy fallback
     with _build_lock:
         idx = _load_index(od)
-        if idx.remove(fk): _save_index(od, idx)
+        if idx.remove(fk):
+            _save_index(od, idx)
 
-def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
-           score_threshold=0.1, expand_terms=None, session=None, type_filter=None,
-           hop=0, decay=0.5, apply_authority=True, apply_usage=True):
+
+def search(
+    output_dir,
+    query,
+    *,
+    scope=None,
+    include_notes=True,
+    max_results=10,
+    score_threshold=0.1,
+    expand_terms=None,
+    session=None,
+    type_filter=None,
+    hop=0,
+    decay=0.5,
+    apply_authority=True,
+    apply_usage=True,
+):
     """BM25 search. Uses SQLite cache if session available.
 
     ``apply_authority=False`` / ``apply_usage=False`` exempt a call from the
@@ -350,7 +482,8 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
     not influence duplicate detection.  Result entries still carry the
     ``authority`` / ``usage`` fields for transparency.
     """
-    od = Path(output_dir); max_results = min(20, max(1, max_results))
+    od = Path(output_dir)
+    max_results = min(20, max(1, max_results))
 
     # T1a: freshness self-heal (sessionless path only — an active session
     # holds its own cache and close_session rebuilds it). Throttled to one
@@ -358,20 +491,30 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
     if session is None:
         try:
             from codewiki.mcp.tools.index_freshness import ensure_fresh
+
             ensure_fresh(od)
         except Exception as e:
             logger.debug("freshness check skipped: %s", e)
 
     # Try SQLite cache first (active session)
     if session is not None and getattr(session, "cache", None) is not None:
-        try: return session.cache.search(query, scope=scope or "", include_notes=include_notes,
-                                          max_results=max_results, score_threshold=score_threshold,
-                                          output_dir=od, type_filter=type_filter,
-                                          hop=hop, decay=decay,
-                                          expand_terms=expand_terms,
-                                          apply_authority=apply_authority,
-                                          apply_usage=apply_usage)
-        except Exception as e: logger.warning("SQLite search failed: %s", e)
+        try:
+            return session.cache.search(
+                query,
+                scope=scope or "",
+                include_notes=include_notes,
+                max_results=max_results,
+                score_threshold=score_threshold,
+                output_dir=od,
+                type_filter=type_filter,
+                hop=hop,
+                decay=decay,
+                expand_terms=expand_terms,
+                apply_authority=apply_authority,
+                apply_usage=apply_usage,
+            )
+        except Exception as e:
+            logger.warning("SQLite search failed: %s", e)
 
     # Try standalone SQLite (no active session, DB persisted on disk)
     _standalone = None
@@ -379,13 +522,20 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
         _standalone = _open_standalone_cache(od, readonly=True)
         if _standalone is not None:
             try:
-                results = _standalone.search(query, scope=scope or "", include_notes=include_notes,
-                                             max_results=max_results, score_threshold=score_threshold,
-                                             output_dir=od, type_filter=type_filter,
-                                             hop=hop, decay=decay,
-                                             expand_terms=expand_terms,
-                                             apply_authority=apply_authority,
-                                             apply_usage=apply_usage)
+                results = _standalone.search(
+                    query,
+                    scope=scope or "",
+                    include_notes=include_notes,
+                    max_results=max_results,
+                    score_threshold=score_threshold,
+                    output_dir=od,
+                    type_filter=type_filter,
+                    hop=hop,
+                    decay=decay,
+                    expand_terms=expand_terms,
+                    apply_authority=apply_authority,
+                    apply_usage=apply_usage,
+                )
                 _standalone.close()
                 return results
             except Exception as e:
@@ -397,33 +547,45 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
     if expand_terms:
         for t in expand_terms:
             for tt in _tokenize(t):
-                if tt not in qts: qts.append(tt)
+                if tt not in qts:
+                    qts.append(tt)
     ontology = _load_ontology(od)
     if ontology:
         qts = _expand_with_ontology(qts, ontology)
-    if not qts: return []
+    if not qts:
+        return []
     idx = _load_index(od)
-    if idx.total_docs == 0: return []
+    if idx.total_docs == 0:
+        return []
     # Usage-signal context (U1): shared helpers from cache.py so the JSON and
     # SQLite paths apply identical heat semantics.  Always loaded (results
     # expose a `usage` field); heat only multiplies when enabled + not exempt.
     usage_cfg, usage_map, heat_on = _usage_context(od, apply_usage)
-    scored = []; n = idx.total_docs; avg_dl = idx.avg_doc_len or 1.0
+    scored = []
+    n = idx.total_docs
+    avg_dl = idx.avg_doc_len or 1.0
     for fk, di in idx.docs.items():
         if scope:
             scope_norm = scope.lower().replace(" ", "_").rstrip("/")
             path_lower = fk.lower().replace("\\", "/")
             stem = Path(fk).stem.lower().replace("_", " ")
-            if (stem != scope_norm.replace("_", " ")
-                    and not path_lower.startswith(scope_norm + "/")
-                    and f"/{scope_norm}/" not in f"/{path_lower}"):
+            if (
+                stem != scope_norm.replace("_", " ")
+                and not path_lower.startswith(scope_norm + "/")
+                and f"/{scope_norm}/" not in f"/{path_lower}"
+            ):
                 continue
-        if not include_notes and di.get("source") == "note": continue
-        s = 0.0; tfm = di.get("term_freq",{}); dl = di.get("doc_len",1)
+        if not include_notes and di.get("source") == "note":
+            continue
+        s = 0.0
+        tfm = di.get("term_freq", {})
+        dl = di.get("doc_len", 1)
         for qt in qts:
-            if qt not in tfm: continue
-            tf = tfm[qt]; df = idx.doc_freq.get(qt,1)
-            idf = max(0.0, math.log((n - df + 0.5)/(df + 0.5) + 1.0))
+            if qt not in tfm:
+                continue
+            tf = tfm[qt]
+            df = idx.doc_freq.get(qt, 1)
+            idf = max(0.0, math.log((n - df + 0.5) / (df + 0.5) + 1.0))
             s += idf * (tf * (_K1 + 1)) / (tf + _K1 * (1 - _B + _B * dl / avg_dl))
         # Authority weighting: multiply AFTER BM25, BEFORE the title floor.
         auth = float(di.get("authority") or 1.0) if apply_authority else 1.0
@@ -433,7 +595,8 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
         u_hits, u_last, u_adopted = usage_map.get(fk, (0, None, 0))
         heat = (
             compute_usage_heat(u_hits, u_last, usage_cfg, adopted_count=u_adopted)
-            if heat_on else 1.0
+            if heat_on
+            else 1.0
         )
         s *= heat
         # Developer notes are short; BM25 scores are naturally low and would be
@@ -444,20 +607,29 @@ def search(output_dir, query, *, scope=None, include_notes=True, max_results=10,
             title_tokens = set(_tokenize(di.get("title", "")))
             if title_tokens & set(qts) and s > 0:
                 s = max(s, score_threshold)
-        if s >= score_threshold: scored.append((s, fk, auth))
-    scored.sort(key=lambda x: x[0], reverse=True); scored = scored[:max_results]
+        if s >= score_threshold:
+            scored.append((s, fk, auth))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    scored = scored[:max_results]
     out = []
     for s, fk, auth in scored:
         u_hits, u_last, u_adopted = usage_map.get(fk, (0, None, 0))
-        out.append({"file": fk, "title": idx.docs.get(fk,{}).get("title",fk),
-                    "source": idx.docs.get(fk,{}).get("source","doc"),
-                    "snippet": (_extract_snippet((od/fk).read_text(encoding="utf-8",errors="replace"), qts)
-                                if (od/fk).exists() else "")[:300],
-                    "relevance_score": round(s,4),
-                    "authority": round(auth,2),
-                    "matched_tokens": _matched_for_doc(idx.docs.get(fk,{}).get("term_freq",{}), qts),
-                    "usage": {"hit_count": u_hits, "last_hit": u_last,
-                              "adopted_count": u_adopted}})
+        out.append(
+            {
+                "file": fk,
+                "title": idx.docs.get(fk, {}).get("title", fk),
+                "source": idx.docs.get(fk, {}).get("source", "doc"),
+                "snippet": (
+                    _extract_snippet((od / fk).read_text(encoding="utf-8", errors="replace"), qts)
+                    if (od / fk).exists()
+                    else ""
+                )[:300],
+                "relevance_score": round(s, 4),
+                "authority": round(auth, 2),
+                "matched_tokens": _matched_for_doc(idx.docs.get(fk, {}).get("term_freq", {}), qts),
+                "usage": {"hit_count": u_hits, "last_hit": u_last, "adopted_count": u_adopted},
+            }
+        )
     return out
 
 

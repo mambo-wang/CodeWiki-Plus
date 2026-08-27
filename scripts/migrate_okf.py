@@ -71,13 +71,14 @@ def split_frontmatter(content: str):
                     data = None
             except Exception:
                 data = None
-            return data, fm_lines, lines[i + 1:], i
+            return data, fm_lines, lines[i + 1 :], i
     return None, [], lines, None
 
 
 def actor_id() -> str:
     try:
         from codewiki.src.config import actor_id as _aid
+
         return _aid()
     except Exception:
         return "codewiki"
@@ -106,6 +107,7 @@ def title_of(body_lines, fallback: str) -> str:
 # YAML double-quoted scalar legal escape starters (§11 frontmatter must parse).
 _VALID_ESCAPE = re.compile(r'\\(?!["\\nrt0abfveN_LPxuU ])')
 
+
 def repair_double_quoted_escapes(fm_lines: list) -> list:
     """Repair invalid YAML escapes in single-line ``key: "value"`` rows.
 
@@ -126,8 +128,9 @@ def repair_double_quoted_escapes(fm_lines: list) -> list:
     return out
 
 
-def migrate_file(path: Path, output_dir: Path, stale_days: int, dry_run: bool,
-                 fold_private: bool = False) -> list:
+def migrate_file(
+    path: Path, output_dir: Path, stale_days: int, dry_run: bool, fold_private: bool = False
+) -> list:
     """Migrate one markdown file. Returns list of change descriptions."""
     changes = []
     content = path.read_text(encoding="utf-8")
@@ -165,9 +168,16 @@ def migrate_file(path: Path, output_dir: Path, stale_days: int, dry_run: bool,
     # and later full regenerations therefore keep reading them unchanged.
     if fold_private and isinstance(data, dict):
         _OKF_STANDARD = {
-            "type", "title", "aliases", "description",
-            "status", "verified", "stale_after", "generated",
-            "tags", "sources",
+            "type",
+            "title",
+            "aliases",
+            "description",
+            "status",
+            "verified",
+            "stale_after",
+            "generated",
+            "tags",
+            "sources",
         }
         meta = dict(data.get("metadata") or {})
         folded = [k for k in data if k not in _OKF_STANDARD and k != "metadata"]
@@ -277,7 +287,9 @@ def migrate_file(path: Path, output_dir: Path, stale_days: int, dry_run: bool,
                 new_content = re.sub(
                     rf"^(status:\s*){old}(\s*)$",
                     rf"\g<1>{new}\g<2>",
-                    new_content, count=1, flags=re.MULTILINE,
+                    new_content,
+                    count=1,
+                    flags=re.MULTILINE,
                 )
         if not dry_run:
             path.write_text(new_content, encoding="utf-8")
@@ -312,15 +324,22 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Migrate a CodeWiki repowiki to OKF v0.2 conformance.")
     ap.add_argument("output_dir", help="repowiki output directory (contains wiki/ and schema.yaml)")
     ap.add_argument("--dry-run", action="store_true", help="report changes without writing")
-    ap.add_argument("--stale-days", type=int, default=90, help="days until stale_after (default 90)")
-    ap.add_argument("--fold-private", action="store_true",
-                    help="fold producer-private top-level keys under metadata (OKF §4/§5)")
+    ap.add_argument(
+        "--stale-days", type=int, default=90, help="days until stale_after (default 90)"
+    )
+    ap.add_argument(
+        "--fold-private",
+        action="store_true",
+        help="fold producer-private top-level keys under metadata (OKF §4/§5)",
+    )
     args = ap.parse_args()
 
     output_dir = Path(args.output_dir).expanduser().resolve()
     wiki_dir = output_dir / "wiki"
     if not wiki_dir.is_dir():
-        print(f"ERROR: {wiki_dir} not found — is this a repowiki output directory?", file=sys.stderr)
+        print(
+            f"ERROR: {wiki_dir} not found — is this a repowiki output directory?", file=sys.stderr
+        )
         return 1
 
     targets = []
@@ -346,9 +365,11 @@ def main() -> int:
     index_path = wiki_dir / "index.md"
     if index_path.is_file() and ensure_okf_version(index_path, args.dry_run):
         changed += 1
-        print(f"{'[dry-run] ' if args.dry_run else ''}wiki/index.md: okf_version: \"0.2\"")
+        print(f'{"[dry-run] " if args.dry_run else ""}wiki/index.md: okf_version: "0.2"')
 
-    print(f"\nScanned {len(targets)} files, {'would change' if args.dry_run else 'changed'} {changed}.")
+    print(
+        f"\nScanned {len(targets)} files, {'would change' if args.dry_run else 'changed'} {changed}."
+    )
     return 0
 
 

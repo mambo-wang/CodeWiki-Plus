@@ -88,9 +88,11 @@ receipt/attester 运行时协议（v0.2 规范自身已 defer 到下个版本）
 ```python
 ACTOR_NAME = "codewiki"
 
+
 def actor_id() -> str:
     from codewiki import __version__
-    return f"{ACTOR_NAME}/{__version__}"   # e.g. codewiki/5.2.0
+
+    return f"{ACTOR_NAME}/{__version__}"  # e.g. codewiki/5.2.0
 ```
 
 所有 `generated.by` / 默认 `verified.by` 统一走 `actor_id()`，避免版本号散落。

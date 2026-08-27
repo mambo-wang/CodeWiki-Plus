@@ -122,6 +122,7 @@ def test_parse_unified_diff_deleted_file() -> None:
 # Unit tests: changed-component location (line span matching)
 # ------------------------------------------------------------------
 
+
 class _FakeMeta:
     def __init__(self, rel: str, start: int, end: int):
         self.relative_path = rel
@@ -172,6 +173,7 @@ def test_locate_changed_components_untracked() -> None:
 # Unit tests: test suggestion heuristics
 # ------------------------------------------------------------------
 
+
 def test_test_candidates_for() -> None:
     cands = _test_candidates_for("src/auth/login.py")
     assert "src/auth/test_login.py" in cands
@@ -184,7 +186,9 @@ def test_test_candidates_for() -> None:
 def test_suggest_tests_filesystem(tmp_path) -> None:
     (tmp_path / "service").mkdir()
     (tmp_path / "service" / "order.py").write_text("def order(): pass\n", encoding="utf-8")
-    (tmp_path / "service" / "test_order.py").write_text("def test_order(): pass\n", encoding="utf-8")
+    (tmp_path / "service" / "test_order.py").write_text(
+        "def test_order(): pass\n", encoding="utf-8"
+    )
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_order.py").write_text("def test_order(): pass\n", encoding="utf-8")
 
@@ -250,7 +254,11 @@ def analyzed_repo(tmp_path):
     store = SessionStore()
     resp = json.loads(
         handle_analyze_repo(
-            {"repo_path": str(tmp_path), "output_dir": str(tmp_path / "repowiki"), "incremental": False},
+            {
+                "repo_path": str(tmp_path),
+                "output_dir": str(tmp_path / "repowiki"),
+                "incremental": False,
+            },
             store,
         )
     )

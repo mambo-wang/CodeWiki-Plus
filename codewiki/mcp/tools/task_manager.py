@@ -456,9 +456,9 @@ def _compaction_needed(total_entries: int, mem_bytes: int) -> bool:
 
 
 # Layered loading (multi-user split design §4.3): warm layer shape constants.
-_WARM_RECENT_ENTRIES = 2      # per other author: recent entries injected (Q11)
-_WARM_ENTRY_BUDGET = 2048     # per other author: chars before degrading (Q12)
-_HINT_LINE_MAX = 60           # degraded hint: first-content-line truncation
+_WARM_RECENT_ENTRIES = 2  # per other author: recent entries injected (Q11)
+_WARM_ENTRY_BUDGET = 2048  # per other author: chars before degrading (Q12)
+_HINT_LINE_MAX = 60  # degraded hint: first-content-line truncation
 _WARM_SECTION_HEADING = "## 其他成员记忆"
 
 
@@ -488,15 +488,13 @@ def _parse_memory_file(path: Path) -> Optional[Tuple[str, str, List[str], int]]:
     return (text, summary, entries, path.stat().st_size)
 
 
-def _render_warm_author(
-    owner: str, summary: str, entries: List[str], include_entries: bool
-) -> str:
+def _render_warm_author(owner: str, summary: str, entries: List[str], include_entries: bool) -> str:
     """Render one other author's warm block: summary + recent entries / hints."""
     parts = [f"### @{owner}"]
     if summary:
         # Drop the canonical "## 早期记忆（摘要）" heading line; the @owner
         # heading above already frames the section.
-        body = summary[len(_SUMMARY_HEADING):].strip()
+        body = summary[len(_SUMMARY_HEADING) :].strip()
         if body:
             parts.append(body)
     if include_entries and entries:
@@ -907,9 +905,7 @@ def handle_add_task_memory(arguments: Dict[str, Any], store: SessionStore) -> st
     if _find_by_id(tasks, task_id) is None:
         return json.dumps({"error": f"Task '{task_id}' does not exist."})
 
-    _append_memory_atomic(
-        _memories_path_for(output_dir, task_id, _current_user_id()), content
-    )
+    _append_memory_atomic(_memories_path_for(output_dir, task_id, _current_user_id()), content)
 
     return json.dumps(
         {
@@ -1213,9 +1209,7 @@ def handle_compact_task_memories(arguments: Dict[str, Any], store: SessionStore)
     # not cover it. Tolerated: append-only writes are rare mid-compaction and
     # the entry is preserved verbatim in the archive either way.
     date = datetime.now().strftime("%Y-%m-%d")
-    archive_relpaths = ", ".join(
-        f"{_ARCHIVE_DIRNAME}/{owner}.md" for owner in archive_owners
-    )
+    archive_relpaths = ", ".join(f"{_ARCHIVE_DIRNAME}/{owner}.md" for owner in archive_owners)
     pointer = f"> 原文归档于 {archive_relpaths}，截至 {date}，共 {len(compress)} 条。"
     new_text = (
         f"{_SUMMARY_HEADING}\n\n{new_summary}\n\n{pointer}\n\n"
@@ -1241,7 +1235,9 @@ def handle_compact_task_memories(arguments: Dict[str, Any], store: SessionStore)
         existing_archive = ""
         if archive_path.exists():
             existing_archive = archive_path.read_text(encoding="utf-8").rstrip("\n")
-        new_archive = (existing_archive + "\n\n" if existing_archive else "") + "\n\n".join(parts) + "\n"
+        new_archive = (
+            (existing_archive + "\n\n" if existing_archive else "") + "\n\n".join(parts) + "\n"
+        )
         archive_tmp = archive_path.with_suffix(".tmp")
         archive_tmp.write_text(new_archive, encoding="utf-8")
         _atomic_replace_with_retry(archive_tmp, archive_path)

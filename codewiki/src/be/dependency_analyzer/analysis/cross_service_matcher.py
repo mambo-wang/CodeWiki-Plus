@@ -6,11 +6,12 @@ Borrowed from CBM's ``pass_cross_repo.c`` four-phase matching strategy:
   Phase 3: Channel EMITS/LISTENS_ON matching
   Phase 4: gRPC / GraphQL / tRPC matching
 """
+
 from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 from codewiki.src.be.dependency_analyzer.models.cross_service import (
     CrossServiceLink,
@@ -86,10 +87,7 @@ class CrossServiceMatcher:
         for link in links:
             matched_keys.add(link.route_key)
 
-        unmatched = [
-            r for r in all_routes
-            if r.route_key not in matched_keys
-        ]
+        unmatched = [r for r in all_routes if r.route_key not in matched_keys]
 
         return WorkspaceTopology(
             repos=sorted(self._repo_routes.keys()),
@@ -131,19 +129,25 @@ class CrossServiceMatcher:
                     for srv_repo, srv_route in servers:
                         if srv_repo == repo_name:
                             continue  # skip intra-repo
-                        links.append(CrossServiceLink(
-                            route_key=route.route_key,
-                            protocol=RouteProtocol.HTTP,
-                            method=route.method,
-                            path=route.path,
-                            client_repo=repo_name,
-                            client_component_id=route.component_id,
-                            client_function=route.component_id.split("::")[-1] if "::" in route.component_id else "",
-                            server_repo=srv_repo,
-                            server_component_id=srv_route.component_id,
-                            server_function=srv_route.component_id.split("::")[-1] if "::" in srv_route.component_id else "",
-                            confidence=1.0,
-                        ))
+                        links.append(
+                            CrossServiceLink(
+                                route_key=route.route_key,
+                                protocol=RouteProtocol.HTTP,
+                                method=route.method,
+                                path=route.path,
+                                client_repo=repo_name,
+                                client_component_id=route.component_id,
+                                client_function=route.component_id.split("::")[-1]
+                                if "::" in route.component_id
+                                else "",
+                                server_repo=srv_repo,
+                                server_component_id=srv_route.component_id,
+                                server_function=srv_route.component_id.split("::")[-1]
+                                if "::" in srv_route.component_id
+                                else "",
+                                confidence=1.0,
+                            )
+                        )
                     continue
 
                 # Fuzzy template match: try matching concrete path against server templates
@@ -185,19 +189,25 @@ class CrossServiceMatcher:
                 continue
             # Try matching client path (concrete) against server path (template)
             if path_matches_template(client_route.path, srv_route.path):
-                links.append(CrossServiceLink(
-                    route_key=srv_key,
-                    protocol=RouteProtocol.HTTP,
-                    method=method,
-                    path=srv_route.path,
-                    client_repo=client_repo,
-                    client_component_id=client_route.component_id,
-                    client_function=client_route.component_id.split("::")[-1] if "::" in client_route.component_id else "",
-                    server_repo=srv_repo,
-                    server_component_id=srv_route.component_id,
-                    server_function=srv_route.component_id.split("::")[-1] if "::" in srv_route.component_id else "",
-                    confidence=0.8,
-                ))
+                links.append(
+                    CrossServiceLink(
+                        route_key=srv_key,
+                        protocol=RouteProtocol.HTTP,
+                        method=method,
+                        path=srv_route.path,
+                        client_repo=client_repo,
+                        client_component_id=client_route.component_id,
+                        client_function=client_route.component_id.split("::")[-1]
+                        if "::" in client_route.component_id
+                        else "",
+                        server_repo=srv_repo,
+                        server_component_id=srv_route.component_id,
+                        server_function=srv_route.component_id.split("::")[-1]
+                        if "::" in srv_route.component_id
+                        else "",
+                        confidence=0.8,
+                    )
+                )
         return links
 
     # ---- Phase 2: MQ ----
@@ -224,18 +234,24 @@ class CrossServiceMatcher:
                 for cons_repo, cons_route in consumers:
                     if cons_repo == repo_name:
                         continue
-                    links.append(CrossServiceLink(
-                        route_key=route.route_key,
-                        protocol=RouteProtocol.MQ,
-                        method=None,
-                        path=route.path,
-                        client_repo=repo_name,
-                        client_component_id=route.component_id,
-                        client_function=route.component_id.split("::")[-1] if "::" in route.component_id else "",
-                        server_repo=cons_repo,
-                        server_component_id=cons_route.component_id,
-                        server_function=cons_route.component_id.split("::")[-1] if "::" in cons_route.component_id else "",
-                        confidence=1.0,
-                    ))
+                    links.append(
+                        CrossServiceLink(
+                            route_key=route.route_key,
+                            protocol=RouteProtocol.MQ,
+                            method=None,
+                            path=route.path,
+                            client_repo=repo_name,
+                            client_component_id=route.component_id,
+                            client_function=route.component_id.split("::")[-1]
+                            if "::" in route.component_id
+                            else "",
+                            server_repo=cons_repo,
+                            server_component_id=cons_route.component_id,
+                            server_function=cons_route.component_id.split("::")[-1]
+                            if "::" in cons_route.component_id
+                            else "",
+                            confidence=1.0,
+                        )
+                    )
 
         return links

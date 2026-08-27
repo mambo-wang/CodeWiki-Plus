@@ -87,6 +87,7 @@ TOOLS = [
 # Private helpers
 # ------------------------------------------------------------------
 
+
 def _resolve_path(raw: str) -> str:
     """Resolve a path: if relative, join with cwd; always return absolute."""
     p = raw.strip()
@@ -113,9 +114,11 @@ def _write_metadata_json(output_dir: str, repo_path: str, commit_id: str | None)
         # Baseline on the commit analyze_repo saw, NOT the current HEAD
         if not commit_id:
             from codewiki.cli.utils.repo_validator import get_git_commit_hash
+
             commit_id = get_git_commit_hash(repo_path) or None
 
         from datetime import datetime
+
         metadata = {
             "generation_info": {
                 "commit_id": commit_id,
@@ -123,6 +126,7 @@ def _write_metadata_json(output_dir: str, repo_path: str, commit_id: str | None)
             },
         }
         from codewiki.src.config import meta_join
+
         meta_dir = Path(meta_join(output_dir, ""))
         meta_dir.mkdir(parents=True, exist_ok=True)
         Path(meta_join(output_dir, "metadata.json")).write_text(
@@ -136,6 +140,7 @@ def _write_metadata_json(output_dir: str, repo_path: str, commit_id: str | None)
 # ------------------------------------------------------------------
 # Handler
 # ------------------------------------------------------------------
+
 
 def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     """Close and clean up an analysis session, returning a JSON status string."""
@@ -155,10 +160,12 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     # resurrect a session from the SQLite cache and hide the repeated call.
     already_closed = store.find_active(rp) is None
     if already_closed and not force:
-        return json.dumps({
-            "status": "already_closed",
-            "hint": "Session was already closed. Use force=true to rebuild metadata.",
-        })
+        return json.dumps(
+            {
+                "status": "already_closed",
+                "hint": "Session was already closed. Use force=true to rebuild metadata.",
+            }
+        )
 
     # Try to find active session for caching (optional); when force=true on an
     # already-closed session this restores it from cache so the rebuild can run.
@@ -176,6 +183,7 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     # Determine if docs were written
     docs_generated = False
     from codewiki.src.config import meta_join
+
     if os.path.exists(meta_join(output_dir, "metadata.json")):
         docs_generated = True
     elif session is not None and session.docs_written > 0:
@@ -189,6 +197,7 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     # Rebuild wiki index.md, log.md
     try:
         from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
+
         append_log(output_dir, "close_session", "会话关闭")
         rebuild_index(output_dir)
     except Exception:
@@ -197,6 +206,7 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     # Build final BM25 search index
     try:
         from codewiki.mcp.tools.wiki_search import build_full_index
+
         build_full_index(output_dir, session=session)
     except Exception:
         pass
@@ -205,6 +215,7 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     if docs_generated and session is not None and session.components:
         try:
             from codewiki.mcp.tools.reading_guide import generate_reading_guide
+
             generate_reading_guide(
                 session.components,
                 session.module_tree or None,
@@ -217,6 +228,7 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
         try:
             import yaml
             from codewiki.src.config import SCHEMA_FILENAME
+
             schema_path = Path(output_dir) / SCHEMA_FILENAME
             html_enabled = False
             if schema_path.exists():
@@ -224,6 +236,7 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
                 html_enabled = schema.get("export", {}).get("html", False)
             if html_enabled:
                 from codewiki.mcp.tools.html_export import generate_html_export
+
                 generate_html_export(output_dir)
         except Exception:
             logger.debug("Failed to generate HTML export", exc_info=True)
@@ -234,6 +247,7 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     if docs_generated and update_agents_md:
         try:
             from codewiki.mcp.tools.agents_md import write_agents_md
+
             agents_md_path = Path(rp) / "AGENTS.md"
             # Read before
             before_lines = 0
@@ -255,6 +269,7 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
 
     # Clean up workspace files
     from codewiki.mcp.workspace import SessionWorkspace
+
     ws = SessionWorkspace(Path(rp), "cleanup")
     ws.cleanup()
 
@@ -288,6 +303,7 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
 def _scan_draft_docs(output_dir: str) -> list[str]:
     """Return relative paths of wiki pages + notes whose status is draft."""
     from codewiki.src.config import WIKI_DIR, NOTES_DIR, WIKI_SYSTEM_FILES
+
     draft: list[str] = []
     base = Path(output_dir)
     for sub, exclude_system in ((WIKI_DIR, True), (NOTES_DIR, False)):
@@ -305,6 +321,7 @@ def _scan_draft_docs(output_dir: str) -> list[str]:
                 if end < 0:
                     continue
                 import yaml
+
                 data = yaml.safe_load(text[3:end])
                 if isinstance(data, dict):
                     st = str(data.get("status", "draft") or "draft").strip().lower()

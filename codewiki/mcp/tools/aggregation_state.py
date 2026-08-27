@@ -60,11 +60,13 @@ def load_state(output_dir: Path) -> Dict[str, Any]:
         if isinstance(data, dict):
             for k, v in data.items():
                 if k == "last_hinted_counter" and isinstance(v, dict):
-                    state["last_hinted_counter"].update({
-                        kk: int(vv) for kk, vv in v.items()
-                        if kk in ("consolidation", "doctrine")
-                        and isinstance(vv, (int, float))
-                    })
+                    state["last_hinted_counter"].update(
+                        {
+                            kk: int(vv)
+                            for kk, vv in v.items()
+                            if kk in ("consolidation", "doctrine") and isinstance(vv, (int, float))
+                        }
+                    )
                 elif k in state:
                     state[k] = v
     except (OSError, json.JSONDecodeError, ValueError):
@@ -99,6 +101,7 @@ def read_config(output_dir: Path) -> Dict[str, int]:
     }
     try:
         from codewiki.mcp.tools.page_router import load_schema
+
         schema = load_schema(str(output_dir)) or {}
         agg = (schema.get("conventions") or {}).get("aggregation") or {}
         for key in cfg:
@@ -120,9 +123,7 @@ def record_confirmations(output_dir: Path, count: int = 1) -> Dict[str, Any]:
     state["notes_since_last_consolidation"] = (
         int(state.get("notes_since_last_consolidation") or 0) + count
     )
-    state["notes_since_last_doctrine"] = (
-        int(state.get("notes_since_last_doctrine") or 0) + count
-    )
+    state["notes_since_last_doctrine"] = int(state.get("notes_since_last_doctrine") or 0) + count
     save_state(output_dir, state)
     return state
 

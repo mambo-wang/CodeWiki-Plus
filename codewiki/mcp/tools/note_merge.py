@@ -38,7 +38,7 @@ def _split_fm(text: str) -> Tuple[Dict[str, str], str]:
             continue
         k, _, v = line.partition(":")
         fm[k.strip()] = v.strip().strip("'\"")
-    return fm, text[m.end():]
+    return fm, text[m.end() :]
 
 
 def _note_age_key(fm: Dict[str, str]) -> str:
@@ -67,7 +67,11 @@ def _list_field(fm_text: str, key: str) -> List[str]:
         return out
     bl = re.search(rf"^{key}:\s*\n((?:\s+-\s+.*\n?)+)", block, re.MULTILINE)
     if bl:
-        out = [v.strip().lstrip("-").strip().strip("'\"") for v in bl.group(1).splitlines() if v.strip()]
+        out = [
+            v.strip().lstrip("-").strip().strip("'\"")
+            for v in bl.group(1).splitlines()
+            if v.strip()
+        ]
     return out
 
 
@@ -105,6 +109,7 @@ def merge_notes(
     note_type = (newest[2].get("type") or newest[2].get("note_type") or "general").lower()
 
     from codewiki.mcp.tools.note_types import merge_fields_for
+
     strategies = merge_fields_for(note_type, schema)
 
     title = (new_title or newest[2].get("title") or newest[0].rsplit("/", 1)[-1]).strip("'\"")
@@ -125,7 +130,9 @@ def merge_notes(
         tags_all.append(note_type)
 
     related = related_new if strategies.get("related_modules") == "replace" else related_all
-    tags = tags_all if strategies.get("tags", "union") == "union" else _list_field(newest[1], "tags")
+    tags = (
+        tags_all if strategies.get("tags", "union") == "union" else _list_field(newest[1], "tags")
+    )
 
     # body: append 策略——按树龄升序，每段带来源标记；replace 则只留最新正文。
     body_parts: List[str] = []
@@ -160,6 +167,7 @@ def merge_notes(
     }
     if write:
         from codewiki.src.config import NOTES_DIR
+
         notes_dir = od / NOTES_DIR
         notes_dir.mkdir(parents=True, exist_ok=True)
         out_path = notes_dir / f"{_slugify(title)}.md"

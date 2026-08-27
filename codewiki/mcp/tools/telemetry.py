@@ -56,6 +56,7 @@ _AGG_CACHE: Dict[str, Tuple[tuple, Dict[str, dict]]] = {}
 def _meta_dir(output_dir) -> Path:
     try:
         from codewiki.src.config import META_DIR
+
         return Path(output_dir) / META_DIR
     except Exception:
         return Path(output_dir) / ".meta"
@@ -76,12 +77,14 @@ def telemetry_enabled(output_dir) -> bool:
     """
     try:
         from codewiki.src.config import SCHEMA_FILENAME
+
         name = SCHEMA_FILENAME
     except Exception:
         name = "schema.yaml"
     p = Path(output_dir) / name
     try:
         import yaml
+
         with open(p, "r", encoding="utf-8") as fh:
             data = yaml.safe_load(fh) or {}
         block = (data.get("conventions") or {}).get("telemetry") or {}
@@ -103,6 +106,7 @@ def _user_events_path(output_dir, create: bool = False) -> Path:
         d.mkdir(parents=True, exist_ok=True)
     try:
         from codewiki.src.config import user_id
+
         uid = user_id()
     except Exception:
         uid = "local"
@@ -127,7 +131,11 @@ def _atomic_write_lines(path: Path, lines: List[str]) -> None:
 def _read_lines(path: Path) -> List[str]:
     """Non-empty lines of a jsonl file; missing file → [] (never raises)."""
     try:
-        return [line for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+        return [
+            line
+            for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
+            if line.strip()
+        ]
     except OSError:
         return []
 
@@ -135,6 +143,7 @@ def _read_lines(path: Path) -> List[str]:
 # --------------------------------------------------------------------------- #
 # Write path
 # --------------------------------------------------------------------------- #
+
 
 def record_hit(output_dir, doc_path: str, count: int = 1) -> None:
     """Append (or same-day-merge) a ``hit`` event for *doc_path*.
@@ -159,19 +168,23 @@ def record_hit(output_dir, doc_path: str, count: int = 1) -> None:
             ev = json.loads(lines[i])
         except (json.JSONDecodeError, ValueError, TypeError):
             continue  # corrupt line → skip it, keep scanning
-        if (isinstance(ev, dict)
-                and ev.get("t") == "hit"
-                and ev.get("doc") == doc_path
-                and str(ev.get("at", "")) == today):
+        if (
+            isinstance(ev, dict)
+            and ev.get("t") == "hit"
+            and ev.get("doc") == doc_path
+            and str(ev.get("at", "")) == today
+        ):
             ev["n"] = int(ev.get("n", 0) or 0) + int(count)
             lines[i] = json.dumps(ev, ensure_ascii=False)
             merged = True
             break
     if not merged:
-        lines.append(json.dumps(
-            {"t": "hit", "doc": doc_path, "at": today, "n": int(count)},
-            ensure_ascii=False,
-        ))
+        lines.append(
+            json.dumps(
+                {"t": "hit", "doc": doc_path, "at": today, "n": int(count)},
+                ensure_ascii=False,
+            )
+        )
     _atomic_write_lines(path, lines)
 
 
@@ -204,10 +217,12 @@ def adopted_docs_for_key(output_dir, capture_key: str) -> Set[str]:
             ev = json.loads(line)
         except (json.JSONDecodeError, ValueError):
             continue
-        if (isinstance(ev, dict)
-                and ev.get("t") == "adopted"
-                and ev.get("key") == capture_key
-                and isinstance(ev.get("doc"), str)):
+        if (
+            isinstance(ev, dict)
+            and ev.get("t") == "adopted"
+            and ev.get("key") == capture_key
+            and isinstance(ev.get("doc"), str)
+        ):
             found.add(ev["doc"])
     return found
 
@@ -215,6 +230,7 @@ def adopted_docs_for_key(output_dir, capture_key: str) -> Set[str]:
 # --------------------------------------------------------------------------- #
 # Aggregation (pure in-memory fold + mtime snapshot cache)
 # --------------------------------------------------------------------------- #
+
 
 def _dir_snapshot(dirs: List[Path]) -> tuple:
     """(dir-name, file-name, mtime_ns) for every *.jsonl in every dir."""
@@ -274,10 +290,16 @@ def aggregate_usage(output_dir) -> Dict[str, dict]:
                 doc = ev.get("doc")
                 if not isinstance(doc, str) or not doc:
                     continue
-                entry = usage.setdefault(doc, {
-                    "hits": 0, "last_hit": None, "first_hit": None,
-                    "adopted_keys": set(), "hit_days": set(),
-                })
+                entry = usage.setdefault(
+                    doc,
+                    {
+                        "hits": 0,
+                        "last_hit": None,
+                        "first_hit": None,
+                        "adopted_keys": set(),
+                        "hit_days": set(),
+                    },
+                )
                 t = ev.get("t")
                 if t == "hit":
                     try:

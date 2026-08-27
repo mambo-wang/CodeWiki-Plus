@@ -2,6 +2,7 @@
 
 Uses regex-based heuristics on raw source text.
 """
+
 from __future__ import annotations
 
 import logging
@@ -10,10 +11,13 @@ import re
 from typing import List, Optional
 
 from codewiki.src.be.dependency_analyzer.models.cross_service import (
-    RouteNode, RouteProtocol, RouteRole,
+    RouteNode,
+    RouteProtocol,
+    RouteRole,
 )
 from codewiki.src.be.dependency_analyzer.utils.path_canonicalizer import (
-    canonicalize_path, make_route_key,
+    canonicalize_path,
+    make_route_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,7 +62,7 @@ def _strip_url_to_path(url: str) -> str:
         return url
     for scheme in ("https://", "http://"):
         if url.startswith(scheme):
-            rest = url[len(scheme):]
+            rest = url[len(scheme) :]
             slash = rest.find("/")
             return rest[slash:] if slash != -1 else "/"
     return "/" + url if not url.startswith("/") else url
@@ -92,22 +96,24 @@ class _GoRouteParser:
             )
             for m in pattern.finditer(self.content):
                 path = m.group(2)
-                lineno = self.content[:m.start()].count("\n") + 1
+                lineno = self.content[: m.start()].count("\n") + 1
                 func_name = self._find_enclosing_function(m.start())
 
                 http_method = method if method != "ANY" else "GET"
-                self.routes.append(RouteNode(
-                    route_key=make_route_key(http_method, path),
-                    protocol=RouteProtocol.HTTP,
-                    method=http_method,
-                    path=canonicalize_path(path),
-                    role=RouteRole.SERVER,
-                    component_id=self._make_component_id(func_name or path),
-                    repo_name=self.repo_name,
-                    file_path=self.file_path,
-                    line_number=lineno,
-                    framework="gin",
-                ))
+                self.routes.append(
+                    RouteNode(
+                        route_key=make_route_key(http_method, path),
+                        protocol=RouteProtocol.HTTP,
+                        method=http_method,
+                        path=canonicalize_path(path),
+                        role=RouteRole.SERVER,
+                        component_id=self._make_component_id(func_name or path),
+                        repo_name=self.repo_name,
+                        file_path=self.file_path,
+                        line_number=lineno,
+                        framework="gin",
+                    )
+                )
 
     # ---- Chi / Echo / mux ----
 
@@ -126,41 +132,45 @@ class _GoRouteParser:
             else:
                 method = method_raw.upper()
 
-            lineno = self.content[:m.start()].count("\n") + 1
+            lineno = self.content[: m.start()].count("\n") + 1
             func_name = self._find_enclosing_function(m.start())
 
-            self.routes.append(RouteNode(
-                route_key=make_route_key(method, path),
-                protocol=RouteProtocol.HTTP,
-                method=method,
-                path=canonicalize_path(path),
-                role=RouteRole.SERVER,
-                component_id=self._make_component_id(func_name or path),
-                repo_name=self.repo_name,
-                file_path=self.file_path,
-                line_number=lineno,
-                framework="mux",
-            ))
+            self.routes.append(
+                RouteNode(
+                    route_key=make_route_key(method, path),
+                    protocol=RouteProtocol.HTTP,
+                    method=method,
+                    path=canonicalize_path(path),
+                    role=RouteRole.SERVER,
+                    component_id=self._make_component_id(func_name or path),
+                    repo_name=self.repo_name,
+                    file_path=self.file_path,
+                    line_number=lineno,
+                    framework="mux",
+                )
+            )
 
     # ---- net/http server ----
 
     def _extract_http_server_routes(self):
         for m in _HTTP_SERVER_PATTERN.finditer(self.content):
             path = m.group(1)
-            lineno = self.content[:m.start()].count("\n") + 1
+            lineno = self.content[: m.start()].count("\n") + 1
             func_name = self._find_enclosing_function(m.start())
-            self.routes.append(RouteNode(
-                route_key=make_route_key("GET", path),
-                protocol=RouteProtocol.HTTP,
-                method="GET",
-                path=canonicalize_path(path),
-                role=RouteRole.SERVER,
-                component_id=self._make_component_id(func_name or path),
-                repo_name=self.repo_name,
-                file_path=self.file_path,
-                line_number=lineno,
-                framework="net/http",
-            ))
+            self.routes.append(
+                RouteNode(
+                    route_key=make_route_key("GET", path),
+                    protocol=RouteProtocol.HTTP,
+                    method="GET",
+                    path=canonicalize_path(path),
+                    role=RouteRole.SERVER,
+                    component_id=self._make_component_id(func_name or path),
+                    repo_name=self.repo_name,
+                    file_path=self.file_path,
+                    line_number=lineno,
+                    framework="net/http",
+                )
+            )
 
     # ---- Client-side HTTP calls ----
 
@@ -171,25 +181,32 @@ class _GoRouteParser:
             url = m.group(2)
             path = _strip_url_to_path(url)
 
-            method_map = {"Get": "GET", "Post": "POST", "PostForm": "POST",
-                         "Head": "HEAD", "Do": "GET"}
+            method_map = {
+                "Get": "GET",
+                "Post": "POST",
+                "PostForm": "POST",
+                "Head": "HEAD",
+                "Do": "GET",
+            }
             method = method_map.get(go_method, "GET")
 
-            lineno = self.content[:m.start()].count("\n") + 1
+            lineno = self.content[: m.start()].count("\n") + 1
             func_name = self._find_enclosing_function(m.start())
 
-            self.routes.append(RouteNode(
-                route_key=make_route_key(method, path),
-                protocol=RouteProtocol.HTTP,
-                method=method,
-                path=canonicalize_path(path),
-                role=RouteRole.CLIENT,
-                component_id=self._make_component_id(func_name or "unknown"),
-                repo_name=self.repo_name,
-                file_path=self.file_path,
-                line_number=lineno,
-                framework="net/http",
-            ))
+            self.routes.append(
+                RouteNode(
+                    route_key=make_route_key(method, path),
+                    protocol=RouteProtocol.HTTP,
+                    method=method,
+                    path=canonicalize_path(path),
+                    role=RouteRole.CLIENT,
+                    component_id=self._make_component_id(func_name or "unknown"),
+                    repo_name=self.repo_name,
+                    file_path=self.file_path,
+                    line_number=lineno,
+                    framework="net/http",
+                )
+            )
 
         # http.NewRequest("METHOD", "url", ...)
         for m in _NEW_REQUEST_PATTERN.finditer(self.content):
@@ -197,27 +214,29 @@ class _GoRouteParser:
             url = m.group(2)
             path = _strip_url_to_path(url)
 
-            lineno = self.content[:m.start()].count("\n") + 1
+            lineno = self.content[: m.start()].count("\n") + 1
             func_name = self._find_enclosing_function(m.start())
 
-            self.routes.append(RouteNode(
-                route_key=make_route_key(method, path),
-                protocol=RouteProtocol.HTTP,
-                method=method,
-                path=canonicalize_path(path),
-                role=RouteRole.CLIENT,
-                component_id=self._make_component_id(func_name or "unknown"),
-                repo_name=self.repo_name,
-                file_path=self.file_path,
-                line_number=lineno,
-                framework="net/http",
-            ))
+            self.routes.append(
+                RouteNode(
+                    route_key=make_route_key(method, path),
+                    protocol=RouteProtocol.HTTP,
+                    method=method,
+                    path=canonicalize_path(path),
+                    role=RouteRole.CLIENT,
+                    component_id=self._make_component_id(func_name or "unknown"),
+                    repo_name=self.repo_name,
+                    file_path=self.file_path,
+                    line_number=lineno,
+                    framework="net/http",
+                )
+            )
 
     # ---- helpers ----
 
     def _find_enclosing_function(self, pos: int) -> Optional[str]:
         before = self.content[:pos]
-        matches = list(re.finditer(r'func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)\s*\(', before))
+        matches = list(re.finditer(r"func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)\s*\(", before))
         return matches[-1].group(1) if matches else None
 
 

@@ -9,6 +9,7 @@ Covers docs/知识飞轮增强设计方案-P0三项.md acceptance criteria:
   - wiki_stats cold_candidates: once-hot-now-cold docs surfaced as a
     retrieval health signal (mirrors usage_ranking cold definition)
 """
+
 from __future__ import annotations
 
 import json
@@ -55,6 +56,7 @@ def _stats_rows(od: Path) -> list:
     retrieval_stats read — check-mode must record NOTHING, so any hit event
     present means stats leaked)."""
     from codewiki.mcp.tools import telemetry
+
     return [
         (doc, e["hits"])
         for doc, e in (telemetry.aggregate_usage(od) or {}).items()
@@ -65,6 +67,7 @@ def _stats_rows(od: Path) -> list:
 def _seed_stats(od: Path, rows: list) -> None:
     """Seed telemetry hit events {rel_path: (hits, last_hit)} (T2 migration)."""
     from tests.telemetry_seed import seed_hits
+
     seed_hits(od, {fp: (hits, last_hit) for fp, hits, last_hit in rows})
 
 
@@ -150,11 +153,14 @@ class TestColdCandidates:
         od = _mk_wiki(tmp_path)
         old = (datetime.now() - timedelta(days=200)).strftime("%Y-%m-%d")
         recent = datetime.now().strftime("%Y-%m-%d")
-        _seed_stats(od, [
-            ("wiki/modules/auth.md", 10, old),       # hot then cold -> listed
-            ("notes/pitfall-port-conflict.md", 8, recent),  # hot, still warm
-            ("wiki/modules/other.md", 1, old),       # never hot -> skipped
-        ])
+        _seed_stats(
+            od,
+            [
+                ("wiki/modules/auth.md", 10, old),  # hot then cold -> listed
+                ("notes/pitfall-port-conflict.md", 8, recent),  # hot, still warm
+                ("wiki/modules/other.md", 1, old),  # never hot -> skipped
+            ],
+        )
         cold = _cold_candidates(od)
         assert cold is not None
         assert [c["file_path"] for c in cold] == ["wiki/modules/auth.md"]
@@ -165,18 +171,18 @@ class TestColdCandidates:
         od = _mk_wiki(tmp_path)
         old = (datetime.now() - timedelta(days=220)).strftime("%Y-%m-%d")
         _seed_stats(od, [("wiki/modules/auth.md", 5, old)])
-        out = json.loads(
-            handle_wiki_stats({"output_dir": str(od)}, SessionStore())
-        )
+        out = json.loads(handle_wiki_stats({"output_dir": str(od)}, SessionStore()))
         assert "cold_candidates" in out
         assert out["cold_candidates"][0]["file_path"] == "wiki/modules/auth.md"
 
     def test_schema_overrides_thresholds(self, tmp_path):
         import yaml
+
         od = _mk_wiki(tmp_path)
         (od / "schema.yaml").write_text(
-            yaml.safe_dump({"conventions": {"usage_ranking": {
-                "cold_days": 30, "cold_min_hits": 2}}}),
+            yaml.safe_dump(
+                {"conventions": {"usage_ranking": {"cold_days": 30, "cold_min_hits": 2}}}
+            ),
             encoding="utf-8",
         )
         sixty = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
@@ -212,10 +218,7 @@ class TestQueryCoverage:
     def test_matched_tokens_per_result(self, tmp_path):
         od = _mk_wiki(tmp_path)
         out = _query(od, query="端口 冲突")
-        entry = next(
-            r for r in out["results"]
-            if r["file"].endswith("pitfall-port-conflict.md")
-        )
+        entry = next(r for r in out["results"] if r["file"].endswith("pitfall-port-conflict.md"))
         assert "端口" in entry.get("matched_tokens", [])
         assert "冲突" in entry.get("matched_tokens", [])
 

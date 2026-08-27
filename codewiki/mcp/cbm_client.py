@@ -21,6 +21,7 @@ Configuration:
     Environment variable CODEBASE_MEMORY_MCP_PATH overrides binary discovery.
     Set CODEWIKI_CBM_DISABLED=1 to force-disable CBM delegation.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -116,11 +117,15 @@ class _SyncCbmProcess:
 
     def initialize(self, timeout: float = 10.0) -> Optional[Dict[str, Any]]:
         """Perform MCP initialize handshake + initialized notification."""
-        result = self.request("initialize", {
-            "protocolVersion": _PROTOCOL_VERSION,
-            "capabilities": {},
-            "clientInfo": {"name": "codewiki", "version": "5.1.0"},
-        }, timeout=timeout)
+        result = self.request(
+            "initialize",
+            {
+                "protocolVersion": _PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {"name": "codewiki", "version": "5.1.0"},
+            },
+            timeout=timeout,
+        )
 
         if result is not None:
             # Send initialized notification (no response expected)
@@ -186,7 +191,9 @@ class _SyncCbmProcess:
                         err = msg["error"]
                         logger.warning(
                             "CBM error on %s: [%s] %s",
-                            method, err.get("code"), err.get("message"),
+                            method,
+                            err.get("code"),
+                            err.get("message"),
                         )
                         return None
                     return msg.get("result")

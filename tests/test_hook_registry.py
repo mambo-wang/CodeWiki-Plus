@@ -9,6 +9,7 @@ Covers docs/Hook多智能体支持设计方案.md §5 acceptance criteria:
   - CLI query: delimited block output, coverage/usage/matched fields present,
     --check mode lightweight, projection reuses the MCP handler
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -105,16 +106,15 @@ def _mk_wiki(tmp_path) -> Path:
     od = tmp_path / "repowiki"
     (od / "notes").mkdir(parents=True)
     (od / "notes" / "pitfall-port.md").write_text(
-        "---\ntype: pitfall\ntitle: 端口冲突排查\nstatus: stable\n---\n\n"
-        "端口冲突用 lsof 排查。\n",
+        "---\ntype: pitfall\ntitle: 端口冲突排查\nstatus: stable\n---\n\n端口冲突用 lsof 排查。\n",
         encoding="utf-8",
     )
     (od / "notes" / "unrelated.md").write_text(
-        "---\ntype: lesson\ntitle: 无关笔记\nstatus: stable\n---\n\n"
-        "数据库索引优化。\n",
+        "---\ntype: lesson\ntitle: 无关笔记\nstatus: stable\n---\n\n数据库索引优化。\n",
         encoding="utf-8",
     )
     from codewiki.mcp.tools.wiki_search import build_full_index
+
     build_full_index(od, session=None)
     return od
 
@@ -122,6 +122,7 @@ def _mk_wiki(tmp_path) -> Path:
 class TestCliQuery:
     def test_delimited_block_output(self, tmp_path):
         from codewiki.cli.commands.query import query_command
+
         od = _mk_wiki(tmp_path)
         res = CliRunner().invoke(query_command, ["端口冲突", "--output-dir", str(od)])
         assert res.exit_code == 0, res.output
@@ -135,47 +136,50 @@ class TestCliQuery:
 
     def test_missing_terms_noted(self, tmp_path):
         from codewiki.cli.commands.query import query_command
+
         od = _mk_wiki(tmp_path)
-        res = CliRunner().invoke(
-            query_command, ["端口冲突 量子", "--output-dir", str(od)])
+        res = CliRunner().invoke(query_command, ["端口冲突 量子", "--output-dir", str(od)])
         assert res.exit_code == 0
         assert "missing_terms: 量子" in res.output
         assert "topically adjacent" in res.output
 
     def test_check_mode_lightweight(self, tmp_path):
         from codewiki.cli.commands.query import query_command
+
         od = _mk_wiki(tmp_path)
-        res = CliRunner().invoke(
-            query_command, ["端口冲突", "--check", "--output-dir", str(od)])
+        res = CliRunner().invoke(query_command, ["端口冲突", "--check", "--output-dir", str(od)])
         assert res.exit_code == 0
         assert "relevant: true" in res.output
         assert "top_score:" in res.output
         assert "snippet" not in res.output  # lightweight: no bodies
         # check must not record telemetry hits
         from codewiki.mcp.tools import telemetry
+
         agg = telemetry.aggregate_usage(od)
         assert not agg.get("notes/pitfall-port.md", {}).get("hits")
 
     def test_missing_output_dir_errors(self, tmp_path):
         from codewiki.cli.commands.query import query_command
-        res = CliRunner().invoke(
-            query_command, ["x", "--output-dir", str(tmp_path / "nope")])
+
+        res = CliRunner().invoke(query_command, ["x", "--output-dir", str(tmp_path / "nope")])
         assert res.exit_code == 2
 
     def test_full_search_records_telemetry(self, tmp_path):
         # the projection reuses the MCP handler → hit telemetry recorded
         from codewiki.cli.commands.query import query_command
+
         od = _mk_wiki(tmp_path)
         CliRunner().invoke(query_command, ["端口冲突", "--output-dir", str(od)])
         from codewiki.mcp.tools import telemetry
+
         agg = telemetry.aggregate_usage(od)
         assert agg.get("notes/pitfall-port.md", {}).get("hits", 0) >= 1
 
     def test_expand_flag(self, tmp_path):
         from codewiki.cli.commands.query import query_command
+
         od = _mk_wiki(tmp_path)
-        res = CliRunner().invoke(
-            query_command, ["端口冲突", "--output-dir", str(od), "--expand"])
+        res = CliRunner().invoke(query_command, ["端口冲突", "--output-dir", str(od), "--expand"])
         assert res.exit_code == 0
         assert "lsof" in res.output  # full page content included
 
@@ -187,16 +191,18 @@ class TestPromptRegistryDriven:
     def test_prompt_contains_tiers_and_detection(self, tmp_path):
         (tmp_path / ".codebuddy").mkdir()
         from codewiki.mcp.prompts import _prompt_team_memory_hook
+
         s = _prompt_team_memory_hook({"repo_path": str(tmp_path)})
         assert "hooks.yaml" in s
         assert "已验证支持" in s and "理论支持" in s
-        assert "`codebuddy`" in s          # detected in this fake repo
-        assert "cursor 家族采集降级" in s   # downgrade disclosed
+        assert "`codebuddy`" in s  # detected in this fake repo
+        assert "cursor 家族采集降级" in s  # downgrade disclosed
         assert "只为探测到的智能体接线" in s
 
     def test_prompt_equivalence_for_verified(self):
         # regression: existing wiring steps must survive the rewrite
         from codewiki.mcp.prompts import _prompt_team_memory_hook
+
         s = _prompt_team_memory_hook({"repo_path": "."})
         assert "install-hooks" in s
         assert "settings.json" in s
@@ -209,6 +215,7 @@ class TestPromptRegistryDriven:
         # IDE agent to wire Qoder/Claude Code in a repo that only had
         # .codebuddy — wording must say "已探测" (detected), never "已安装".
         from codewiki.mcp.prompts import _prompt_team_memory_hook
+
         s = _prompt_team_memory_hook({"repo_path": str(tmp_path), "action": "enable"})
         assert "覆盖全部已探测" in s
         assert "覆盖全部已安装" not in s
@@ -221,8 +228,7 @@ class TestPromptRegistryDriven:
         # three IDEs without any guardrail, letting agents wire (and create)
         # .qoder/.claude dirs in repos that never used those tools.
         from codewiki.mcp.prompts import _prompt_init_wiki
-        s = _prompt_init_wiki(
-            {"repo_path": ".", "enable_task_management": "true"}
-        )
+
+        s = _prompt_init_wiki({"repo_path": ".", "enable_task_management": "true"})
         assert "只为项目根目录已存在配置目录的智能体接线" in s
         assert "绝不主动新建" in s

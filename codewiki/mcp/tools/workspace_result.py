@@ -16,7 +16,6 @@ Usage in a handler::
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -51,7 +50,11 @@ def resolve_session(
         return store.get(session_id)
 
     if repo_path:
-        rp = str(Path(repo_path).expanduser().resolve()) if Path(repo_path).is_absolute() else str((Path.cwd() / repo_path).expanduser().resolve())
+        rp = (
+            str(Path(repo_path).expanduser().resolve())
+            if Path(repo_path).is_absolute()
+            else str((Path.cwd() / repo_path).expanduser().resolve())
+        )
         return store.find_or_restore(rp)
 
     return None

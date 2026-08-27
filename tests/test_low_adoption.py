@@ -12,6 +12,7 @@ Covers docs/知识飞轮增强设计方案-P1三项.md §3 acceptance criteria:
   - draft notes are out of scope
   - full dispatch (checks=['all']) surfaces low_adoption in the output
 """
+
 from __future__ import annotations
 
 import importlib
@@ -35,19 +36,15 @@ def _mk_wiki(tmp_path, low_adoption=None) -> Path:
     conv: dict = {}
     if low_adoption is not None:
         conv["usage_ranking"] = {"low_adoption": low_adoption}
-    (od / "schema.yaml").write_text(
-        yaml.safe_dump({"conventions": conv}), encoding="utf-8"
-    )
+    (od / "schema.yaml").write_text(yaml.safe_dump({"conventions": conv}), encoding="utf-8")
     return od
 
 
-def _write_note(od: Path, name: str, *, status="stable", title="T",
-                ntype="pitfall") -> Path:
+def _write_note(od: Path, name: str, *, status="stable", title="T", ntype="pitfall") -> Path:
     fm = {"type": ntype, "title": title, "status": status}
     p = od / "notes" / name
     p.write_text(
-        "---\n" + yaml.safe_dump(fm, allow_unicode=True, sort_keys=False)
-        + "---\n\nbody\n",
+        "---\n" + yaml.safe_dump(fm, allow_unicode=True, sort_keys=False) + "---\n\nbody\n",
         encoding="utf-8",
     )
     return p
@@ -58,32 +55,42 @@ def _append_events(od: Path, events: list) -> None:
     each other's writes — write_telemetry rewrites the whole file)."""
     from tests.telemetry_seed import write_telemetry
     from codewiki.mcp.tools import telemetry as _tel
+
     existing = []
     p = Path(od) / ".meta" / _tel.TELEMETRY_DIRNAME / "tester.jsonl"
     if p.exists():
         import json as _json
+
         existing = [
-            _json.loads(line) for line in p.read_text(encoding="utf-8").splitlines()
-            if line.strip()
+            _json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()
         ]
     write_telemetry(od, "tester", existing + events)
 
 
 def _touch(od: Path, rel_path: str, hit_count: int, last_hit: str) -> None:
     """Seed a hit event (T2: telemetry jsonl replaces the stats table)."""
-    _append_events(od, [
-        {"t": "hit", "doc": rel_path, "at": last_hit, "n": hit_count},
-    ])
+    _append_events(
+        od,
+        [
+            {"t": "hit", "doc": rel_path, "at": last_hit, "n": hit_count},
+        ],
+    )
 
 
 def _adopt(od: Path, doc_path: str, count: int = 1) -> None:
     """Record *count* adoption events (distinct capture keys; T2 jsonl)."""
-    _append_events(od, [
-        {"t": "adopted", "doc": doc_path,
-         "at": datetime.now().isoformat(timespec="seconds"),
-         "key": f"tester/sess-{i}"}
-        for i in range(count)
-    ])
+    _append_events(
+        od,
+        [
+            {
+                "t": "adopted",
+                "doc": doc_path,
+                "at": datetime.now().isoformat(timespec="seconds"),
+                "key": f"tester/sess-{i}",
+            }
+            for i in range(count)
+        ],
+    )
 
 
 def _adopted(issues) -> list:
@@ -163,6 +170,7 @@ def test_empty_adoption_table_skips(tmp_path):
     _touch(od, "notes/hot.md", hit_count=20, last_hit=RECENT)
     # an empty telemetry file exists (bundle-wide zero adoption)
     from tests.telemetry_seed import write_telemetry
+
     write_telemetry(od, "tester", [])
     assert _check_low_adoption(od) == []
 
@@ -219,8 +227,7 @@ def test_dispatch_all_surfaces_low_adoption(tmp_path):
     _adopt(od, "notes/other.md")
 
     store = SessionStore()
-    resp = json.loads(handle_lint_wiki(
-        {"output_dir": str(od), "checks": ["all"]}, store))
+    resp = json.loads(handle_lint_wiki({"output_dir": str(od), "checks": ["all"]}, store))
     issues = _adopted(resp.get("issues", []))
     assert len(issues) == 1
     assert issues[0]["severity"] == "warning"

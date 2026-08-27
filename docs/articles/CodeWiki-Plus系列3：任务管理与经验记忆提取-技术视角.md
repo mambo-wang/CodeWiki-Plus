@@ -88,9 +88,9 @@ def main() -> None:
     if payload.get("hook_event_name") != "sessionStart":
         return
 
-    out = _resolve_output_dir(payload)          # 定位 repowiki/
-    tasks = _load_active_tasks(out)             # 读 tasks/.index.json，过滤 status=active
-    bindings = _render_bindings(out)            # 读 .meta/task_bindings/*.json
+    out = _resolve_output_dir(payload)  # 定位 repowiki/
+    tasks = _load_active_tasks(out)  # 读 tasks/.index.json，过滤 status=active
+    bindings = _render_bindings(out)  # 读 .meta/task_bindings/*.json
 
     lines = ["## [task-memory] 会话开始：请先关联任务", ""]
     lines.append("当前进行中的任务：")
@@ -98,8 +98,7 @@ def main() -> None:
         lines.append(f"- {t['title']}（task_id={t['task_id']}）")  # 标题直接内联
     # ... 绑定表 + 弹框指引 + 硬性执行顺序 ...
 
-    print(json.dumps({"continue": True, "additionalContext": "\n".join(lines)},
-                     ensure_ascii=False))
+    print(json.dumps({"continue": True, "additionalContext": "\n".join(lines)}, ensure_ascii=False))
 ```
 
 输出结构是 IDE hook 的标准协议：`additionalContext` 字段的内容会被注入到 Agent 本次会话的系统提示里。
@@ -253,9 +252,15 @@ flowchart TB
 
 ```python
 _SYSTEM_PROMPT_MARKERS = (
-    "system prompt", "you are", "your role", "you must never",
-    "available tools", "tool names marked", ...
+    "system prompt",
+    "you are",
+    "your role",
+    "you must never",
+    "available tools",
+    "tool names marked",
+    ...,
 )
+
 
 def _is_system_prompt(text: str) -> bool:
     if len(text) <= 1500:

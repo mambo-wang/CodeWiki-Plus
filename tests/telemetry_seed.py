@@ -7,6 +7,7 @@ event streams under .meta/telemetry/. These helpers write equivalent events
 so existing test semantics (hit counts, last_hit dates, adoption counts,
 distinct keys) carry over unchanged.
 """
+
 from __future__ import annotations
 
 import json

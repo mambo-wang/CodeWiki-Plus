@@ -131,8 +131,8 @@ from codewiki.cli.utils.fs import ensure_directory, safe_write
 from codewiki.cli.utils.progress import ProgressTracker
 from codewiki.cli.utils.api_errors import wrap_api_call
 
-key = validate_api_key("sk-abcdef123456")      # 通过
-print(mask_api_key(key))                        # sk-ab...3456
+key = validate_api_key("sk-abcdef123456")  # 通过
+print(mask_api_key(key))  # sk-ab...3456
 out = ensure_directory("~/docs/wiki")
 safe_write(out / "overview.md", "# Wiki")
 

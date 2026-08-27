@@ -6,8 +6,8 @@ then re-reads source_code from disk if not in memory.
 
 from __future__ import annotations
 
-import json, logging
-from pathlib import Path
+import json
+import logging
 from typing import Any, Dict, List
 
 from codewiki.mcp.session import SessionStore
@@ -19,12 +19,13 @@ def _read_source_from_disk(node) -> str:
     file_path = getattr(node, "file_path", "")
     start_line = getattr(node, "start_line", 0)
     end_line = getattr(node, "end_line", 0)
-    if not file_path: return ""
+    if not file_path:
+        return ""
     try:
         with open(file_path, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
         if start_line > 0 and end_line > 0:
-            return "".join(lines[max(0, start_line - 1):end_line])
+            return "".join(lines[max(0, start_line - 1) : end_line])
         return "".join(lines)
     except Exception as e:
         logger.warning("Failed to read source for %s: %s", file_path, e)
@@ -32,14 +33,18 @@ def _read_source_from_disk(node) -> str:
 
 
 def handle_read_code_components(
-    arguments: Dict[str, Any], store: SessionStore,
+    arguments: Dict[str, Any],
+    store: SessionStore,
 ) -> str:
     """Read component source code. Resolves the session from repo_path."""
     from codewiki.mcp.tools.workspace_result import resolve_session
+
     session = resolve_session(arguments, store)
     if session is None:
         return json.dumps(
-            {"error": "Session not found. Ensure repo_path points to a previously analyzed repository."},
+            {
+                "error": "Session not found. Ensure repo_path points to a previously analyzed repository."
+            },
             ensure_ascii=False,
         )
     if session.workspace is None:
@@ -55,7 +60,8 @@ def handle_read_code_components(
     for cid in component_ids:
         node = components.get(cid)
         if node is None:
-            not_found.append(cid); continue
+            not_found.append(cid)
+            continue
         lang = getattr(node, "language", "")
         source = getattr(node, "source_code", None)
         if not source:
@@ -64,9 +70,14 @@ def handle_read_code_components(
         fp = workspace.write_component_source(cid, source, lang)
         written_files[fp.name] = cid
 
-    return json.dumps({
-        "written": len(written_files),
-        "not_found_count": len(not_found), "not_found": not_found,
-        "source_dir": str(workspace.root / "sources"),
-        "files": written_files,
-    }, indent=2, ensure_ascii=False)
+    return json.dumps(
+        {
+            "written": len(written_files),
+            "not_found_count": len(not_found),
+            "not_found": not_found,
+            "source_dir": str(workspace.root / "sources"),
+            "files": written_files,
+        },
+        indent=2,
+        ensure_ascii=False,
+    )

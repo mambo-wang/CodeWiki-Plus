@@ -254,19 +254,19 @@ def resolve_wiki_path(output_dir: str, schema: dict) -> dict:
     """所有 wiki 文件路径的唯一权威来源"""
     wiki = os.path.join(output_dir, "wiki")
     paths = {
-        "modules":      os.path.join(wiki, "modules"),
-        "entities":     os.path.join(wiki, "entities"),
-        "concepts":     os.path.join(wiki, "concepts"),
-        "sources":      os.path.join(wiki, "sources"),
-        "comparisons":  os.path.join(wiki, "comparisons"),
-        "queries":      os.path.join(wiki, "queries"),
-        "notes":        os.path.join(output_dir, "notes"),
-        "raw_sources":  os.path.join(output_dir, "raw", "sources"),
-        "index":        os.path.join(wiki, "index.md"),
-        "log":          os.path.join(wiki, "log.md"),
-        "overview":     os.path.join(wiki, "overview.md"),
-        "schema":       os.path.join(output_dir, "schema.yaml"),
-        "purpose":      os.path.join(output_dir, "purpose.md"),
+        "modules": os.path.join(wiki, "modules"),
+        "entities": os.path.join(wiki, "entities"),
+        "concepts": os.path.join(wiki, "concepts"),
+        "sources": os.path.join(wiki, "sources"),
+        "comparisons": os.path.join(wiki, "comparisons"),
+        "queries": os.path.join(wiki, "queries"),
+        "notes": os.path.join(output_dir, "notes"),
+        "raw_sources": os.path.join(output_dir, "raw", "sources"),
+        "index": os.path.join(wiki, "index.md"),
+        "log": os.path.join(wiki, "log.md"),
+        "overview": os.path.join(wiki, "overview.md"),
+        "schema": os.path.join(output_dir, "schema.yaml"),
+        "purpose": os.path.join(output_dir, "purpose.md"),
     }
     # 从 schema.page_types 覆盖目录（用户可自定义）
     for ptype, config in schema.get("page_types", {}).items():
@@ -317,7 +317,7 @@ def _resolve_doc_path(filename, page_type, output_dir, schema):
 ```python
 def _extract_source_refs(content: str) -> tuple[list[str], list[str]]:
     """从正文中提取源文件引用和行号引用"""
-    pattern = r'\[\^src:([^:]+):(\d+-\d+)\]'
+    pattern = r"\[\^src:([^:]+):(\d+-\d+)\]"
     source_refs = set()
     chunk_refs = []
     for match in re.finditer(pattern, content):
@@ -691,11 +691,11 @@ def compute_health_score(issues: list) -> int:
     """0-100 分，扣分项："""
     score = 100
     weights = {
-        "error": 10,       # 每个 error -10
-        "warning": 3,      # 每个 warning -3
-        "info": 1,         # 每个 info -1
-        "orphan": 2,       # 每个孤立页 -2
-        "stale_source": 8, # 每个过时源 -8
+        "error": 10,  # 每个 error -10
+        "warning": 3,  # 每个 warning -3
+        "info": 1,  # 每个 info -1
+        "orphan": 2,  # 每个孤立页 -2
+        "stale_source": 8,  # 每个过时源 -8
     }
     for issue in issues:
         score -= weights.get(issue["check"], 1)

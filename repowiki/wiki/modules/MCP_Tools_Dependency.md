@@ -100,11 +100,7 @@ flowchart TD
 result = handle_list_components({"mode": "summary"})
 
 # 查询跨服务调用并追踪路由
-result = handle_query_cross_service({
-    "service": "auth-service",
-    "method": "POST",
-    "path": "/login"
-})
+result = handle_query_cross_service({"service": "auth-service", "method": "POST", "path": "/login"})
 
 # 列出模块依赖
 result = handle_list_dependencies({"target": "codewiki.core"})

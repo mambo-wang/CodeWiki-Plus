@@ -10,6 +10,7 @@ Covers docs/团队记忆融合-L2场景聚合与L3-Doctrine设计方案.md §4.1
                         until the agent re-submits with a dedup_action:
                         store / skip / update / merge.
 """
+
 import json
 from pathlib import Path
 
@@ -28,7 +29,7 @@ def _write_raw(repo: str, cid: str, body: str = "user: hi\nassistant: hello") ->
     p.write_text(
         "---\n"
         "type: conversation\n"
-        f"conversation_id: \"{cid}\"\n"
+        f'conversation_id: "{cid}"\n'
         "status: pending\n"
         "origin: conversation\n"
         "---\n\n" + body,
@@ -37,18 +38,15 @@ def _write_raw(repo: str, cid: str, body: str = "user: hi\nassistant: hello") ->
     return str(p)
 
 
-def _write_note(repo: str, filename: str, title: str,
-                note_type: str = "pitfall", body: str = "existing body") -> str:
+def _write_note(
+    repo: str, filename: str, title: str, note_type: str = "pitfall", body: str = "existing body"
+) -> str:
     """Create a pre-existing note with unquoted frontmatter title (dedup target)."""
     notes_dir = Path(repo) / "repowiki" / "notes"
     notes_dir.mkdir(parents=True, exist_ok=True)
     p = notes_dir / filename
     p.write_text(
-        "---\n"
-        f"type: {note_type}\n"
-        f"title: {title}\n"
-        "status: stable\n"
-        "---\n\n" + body + "\n",
+        f"---\ntype: {note_type}\ntitle: {title}\nstatus: stable\n---\n\n" + body + "\n",
         encoding="utf-8",
     )
     return f"notes/{filename}"
@@ -56,11 +54,14 @@ def _write_note(repo: str, filename: str, title: str,
 
 def _submit(repo: str, distilled: dict):
     store = SessionStore()
-    out = distill.handle_distill_conversation({
-        "output_dir": f"{repo}/repowiki",
-        "mode": "submit",
-        "distilled": distilled,
-    }, store)
+    out = distill.handle_distill_conversation(
+        {
+            "output_dir": f"{repo}/repowiki",
+            "mode": "submit",
+            "distilled": distilled,
+        },
+        store,
+    )
     data = json.loads(out)
     by_cid = {r["conversation_id"]: r for r in data.get("distilled", [])}
     return data, by_cid
@@ -83,7 +84,7 @@ def _notes_of_type(repo: str, note_type: str):
 # --------------------------------------------------------------------------- #
 def test_parse_priority_clamps_and_rejects_invalid():
     assert distill._parse_priority(None) is None
-    assert distill._parse_priority(True) is None      # bool is not a priority
+    assert distill._parse_priority(True) is None  # bool is not a priority
     assert distill._parse_priority("abc") is None
     assert distill._parse_priority(75) == 75
     assert distill._parse_priority("82") == 82
@@ -106,12 +107,21 @@ def test_low_priority_note_is_dropped(tmp_path):
     repo = str(tmp_path)
     cid = "prio-low"
     _write_raw(repo, cid)
-    _data, by_cid = _submit(repo, {cid: {"notes": [{
-        "title": "Trivial formatting tweak",
-        "note_type": "general",
-        "priority": 50,
-        "content": "low value content",
-    }]}})
+    _data, by_cid = _submit(
+        repo,
+        {
+            cid: {
+                "notes": [
+                    {
+                        "title": "Trivial formatting tweak",
+                        "note_type": "general",
+                        "priority": 50,
+                        "content": "low value content",
+                    }
+                ]
+            }
+        },
+    )
     res = by_cid[f"conv-{cid}"]
     assert res["status"] == "no_knowledge" or res["status"] == "completed"
     entry = res["notes"][0]
@@ -125,20 +135,27 @@ def test_priority_maps_to_severity(tmp_path):
     repo = str(tmp_path)
     cid = "prio-high"
     _write_raw(repo, cid)
-    _data, by_cid = _submit(repo, {cid: {"notes": [
+    _data, by_cid = _submit(
+        repo,
         {
-            "title": "Never delete production data without backup",
-            "note_type": "pitfall",
-            "priority": 95,
-            "content": "## Root cause\ndata loss risk",
+            cid: {
+                "notes": [
+                    {
+                        "title": "Never delete production data without backup",
+                        "note_type": "pitfall",
+                        "priority": 95,
+                        "content": "## Root cause\ndata loss risk",
+                    },
+                    {
+                        "title": "Prefer incremental index rebuild",
+                        "note_type": "decision",
+                        "priority": 75,
+                        "content": "## Decision\nincremental rebuild",
+                    },
+                ]
+            }
         },
-        {
-            "title": "Prefer incremental index rebuild",
-            "note_type": "decision",
-            "priority": 75,
-            "content": "## Decision\nincremental rebuild",
-        },
-    ]}})
+    )
     res = by_cid[f"conv-{cid}"]
     assert res["status"] == "completed"
     highs = _notes_of_type(repo, "pitfall")
@@ -151,11 +168,20 @@ def test_note_without_priority_ingests_without_severity(tmp_path):
     repo = str(tmp_path)
     cid = "prio-none"
     _write_raw(repo, cid)
-    _data, by_cid = _submit(repo, {cid: {"notes": [{
-        "title": "Legacy note has no priority field",
-        "note_type": "general",
-        "content": "backward compatible",
-    }]}})
+    _data, by_cid = _submit(
+        repo,
+        {
+            cid: {
+                "notes": [
+                    {
+                        "title": "Legacy note has no priority field",
+                        "note_type": "general",
+                        "content": "backward compatible",
+                    }
+                ]
+            }
+        },
+    )
     res = by_cid[f"conv-{cid}"]
     assert res["notes"][0]["status"] in ("ingested", "draft", "already_exists")
     notes = list((Path(repo) / "repowiki" / "notes").glob("*.md"))
@@ -170,13 +196,22 @@ def test_scene_written_to_metadata(tmp_path):
     repo = str(tmp_path)
     cid = "scene-001"
     _write_raw(repo, cid)
-    _data, by_cid = _submit(repo, {cid: {"notes": [{
-        "title": "BM25 threshold tuning for short notes",
-        "note_type": "decision",
-        "priority": 80,
-        "scene": "围绕检索质量调优",
-        "content": "## Decision\nlower threshold",
-    }]}})
+    _data, by_cid = _submit(
+        repo,
+        {
+            cid: {
+                "notes": [
+                    {
+                        "title": "BM25 threshold tuning for short notes",
+                        "note_type": "decision",
+                        "priority": 80,
+                        "scene": "围绕检索质量调优",
+                        "content": "## Decision\nlower threshold",
+                    }
+                ]
+            }
+        },
+    )
     res = by_cid[f"conv-{cid}"]
     assert res["status"] == "completed"
     notes = list((Path(repo) / "repowiki" / "notes").glob("*.md"))
@@ -193,14 +228,24 @@ def test_strong_duplicate_still_suppressed(tmp_path):
     cid = "strong-dup"
     _write_raw(repo, cid)
     # identical title + same type => Jaccard 1.0, strong duplicate
-    _write_note(repo, "2026-01-01-redis-pool.md", "Redis connection pool timeout",
-                note_type="pitfall")
-    _data, by_cid = _submit(repo, {cid: {"notes": [{
-        "title": "Redis connection pool timeout",
-        "note_type": "pitfall",
-        "priority": 85,
-        "content": "dup content",
-    }]}})
+    _write_note(
+        repo, "2026-01-01-redis-pool.md", "Redis connection pool timeout", note_type="pitfall"
+    )
+    _data, by_cid = _submit(
+        repo,
+        {
+            cid: {
+                "notes": [
+                    {
+                        "title": "Redis connection pool timeout",
+                        "note_type": "pitfall",
+                        "priority": 85,
+                        "content": "dup content",
+                    }
+                ]
+            }
+        },
+    )
     res = by_cid[f"conv-{cid}"]
     entry = res["notes"][0]
     assert entry["status"] == "suppressed"
@@ -215,20 +260,30 @@ def test_strong_duplicate_still_suppressed(tmp_path):
 def _weak_conflict_setup(repo: str, cid: str):
     """Existing note shares 3/7 title tokens (sim≈0.43, weak band, diff type)."""
     _write_raw(repo, cid)
-    return _write_note(repo, "2026-01-01-alpha.md",
-                       "alpha beta gamma delta epsilon", note_type="pitfall")
+    return _write_note(
+        repo, "2026-01-01-alpha.md", "alpha beta gamma delta epsilon", note_type="pitfall"
+    )
 
 
 def test_weak_conflict_holds_and_retains_raw(tmp_path):
     repo = str(tmp_path)
     cid = "weak-conflict"
     _weak_conflict_setup(repo, cid)
-    data, by_cid = _submit(repo, {cid: {"notes": [{
-        "title": "alpha beta gamma zeta eta",   # 3/7 ≈ 0.43, different type
-        "note_type": "lesson",
-        "priority": 85,
-        "content": "new knowledge, maybe overlapping",
-    }]}})
+    data, by_cid = _submit(
+        repo,
+        {
+            cid: {
+                "notes": [
+                    {
+                        "title": "alpha beta gamma zeta eta",  # 3/7 ≈ 0.43, different type
+                        "note_type": "lesson",
+                        "priority": 85,
+                        "content": "new knowledge, maybe overlapping",
+                    }
+                ]
+            }
+        },
+    )
     res = by_cid[f"conv-{cid}"]
     assert res["status"] == "conflicts_pending"
     entry = res["notes"][0]
@@ -247,18 +302,36 @@ def test_conflict_resolved_with_store(tmp_path):
     repo = str(tmp_path)
     cid = "resolve-store"
     _weak_conflict_setup(repo, cid)
-    _submit(repo, {cid: {"notes": [{
-        "title": "alpha beta gamma zeta eta",
-        "note_type": "lesson",
-        "content": "genuinely new",
-    }]}})
+    _submit(
+        repo,
+        {
+            cid: {
+                "notes": [
+                    {
+                        "title": "alpha beta gamma zeta eta",
+                        "note_type": "lesson",
+                        "content": "genuinely new",
+                    }
+                ]
+            }
+        },
+    )
     # second pass: agent adjudicates 'store'
-    data, by_cid = _submit(repo, {cid: {"notes": [{
-        "title": "alpha beta gamma zeta eta",
-        "note_type": "lesson",
-        "content": "genuinely new",
-        "dedup_action": "store",
-    }]}})
+    data, by_cid = _submit(
+        repo,
+        {
+            cid: {
+                "notes": [
+                    {
+                        "title": "alpha beta gamma zeta eta",
+                        "note_type": "lesson",
+                        "content": "genuinely new",
+                        "dedup_action": "store",
+                    }
+                ]
+            }
+        },
+    )
     res = by_cid[f"conv-{cid}"]
     assert res["status"] == "completed"
     assert len(_notes_of_type(repo, "lesson")) == 1
@@ -270,17 +343,35 @@ def test_conflict_resolved_with_skip(tmp_path):
     repo = str(tmp_path)
     cid = "resolve-skip"
     _weak_conflict_setup(repo, cid)
-    _submit(repo, {cid: {"notes": [{
-        "title": "alpha beta gamma zeta eta",
-        "note_type": "lesson",
-        "content": "maybe dup",
-    }]}})
-    _data, by_cid = _submit(repo, {cid: {"notes": [{
-        "title": "alpha beta gamma zeta eta",
-        "note_type": "lesson",
-        "content": "maybe dup",
-        "dedup_action": "skip",
-    }]}})
+    _submit(
+        repo,
+        {
+            cid: {
+                "notes": [
+                    {
+                        "title": "alpha beta gamma zeta eta",
+                        "note_type": "lesson",
+                        "content": "maybe dup",
+                    }
+                ]
+            }
+        },
+    )
+    _data, by_cid = _submit(
+        repo,
+        {
+            cid: {
+                "notes": [
+                    {
+                        "title": "alpha beta gamma zeta eta",
+                        "note_type": "lesson",
+                        "content": "maybe dup",
+                        "dedup_action": "skip",
+                    }
+                ]
+            }
+        },
+    )
     res = by_cid[f"conv-{cid}"]
     assert res["notes"][0]["status"] == "skipped"
     assert _notes_of_type(repo, "lesson") == []
@@ -291,18 +382,36 @@ def test_conflict_resolved_with_update_replaces_body(tmp_path):
     repo = str(tmp_path)
     cid = "resolve-update"
     target = _weak_conflict_setup(repo, cid)
-    _submit(repo, {cid: {"notes": [{
-        "title": "alpha beta gamma zeta eta",
-        "note_type": "lesson",
-        "content": "maybe dup",
-    }]}})
-    _data, by_cid = _submit(repo, {cid: {"notes": [{
-        "title": "alpha beta gamma zeta eta",
-        "note_type": "lesson",
-        "content": "NEW SUPERSEDING BODY",
-        "dedup_action": "update",
-        "target": target,
-    }]}})
+    _submit(
+        repo,
+        {
+            cid: {
+                "notes": [
+                    {
+                        "title": "alpha beta gamma zeta eta",
+                        "note_type": "lesson",
+                        "content": "maybe dup",
+                    }
+                ]
+            }
+        },
+    )
+    _data, by_cid = _submit(
+        repo,
+        {
+            cid: {
+                "notes": [
+                    {
+                        "title": "alpha beta gamma zeta eta",
+                        "note_type": "lesson",
+                        "content": "NEW SUPERSEDING BODY",
+                        "dedup_action": "update",
+                        "target": target,
+                    }
+                ]
+            }
+        },
+    )
     res = by_cid[f"conv-{cid}"]
     assert res["notes"][0]["status"] == "updated"
     text = (Path(repo) / "repowiki" / target).read_text(encoding="utf-8")
@@ -320,18 +429,36 @@ def test_conflict_resolved_with_merge_appends_section(tmp_path):
     repo = str(tmp_path)
     cid = "resolve-merge"
     target = _weak_conflict_setup(repo, cid)
-    _submit(repo, {cid: {"notes": [{
-        "title": "alpha beta gamma zeta eta",
-        "note_type": "lesson",
-        "content": "complementary knowledge",
-    }]}})
-    _data, by_cid = _submit(repo, {cid: {"notes": [{
-        "title": "alpha beta gamma zeta eta",
-        "note_type": "lesson",
-        "content": "complementary knowledge",
-        "dedup_action": "merge",
-        "target": target,
-    }]}})
+    _submit(
+        repo,
+        {
+            cid: {
+                "notes": [
+                    {
+                        "title": "alpha beta gamma zeta eta",
+                        "note_type": "lesson",
+                        "content": "complementary knowledge",
+                    }
+                ]
+            }
+        },
+    )
+    _data, by_cid = _submit(
+        repo,
+        {
+            cid: {
+                "notes": [
+                    {
+                        "title": "alpha beta gamma zeta eta",
+                        "note_type": "lesson",
+                        "content": "complementary knowledge",
+                        "dedup_action": "merge",
+                        "target": target,
+                    }
+                ]
+            }
+        },
+    )
     res = by_cid[f"conv-{cid}"]
     assert res["notes"][0]["status"] == "merged"
     text = (Path(repo) / "repowiki" / target).read_text(encoding="utf-8")
@@ -346,11 +473,20 @@ def test_update_without_target_reports_error(tmp_path):
     repo = str(tmp_path)
     cid = "resolve-no-target"
     _weak_conflict_setup(repo, cid)
-    _data, by_cid = _submit(repo, {cid: {"notes": [{
-        "title": "alpha beta gamma zeta eta",
-        "note_type": "lesson",
-        "content": "x",
-        "dedup_action": "update",
-    }]}})
+    _data, by_cid = _submit(
+        repo,
+        {
+            cid: {
+                "notes": [
+                    {
+                        "title": "alpha beta gamma zeta eta",
+                        "note_type": "lesson",
+                        "content": "x",
+                        "dedup_action": "update",
+                    }
+                ]
+            }
+        },
+    )
     res = by_cid[f"conv-{cid}"]
     assert res["notes"][0]["status"] == "target_required"

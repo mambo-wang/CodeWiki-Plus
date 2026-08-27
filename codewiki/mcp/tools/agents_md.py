@@ -7,14 +7,13 @@ without overwriting user-authored content.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from codewiki.mcp.session import SessionState
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +61,7 @@ def _write_agents_md(repo_path: str, output_dir: str, module_tree: dict) -> None
         if begin_idx != -1 and end_idx != -1 and end_idx > begin_idx:
             # Replace existing section (keep content before/after)
             before = content[:begin_idx]
-            after = content[end_idx + len(_END_MARKER):]
+            after = content[end_idx + len(_END_MARKER) :]
             new_content = before + section + after
         else:
             # Append section at end
@@ -78,6 +77,7 @@ def _write_agents_md(repo_path: str, output_dir: str, module_tree: dict) -> None
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _extract_modules(module_tree: dict) -> list[str]:
     """Recursively collect all module names (top-level + nested children)."""
@@ -102,9 +102,8 @@ def _build_section(rel_path: str, modules: list[str], output_dir_p: Path) -> str
         try:
             from codewiki.mcp.tools.page_router import load_schema
             from codewiki.mcp.tools.injection_budget import cap_module_lines
-            capped = cap_module_lines(
-                modules, output_dir_p, load_schema(str(output_dir_p))
-            )
+
+            capped = cap_module_lines(modules, output_dir_p, load_schema(str(output_dir_p)))
         except Exception:  # budget must never break AGENTS.md injection
             capped = {"lines": modules, "hidden_count": 0}
         module_lines = "\n".join(
@@ -113,7 +112,8 @@ def _build_section(rel_path: str, modules: list[str], output_dir_p: Path) -> str
         hidden = int(capped.get("hidden_count") or 0)
         overflow = (
             f"\n（其余 {hidden} 个模块省略——用 `{rel_path}/wiki/index.md` 或 `query_wiki` 检索）"
-            if hidden else ""
+            if hidden
+            else ""
         )
         modules_block = f"\n**模块列表：**\n\n{module_lines}{overflow}\n"
     else:

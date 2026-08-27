@@ -176,11 +176,15 @@ def _incremental_refresh(
     opts = analyze_options or {}
     _tmp = Path(tempfile.mkdtemp(prefix="codewiki_watch_"))
     config = Config(
-        repo_path=str(repo_path), output_dir=str(_tmp),
+        repo_path=str(repo_path),
+        output_dir=str(_tmp),
         dependency_graph_dir=str(_tmp / "dependency_graphs"),
-        docs_dir=str(output_dir), max_depth=MAX_DEPTH,
-        llm_base_url="not-needed", llm_api_key="not-needed",
-        main_model="unused", cluster_model="unused",
+        docs_dir=str(output_dir),
+        max_depth=MAX_DEPTH,
+        llm_base_url="not-needed",
+        llm_api_key="not-needed",
+        main_model="unused",
+        cluster_model="unused",
     )
     ai: Dict[str, Any] = {"doc_type": "design"}
     if opts.get("include_patterns"):
@@ -261,13 +265,21 @@ def _incremental_refresh(
     metas: Dict[str, ComponentMeta] = {}
     for comp_id, node in components.items():
         metas[comp_id] = ComponentMeta(
-            id=node.id, name=node.name, component_type=node.component_type,
-            file_path=node.file_path, relative_path=node.relative_path,
-            start_line=node.start_line, end_line=node.end_line,
-            language=(node.language or "").strip() or "unknown", depends_on=node.depends_on,
-            node_type=node.node_type, base_classes=node.base_classes,
-            class_name=node.class_name, display_name=node.display_name,
-            qualified_name=node.qualified_name, has_docstring=node.has_docstring,
+            id=node.id,
+            name=node.name,
+            component_type=node.component_type,
+            file_path=node.file_path,
+            relative_path=node.relative_path,
+            start_line=node.start_line,
+            end_line=node.end_line,
+            language=(node.language or "").strip() or "unknown",
+            depends_on=node.depends_on,
+            node_type=node.node_type,
+            base_classes=node.base_classes,
+            class_name=node.class_name,
+            display_name=node.display_name,
+            qualified_name=node.qualified_name,
+            has_docstring=node.has_docstring,
             parameters=node.parameters,
         )
     return metas, leaf_nodes, routes

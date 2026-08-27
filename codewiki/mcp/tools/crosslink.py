@@ -10,9 +10,9 @@ import json
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Set
 
-from codewiki.mcp.session import SessionState, SessionStore
+from codewiki.mcp.session import SessionStore
 from codewiki.mcp.tools.workspace_result import write_result
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,7 @@ def _read_high_impact_threshold(output_dir: str) -> int:
     try:
         import yaml
         from codewiki.src.config import SCHEMA_FILENAME
+
         schema_path = Path(output_dir) / SCHEMA_FILENAME
         if schema_path.exists():
             schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
@@ -68,9 +69,9 @@ def _build_module_dependency_graph(
     module_tree: Dict[str, Any],
 ) -> Dict[str, Dict[str, List[str]]]:
     """Aggregate component-level dependencies into module-level graph."""
-    graph: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: {
-        "depends_on": set(), "depended_by": set()
-    })
+    graph: Dict[str, Dict[str, Set[str]]] = defaultdict(
+        lambda: {"depends_on": set(), "depended_by": set()}
+    )
     comp_module_idx = _build_comp_module_index(module_tree)
 
     for comp_id, node in components.items():
@@ -111,7 +112,11 @@ def handle_list_dependencies(
 
     session = resolve_session(arguments, store)
     if session is None:
-        return json.dumps({"error": "Session not found. Provide a valid repo_path pointing to a previously analyzed repository."})
+        return json.dumps(
+            {
+                "error": "Session not found. Provide a valid repo_path pointing to a previously analyzed repository."
+            }
+        )
 
     components = session.components
     module_tree = session.module_tree
@@ -142,10 +147,7 @@ def handle_list_dependencies(
         if direction in ("depends_on", "both"):
             deps = getattr(node, "depends_on", None) or set()
             for dep_id in sorted(deps):
-                target_module = (
-                    comp_module_idx.get(dep_id)
-                    if module_tree else None
-                )
+                target_module = comp_module_idx.get(dep_id) if module_tree else None
                 entry: Dict[str, Any] = {
                     "source": comp_id,
                     "target": dep_id,
@@ -160,10 +162,7 @@ def handle_list_dependencies(
         if direction in ("depended_by", "both"):
             dependents = reverse_index.get(comp_id, set())
             for dep_id in sorted(dependents):
-                target_module = (
-                    comp_module_idx.get(dep_id)
-                    if module_tree else None
-                )
+                target_module = comp_module_idx.get(dep_id) if module_tree else None
                 entry = {
                     "source": comp_id,
                     "target": dep_id,
@@ -213,8 +212,11 @@ def handle_list_dependencies(
         "high_impact_count": len(high_impact),
         "hint": (
             "Read the file for the full dependency data."
-            + ("  WARNING: Large dependency graph detected. Use component_ids or module_level filter to reduce output size."
-               if large_graph else "")
+            + (
+                "  WARNING: Large dependency graph detected. Use component_ids or module_level filter to reduce output size."
+                if large_graph
+                else ""
+            )
         ),
     }
     if module_level_warning:
