@@ -62,6 +62,8 @@ def get_backend(config) -> "LLMBackend":
     provider = getattr(config, "provider", "openai-compatible")
     if is_caw_provider(provider):
         from codewiki.src.be.caw_backend import CawBackend
+
         return CawBackend(config)
     from codewiki.src.be.pydantic_ai_backend import PydanticAIBackend
+
     return PydanticAIBackend(config)

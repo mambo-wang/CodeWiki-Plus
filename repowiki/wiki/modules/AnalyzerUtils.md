@@ -116,13 +116,17 @@ flowchart TD
 ## 使用示例
 ```python
 from codewiki.src.be.dependency_analyzer.utils import (
-    external_symbols, path_canonicalizer, patterns, security, logging_config,
+    external_symbols,
+    path_canonicalizer,
+    patterns,
+    security,
+    logging_config,
 )
 
 # 判定符号是否外部，避免垃圾边
-external_symbols.is_external_symbol("c", "printf")      # True
+external_symbols.is_external_symbol("c", "printf")  # True
 external_symbols.is_external_symbol("cpp", "std::vector")  # True
-external_symbols.is_macro_name("MAX_SIZE")              # True
+external_symbols.is_macro_name("MAX_SIZE")  # True
 
 # 路由键统一（Express 与 Spring 同一路径可比对）
 key = path_canonicalizer.make_route_key("GET", "/users/:id")

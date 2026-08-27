@@ -5,6 +5,8 @@ This module provides functionality to analyze repository structures and generate
 detailed file tree representations with filtering capabilities.
 """
 
+from __future__ import annotations
+
 import fnmatch
 import logging
 import shutil
@@ -33,7 +35,7 @@ class GitIgnoreFilter:
         self._ignored_files: set[str] = set()
         self._ignored_dirs: set[str] = set()
         self._ignore_all_untracked = False
-        self._fallback_specs: list[tuple[str, "GitIgnoreSpec"]] = []
+        self._fallback_specs: list[tuple[str, "GitIgnoreSpec"]] = []  # noqa: F821
         self._using_git = self._load_git_ignored_paths()
         if not self._using_git:
             self._load_fallback_specs()
@@ -97,7 +99,7 @@ class GitIgnoreFilter:
             if scope_prefix:
                 if not repo_relative.startswith(scope_prefix):
                     continue
-                relative = repo_relative[len(scope_prefix):]
+                relative = repo_relative[len(scope_prefix) :]
             else:
                 relative = repo_relative
 
@@ -162,7 +164,7 @@ class GitIgnoreFilter:
                 if normalized == base:
                     local_path = ""
                 elif normalized.startswith(f"{base}/"):
-                    local_path = normalized[len(base) + 1:]
+                    local_path = normalized[len(base) + 1 :]
                 else:
                     continue
             else:

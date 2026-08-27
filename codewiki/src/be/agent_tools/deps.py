@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from codewiki.src.be.dependency_analyzer.models.core import Node
 from codewiki.src.config import Config
 
+
 @dataclass
 class CodeWikiDeps:
     absolute_docs_path: str

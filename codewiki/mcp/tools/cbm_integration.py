@@ -14,6 +14,7 @@ All public functions are async and return Optional[Dict]:
     - Dict on success (CBM responded)
     - None on failure/unavailable (caller uses local fallback)
 """
+
 from __future__ import annotations
 
 import logging
@@ -31,6 +32,7 @@ def _project_name(repo_path: str) -> str:
     e.g. ``/home/user/repos/foo`` → ``home-user-repos-foo``.
     """
     import re
+
     return re.sub(r"[/\\]+", "-", repo_path).strip("-")
 
 
@@ -143,7 +145,9 @@ async def cbm_detect_changes(
     )
 
     if result is not None:
-        logger.debug("CBM detect_changes: %s", list(result.keys()) if isinstance(result, dict) else "")
+        logger.debug(
+            "CBM detect_changes: %s", list(result.keys()) if isinstance(result, dict) else ""
+        )
     return result
 
 
@@ -203,8 +207,12 @@ def merge_cbm_and_local_results(
             "client_repo": path_entry.get("caller_project", path_entry.get("client_repo", "")),
             "server_repo": path_entry.get("callee_project", path_entry.get("server_repo", "")),
             "route_key": path_entry.get("route_key", path_entry.get("route", "")),
-            "client_function": path_entry.get("caller_function", path_entry.get("client_function", "")),
-            "server_function": path_entry.get("callee_function", path_entry.get("server_function", "")),
+            "client_function": path_entry.get(
+                "caller_function", path_entry.get("client_function", "")
+            ),
+            "server_function": path_entry.get(
+                "callee_function", path_entry.get("server_function", "")
+            ),
             "protocol": path_entry.get("protocol", "http"),
             "source": "cbm",  # Mark origin for debugging
         }

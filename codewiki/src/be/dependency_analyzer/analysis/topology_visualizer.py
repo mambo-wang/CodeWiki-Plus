@@ -3,6 +3,7 @@
 Converts a ``WorkspaceTopology`` into human-readable documentation
 suitable for embedding in workspace ``overview.md``.
 """
+
 from __future__ import annotations
 
 from typing import List
@@ -173,7 +174,5 @@ class TopologyVisualizer:
                 note = "External API or unimplemented"
             else:
                 note = "No client detected"
-            lines.append(
-                f"| {method} | `{path}` | {route.repo_name} | {role} | {note} |"
-            )
+            lines.append(f"| {method} | `{path}` | {route.repo_name} | {role} | {note} |")
         return "\n".join(lines)

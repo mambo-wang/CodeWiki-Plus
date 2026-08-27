@@ -6,6 +6,7 @@ penalty), computed at index time, clamped 0.7-1.3, applied AFTER BM25 and
 BEFORE the note title floor. Similarity-oriented consumers (distill dedup
 recall) are exempt via apply_authority=False.
 """
+
 from pathlib import Path
 
 from codewiki.mcp.cache import AnalysisCache, _doc_authority
@@ -15,8 +16,7 @@ from codewiki.mcp.tools import wiki_search
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _mk_note(notes_dir: Path, name: str, title: str, ntype: str, status: str,
-             body: str) -> Path:
+def _mk_note(notes_dir: Path, name: str, title: str, ntype: str, status: str, body: str) -> Path:
     notes_dir.mkdir(parents=True, exist_ok=True)
     p = notes_dir / name
     p.write_text(
@@ -32,14 +32,14 @@ def _mk_note(notes_dir: Path, name: str, title: str, ntype: str, status: str,
 def test_authority_note_type_and_status():
     decision_stable = "---\ntype: decision\ntitle: T\nstatus: stable\n---\nbody"
     lesson_draft = "---\ntype: lesson\ntitle: T\nstatus: draft\n---\nbody"
-    assert _doc_authority("notes/a.md", "note", decision_stable) == 1.2   # +0.15 +0.05
-    assert _doc_authority("notes/b.md", "note", lesson_draft) == 0.85     # +0.10 -0.25
+    assert _doc_authority("notes/a.md", "note", decision_stable) == 1.2  # +0.15 +0.05
+    assert _doc_authority("notes/b.md", "note", lesson_draft) == 0.85  # +0.10 -0.25
 
 
 def test_authority_deprecated_clamped_low():
-    dep = "---\ntype: pitfall\ntitle: T\nstatus: deprecated\n---\nbody"   # +0.12 -0.35
+    dep = "---\ntype: pitfall\ntitle: T\nstatus: deprecated\n---\nbody"  # +0.12 -0.35
     assert abs(_doc_authority("notes/c.md", "note", dep) - 0.77) < 1e-9
-    bare_dep = "---\ntitle: T\nstatus: deprecated\n---\nbody"             # -0.35 -> clamp 0.7
+    bare_dep = "---\ntitle: T\nstatus: deprecated\n---\nbody"  # -0.35 -> clamp 0.7
     assert _doc_authority("notes/d.md", "note", bare_dep) == 0.7
 
 
@@ -77,8 +77,10 @@ def test_sqlite_search_orders_by_authority(tmp_path):
         # Exemption: identical bodies -> identical raw BM25 scores, authority 1.0
         raw = cache.search("gateway timeout retry", output_dir=od, apply_authority=False)
         by_file = {r["file"]: r for r in raw}
-        assert by_file["notes/n-decision.md"]["relevance_score"] == \
-               by_file["notes/n-lesson.md"]["relevance_score"]
+        assert (
+            by_file["notes/n-decision.md"]["relevance_score"]
+            == by_file["notes/n-lesson.md"]["relevance_score"]
+        )
         assert all(r["authority"] == 1.0 for r in raw)
     finally:
         cache.close()
@@ -104,16 +106,23 @@ def test_legacy_search_orders_by_authority(tmp_path):
 
 def test_update_file_refreshes_authority_after_status_change(tmp_path):
     od = tmp_path / "repowiki"
-    p = _mk_note(od / "notes", "n.md", "cache invalidation strategy", "lesson", "draft",
-                 "cache invalidation strategy body text")
+    p = _mk_note(
+        od / "notes",
+        "n.md",
+        "cache invalidation strategy",
+        "lesson",
+        "draft",
+        "cache invalidation strategy body text",
+    )
     wiki_search.build_full_index(od)
     res = wiki_search.search(od, "cache invalidation strategy")
     assert res and res[0]["file"] == "notes/n.md"
     assert res[0]["authority"] == 0.85
 
     # Promote draft -> stable (mirrors _apply_status_to_file rewriting status)
-    p.write_text(p.read_text(encoding="utf-8").replace("status: draft", "status: stable"),
-                 encoding="utf-8")
+    p.write_text(
+        p.read_text(encoding="utf-8").replace("status: draft", "status: stable"), encoding="utf-8"
+    )
     wiki_search.update_file(od, p)
     res2 = wiki_search.search(od, "cache invalidation strategy")
     assert res2 and res2[0]["authority"] == 1.15  # lesson +0.10, stable +0.05

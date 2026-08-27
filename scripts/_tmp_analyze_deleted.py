@@ -1,7 +1,12 @@
-import subprocess, re, collections
+import subprocess
+import re
+import collections
+
 out = subprocess.run(
     ["git", "-c", "core.quotepath=false", "status", "--porcelain"],
-    capture_output=True, text=True, encoding="utf-8",
+    capture_output=True,
+    text=True,
+    encoding="utf-8",
 ).stdout
 deleted = []
 for line in out.splitlines():
@@ -15,8 +20,13 @@ status_cnt = collections.Counter()
 no_show = 0
 for p in deleted:
     gitpath = p.replace("\\", "/")
-    r = subprocess.run(["git", "show", "HEAD:" + gitpath],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = subprocess.run(
+        ["git", "show", "HEAD:" + gitpath],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     if r.returncode != 0:
         no_show += 1
         continue

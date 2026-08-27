@@ -8,6 +8,7 @@ convention directories (services/ / apps/).
 Used by ``analyze_repo`` to partition routes by sub-service so that
 ``CrossServiceMatcher`` can find intra-repo cross-service calls.
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,12 +21,37 @@ logger = logging.getLogger(__name__)
 
 # Directories that should never be treated as services
 _EXCLUDE_DIRS = {
-    "node_modules", ".venv", "venv", "__pycache__", ".git", ".idea",
-    ".vscode", "dist", "build", "target", ".tox", ".mypy_cache",
-    ".pytest_cache", "coverage", ".next", ".nuxt", "vendor",
-    "test", "tests", "testing", "e2e", "docs", "doc", "scripts",
-    "migrations", "fixtures", "mocks", "__mocks__", ".codewiki",
-    "repowiki", "workspace-wiki",
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".git",
+    ".idea",
+    ".vscode",
+    "dist",
+    "build",
+    "target",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    "coverage",
+    ".next",
+    ".nuxt",
+    "vendor",
+    "test",
+    "tests",
+    "testing",
+    "e2e",
+    "docs",
+    "doc",
+    "scripts",
+    "migrations",
+    "fixtures",
+    "mocks",
+    "__mocks__",
+    ".codewiki",
+    "repowiki",
+    "workspace-wiki",
 }
 
 # Convention directories whose children are likely services
@@ -44,7 +70,9 @@ class ServiceInfo:
         self.source = source  # detection signal: "docker-compose", "dockerfile", etc.
 
     def __repr__(self) -> str:
-        return f"ServiceInfo(name={self.name!r}, path={self.relative_path!r}, source={self.source!r})"
+        return (
+            f"ServiceInfo(name={self.name!r}, path={self.relative_path!r}, source={self.source!r})"
+        )
 
 
 def detect_services(repo_path: Path) -> Dict[str, ServiceInfo]:
@@ -78,7 +106,8 @@ def detect_services(repo_path: Path) -> Dict[str, ServiceInfo]:
     if services:
         logger.info(
             "Detected %d sub-services in %s: %s",
-            len(services), repo_path.name,
+            len(services),
+            repo_path.name,
             ", ".join(f"{s.name} ({s.source})" for s in services.values()),
         )
 
@@ -106,7 +135,7 @@ def assign_service_label(
         if not rp.endswith("/"):
             rp += "/"
         if fp.startswith(rp):
-            fp = fp[len(rp):]
+            fp = fp[len(rp) :]
 
     best_name = fallback
     best_len = 0
@@ -128,8 +157,10 @@ def assign_service_label(
 # Pruned directory walker (avoids descending into excluded dirs)
 # ---------------------------------------------------------------------------
 
+
 def _walk_pruned(
-    root: Path, max_depth: int = _MAX_DEPTH,
+    root: Path,
+    max_depth: int = _MAX_DEPTH,
 ) -> Iterator[Tuple[Path, List[str], List[str]]]:
     """os.walk with in-place pruning of excluded directories.
 
@@ -147,10 +178,7 @@ def _walk_pruned(
             depth = len(rel.replace("\\", "/").split("/"))
 
         # Prune excluded dirs in-place
-        dirnames[:] = [
-            d for d in dirnames
-            if d not in _EXCLUDE_DIRS and not d.startswith(".")
-        ]
+        dirnames[:] = [d for d in dirnames if d not in _EXCLUDE_DIRS and not d.startswith(".")]
 
         # Stop descending beyond max_depth
         if depth >= max_depth:
@@ -171,6 +199,7 @@ def _find_files(root: Path, name: str, max_depth: int = _MAX_DEPTH) -> List[Path
 def _find_files_glob(root: Path, pattern: str, max_depth: int = _MAX_DEPTH) -> List[Path]:
     """Find files matching a glob pattern (e.g. 'Dockerfile.*') with pruned walking."""
     import fnmatch
+
     results = []
     for dirpath, _, filenames in _walk_pruned(root, max_depth):
         for fn in filenames:
@@ -182,6 +211,7 @@ def _find_files_glob(root: Path, pattern: str, max_depth: int = _MAX_DEPTH) -> L
 # ---------------------------------------------------------------------------
 # Service registration (handles name collisions)
 # ---------------------------------------------------------------------------
+
 
 def _register_service(
     services: Dict[str, ServiceInfo],
@@ -201,7 +231,9 @@ def _register_service(
         qualified = relative_path.replace("/", "-").replace("\\", "-")
         if qualified not in services:
             services[qualified] = ServiceInfo(
-                name=qualified, relative_path=relative_path, source=source,
+                name=qualified,
+                relative_path=relative_path,
+                source=source,
             )
 
 
@@ -209,19 +241,22 @@ def _register_service(
 # Phase 1: docker-compose
 # ---------------------------------------------------------------------------
 
+
 def _detect_from_compose(repo_path: Path, services: Dict[str, ServiceInfo]):
     """Parse docker-compose files for service definitions with build contexts."""
-    for pattern in ("docker-compose.yml", "docker-compose.yaml",
-                    "compose.yml", "compose.yaml"):
+    for pattern in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"):
         for f in _find_files(repo_path, pattern):
             _parse_compose_for_services(f, repo_path, services)
 
 
 def _parse_compose_for_services(
-    compose_file: Path, repo_path: Path, services: Dict[str, ServiceInfo],
+    compose_file: Path,
+    repo_path: Path,
+    services: Dict[str, ServiceInfo],
 ):
     try:
         import yaml
+
         data = yaml.safe_load(compose_file.read_text(encoding="utf-8", errors="replace"))
     except ImportError:
         logger.debug("PyYAML not available, skipping compose parsing")
@@ -275,6 +310,7 @@ def _parse_compose_for_services(
 # ---------------------------------------------------------------------------
 # Phase 2: Dockerfiles
 # ---------------------------------------------------------------------------
+
 
 def _detect_from_dockerfiles(repo_path: Path, services: Dict[str, ServiceInfo]):
     """Detect services from Dockerfiles in distinct sub-directories."""
@@ -361,7 +397,9 @@ def _detect_from_build_manifests(repo_path: Path, services: Dict[str, ServiceInf
             if svc_name and rel not in all_dirs:
                 all_dirs.add(rel)
                 _register_service(
-                    services, svc_name, rel,
+                    services,
+                    svc_name,
+                    rel,
                     f"build-manifest:{_BUILD_MANIFESTS[manifest_name]}",
                 )
 
@@ -370,6 +408,7 @@ def _package_json_is_service(pkg_path: Path) -> bool:
     """Check if a package.json looks like a runnable service (has start/main)."""
     try:
         import json
+
         data = json.loads(pkg_path.read_text(encoding="utf-8", errors="replace"))
     except Exception:
         return False
@@ -386,6 +425,7 @@ def _package_json_is_service(pkg_path: Path) -> bool:
 # ---------------------------------------------------------------------------
 # Phase 4: Convention directories
 # ---------------------------------------------------------------------------
+
 
 def _detect_from_convention_dirs(repo_path: Path, services: Dict[str, ServiceInfo]):
     """Detect services under convention directories like services/, apps/."""
@@ -417,17 +457,27 @@ def _has_source_files(directory: Path, max_files: int = 200) -> bool:
     small limit.
     """
     source_exts = {
-        ".py", ".java", ".js", ".jsx", ".ts", ".tsx", ".go",
-        ".rs", ".kt", ".kts", ".cs", ".php", ".rb", ".c", ".cpp",
+        ".py",
+        ".java",
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".go",
+        ".rs",
+        ".kt",
+        ".kts",
+        ".cs",
+        ".php",
+        ".rb",
+        ".c",
+        ".cpp",
     }
     count = 0
     try:
         for dirpath, dirnames, filenames in os.walk(str(directory)):
             # Prune excluded dirs
-            dirnames[:] = [
-                d for d in dirnames
-                if d not in _EXCLUDE_DIRS and not d.startswith(".")
-            ]
+            dirnames[:] = [d for d in dirnames if d not in _EXCLUDE_DIRS and not d.startswith(".")]
             for fn in filenames:
                 if Path(fn).suffix.lower() in source_exts:
                     return True
@@ -442,6 +492,7 @@ def _has_source_files(directory: Path, max_files: int = 200) -> bool:
 # ---------------------------------------------------------------------------
 # Phase 5: Spring Boot application.yml / application.properties
 # ---------------------------------------------------------------------------
+
 
 def _detect_from_spring_config(repo_path: Path, services: Dict[str, ServiceInfo]):
     """Detect Spring Boot services via spring.application.name."""
@@ -460,7 +511,9 @@ def _detect_from_spring_config(repo_path: Path, services: Dict[str, ServiceInfo]
 
 
 def _register_spring_service(
-    config_file: Path, name: str, repo_path: Path,
+    config_file: Path,
+    name: str,
+    repo_path: Path,
     services: Dict[str, ServiceInfo],
 ):
     """Register a Spring Boot service after finding its app name."""
@@ -478,6 +531,7 @@ def _extract_spring_app_name_yml(yml_path: Path) -> Optional[str]:
     """Extract spring.application.name from a YAML file."""
     try:
         import yaml
+
         data = yaml.safe_load(yml_path.read_text(encoding="utf-8", errors="replace"))
     except Exception:
         return None
@@ -501,7 +555,8 @@ def _extract_spring_app_name_properties(prop_path: Path) -> Optional[str]:
         return None
     m = re.search(
         r"^spring\.application\.name\s*=\s*(.+?)$",
-        content, re.MULTILINE,
+        content,
+        re.MULTILINE,
     )
     if m:
         name = m.group(1).strip()
@@ -512,8 +567,16 @@ def _extract_spring_app_name_properties(prop_path: Path) -> Optional[str]:
 
 def _find_service_root(start: Path, repo_root: Path) -> Path:
     """Walk up from start to find the nearest directory with a build manifest."""
-    markers = {"pom.xml", "build.gradle", "build.gradle.kts", "go.mod",
-               "package.json", "pyproject.toml", "setup.py", "Cargo.toml"}
+    markers = {
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+        "go.mod",
+        "package.json",
+        "pyproject.toml",
+        "setup.py",
+        "Cargo.toml",
+    }
     current = start
     while current != repo_root and current != current.parent:
         if any((current / m).exists() for m in markers):
@@ -525,6 +588,7 @@ def _find_service_root(start: Path, repo_root: Path) -> Path:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _is_excluded_rel(rel_path: str) -> bool:
     """Check if a relative path contains excluded directory segments."""
@@ -571,8 +635,7 @@ def _remove_nested_services(services: Dict[str, ServiceInfo]) -> Dict[str, Servi
             prefix += "/"
         # Check if this service is nested under an already-kept service
         is_nested = any(
-            prefix.startswith(kp if kp.endswith("/") else kp + "/")
-            for kp in kept_paths
+            prefix.startswith(kp if kp.endswith("/") else kp + "/") for kp in kept_paths
         )
         if not is_nested:
             kept[svc.name] = svc

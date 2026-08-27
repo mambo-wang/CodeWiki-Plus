@@ -108,7 +108,7 @@ from codewiki.src.be.documentation_generator import DocumentationGenerator
 
 cfg = Config(repo_path="/path/to/repo", output_dir="/path/to/repo/wiki")
 gen = DocumentationGenerator(config=cfg, commit_id="abc123", no_cache=False)
-await gen.run()   # 生成各模块 .md + overview.md + metadata.json
+await gen.run()  # 生成各模块 .md + overview.md + metadata.json
 ```
 
 ## 扩展点

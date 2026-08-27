@@ -1,0 +1,5 @@
+# Ignore bulk format commit(s) in git blame
+# After this PR merges, replace the placeholder below with the actual bulk-format commit hash:
+#   git log --oneline --grep="ruff format whole repo" | head -n1
+# Then add the hash here (one per line, with comment). GitHub respects this file for blame view.
+# Configure locally: git config blame.ignoreRevsFile .git-blame-ignore-revs

@@ -155,7 +155,9 @@ BUILTIN_CHECKLISTS: Dict[str, List[Dict[str, Any]]] = {
         {
             "id": "py-bare-except",
             "title": "裸 except",
-            "questions": ["是否使用裸 except / except Exception 吞掉包括 KeyboardInterrupt 在内的异常？"],
+            "questions": [
+                "是否使用裸 except / except Exception 吞掉包括 KeyboardInterrupt 在内的异常？"
+            ],
         },
         {
             "id": "py-resource-context",

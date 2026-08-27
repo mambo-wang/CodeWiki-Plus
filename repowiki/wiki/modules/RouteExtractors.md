@@ -101,9 +101,11 @@ flowchart LR
 ## 使用示例
 ```python
 from codewiki.src.be.dependency_analyzer.analyzers.route_extractors import get_extractor
-from codewiki.src.be.dependency_analyzer.analyzers.route_extractors.mq_patterns import extract_mq_routes
+from codewiki.src.be.dependency_analyzer.analyzers.route_extractors.mq_patterns import (
+    extract_mq_routes,
+)
 
-extractor = get_extractor(".go")          # -> extract_go_routes
+extractor = get_extractor(".go")  # -> extract_go_routes
 routes = extractor("svc/handler.go", src, "myrepo")
 routes += extract_mq_routes("svc/handler.go", src, "myrepo")
 for r in routes:

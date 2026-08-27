@@ -120,14 +120,17 @@ def cap_module_lines(
     ordered = list(modules)
     try:
         from codewiki.mcp.tools import telemetry
+
         heat = {
             str(fp): int(e.get("hits", 0) or 0)
             for fp, e in telemetry.aggregate_usage(output_dir).items()
         }
+
         # module heat = max hit count among its doc paths
         def _m_heat(m: str) -> int:
             keys = (f"wiki/modules/{m}.md", f"wiki\\modules\\{m}.md")
             return max((heat.get(k, 0) for k in keys), default=0)
+
         ordered.sort(key=lambda m: -_m_heat(m))
     except Exception as e:  # telemetry unavailable — keep tree order
         logger.debug("module heat ordering skipped: %s", e)

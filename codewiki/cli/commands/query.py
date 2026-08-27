@@ -31,7 +31,7 @@ def _render_result_block(payload: dict) -> str:
     """JSON payload → delimited text block an agent can read inline."""
     lines = []
     lines.append("--- codewiki:query:start ---")
-    q = payload.get('query')
+    q = payload.get("query")
     if q:
         lines.append(f"query: {q}")
     lines.append(f"search_method: {payload.get('search_method', '')}")
@@ -53,7 +53,9 @@ def _render_result_block(payload: dict) -> str:
         lines.append(f"relevant: {str(payload.get('relevant', False)).lower()}")
         lines.append(f"top_score: {payload.get('top_score', 0)}")
         for r in payload.get("top_results") or []:
-            lines.append(f"  - [{r.get('relevance_score', 0)}] {r.get('file', '')} | {r.get('title', '')}")
+            lines.append(
+                f"  - [{r.get('relevance_score', 0)}] {r.get('file', '')} | {r.get('title', '')}"
+            )
         hint = payload.get("hint")
         if hint:
             lines.append(f"hint: {hint}")
@@ -91,20 +93,34 @@ def _render_result_block(payload: dict) -> str:
 
 @click.command(name="query")
 @click.argument("query")
-@click.option("--output-dir", "-o", default=None,
-              help="repowiki directory (default: <cwd>/repowiki)")
-@click.option("--top", type=int, default=10, show_default=True,
-              help="Max results (1-20)")
-@click.option("--check", "check_mode", is_flag=True,
-              help="Lightweight relevance pre-check: verdict + top titles only, "
-                   "no stats recorded. Use before deciding whether a full search "
-                   "is worth the tokens.")
-@click.option("--scope", default=None,
-              help="Limit search to a module name or directory prefix (e.g. 'notes')")
-@click.option("--type-filter", "type_filter", default=None,
-              help="Filter by page type (module/entity/concept/note/source/...)")
-@click.option("--expand", is_flag=False, flag_value="3000", default=None,
-              help="Include full page content (optional value: char budget 500-20000)")
+@click.option(
+    "--output-dir", "-o", default=None, help="repowiki directory (default: <cwd>/repowiki)"
+)
+@click.option("--top", type=int, default=10, show_default=True, help="Max results (1-20)")
+@click.option(
+    "--check",
+    "check_mode",
+    is_flag=True,
+    help="Lightweight relevance pre-check: verdict + top titles only, "
+    "no stats recorded. Use before deciding whether a full search "
+    "is worth the tokens.",
+)
+@click.option(
+    "--scope", default=None, help="Limit search to a module name or directory prefix (e.g. 'notes')"
+)
+@click.option(
+    "--type-filter",
+    "type_filter",
+    default=None,
+    help="Filter by page type (module/entity/concept/note/source/...)",
+)
+@click.option(
+    "--expand",
+    is_flag=False,
+    flag_value="3000",
+    default=None,
+    help="Include full page content (optional value: char budget 500-20000)",
+)
 def query_command(query, output_dir, top, check_mode, scope, type_filter, expand):
     """Search the wiki from the command line (agent-friendly delimited output).
 
@@ -113,8 +129,7 @@ def query_command(query, output_dir, top, check_mode, scope, type_filter, expand
     """
     from pathlib import Path
 
-    od = Path(output_dir).expanduser().resolve() if output_dir \
-        else Path.cwd() / "repowiki"
+    od = Path(output_dir).expanduser().resolve() if output_dir else Path.cwd() / "repowiki"
     if not od.is_dir():
         click.echo(
             f"error: output dir not found: {od}\n"
@@ -123,8 +138,7 @@ def query_command(query, output_dir, top, check_mode, scope, type_filter, expand
         )
         sys.exit(2)
 
-    arguments = {"output_dir": str(od), "query": query,
-                 "max_results": max(1, min(20, top))}
+    arguments = {"output_dir": str(od), "query": query, "max_results": max(1, min(20, top))}
     if check_mode:
         arguments["mode"] = "check"
     if scope:
@@ -142,6 +156,7 @@ def query_command(query, output_dir, top, check_mode, scope, type_filter, expand
     try:
         from codewiki.mcp.session import SessionStore
         from codewiki.mcp.tools.knowledge_loop import handle_query_wiki
+
         raw = handle_query_wiki(arguments, SessionStore())
     except Exception as e:  # never crash the agent's shell pipeline
         click.echo(f"error: query failed: {e}", err=True)

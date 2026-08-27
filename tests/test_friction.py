@@ -13,6 +13,7 @@ Covers the four sub-tasks:
 
 Design reference: docs/知识飞轮增强设计方案-P0三项.md §2.
 """
+
 import importlib.util
 import json
 import sys
@@ -32,6 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # K1: score_friction pure-function matrix
 # --------------------------------------------------------------------------- #
 
+
 def _u(content: str) -> dict:
     return {"role": "user", "content": content}
 
@@ -42,10 +44,14 @@ def _a(content: str = "ok, done") -> dict:
 
 def test_two_corrections_trigger_suggest_distill():
     turns = [
-        _u("帮我看看这个函数"), _a(),
-        _u("不对，这个逻辑有问题"), _a(),
-        _u("应该是先校验再处理"), _a(),
-        _u("现在对了，谢谢"), _a(),
+        _u("帮我看看这个函数"),
+        _a(),
+        _u("不对，这个逻辑有问题"),
+        _a(),
+        _u("应该是先校验再处理"),
+        _a(),
+        _u("现在对了，谢谢"),
+        _a(),
     ]
     r = score_friction(turns)
     assert r["signals"]["correction"] == 2
@@ -104,8 +110,14 @@ def test_repeat_detection_normalized():
     # Whitespace-insensitive + case-insensitive comparison; a run of >2
     # identical adjacent user turns counts as ONE group.
     turns = [
-        _u("请重试 Scan"), _a(), _u("请重试scan"), _a(), _u(" 请 重 试  scan "),
-        _a(), _u("换个话题"), _a(),
+        _u("请重试 Scan"),
+        _a(),
+        _u("请重试scan"),
+        _a(),
+        _u(" 请 重 试  scan "),
+        _a(),
+        _u("换个话题"),
+        _a(),
     ]
     r = score_friction(turns)
     assert r["signals"]["repeat"] == 1
@@ -116,8 +128,14 @@ def test_repeat_detection_normalized():
 
 def test_repeat_non_adjacent_not_counted():
     turns = [
-        _u("再来一次"), _a(), _u("别的请求"), _a(), _u("再来一次"), _a(),
-        _u("结尾"), _a(),
+        _u("再来一次"),
+        _a(),
+        _u("别的请求"),
+        _a(),
+        _u("再来一次"),
+        _a(),
+        _u("结尾"),
+        _a(),
     ]
     r = score_friction(turns)
     assert r["signals"]["repeat"] == 0
@@ -125,8 +143,14 @@ def test_repeat_non_adjacent_not_counted():
 
 def test_interrupt_marker_counts():
     turns = [
-        _u("继续"), _a(), _u("[Request interrupted by user for tool use]"), _a(),
-        _u("[Request interrupted"), _a(), _u("好了"), _a(),
+        _u("继续"),
+        _a(),
+        _u("[Request interrupted by user for tool use]"),
+        _a(),
+        _u("[Request interrupted"),
+        _a(),
+        _u("好了"),
+        _a(),
     ]
     r = score_friction(turns)
     assert r["signals"]["interrupt"] == 2
@@ -138,8 +162,14 @@ def test_interrupt_marker_counts():
 def test_correction_counted_once_per_turn():
     # Multiple keywords in one user turn → still a single correction.
     turns = [
-        _u("不对，你搞错了，不是这样的"), _a(), _u("应该是这样"), _a(),
-        _u("嗯"), _a(), _u("好"), _a(),
+        _u("不对，你搞错了，不是这样的"),
+        _a(),
+        _u("应该是这样"),
+        _a(),
+        _u("嗯"),
+        _a(),
+        _u("好"),
+        _a(),
     ]
     r = score_friction(turns)
     assert r["signals"]["correction"] == 2
@@ -147,7 +177,14 @@ def test_correction_counted_once_per_turn():
 
 def test_config_override_threshold():
     turns = [
-        _u("不对"), _a(), _u("错了"), _a(), _u("继续"), _a(), _u("完成"), _a(),
+        _u("不对"),
+        _a(),
+        _u("错了"),
+        _a(),
+        _u("继续"),
+        _a(),
+        _u("完成"),
+        _a(),
     ]
     base = score_friction(turns)
     assert base["score"] == 40
@@ -171,7 +208,14 @@ def test_config_override_keywords_and_markers():
     # "重来" is a DEFAULT correction keyword; use a phrase outside the default
     # vocabulary so custom-config behaviour can be observed in isolation.
     turns = [
-        _u("再跑一次那个命令"), _a(), _u("xxx"), _a(), _u("yyy"), _a(), _u("zzz"), _a(),
+        _u("再跑一次那个命令"),
+        _a(),
+        _u("xxx"),
+        _a(),
+        _u("yyy"),
+        _a(),
+        _u("zzz"),
+        _a(),
     ]
     # Default vocabulary: neither a correction nor an interrupt.
     base = score_friction(turns)
@@ -187,8 +231,7 @@ def test_config_override_keywords_and_markers():
 
 
 def test_format_friction_signals_line():
-    s = format_friction_signals({"correction": 2, "interrupt": 0, "repeat": 1,
-                                 "user_turns": 9})
+    s = format_friction_signals({"correction": 2, "interrupt": 0, "repeat": 1, "user_turns": 9})
     assert s == "correction=2,interrupt=0,repeat=1,user_turns=9"
     # No YAML-special characters (survives naive line scanners).
     assert ":" not in s
@@ -197,6 +240,7 @@ def test_format_friction_signals_line():
 # --------------------------------------------------------------------------- #
 # K2: capture_conversation integration
 # --------------------------------------------------------------------------- #
+
 
 def _capture(repo: Path, conversation, **kwargs) -> dict:
     args = {"output_dir": str(repo / "repowiki"), "conversation": conversation}
@@ -231,10 +275,8 @@ def test_capture_writes_friction_frontmatter_and_returns_friction(tmp_path):
     raw_file = tmp_path / "repowiki" / "raw" / Path(result["stored_at"]).name
     text = raw_file.read_text(encoding="utf-8")
     fm_block = text.split("---")[1] if text.startswith("---") else text
-    score_lines = [ln for ln in fm_block.splitlines()
-                   if ln.startswith("friction_score:")]
-    signal_lines = [ln for ln in fm_block.splitlines()
-                    if ln.startswith("friction_signals:")]
+    score_lines = [ln for ln in fm_block.splitlines() if ln.startswith("friction_score:")]
+    signal_lines = [ln for ln in fm_block.splitlines() if ln.startswith("friction_signals:")]
     assert len(score_lines) == 1
     assert len(signal_lines) == 1
     assert score_lines[0] == f"friction_score: {fr['score']}"
@@ -257,15 +299,16 @@ def test_capture_writes_zero_score_too(tmp_path):
 
 def test_supersede_refreshes_friction_score(tmp_path):
     # First capture: calm conversation, low score.
-    calm = [_u("开始任务"), _a("好的"), _u("继续"), _a("继续中"),
-            _u("还有一步"), _a("完成")]
+    calm = [_u("开始任务"), _a("好的"), _u("继续"), _a("继续中"), _u("还有一步"), _a("完成")]
     first = _capture(tmp_path, calm, source_session_id="sess-1")
     assert first["friction"]["score"] == 0
 
     # Same IDE session re-captured with a growing, friction-heavy transcript.
     heated = calm + [
-        _u("不对，这里逻辑反了"), _a("抱歉，我改一下"),
-        _u("应该是先做校验"), _a("已修复。"),
+        _u("不对，这里逻辑反了"),
+        _a("抱歉，我改一下"),
+        _u("应该是先做校验"),
+        _a("已修复。"),
     ]
     second = _capture(tmp_path, heated, source_session_id="sess-1")
     assert second["status"] == "captured"
@@ -287,11 +330,12 @@ def test_supersede_refreshes_friction_score(tmp_path):
 # K3: distill prepare ordering + get_task_context friction payload
 # --------------------------------------------------------------------------- #
 
+
 def _write_raw_with_friction(repo: Path, name: str, score: int, task_id: str = "") -> Path:
     raw_dir = repo / "repowiki" / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     p = raw_dir / name
-    extra = f"task_id: \"{task_id}\"\n" if task_id else ""
+    extra = f'task_id: "{task_id}"\n' if task_id else ""
     p.write_text(
         "---\n"
         "type: conversation\n"
@@ -311,10 +355,15 @@ def test_prepare_lists_captures_by_friction_desc(tmp_path):
     _write_raw_with_friction(tmp_path, "conv-mid.md", 20)
     _write_raw_with_friction(tmp_path, "conv-legacy.md", 0)  # pre-K-line: no key
 
-    out = json.loads(distill.handle_distill_conversation({
-        "output_dir": str(tmp_path / "repowiki"),
-        "mode": "prepare",
-    }, SessionStore()))
+    out = json.loads(
+        distill.handle_distill_conversation(
+            {
+                "output_dir": str(tmp_path / "repowiki"),
+                "mode": "prepare",
+            },
+            SessionStore(),
+        )
+    )
 
     assert out["status"] == "prepared"
     scores = [c["friction_score"] for c in out["captures"]]
@@ -331,10 +380,15 @@ def test_prepare_lists_captures_by_friction_desc(tmp_path):
 
 def test_prepare_no_hint_when_all_calm(tmp_path):
     _write_raw_with_friction(tmp_path, "conv-calm.md", 5)
-    out = json.loads(distill.handle_distill_conversation({
-        "output_dir": str(tmp_path / "repowiki"),
-        "mode": "prepare",
-    }, SessionStore()))
+    out = json.loads(
+        distill.handle_distill_conversation(
+            {
+                "output_dir": str(tmp_path / "repowiki"),
+                "mode": "prepare",
+            },
+            SessionStore(),
+        )
+    )
     assert out["status"] == "prepared"
     assert "friction_hint" not in out
     assert out["captures"][0]["friction_score"] == 5
@@ -345,8 +399,7 @@ def test_get_task_context_pending_raws_carry_friction(tmp_path):
     od = str(repo / "repowiki")
     store = SessionStore()
 
-    r = json.loads(tm.handle_create_task(
-        {"output_dir": od, "title": "摩擦信号机制"}, store))
+    r = json.loads(tm.handle_create_task({"output_dir": od, "title": "摩擦信号机制"}, store))
     assert r["ok"] is True
     task_id = r["task"]["id"]
 
@@ -355,8 +408,7 @@ def test_get_task_context_pending_raws_carry_friction(tmp_path):
     _capture(repo, calm, task_id=task_id)
     _capture(repo, _correction_conversation(), task_id=task_id)
 
-    ctx = json.loads(tm.handle_get_task_context(
-        {"output_dir": od, "task_id": task_id}, store))
+    ctx = json.loads(tm.handle_get_task_context({"output_dir": od, "task_id": task_id}, store))
     assert ctx["ok"] is True
     assert ctx["pending_raw_count"] == 2
     entries = ctx["pending_raws"]
@@ -394,7 +446,7 @@ def test_hook_friction_hint_for_high_score(tmp_path):
     (raw_dir / "conv-a.md").write_text(
         "---\n"
         "status: pending\n"
-        "task_id: \"task-x\"\n"
+        'task_id: "task-x"\n'
         "friction_score: 35\n"
         "friction_signals: correction=2,interrupt=0,repeat=0,user_turns=9\n"
         "---\n\nuser: hi",
@@ -418,8 +470,7 @@ def test_hook_no_hint_for_low_or_missing_score(tmp_path):
     assert hook._latest_friction_hint(str(tmp_path)) == ""
 
     # Pre-K-line file without the key: silent.
-    (raw_dir / "conv-b.md").write_text(
-        "---\nstatus: pending\n---\n\nuser: hi", encoding="utf-8")
+    (raw_dir / "conv-b.md").write_text("---\nstatus: pending\n---\n\nuser: hi", encoding="utf-8")
     assert hook._latest_friction_hint(str(tmp_path)) == ""
 
 
@@ -451,14 +502,25 @@ def test_hook_message_embeds_friction_hint(tmp_path):
         "---\n\nuser: hi",
         encoding="utf-8",
     )
-    event = json.dumps({"session_id": "s", "cwd": str(tmp_path),
-                        "hook_event_name": "SessionStart", "source": "startup"})
+    event = json.dumps(
+        {
+            "session_id": "s",
+            "cwd": str(tmp_path),
+            "hook_event_name": "SessionStart",
+            "source": "startup",
+        }
+    )
     env = dict(os.environ)
     env["CODEBUDDY_PROJECT_DIR"] = str(tmp_path)
     env["PYTHONUTF8"] = "1"
     proc = subprocess.run(
-        [sys.executable, str(HOOK_PATH)], input=event, capture_output=True,
-        text=True, encoding="utf-8", env=env, timeout=30,
+        [sys.executable, str(HOOK_PATH)],
+        input=event,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+        timeout=30,
     )
     assert proc.returncode == 0, proc.stderr
     out = json.loads(proc.stdout)

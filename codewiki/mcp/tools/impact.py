@@ -19,7 +19,7 @@ import logging
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set
 
-from codewiki.mcp.session import SessionState, SessionStore
+from codewiki.mcp.session import SessionStore
 from codewiki.mcp.tools.workspace_result import write_result
 from codewiki.src.be.dependency_analyzer.topo_sort import (
     build_graph_from_components,
@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
 
 def _build_comp_module_index(module_tree: Dict[str, Any]) -> Dict[str, str]:
     """Build a component-id → module-name inverted index in one tree walk."""
@@ -78,6 +79,7 @@ def _enrich_component(
 # Main handler
 # ------------------------------------------------------------------
 
+
 def handle_analyze_impact(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -104,7 +106,11 @@ def handle_analyze_impact(
 
     session = resolve_session(arguments, store)
     if session is None:
-        return json.dumps({"error": "Session not found. Provide a valid repo_path pointing to a previously analyzed repository."})
+        return json.dumps(
+            {
+                "error": "Session not found. Provide a valid repo_path pointing to a previously analyzed repository."
+            }
+        )
 
     components = session.components
     module_tree = session.module_tree or {}
@@ -127,10 +133,12 @@ def handle_analyze_impact(
         start_ids.update(resolved)
 
     if not start_ids:
-        return json.dumps({
-            "error": "No valid components found. Provide component_ids or file_paths "
-                     "that match components in the analyzed repository.",
-        })
+        return json.dumps(
+            {
+                "error": "No valid components found. Provide component_ids or file_paths "
+                "that match components in the analyzed repository.",
+            }
+        )
 
     # --- Build graph & traverse ----------------------------------------
     graph = build_graph_from_components(components)
@@ -154,10 +162,15 @@ def handle_analyze_impact(
         meta = meta_map.get(comp_id)
         if meta is None:
             continue
-        enriched.append(_enrich_component(
-            comp_id, meta, depth, comp_module_idx,
-            path=paths.get(comp_id) if include_paths else None,
-        ))
+        enriched.append(
+            _enrich_component(
+                comp_id,
+                meta,
+                depth,
+                comp_module_idx,
+                path=paths.get(comp_id) if include_paths else None,
+            )
+        )
 
     # --- Module-level aggregation --------------------------------------
     module_impact: Dict[str, Dict[str, Any]] = defaultdict(

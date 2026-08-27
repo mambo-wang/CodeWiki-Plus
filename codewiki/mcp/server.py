@@ -137,10 +137,12 @@ server = Server(
 #  Tool definitions + dispatch (delegated to registry)
 # ===================================================================
 
+
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     """List all available CodeWiki MCP tools."""
     from codewiki.mcp.registry import get_all_tools
+
     return get_all_tools()
 
 
@@ -148,6 +150,7 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """Route tool calls to the appropriate handler via the registry."""
     from codewiki.mcp.registry import dispatch
+
     return await dispatch(name, arguments, _store)
 
 
@@ -165,6 +168,7 @@ _register_resources(server)
 # ===================================================================
 #  Entry point
 # ===================================================================
+
 
 async def main():
     """Run the MCP server with stdio transport."""

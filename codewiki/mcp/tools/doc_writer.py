@@ -315,7 +315,9 @@ def _okf_patch_defaults(
     # Default alias keeps the doc discoverable by its slug (mirrors the
     # _build_okf_frontmatter path).  Applied only when `aliases` is missing
     # from existing frontmatter, so hand-written aliases are never clobbered.
-    lines.append(("aliases", f"aliases: [{_json.dumps(filename.replace('.md', ''), ensure_ascii=False)}]"))
+    lines.append(
+        ("aliases", f"aliases: [{_json.dumps(filename.replace('.md', ''), ensure_ascii=False)}]")
+    )
     if user_description:
         lines.append(
             ("description", f"description: {_json.dumps(user_description, ensure_ascii=False)}")

@@ -10,6 +10,7 @@ Covers docs/知识飞轮增强设计方案-P1三项.md §2 acceptance criteria:
   - capture integration: declared docs persisted + adoption_nudge only when
     search traces exist without any declaration
 """
+
 from __future__ import annotations
 
 import json
@@ -54,7 +55,9 @@ class TestExtractAdoptedDocs:
             '<!-- codewiki:referenced-docs: [".\\\\notes\\\\win.md", "/notes/abs.md", "./notes/rel.md"] -->',
         )
         assert extract_adopted_docs(turns) == [
-            "notes/abs.md", "notes/rel.md", "notes/win.md",
+            "notes/abs.md",
+            "notes/rel.md",
+            "notes/win.md",
         ]
 
     def test_rejects_traversal_and_empty(self):
@@ -66,7 +69,7 @@ class TestExtractAdoptedDocs:
     def test_invalid_json_skipped(self):
         turns = _turns(
             '<!-- codewiki:referenced-docs: ["broken.md" -->',
-            '<!-- codewiki:referenced-docs: not-json -->',
+            "<!-- codewiki:referenced-docs: not-json -->",
             '<!-- codewiki:referenced-docs: {"a": 1} -->',
         )
         assert extract_adopted_docs(turns) == []
@@ -86,8 +89,10 @@ class TestExtractAdoptedDocs:
         turns = _turns(
             '<!-- codewiki:referenced-docs: ["exists.md", "missing.md"] -->',
         )
+
         def _exists(p):
             return p == "exists.md"
+
         assert extract_adopted_docs(turns, existing=_exists) == ["exists.md"]
 
     def test_prose_mention_does_not_match(self):
@@ -110,7 +115,8 @@ class TestAdoptionEvents:
         n = record_adoption_events(tmp_path, "tester/sess-1", ["notes/a.md", "notes/b.md"])
         assert n == 2
         assert load_adoption_counts(tmp_path) == {
-            "notes/a.md": 1, "notes/b.md": 1,
+            "notes/a.md": 1,
+            "notes/b.md": 1,
         }
 
     def test_idempotent_same_key(self, tmp_path):
@@ -124,7 +130,8 @@ class TestAdoptionEvents:
         n = record_adoption_events(tmp_path, "tester/sess-1", ["notes/a.md", "notes/b.md"])
         assert n == 1
         assert load_adoption_counts(tmp_path) == {
-            "notes/a.md": 1, "notes/b.md": 1,
+            "notes/a.md": 1,
+            "notes/b.md": 1,
         }
 
     def test_different_sessions_accumulate(self, tmp_path):
@@ -204,13 +211,17 @@ class TestCaptureIntegration:
         _make_doc(tmp_path, "wiki/modules/m.md")
         turns = [
             {"role": "user", "content": "question"},
-            {"role": "assistant", "content":
-                "answer\n<!-- codewiki:referenced-docs:"
-                ' ["notes/pitfall-a.md", "wiki/modules/m.md"] -->'},
+            {
+                "role": "assistant",
+                "content": "answer\n<!-- codewiki:referenced-docs:"
+                ' ["notes/pitfall-a.md", "wiki/modules/m.md"] -->',
+            },
             {"role": "user", "content": "thanks"},
             {"role": "assistant", "content": "done"},
         ]
-        result = json.loads(handle_capture_conversation(_capture_args(tmp_path, turns, "s1"), SessionStore()))
+        result = json.loads(
+            handle_capture_conversation(_capture_args(tmp_path, turns, "s1"), SessionStore())
+        )
         assert result["adopted_docs"] == ["notes/pitfall-a.md", "wiki/modules/m.md"]
         assert result["adoption_inserted"] == 2
         counts = load_adoption_counts(tmp_path)
@@ -220,8 +231,10 @@ class TestCaptureIntegration:
         _make_doc(tmp_path, "notes/pitfall-a.md")
         turns1 = [
             {"role": "user", "content": "q1"},
-            {"role": "assistant", "content":
-                'a1\n<!-- codewiki:referenced-docs: ["notes/pitfall-a.md"] -->'},
+            {
+                "role": "assistant",
+                "content": 'a1\n<!-- codewiki:referenced-docs: ["notes/pitfall-a.md"] -->',
+            },
         ]
         # re-capture same session with an extended transcript
         turns2 = turns1 + [
@@ -236,20 +249,25 @@ class TestCaptureIntegration:
         _make_doc(tmp_path, "notes/exists.md")
         turns = [
             {"role": "user", "content": "q"},
-            {"role": "assistant", "content":
-                'a\n<!-- codewiki:referenced-docs: ["notes/exists.md", "notes/ghost.md"] -->'},
+            {
+                "role": "assistant",
+                "content": 'a\n<!-- codewiki:referenced-docs: ["notes/exists.md", "notes/ghost.md"] -->',
+            },
         ]
-        result = json.loads(handle_capture_conversation(_capture_args(tmp_path, turns, "s1"), SessionStore()))
+        result = json.loads(
+            handle_capture_conversation(_capture_args(tmp_path, turns, "s1"), SessionStore())
+        )
         assert result["adopted_docs"] == ["notes/exists.md"]
         assert load_adoption_counts(tmp_path) == {"notes/exists.md": 1}
 
     def test_nudge_when_search_traces_without_declaration(self, tmp_path):
         turns = [
             {"role": "user", "content": "search it"},
-            {"role": "assistant", "content":
-                "based on context_package from query_wiki ..."},
+            {"role": "assistant", "content": "based on context_package from query_wiki ..."},
         ]
-        result = json.loads(handle_capture_conversation(_capture_args(tmp_path, turns, "s1"), SessionStore()))
+        result = json.loads(
+            handle_capture_conversation(_capture_args(tmp_path, turns, "s1"), SessionStore())
+        )
         assert result.get("adoption_nudge") is True
         assert "adopted_docs" not in result
 
@@ -257,11 +275,15 @@ class TestCaptureIntegration:
         _make_doc(tmp_path, "notes/a.md")
         turns = [
             {"role": "user", "content": "search it"},
-            {"role": "assistant", "content":
-                "based on context_package...\n"
-                '<!-- codewiki:referenced-docs: ["notes/a.md"] -->'},
+            {
+                "role": "assistant",
+                "content": "based on context_package...\n"
+                '<!-- codewiki:referenced-docs: ["notes/a.md"] -->',
+            },
         ]
-        result = json.loads(handle_capture_conversation(_capture_args(tmp_path, turns, "s1"), SessionStore()))
+        result = json.loads(
+            handle_capture_conversation(_capture_args(tmp_path, turns, "s1"), SessionStore())
+        )
         assert "adoption_nudge" not in result
 
     def test_no_nudge_when_no_search_traces(self, tmp_path):
@@ -269,5 +291,7 @@ class TestCaptureIntegration:
             {"role": "user", "content": "hello"},
             {"role": "assistant", "content": "hi there"},
         ]
-        result = json.loads(handle_capture_conversation(_capture_args(tmp_path, turns, "s1"), SessionStore()))
+        result = json.loads(
+            handle_capture_conversation(_capture_args(tmp_path, turns, "s1"), SessionStore())
+        )
         assert "adoption_nudge" not in result

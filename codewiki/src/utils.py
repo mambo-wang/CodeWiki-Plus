@@ -7,19 +7,20 @@ from typing import Any, Optional, Dict
 # ---------------------- File Manager ---------------------
 # ------------------------------------------------------------
 
+
 class FileManager:
     """Handles file I/O operations."""
-    
+
     @staticmethod
     def ensure_directory(path: str) -> None:
         """Create directory if it doesn't exist."""
         os.makedirs(path, exist_ok=True)
-    
+
     @staticmethod
     def save_json(data: Any, filepath: str) -> None:
         """Save data as JSON to file."""
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
 
     @staticmethod
@@ -28,19 +29,20 @@ class FileManager:
         if not os.path.exists(filepath):
             return None
 
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             return json.load(f)
 
     @staticmethod
     def save_text(content: str, filepath: str) -> None:
         """Save text content to file."""
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
 
     @staticmethod
     def load_text(filepath: str) -> str:
         """Load text content from file."""
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             return f.read()
+
 
 file_manager = FileManager()

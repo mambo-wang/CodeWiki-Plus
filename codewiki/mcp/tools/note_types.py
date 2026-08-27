@@ -83,6 +83,7 @@ def _load_schema(output_dir: Optional[Path]) -> Optional[dict]:
         return None
     try:
         from codewiki.mcp.tools.page_router import load_schema
+
         return load_schema(str(output_dir))
     except Exception as e:  # missing schema / parser absent — fall back to defaults
         logger.debug("note_types: schema load skipped (%s)", e)
@@ -102,9 +103,7 @@ def load_note_types(
     """
     if schema is None:
         schema = _load_schema(output_dir)
-    table: Dict[str, Dict[str, Any]] = {
-        t: dict(spec) for t, spec in DEFAULT_NOTE_TYPES.items()
-    }
+    table: Dict[str, Dict[str, Any]] = {t: dict(spec) for t, spec in DEFAULT_NOTE_TYPES.items()}
     conv = (schema or {}).get("conventions") or {}
     custom = conv.get("note_types")
     if isinstance(custom, dict):
@@ -112,10 +111,16 @@ def load_note_types(
             t = str(raw_key).strip().lower()
             if not t:
                 continue
-            base = dict(table.get(t, {
-                "freshness_days": 180, "promote_to": "",
-                "merge_fields": dict(_DEFAULT_MERGE_FIELDS),
-            }))
+            base = dict(
+                table.get(
+                    t,
+                    {
+                        "freshness_days": 180,
+                        "promote_to": "",
+                        "merge_fields": dict(_DEFAULT_MERGE_FIELDS),
+                    },
+                )
+            )
             if isinstance(spec, dict):
                 for k, v in spec.items():
                     base[k] = v
@@ -123,9 +128,7 @@ def load_note_types(
     return table
 
 
-def valid_note_types(
-    schema: Optional[dict] = None, output_dir: Optional[Path] = None
-) -> Set[str]:
+def valid_note_types(schema: Optional[dict] = None, output_dir: Optional[Path] = None) -> Set[str]:
     """Legal note_type values (MCP inputSchema enum source)."""
     return set(load_note_types(schema, output_dir))
 
@@ -182,13 +185,13 @@ def validate_note_types(
     """
     if accepted is None:
         from codewiki.mcp.tools.distill_conversation import _VALID_NOTE_TYPES
+
         accepted = set(_VALID_NOTE_TYPES)
     declared = set(load_note_types(schema, output_dir))
     errors: List[str] = []
     missing = accepted - declared
     if missing:
         errors.append(
-            "note_types: handler accepts %s but the table does not declare them"
-            % sorted(missing)
+            "note_types: handler accepts %s but the table does not declare them" % sorted(missing)
         )
     return errors
