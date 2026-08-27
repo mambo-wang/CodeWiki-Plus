@@ -4,8 +4,6 @@ import argparse
 import os
 import re
 import sys
-from dotenv import load_dotenv
-load_dotenv()
 
 # Constants
 OUTPUT_BASE_DIR = 'output'
@@ -90,7 +88,7 @@ def _git_config_value(key: str) -> str:
     try:
         proc = subprocess.run(
             ["git", "config", key],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=2,
             encoding="utf-8", errors="replace",
         )
         if proc.returncode == 0:
@@ -136,26 +134,58 @@ def _sanitize_user_id(raw: str) -> str:
     return safe[:40]
 
 
+_USER_ID_CACHE_PATH = os.path.join(
+    os.environ.get("APPDATA") or os.path.expanduser("~"),
+    ".codewiki_user_id",
+)
+
+
+def _read_user_id_cache() -> str:
+    """Persisted user_id from a previous process, avoiding a ``git`` subprocess
+    on every cold start. Empty string when absent/unreadable."""
+    try:
+        with open(_USER_ID_CACHE_PATH, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
+def _write_user_id_cache(uid: str) -> None:
+    """Best-effort persist; failure is non-fatal (next start re-derives)."""
+    try:
+        os.makedirs(os.path.dirname(_USER_ID_CACHE_PATH), exist_ok=True)
+        with open(_USER_ID_CACHE_PATH, "w", encoding="utf-8") as f:
+            f.write(uid)
+    except Exception:
+        pass
+
+
 def user_id() -> str:
     """Stable per-user identity for telemetry / task-memory namespacing.
     Priority: CODEWIKI_USER env (explicit override, allows pseudonyms)
-    > git user.email > git user.name > os.getlogin. Falls back to 'local'.
-    Not an auth mechanism — namespace only (trust model = confirm gate).
+    > disk cache > git user.email > git user.name > os.getlogin.
+    Falls back to 'local'. Not an auth mechanism — namespace only.
 
     email ranks above name because it is effectively globally unique, which
     keeps per-user files from fragmenting when two teammates share a name —
     and from colliding when the same person contributes from several
-    machines with consistent git identity.
+    machines with consistent git identity. The disk cache makes this stable
+    across process cold-starts without paying a ``git`` subprocess each time.
     """
     env = os.getenv("CODEWIKI_USER", "").strip()
     if env:
         return _sanitize_user_id(env)
+    cached = _read_user_id_cache()
+    if cached:
+        return cached
     raw = _git_user_email() or _git_user_name()
     if not raw:
         raw = _login_name()
     if not raw:
         return "local"
-    return _sanitize_user_id(raw)
+    uid = _sanitize_user_id(raw)
+    _write_user_id_cache(uid)
+    return uid
 
 
 def meta_join(base_dir, filename):

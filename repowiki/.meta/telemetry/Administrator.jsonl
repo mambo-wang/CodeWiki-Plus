@@ -46,3 +46,10 @@
 {"t": "hit", "doc": "wiki/modules/DocVisualizer.md", "at": "2026-08-25", "n": 1}
 {"t": "hit", "doc": "notes/2026-08-19-l0-对话归档采用链接优先零索引设计.md", "at": "2026-08-25", "n": 1}
 {"t": "hit", "doc": "wiki/scenarios/对话蒸馏管线与raw暂存区.md", "at": "2026-08-25", "n": 1}
+{"t": "hit", "doc": "wiki/modules/MCP_Tools_Quality.md", "at": "2026-08-27", "n": 2}
+{"t": "hit", "doc": "wiki/doctrine.md", "at": "2026-08-27", "n": 1}
+{"t": "hit", "doc": "wiki/scenarios/Wiki页面生成约定与数据结构.md", "at": "2026-08-27", "n": 2}
+{"t": "hit", "doc": "notes/2026-08-26-ruff-format-panic-的根因是误提交的一次性诊断脚本检查步骤勿因工具崩溃轻率移除.md", "at": "2026-08-27", "n": 2}
+{"t": "hit", "doc": "notes/2026-08-03-mcp-工具-schema-不声明-session-idhandler-隐式读取.md", "at": "2026-08-27", "n": 2}
+{"t": "hit", "doc": "wiki/modules/MCP_Prompts.md", "at": "2026-08-27", "n": 1}
+{"t": "hit", "doc": "notes/2026-08-26-record-hit-同日聚合只查最后一行交错写入下退化为纯追加n-恒为-1.md", "at": "2026-08-27", "n": 1}
