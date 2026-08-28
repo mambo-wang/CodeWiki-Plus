@@ -519,9 +519,19 @@ def handle_ingest_note(
     else:
         rp = arguments.get("repo_path")
         if rp:
-            output_dir = Path(rp).expanduser().resolve() / "repowiki"
+            from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+            output_dir = default_output_dir(rp)
         else:
             return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
+
+    # Layout-aware provenance (ticket 04): notes ingested from a centralized
+    # member repo are shared-pool knowledge and carry a repo: source tag.
+    from codewiki.mcp.tools.workspace_layout import routing_for_write
+
+    _prov_repo = routing_for_write(
+        output_dir, (arguments.get("repo_path") or (session.repo_path if session else None))
+    )
 
     from codewiki.src.config import NOTES_DIR
 
@@ -594,6 +604,10 @@ def handle_ingest_note(
     # level only carries OKF-standard keys.  Line-based consumers (wiki_index
     # note date, lint note_clusters) still read them via the indented rows.
     metadata_lines = [f"  date: {today}"]
+    # Centralized layout provenance: which member repo produced this note
+    # (shared-pool knowledge). Omitted for colocated / single-repo.
+    if _prov_repo:
+        metadata_lines.append(f"  repo: {json.dumps(_prov_repo, ensure_ascii=False)}")
     # Task routing: stamp task_id under metadata so query_wiki(task_id=...) and
     # get_task_context can surface task-scoped notes. Omitted for taskless notes.
     task_id = arguments.get("task_id")

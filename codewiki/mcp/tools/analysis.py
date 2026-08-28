@@ -48,9 +48,16 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     if not repo_path.exists():
         return json.dumps({"error": f"Repository not found: {repo_path}"})
 
-    output_dir = (
-        Path(arguments.get("output_dir", str(repo_path / "repowiki"))).expanduser().resolve()
-    )
+    # Layout-aware default output_dir (ticket 04): an explicit argument always
+    # wins; otherwise a centralized-workspace member repo analyses into the
+    # workspace knowledge base, everything else keeps <repo>/repowiki.
+    _od_arg = (arguments.get("output_dir") or "").strip()
+    if _od_arg:
+        output_dir = Path(_od_arg).expanduser().resolve()
+    else:
+        from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+        output_dir = default_output_dir(repo_path)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     import tempfile
@@ -277,10 +284,20 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
             _rel_output = str(output_dir.resolve().relative_to(repo_path.resolve()))
         except ValueError:
             _rel_output = output_dir.name  # output_dir outside repo — best effort
+        # cache_db is resolved by consumers against output_dir.parent; express
+        # it relative to that anchor so it stays valid in both layouts
+        # (standard: ".codewiki/analysis_cache.db"; centralized:
+        # "<repo>/.codewiki/analysis_cache.db" under the workspace root).
+        try:
+            _cache_rel = os.path.relpath(
+                repo_path / ".codewiki" / "analysis_cache.db", output_dir.parent
+            ).replace("\\", "/")
+        except ValueError:
+            _cache_rel = ".codewiki/analysis_cache.db"
         project_info = {
             "repo_name": repo_path.name,
             "output_dir": _rel_output.replace("\\", "/"),
-            "cache_db": ".codewiki/analysis_cache.db",  # relative to repo root
+            "cache_db": _cache_rel,
         }
         Path(meta_join(output_dir, PROJECT_FILENAME)).write_text(
             json.dumps(project_info, ensure_ascii=False, indent=2), encoding="utf-8"

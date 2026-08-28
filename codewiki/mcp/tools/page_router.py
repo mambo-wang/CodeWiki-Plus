@@ -167,6 +167,7 @@ def resolve_doc_path(
     page_type: str,
     output_dir: str | Path,
     schema: dict | None = None,
+    repo_name: str | None = None,
 ) -> Path:
     """Resolve the absolute path for a wiki document.
 
@@ -220,6 +221,10 @@ def resolve_doc_path(
         candidate = (wiki_dir / filename).resolve()
     else:
         target_dir = get_page_type_dir(page_type, od, schema)
+        if repo_name and page_type == "module":
+            # Centralized-layout partition (ticket 04): module pages are
+            # code-structure-anchored and route to wiki/modules/<repo>/.
+            target_dir = target_dir / repo_name
         target_dir.mkdir(parents=True, exist_ok=True)
         candidate = (target_dir / filename).resolve()
 
