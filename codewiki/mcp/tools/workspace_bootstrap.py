@@ -34,6 +34,7 @@ from codewiki.mcp.tools.workspace_layout import (
     LAYOUT_CENTRALIZED,
     LAYOUT_COLOCATED,
     VALID_LAYOUTS,
+    read_layout,
     read_layout_value,
 )
 
@@ -244,11 +245,34 @@ def _ensure_gitignore(workspace_p: Path, repo_names: list[str]) -> dict:
     return {"status": "updated" if missing else "up_to_date", "added": missing}
 
 
-def _nav_row(name: str) -> str:
+def _nav_row(name: str, layout: str = LAYOUT_COLOCATED) -> str:
+    if layout == LAYOUT_CENTRALIZED:
+        return (
+            f"| {name} | `{name}/` | <!-- TODO: 填写职责 --> | "
+            f"`repowiki/wiki/modules/{name}/` | <!-- TODO --> |"
+        )
     return f"| {name} | `{name}/` | <!-- TODO: 填写职责 --> | `{name}/repowiki` | <!-- TODO --> |"
 
 
-def _repo_map_section(name: str) -> str:
+def _repo_map_section(name: str, layout: str = LAYOUT_COLOCATED) -> str:
+    if layout == LAYOUT_CENTRALIZED:
+        return (
+            f"## {name}（`{name}/`）\n"
+            "\n"
+            "**业务概述**\n"
+            "\n"
+            "<!-- TODO: 补充业务概述 -->\n"
+            "\n"
+            "**知识分区**\n"
+            "\n"
+            f"`repowiki/wiki/modules/{name}/`（业务仓为纯代码目录，无仓内知识库）\n"
+            "\n"
+            "**检索方式**\n"
+            "\n"
+            "```\n"
+            f'query_wiki(query=<问题>, repo="{name}")\n'
+            "```\n"
+        )
     return (
         f"## {name}（`{name}/`）\n"
         "\n"
@@ -264,7 +288,9 @@ def _repo_map_section(name: str) -> str:
     )
 
 
-def _ensure_repo_map_entry(text: str, name: str) -> tuple[str, dict]:
+def _ensure_repo_map_entry(
+    text: str, name: str, layout: str = LAYOUT_COLOCATED
+) -> tuple[str, dict]:
     """Add the nav-table row and detail section for one repo to repo-map text."""
     result = {"nav_row": "skipped", "section": "skipped"}
     dir_cell = f"`{name}/`"
@@ -281,14 +307,14 @@ def _ensure_repo_map_entry(text: str, name: str) -> tuple[str, dict]:
                 insert_at = i + 1
                 break
         if insert_at is not None:
-            lines.insert(insert_at, _nav_row(name))
+            lines.insert(insert_at, _nav_row(name, layout))
             result["nav_row"] = "added"
         else:
             result["nav_row"] = "warning: navigation table not found; section only"
 
     if not section_exists:
         text = "\n".join(lines)
-        section = _repo_map_section(name)
+        section = _repo_map_section(name, layout)
         idx = text.find(_REPO_MAP_NEW_REPO_COMMENT)
         if idx != -1:
             text = text[:idx] + section + "\n" + text[idx:]
@@ -575,19 +601,32 @@ def handle_add_workspace_repo(arguments: dict) -> str:
 
     # All preflight checks passed — write the four artifacts.
     actions = _apply_registration(info, [(name, url)])
+    layout = read_layout(workspace_p)
     results: dict = {
         "workspace_path": str(workspace_p),
         "name": name,
         "url": url,
+        "layout": layout,
         "bootstrap_sh": actions["bootstrap_sh"][name],
         "bootstrap_ps1": actions["bootstrap_ps1"][name],
         "gitignore": _ensure_gitignore(workspace_p, [name]),
     }
 
+    # Centralized layout: business repos are pure code — scaffold the repo's
+    # modules partition in the workspace repowiki instead of any in-repo wiki.
+    if layout == LAYOUT_CENTRALIZED:
+        partition = workspace_p / "repowiki" / "wiki" / "modules" / name
+        if partition.exists():
+            results["modules_partition"] = f"kept (already present): {partition}"
+        else:
+            partition.mkdir(parents=True, exist_ok=True)
+            (partition / ".gitkeep").write_text("", encoding="utf-8")
+            results["modules_partition"] = str(partition)
+
     repo_map_path = workspace_p / "repowiki" / "wiki" / "repo-map.md"
     if repo_map_path.exists():
         text = _read_text(repo_map_path)
-        new_text, rm_status = _ensure_repo_map_entry(text, name)
+        new_text, rm_status = _ensure_repo_map_entry(text, name, layout)
         if new_text != text:
             _write_text(repo_map_path, new_text)
         results["repo_map"] = rm_status
@@ -602,12 +641,31 @@ def handle_add_workspace_repo(arguments: dict) -> str:
                 "or re-invoke with clone=true after fixing network/credentials"
             ]
 
+    # Centralized layout: the cloned repo's AGENTS.md may carry a CodeWiki
+    # usage block pointing at an in-repo repowiki that no longer exists.
+    if layout == LAYOUT_CENTRALIZED:
+        repo_dir = workspace_p / name
+        if repo_dir.is_dir():
+            from codewiki.mcp.tools.agents_md import remove_codewiki_block
+
+            results["agents_md_codewiki_block"] = remove_codewiki_block(str(repo_dir))
+        else:
+            results["agents_md_codewiki_block"] = "skipped (repo directory not present)"
+
     results["status"] = "ok"
-    results["next_steps"] = (
-        f"Repo {name!r} registered. Next: run init_wiki / analyze_repo with "
-        f"output_dir=<workspace>/{name}/repowiki, then fill its 业务概述 section in "
-        "repowiki/wiki/repo-map.md. On POSIX run: chmod +x bootstrap.sh"
-    )
+    if layout == LAYOUT_CENTRALIZED:
+        results["next_steps"] = (
+            f"Repo {name!r} registered (centralized layout; no in-repo repowiki). "
+            f"Knowledge partition scaffolded at repowiki/wiki/modules/{name}/. "
+            "Next: run analyze_repo for this repo to populate the workspace "
+            f"knowledge base, then fill its 业务概述 section in repo-map.md."
+        )
+    else:
+        results["next_steps"] = (
+            f"Repo {name!r} registered. Next: run init_wiki / analyze_repo with "
+            f"output_dir=<workspace>/{name}/repowiki, then fill its 业务概述 section in "
+            "repowiki/wiki/repo-map.md. On POSIX run: chmod +x bootstrap.sh"
+        )
     return json.dumps(results, ensure_ascii=False, indent=2)
 
 

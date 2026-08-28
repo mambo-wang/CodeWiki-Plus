@@ -215,3 +215,76 @@ class TestInitLayout:
         assert "error" in res
         assert "output_dir" in res["error"]
         assert not (tmp_path / "custom-wiki" / ".meta" / "workspace.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# Ticket 03: add_workspace_repo under centralized layout
+# ---------------------------------------------------------------------------
+_CODEWIKI_BLOCK = (
+    "<!-- CodeWiki LLM Wiki -->\n\n## CodeWiki LLM Wiki\n\nblock body\n\n"
+    "<!-- /CodeWiki LLM Wiki -->"
+)
+
+
+class TestAddRepoLayout:
+    def test_add_centralized_creates_partition_and_strips_block(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        repo = tmp_path / "a"
+        repo.mkdir()
+        # Business repo carries its own conventions + a CodeWiki usage block.
+        (repo / "AGENTS.md").write_text(
+            f"# Repo conventions\n\nkeep me\n\n{_CODEWIKI_BLOCK}\n\ntail\n",
+            encoding="utf-8",
+        )
+
+        res = _register(tmp_path)
+        assert res["status"] == "ok"
+        assert res["layout"] == "centralized"
+
+        # Partition skeleton in the workspace repowiki, none inside the repo.
+        partition = tmp_path / "repowiki" / "wiki" / "modules" / "a"
+        assert (partition / ".gitkeep").is_file()
+        assert not (repo / "repowiki").exists()
+        assert "modules_partition" in res
+
+        # Dead CodeWiki block removed; the repo's own content preserved.
+        agents = (repo / "AGENTS.md").read_text(encoding="utf-8")
+        assert "CodeWiki LLM Wiki" not in agents
+        assert "keep me" in agents
+        assert "tail" in agents
+        assert res["agents_md_codewiki_block"] == "removed"
+
+        # repo-map carries the centralized variant.
+        repo_map = (tmp_path / "repowiki" / "wiki" / "repo-map.md").read_text(encoding="utf-8")
+        assert "repowiki/wiki/modules/a/" in repo_map
+        assert 'repo="a"' in repo_map
+
+    def test_add_colocated_behaviour_unchanged(self, tmp_path):
+        _init(tmp_path)  # colocated default
+        repo = tmp_path / "a"
+        repo.mkdir()
+        (repo / "AGENTS.md").write_text(f"x\n\n{_CODEWIKI_BLOCK}\n", encoding="utf-8")
+
+        res = _register(tmp_path)
+        assert res["layout"] == "colocated"
+        assert "modules_partition" not in res
+        assert not (tmp_path / "repowiki" / "wiki" / "modules" / "a").exists()
+
+        # Block kept; repo-map uses the two-hop variant.
+        assert "CodeWiki LLM Wiki" in (repo / "AGENTS.md").read_text(encoding="utf-8")
+        repo_map = (tmp_path / "repowiki" / "wiki" / "repo-map.md").read_text(encoding="utf-8")
+        assert "a/repowiki" in repo_map
+
+    def test_add_centralized_repo_dir_absent(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        # clone=False and no pre-created directory (clone failed / pending).
+        res = _register(tmp_path)
+        assert res["status"] == "ok"
+        assert res["agents_md_codewiki_block"] == "skipped (repo directory not present)"
+
+    def test_add_centralized_partition_idempotent(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        (tmp_path / "a").mkdir()
+        _register(tmp_path)
+        res = _register(tmp_path)  # same name+URL: registration no-op
+        assert res["modules_partition"].startswith("kept")
