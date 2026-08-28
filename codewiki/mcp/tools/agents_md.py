@@ -101,13 +101,21 @@ def _write_agents_md(repo_path: str, output_dir: str, module_tree: dict) -> None
 
 
 def write_workspace_conventions(
-    *, workspace_path: str, workspace_name: str, refresh: bool = False
+    *,
+    workspace_path: str,
+    workspace_name: str,
+    refresh: bool = False,
+    layout: str = "colocated",
 ) -> str:
     """Write the multi-repo workspace conventions section into AGENTS.md.
 
     Deliberately different overwrite policy from the CodeWiki usage block:
     the conventions are a team contract that users hand-evolve, so an
     existing marked block is kept as-is unless ``refresh=True``.
+
+    ``layout`` selects the conventions variant: ``colocated`` (two-hop
+    routing, per-repo repowikis) or ``centralized`` (one-hop routing,
+    single workspace repowiki).
 
     Returns ``"created"`` | ``"kept"`` | ``"refreshed"``.
     """
@@ -122,9 +130,15 @@ def write_workspace_conventions(
             logger.info("Workspace conventions already present in %s, kept", agents_path)
             return "kept"
 
-    body = _WORKSPACE_TEMPLATE.read_text(encoding="utf-8").replace(
-        "{{WORKSPACE_NAME}}", workspace_name
+    from codewiki.mcp.tools.workspace_layout import LAYOUT_CENTRALIZED
+
+    template_name = (
+        "agents-md-workspace-centralized.md.tpl"
+        if layout == LAYOUT_CENTRALIZED
+        else "agents-md-workspace.md.tpl"
     )
+    template_path = _WORKSPACE_TEMPLATE.parent / template_name
+    body = template_path.read_text(encoding="utf-8").replace("{{WORKSPACE_NAME}}", workspace_name)
     section = f"{_WORKSPACE_BEGIN_MARKER}\n\n{body}\n{_WORKSPACE_END_MARKER}"
     action = _upsert_marked_section(
         agents_path, _WORKSPACE_BEGIN_MARKER, _WORKSPACE_END_MARKER, section
