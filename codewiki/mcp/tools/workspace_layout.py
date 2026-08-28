@@ -247,16 +247,66 @@ def read_provenance(text: str | None) -> set[str]:
     return names
 
 
-def merge_provenance(new_content: str, old_content: str | None, repo_name: str) -> str:
-    """Return *new_content* with provenance = union(old, new, *repo_name*).
+def parse_scope_arg(value) -> Union[str, list, None]:
+    """Normalise the manual-write ``scope`` argument (ticket 06).
 
-    Later writes overwrite the body, but sources only grow (design doc §9 /
-    D9).  Existing ``repo:``/``repos:`` lines are replaced by one canonical
-    line right after the opening fence: ``repo: "<n>"`` for a single source,
-    ``repos: [...]`` for several.
+    Returns one of three shapes:
+    * ``None`` — omitted/empty: automatic stamping with the writing repo;
+    * ``"global"`` — product-line knowledge, no provenance;
+    * ``list[str]`` — exactly these source repos (single name included).
+
+    Accepts a list, a single repo name, or a comma-separated string.
+    Raises ``ValueError`` on values that carry no meaning.
     """
-    union = read_provenance(old_content) | read_provenance(new_content) | {repo_name}
-    ordered = sorted(n for n in union if n)
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        names = [str(n).strip() for n in value if str(n).strip()]
+        if not names:
+            raise ValueError("scope list must not be empty")
+        return names
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in ("global", "product", "product-line", "全局"):
+        return "global"
+    names = [p.strip() for p in text.split(",") if p.strip()]
+    if not names:
+        raise ValueError(f"invalid scope value: {value!r}")
+    return names
+
+
+def merge_provenance(
+    new_content: str,
+    old_content: str | None,
+    repo_name: str | None = None,
+    explicit_scope: Union[str, list, None] = None,
+) -> str:
+    """Return *new_content* with the desired provenance lines.
+
+    Default (automatic writes): provenance = union(old, new, *repo_name*) —
+    later writes overwrite the body, but sources only grow (design doc §9 /
+    D9).
+
+    Explicit scope (manual re-scoping, ticket 06) replaces the decision:
+    * ``explicit_scope="global"`` → strip provenance entirely (product-line
+      knowledge applicable to every repo);
+    * ``explicit_scope=["a", "b"]`` → exactly these sources.
+
+    Existing ``repo:``/``repos:`` lines are always replaced by one canonical
+    line right after the opening fence: ``repo: "<n>"`` for a single source,
+    ``repos: [...]`` for several, none for global.
+    """
+    if explicit_scope == "global":
+        ordered: list[str] = []
+    elif isinstance(explicit_scope, (list, tuple)):
+        ordered = sorted({str(n) for n in explicit_scope if str(n).strip()})
+    else:
+        union = read_provenance(old_content) | read_provenance(new_content)
+        if repo_name:
+            union |= {repo_name}
+        ordered = sorted(n for n in union if n)
+
     out: list[str] = []
     in_fm = False
     fence_count = 0
@@ -272,6 +322,6 @@ def merge_provenance(new_content: str, old_content: str | None, repo_name: str) 
                     out.append(f"repos: {json.dumps(ordered, ensure_ascii=False)}")
             continue
         if in_fm and (_REPO_LINE_RE.match(line) or _REPOS_LINE_RE.match(line)):
-            continue  # replaced by the canonical line above
+            continue  # replaced by the canonical line above (or stripped)
         out.append(line)
     return "\n".join(out)

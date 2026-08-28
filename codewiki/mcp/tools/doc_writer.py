@@ -1150,9 +1150,23 @@ async def handle_write_doc_file(
 
     partition_repo = routing_for_write(output_dir, repo_path)
     shared_pool_write = bool(partition_repo and page_type != "module")
+    # Explicit scope (ticket 06): "global" strips provenance, a list of repo
+    # names sets it precisely, omitted → auto-stamp of the writing repo.
+    # Applies to shared-pool pages only; module pages are always partitioned
+    # under the repo they were written from.
+    from codewiki.mcp.tools.workspace_layout import parse_scope_arg
+
+    try:
+        scope_arg = parse_scope_arg(arguments.get("scope"))
+    except ValueError as e:
+        return json.dumps({"error": f"invalid scope: {e}"}, ensure_ascii=False)
     if shared_pool_write:
         frontmatter_extra = dict(frontmatter_extra or {})
-        frontmatter_extra.setdefault("repo", partition_repo)
+        if scope_arg is None:
+            frontmatter_extra.setdefault("repo", partition_repo)
+        elif isinstance(scope_arg, list):
+            frontmatter_extra["repos"] = scope_arg
+        # scope == "global": deliberately no provenance stamp
 
     # Resolve document path using page type routing
     doc_path = _resolve_doc_path_safe(
@@ -1214,7 +1228,9 @@ async def handle_write_doc_file(
 
         with file_lock(doc_path) as f:
             old_text = f.read()
-            merged = merge_provenance(content, old_text or None, partition_repo)
+            merged = merge_provenance(
+                content, old_text or None, partition_repo, explicit_scope=scope_arg
+            )
             f.seek(0)
             f.write(merged)
             f.truncate()
