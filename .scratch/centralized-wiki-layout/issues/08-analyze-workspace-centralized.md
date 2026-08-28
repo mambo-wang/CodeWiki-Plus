@@ -4,7 +4,7 @@
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** resolved — implemented in 9848eac (2026-08-29)
 
 - [ ] 集中模式下拓扑产物（总览 + 跨仓元数据）正确；子仓硬编码路径已移除
 - [ ] 生成选项默认 false；显式开启后各仓 modules 分区被正确填充

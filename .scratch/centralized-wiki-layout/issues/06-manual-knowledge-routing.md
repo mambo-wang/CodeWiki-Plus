@@ -4,7 +4,7 @@
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** resolved — implemented in a39d553 (2026-08-29)
 
 - [ ] 代码结构页进仓分区，其余页型进共享池，来源标正确
 - [ ] 三种范围标注（单仓 / 多仓 / 全局）均可写入，并分别被 `repo=` 过滤正确命中/排除
