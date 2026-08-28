@@ -332,6 +332,37 @@ def register(server):
                                 "output_dir (optional)",
                             ],
                         },
+                        {
+                            "name": "init-workspace",
+                            "title": "初始化多仓 harness 工作区",
+                            "description": "把当前目录（或 workspace_path）初始化为多仓工作区：bootstrap 脚本、.gitignore、repo-map 导航、AGENTS.md 工作区约定与产品级 repowiki；业务仓登记走 add_workspace_repo",
+                            "arguments": [
+                                "workspace_path (optional, 默认当前目录)",
+                                "output_dir (optional)",
+                                "refresh_conventions (optional)",
+                                "with_readme (optional)",
+                            ],
+                        },
+                        {
+                            "name": "add-workspace-repo",
+                            "title": "登记业务仓到工作区",
+                            "description": "按克隆 URL 登记业务仓：事务式同步 bootstrap 登记表、.gitignore、repo-map.md 并克隆；目录名自动取仓库名",
+                            "arguments": [
+                                "workspace_path (optional, 默认当前目录)",
+                                "url (required)",
+                                "clone (optional)",
+                            ],
+                        },
+                        {
+                            "name": "remove-workspace-repo",
+                            "title": "移除业务仓",
+                            "description": "按子目录名移除业务仓登记（bootstrap 表、.gitignore、repo-map.md）；默认保留本地目录，delete_dir=true 才删除",
+                            "arguments": [
+                                "workspace_path (optional, 默认当前目录)",
+                                "name (required)",
+                                "delete_dir (optional)",
+                            ],
+                        },
                     ],
                     "usage": "通过 MCP prompts/get 协议获取完整工作流指引，或调用 get_prompt 工具获取代码生成阶段的 prompt 模板",
                 },
@@ -342,8 +373,9 @@ def register(server):
         elif uri_str == "codewiki://capabilities":
             return json.dumps(
                 {
-                    "server": "CodeWiki-CN MCP Server v5.2.0",
-                    "tool_count": 26,
+                    "server": "CodeWiki-CN MCP Server v5.5.0",
+                    # NOTE: keep in sync with the number of _register() calls in registry.py
+                    "tool_count": 47,
                     "tool_categories": {
                         "代码分析": [
                             "analyze_repo",
@@ -353,6 +385,11 @@ def register(server):
                             "analyze_impact",
                             "read_code_components",
                             "view_repo_file",
+                        ],
+                        "工作区管理": [
+                            "init_workspace",
+                            "add_workspace_repo",
+                            "remove_workspace_repo",
                         ],
                         "跨服务分析": ["query_cross_service"],
                         "文档生成": [

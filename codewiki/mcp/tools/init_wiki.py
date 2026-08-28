@@ -45,6 +45,75 @@ _WIKI_SUBDIRS = [
 ]
 
 
+def initialize_wiki_tree(
+    repo_path_p: Path, output_dir_p: Path, *, overwrite_schema: bool = True
+) -> dict:
+    """Create the wiki directory tree and copy template assets.
+
+    Shared by ``init_wiki`` (single repo) and workspace initialization.
+
+    Returns a dict with keys ``created_dirs``, ``schema_yaml``,
+    ``ontology_yaml`` and ``review_checklist_yaml``.  With
+    ``overwrite_schema=False`` an existing ``schema.yaml`` is kept untouched
+    (workspace re-runs must not clobber user customizations).
+    """
+    results: dict = {
+        "created_dirs": [],
+        "schema_yaml": None,
+        "ontology_yaml": None,
+        "review_checklist_yaml": None,
+    }
+
+    for subdir in _WIKI_SUBDIRS:
+        dir_path = output_dir_p / subdir
+        if not dir_path.exists():
+            dir_path.mkdir(parents=True, exist_ok=True)
+            results["created_dirs"].append(str(dir_path))
+
+    # Ensure the output_dir itself is recorded if freshly created
+    if not output_dir_p.exists():
+        output_dir_p.mkdir(parents=True, exist_ok=True)
+    if str(output_dir_p) not in results["created_dirs"]:
+        results["created_dirs"].insert(0, str(output_dir_p))
+
+    # ── Copy schema.yaml (preserve comments) ─────────────────────────────
+    schema_dest = output_dir_p / "schema.yaml"
+    if _SCHEMA_TEMPLATE.exists():
+        if overwrite_schema or not schema_dest.exists():
+            # Raw copy preserves all comments and formatting
+            shutil.copy2(str(_SCHEMA_TEMPLATE), str(schema_dest))
+            results["schema_yaml"] = str(schema_dest)
+            logger.info("Copied schema.yaml template to %s", schema_dest)
+        else:
+            results["schema_yaml"] = str(schema_dest) + " (already exists, skipped)"
+    else:
+        results["schema_yaml"] = f"WARNING: template not found at {_SCHEMA_TEMPLATE}"
+        logger.warning("schema.yaml template not found: %s", _SCHEMA_TEMPLATE)
+
+    # ── Copy ontology.yaml (term normalization for search) ──────────────
+    if _ONTOLOGY_TEMPLATE and _ONTOLOGY_TEMPLATE.exists():
+        onto_dest = output_dir_p / "ontology.yaml"
+        if not onto_dest.exists():
+            shutil.copy2(str(_ONTOLOGY_TEMPLATE), str(onto_dest))
+            results["ontology_yaml"] = str(onto_dest)
+            logger.info("Copied ontology.yaml template to %s", onto_dest)
+        else:
+            results["ontology_yaml"] = str(onto_dest) + " (already exists, skipped)"
+
+    # ── Copy review_checklist.yaml (review_changes override) ────────────
+    # Skip when present: users customize this file, init must not clobber it.
+    if _REVIEW_CHECKLIST_TEMPLATE and _REVIEW_CHECKLIST_TEMPLATE.exists():
+        checklist_dest = output_dir_p / "review_checklist.yaml"
+        if not checklist_dest.exists():
+            shutil.copy2(str(_REVIEW_CHECKLIST_TEMPLATE), str(checklist_dest))
+            results["review_checklist_yaml"] = str(checklist_dest)
+            logger.info("Copied review_checklist.yaml template to %s", checklist_dest)
+        else:
+            results["review_checklist_yaml"] = str(checklist_dest) + " (already exists, skipped)"
+
+    return results
+
+
 def handle_init_wiki(arguments: dict) -> str:
     """Initialize a Wiki workspace: create dirs, copy schema.yaml, write AGENTS.md.
 
@@ -97,50 +166,12 @@ def handle_init_wiki(arguments: dict) -> str:
         "agents_md": None,
     }
 
-    # ── Step 1: Create directory structure ──────────────────────────────
-    for subdir in _WIKI_SUBDIRS:
-        dir_path = output_dir_p / subdir
-        if not dir_path.exists():
-            dir_path.mkdir(parents=True, exist_ok=True)
-            results["created_dirs"].append(str(dir_path))
-
-    # Ensure the output_dir itself is recorded if freshly created
-    if not output_dir_p.exists():
-        output_dir_p.mkdir(parents=True, exist_ok=True)
-    if str(output_dir_p) not in results["created_dirs"]:
-        results["created_dirs"].insert(0, str(output_dir_p))
-
-    # ── Step 2: Copy schema.yaml (preserve comments) ────────────────────
-    schema_dest = output_dir_p / "schema.yaml"
-    if _SCHEMA_TEMPLATE.exists():
-        # Raw copy preserves all comments and formatting
-        shutil.copy2(str(_SCHEMA_TEMPLATE), str(schema_dest))
-        results["schema_yaml"] = str(schema_dest)
-        logger.info("Copied schema.yaml template to %s", schema_dest)
-    else:
-        results["schema_yaml"] = f"WARNING: template not found at {_SCHEMA_TEMPLATE}"
-        logger.warning("schema.yaml template not found: %s", _SCHEMA_TEMPLATE)
-
-    # ── Step 2b: Copy ontology.yaml (term normalization for search) ─────
-    if _ONTOLOGY_TEMPLATE and _ONTOLOGY_TEMPLATE.exists():
-        onto_dest = output_dir_p / "ontology.yaml"
-        if not onto_dest.exists():
-            shutil.copy2(str(_ONTOLOGY_TEMPLATE), str(onto_dest))
-            results["ontology_yaml"] = str(onto_dest)
-            logger.info("Copied ontology.yaml template to %s", onto_dest)
-        else:
-            results["ontology_yaml"] = str(onto_dest) + " (already exists, skipped)"
-
-    # ── Step 2c: Copy review_checklist.yaml (review_changes override) ────
-    # Skip when present: users customize this file, init must not clobber it.
-    if _REVIEW_CHECKLIST_TEMPLATE and _REVIEW_CHECKLIST_TEMPLATE.exists():
-        checklist_dest = output_dir_p / "review_checklist.yaml"
-        if not checklist_dest.exists():
-            shutil.copy2(str(_REVIEW_CHECKLIST_TEMPLATE), str(checklist_dest))
-            results["review_checklist_yaml"] = str(checklist_dest)
-            logger.info("Copied review_checklist.yaml template to %s", checklist_dest)
-        else:
-            results["review_checklist_yaml"] = str(checklist_dest) + " (already exists, skipped)"
+    # ── Steps 1-2: Create directory structure and copy template assets ──
+    tree = initialize_wiki_tree(repo_path_p, output_dir_p, overwrite_schema=True)
+    results["created_dirs"] = tree["created_dirs"]
+    results["schema_yaml"] = tree["schema_yaml"]
+    results["ontology_yaml"] = tree["ontology_yaml"]
+    results["review_checklist_yaml"] = tree["review_checklist_yaml"]
 
     # ── Step 3: Write AGENTS.md ─────────────────────────────────────────
     try:

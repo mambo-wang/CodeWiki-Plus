@@ -21,6 +21,49 @@ logger = logging.getLogger(__name__)
 _BEGIN_MARKER = "<!-- CodeWiki LLM Wiki -->"
 _END_MARKER = "<!-- /CodeWiki LLM Wiki -->"
 
+# Delimiters for the multi-repo workspace conventions section.  Independent
+# from the CodeWiki usage block above: the two sections are upserted
+# separately and never touch each other.
+_WORKSPACE_BEGIN_MARKER = "<!-- CodeWiki Workspace Conventions -->"
+_WORKSPACE_END_MARKER = "<!-- /CodeWiki Workspace Conventions -->"
+
+_WORKSPACE_TEMPLATE = (
+    Path(__file__).resolve().parents[2] / "templates" / "workspace" / "agents-md-workspace.md.tpl"
+)
+
+
+def _upsert_marked_section(agents_path: Path, begin: str, end: str, section: str) -> str:
+    """Insert or replace a marker-delimited section in AGENTS.md.
+
+    - File missing → create it with the section.
+    - Markers found → replace only the delimited block, keep the rest.
+    - File without markers → append the section at the end.
+
+    Returns ``"created"``, ``"replaced"`` or ``"appended"``.
+    """
+    if agents_path.exists():
+        content = agents_path.read_text(encoding="utf-8")
+        begin_idx = content.find(begin)
+        end_idx = content.find(end)
+
+        if begin_idx != -1 and end_idx != -1 and end_idx > begin_idx:
+            # Replace existing section (keep content before/after)
+            before = content[:begin_idx]
+            after = content[end_idx + len(end) :]
+            new_content = before + section + after
+            action = "replaced"
+        else:
+            # Append section at end
+            separator = "\n\n" if not content.endswith("\n") else "\n"
+            new_content = content + separator + section + "\n"
+            action = "appended"
+    else:
+        new_content = section + "\n"
+        action = "created"
+
+    agents_path.write_text(new_content, encoding="utf-8")
+    return action
+
 
 def write_agents_md(*, repo_path: str, output_dir: str, module_tree: dict | None = None) -> None:
     """Create or update ``<repo_path>/AGENTS.md`` with wiki usage info.
@@ -53,25 +96,41 @@ def _write_agents_md(repo_path: str, output_dir: str, module_tree: dict) -> None
     section = _build_section(rel_path, modules, output_dir_p)
     agents_path = repo_path_p / "AGENTS.md"
 
-    if agents_path.exists():
-        content = agents_path.read_text(encoding="utf-8")
-        begin_idx = content.find(_BEGIN_MARKER)
-        end_idx = content.find(_END_MARKER)
-
-        if begin_idx != -1 and end_idx != -1 and end_idx > begin_idx:
-            # Replace existing section (keep content before/after)
-            before = content[:begin_idx]
-            after = content[end_idx + len(_END_MARKER) :]
-            new_content = before + section + after
-        else:
-            # Append section at end
-            separator = "\n\n" if not content.endswith("\n") else "\n"
-            new_content = content + separator + section + "\n"
-    else:
-        new_content = section + "\n"
-
-    agents_path.write_text(new_content, encoding="utf-8")
+    _upsert_marked_section(agents_path, _BEGIN_MARKER, _END_MARKER, section)
     logger.info("Updated AGENTS.md at %s", agents_path)
+
+
+def write_workspace_conventions(
+    *, workspace_path: str, workspace_name: str, refresh: bool = False
+) -> str:
+    """Write the multi-repo workspace conventions section into AGENTS.md.
+
+    Deliberately different overwrite policy from the CodeWiki usage block:
+    the conventions are a team contract that users hand-evolve, so an
+    existing marked block is kept as-is unless ``refresh=True``.
+
+    Returns ``"created"`` | ``"kept"`` | ``"refreshed"``.
+    """
+    workspace_path_p = Path(workspace_path)
+    agents_path = workspace_path_p / "AGENTS.md"
+
+    if agents_path.exists() and not refresh:
+        content = agents_path.read_text(encoding="utf-8")
+        begin_idx = content.find(_WORKSPACE_BEGIN_MARKER)
+        end_idx = content.find(_WORKSPACE_END_MARKER)
+        if begin_idx != -1 and end_idx != -1 and end_idx > begin_idx:
+            logger.info("Workspace conventions already present in %s, kept", agents_path)
+            return "kept"
+
+    body = _WORKSPACE_TEMPLATE.read_text(encoding="utf-8").replace(
+        "{{WORKSPACE_NAME}}", workspace_name
+    )
+    section = f"{_WORKSPACE_BEGIN_MARKER}\n\n{body}\n{_WORKSPACE_END_MARKER}"
+    action = _upsert_marked_section(
+        agents_path, _WORKSPACE_BEGIN_MARKER, _WORKSPACE_END_MARKER, section
+    )
+    logger.info("Workspace conventions %s in %s", action, agents_path)
+    return "refreshed" if action == "replaced" else "created"
 
 
 # ---------------------------------------------------------------------------

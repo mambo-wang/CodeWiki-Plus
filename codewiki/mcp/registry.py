@@ -1796,7 +1796,7 @@ _register(
                 },
                 "output_dir": {
                     "type": "string",
-                    "description": "Output directory for workspace overview (default: <workspace>/workspace-wiki)",
+                    "description": "Output directory for workspace overview (default: <workspace>/repowiki)",
                 },
                 "exclude_dirs": {
                     "type": "string",
@@ -1910,8 +1910,8 @@ _register(
             "inbound/outbound links), 'by_method' (HTTP method), 'by_path' (URL path "
             "prefix match — pass a full path prefix like '/api/v1/chat', not a keyword), "
             "'trace' (transitive call chain from a root service). "
-            "Reads results persisted under <workspace_path>/workspace-wiki/.meta/ (multi-repo) "
-            "or <workspace_path>/repowiki/.meta/ (monorepo single-repo). "
+            "Reads results persisted under <workspace_path>/repowiki/.meta/ "
+            "(analyze_workspace multi-repo or analyze_repo monorepo). "
             "\U0001f9e0 CBM ENHANCEMENT: pair with codebase-memory-mcp's trace_path "
             "(mode='cross_service') to extend the static RouteNode matches into multi-hop "
             "semantic call chains that traverse through internal functions."
@@ -2054,6 +2054,135 @@ _register(
         },
     ),
     handler_path="codewiki.mcp.tools.init_wiki:handle_init_wiki",
+    mode="thread",
+    takes_store=False,
+)
+
+_register(
+    Tool(
+        name="init_workspace",
+        description=(
+            "Initialize a multi-repo harness workspace: the current directory (or "
+            "workspace_path) becomes the product-level workbench hosting business "
+            "repos as independent git clones in subdirectories (excluded via "
+            ".gitignore, not submodules). Generates bootstrap.sh / bootstrap.ps1 "
+            "clone scripts with an empty registration table, a .gitignore that keeps "
+            "business repos out of the harness git, a repo-map.md navigation skeleton, "
+            "workspace conventions (two-hop retrieval routing, commit discipline) as a "
+            "marked section in AGENTS.md, and the standard product-level repowiki. "
+            "Idempotent: bootstrap scripts, repo-map, README and schema.yaml are never "
+            "clobbered on re-run; the conventions block is only refreshed when "
+            "refresh_conventions=true. Registration and cloning of business repos are "
+            "handled by add_workspace_repo(name, url); follow up with init_wiki / "
+            "analyze_repo per repo, then analyze_workspace for cross-repo analysis."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "workspace_path": {
+                    "type": "string",
+                    "description": "Existing directory to become the workspace root (default: current working directory; not auto-created).",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Product-level repowiki directory (default: <workspace>/repowiki).",
+                },
+                "refresh_conventions": {
+                    "type": "boolean",
+                    "description": "Force-refresh the workspace conventions block in AGENTS.md (default: false — existing block is kept).",
+                },
+                "with_readme": {
+                    "type": "boolean",
+                    "description": "Create a README.md skeleton when missing (default: true).",
+                },
+            },
+            "required": [],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.workspace_bootstrap:handle_init_workspace",
+    mode="thread",
+    takes_store=False,
+)
+
+_register(
+    Tool(
+        name="add_workspace_repo",
+        description=(
+            "Register a business repo into an initialized harness workspace. The "
+            "directory name is derived from the repository URL (last path segment, "
+            ".git stripped), so only the URL is required. Transactionally updates "
+            "four files: the bootstrap.sh and bootstrap.ps1 registration tables, "
+            ".gitignore (adds /<name>/ so the harness git never tracks the clone) and "
+            "repowiki/wiki/repo-map.md (nav-table row + detail section). All preflight "
+            "checks run before any write — a conflict (same directory name, different "
+            "URL) or a broken script table aborts with no partial changes. "
+            "Re-registering the same name+URL is a no-op, so the call is safe to "
+            "retry. By default the repo is git-cloned afterwards; a clone failure "
+            "never rolls back the registration. Works on hand-built workspaces too, "
+            "as long as the scripts keep the `declare -A repos=(` / "
+            "`$repos = [ordered]@{` skeleton lines."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "workspace_path": {
+                    "type": "string",
+                    "description": "Workspace root (default: current working directory).",
+                },
+                "url": {
+                    "type": "string",
+                    "description": "Git clone URL of the business repo; the subdirectory name is derived from the repository name.",
+                },
+                "clone": {
+                    "type": "boolean",
+                    "description": "Clone immediately after registration (default: true).",
+                },
+                "clone_timeout": {
+                    "type": "integer",
+                    "description": "Seconds allowed for the git clone (default: 600).",
+                },
+            },
+            "required": ["url"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.workspace_bootstrap:handle_add_workspace_repo",
+    mode="thread",
+    takes_store=False,
+)
+
+_register(
+    Tool(
+        name="remove_workspace_repo",
+        description=(
+            "Deregister a business repo from an initialized harness workspace by its "
+            "subdirectory name. Transactionally removes the entry from the "
+            "bootstrap.sh and bootstrap.ps1 registration tables, the /<name>/ line "
+            "from .gitignore and the nav row + section from repo-map.md. The local "
+            "clone directory is kept unless delete_dir=true (irreversible); once the "
+            "gitignore line is gone, a kept directory is no longer hidden from the "
+            "harness git. Removing a name that is not registered is a safe no-op "
+            "error. Never touches AGENTS.md or the other registered repos."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "workspace_path": {
+                    "type": "string",
+                    "description": "Workspace root (default: current working directory).",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Registered subdirectory name of the business repo to remove.",
+                },
+                "delete_dir": {
+                    "type": "boolean",
+                    "description": "Also delete the cloned directory (default: false; deletion is irreversible).",
+                },
+            },
+            "required": ["name"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.workspace_bootstrap:handle_remove_workspace_repo",
     mode="thread",
     takes_store=False,
 )

@@ -54,9 +54,10 @@ def handle_query_cross_service(
     if explicit_od:
         meta_dir = Path(explicit_od).expanduser().resolve() / ".meta"
     else:
-        meta_dir = workspace_path / "workspace-wiki" / ".meta"
+        meta_dir = workspace_path / "repowiki" / ".meta"
         if not meta_dir.exists():
-            meta_dir = workspace_path / "repowiki" / ".meta"
+            # Legacy: pre-unification analyze_workspace output location
+            meta_dir = workspace_path / "workspace-wiki" / ".meta"
         if not meta_dir.exists():
             # Broader search: try common workspace subdirs
             for candidate in workspace_path.iterdir():
