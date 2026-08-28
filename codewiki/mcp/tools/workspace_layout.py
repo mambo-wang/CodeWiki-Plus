@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Union
@@ -38,6 +39,9 @@ VALID_LAYOUTS = (LAYOUT_COLOCATED, LAYOUT_CENTRALIZED)
 
 #: Location of the machine-readable layout config, relative to the root.
 CONFIG_RELPARTS = ("repowiki", ".meta", "workspace.json")
+
+#: Knowledge-base directory name at the workspace root (discovery anchor).
+REPOWIKI_DIRNAME = CONFIG_RELPARTS[0]
 
 _cache: dict[str, "WorkspaceResolution"] = {}
 
@@ -136,3 +140,117 @@ def resolve_workspace(repo_path: Union[str, Path]) -> WorkspaceResolution:
 
     _cache[key] = resolution
     return resolution
+
+
+# ---------------------------------------------------------------------------
+# Write routing (ticket 04): where knowledge lands under each layout
+# ---------------------------------------------------------------------------
+
+
+def default_output_dir(repo_path: Union[str, Path]) -> Path:
+    """Knowledge-base directory for *repo_path* under the active layout.
+
+    Centralized member → the workspace repowiki (single knowledge base).
+    Everything else → status quo ``repo_path/repowiki``.
+    """
+    rp = Path(repo_path).resolve()
+    resolution = resolve_workspace(rp)
+    if resolution.centralized:
+        return resolution.root / REPOWIKI_DIRNAME
+    return rp / REPOWIKI_DIRNAME
+
+
+def routing_for_write(
+    output_dir: Union[str, Path], repo_path: Union[str, Path, None]
+) -> str | None:
+    """Partition repo name for a write, or None for status-quo routing.
+
+    Returns the registered directory name of *repo_path* only when ALL hold:
+    *repo_path* is a centralized-workspace member, and *output_dir* IS that
+    workspace's repowiki (explicit custom targets keep status-quo behaviour).
+    Callers use the result to route ``module`` pages into
+    ``wiki/modules/<name>/`` and to stamp shared-pool provenance.
+    """
+    if not repo_path:
+        return None
+    resolution = resolve_workspace(repo_path)
+    if not resolution.centralized:
+        return None
+    expected = (resolution.root / REPOWIKI_DIRNAME).resolve()
+    try:
+        if Path(output_dir).resolve() != expected:
+            return None
+    except OSError:
+        return None
+    rel = Path(repo_path).resolve().relative_to(resolution.root)
+    return rel.parts[0] if rel.parts else None
+
+
+# ---------------------------------------------------------------------------
+# Shared-pool provenance (``repo:`` / ``repos:`` frontmatter)
+# ---------------------------------------------------------------------------
+
+_REPO_LINE_RE = re.compile(r"^\s*repo:\s*(?P<val>.+?)\s*$", re.MULTILINE)
+_REPOS_LINE_RE = re.compile(r"^\s*repos:\s*(?P<val>.+?)\s*$", re.MULTILINE)
+
+
+def _frontmatter_block(text: str) -> str:
+    """Return the leading YAML frontmatter block (without fences), or ''."""
+    if not text.startswith("---"):
+        return ""
+    end = text.find("\n---", 3)
+    return text[4:end] if end != -1 else ""
+
+
+def _parse_prov_value(raw: str) -> list[str]:
+    """Parse a frontmatter scalar or JSON list into repo names."""
+    raw = raw.strip()
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        data = raw.strip("'\"")
+    if isinstance(data, list):
+        return [str(item) for item in data if str(item).strip()]
+    return [str(data)] if str(data).strip() else []
+
+
+def read_provenance(text: str | None) -> set[str]:
+    """Repo names recorded in a page's frontmatter (top-level or metadata)."""
+    names: set[str] = set()
+    if not text:
+        return names
+    for m in _REPOS_LINE_RE.finditer(_frontmatter_block(text)):
+        names.update(_parse_prov_value(m.group("val")))
+    for m in _REPO_LINE_RE.finditer(_frontmatter_block(text)):
+        names.update(_parse_prov_value(m.group("val")))
+    return names
+
+
+def merge_provenance(new_content: str, old_content: str | None, repo_name: str) -> str:
+    """Return *new_content* with provenance = union(old, new, *repo_name*).
+
+    Later writes overwrite the body, but sources only grow (design doc §9 /
+    D9).  Existing ``repo:``/``repos:`` lines are replaced by one canonical
+    line right after the opening fence: ``repo: "<n>"`` for a single source,
+    ``repos: [...]`` for several.
+    """
+    union = read_provenance(old_content) | read_provenance(new_content) | {repo_name}
+    ordered = sorted(n for n in union if n)
+    out: list[str] = []
+    in_fm = False
+    fence_count = 0
+    for line in new_content.split("\n"):
+        if line.strip() == "---":
+            fence_count += 1
+            in_fm = fence_count == 1
+            out.append(line)
+            if fence_count == 1 and ordered:
+                if len(ordered) == 1:
+                    out.append(f"repo: {json.dumps(ordered[0], ensure_ascii=False)}")
+                else:
+                    out.append(f"repos: {json.dumps(ordered, ensure_ascii=False)}")
+            continue
+        if in_fm and (_REPO_LINE_RE.match(line) or _REPOS_LINE_RE.match(line)):
+            continue  # replaced by the canonical line above
+        out.append(line)
+    return "\n".join(out)

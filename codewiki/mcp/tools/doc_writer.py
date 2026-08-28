@@ -966,11 +966,13 @@ def _inject_wiki_links(content: str, terms: dict[str, str]) -> str:
 
 
 def _resolve_doc_path_safe(
-    output_dir: Path, filename: str, page_type: str = "module"
+    output_dir: Path, filename: str, page_type: str = "module", repo_name: str | None = None
 ) -> Path | None:
     """Resolve filename within output_dir using page type routing (sessionless version)."""
     try:
-        return resolve_doc_path(filename, page_type, str(output_dir), load_schema(str(output_dir)))
+        return resolve_doc_path(
+            filename, page_type, str(output_dir), load_schema(str(output_dir)), repo_name=repo_name
+        )
     except ValueError:
         return None
 
@@ -1127,7 +1129,9 @@ async def handle_write_doc_file(
         # Prefer the session's output_dir (honours custom output_dir from analyze_repo)
         output_dir = Path(session.output_dir).expanduser().resolve()
     elif repo_path:
-        output_dir = Path(repo_path) / "repowiki"
+        from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+        output_dir = default_output_dir(repo_path)
     else:
         return json.dumps({"error": "output_dir or repo_path is required."})
 
@@ -1139,8 +1143,21 @@ async def handle_write_doc_file(
     frontmatter_extra = arguments.get("frontmatter_extra") or None
     strict = bool(arguments.get("strict", False))
 
+    # Layout-aware write routing (ticket 04): under a centralized workspace,
+    # module pages land in the wiki/modules/<repo>/ partition and shared-pool
+    # pages carry provenance. None for colocated/single-repo → status quo.
+    from codewiki.mcp.tools.workspace_layout import routing_for_write
+
+    partition_repo = routing_for_write(output_dir, repo_path)
+    shared_pool_write = bool(partition_repo and page_type != "module")
+    if shared_pool_write:
+        frontmatter_extra = dict(frontmatter_extra or {})
+        frontmatter_extra.setdefault("repo", partition_repo)
+
     # Resolve document path using page type routing
-    doc_path = _resolve_doc_path_safe(output_dir, filename, page_type=page_type)
+    doc_path = _resolve_doc_path_safe(
+        output_dir, filename, page_type=page_type, repo_name=partition_repo
+    )
     if doc_path is None:
         return json.dumps({"error": "Filename escapes output directory."})
 
@@ -1150,7 +1167,10 @@ async def handle_write_doc_file(
 
     _ensure_parent_dirs(doc_path)
 
-    if doc_path.exists():
+    # Shared-pool pages under centralized layout: last write wins, provenance
+    # accumulates (design doc §9 / D9). All other pages keep the
+    # existing-file guard.
+    if doc_path.exists() and not shared_pool_write:
         return json.dumps(
             {"error": f"File already exists: {filename}. Use edit_doc_file to modify it."}
         )
@@ -1186,7 +1206,20 @@ async def handle_write_doc_file(
     # Auto-fix common Mermaid syntax errors before writing
     content, mermaid_fixes = _auto_fix_mermaid(content)
 
-    doc_path.write_text(content, encoding="utf-8")
+    if shared_pool_write:
+        # Locked read-modify-write: concurrent writers of the same shared
+        # page must not lose provenance (ticket 04; lock primitive from 01).
+        from codewiki.mcp.tools.workspace_layout import merge_provenance
+        from codewiki.src.locks import file_lock
+
+        with file_lock(doc_path) as f:
+            old_text = f.read()
+            merged = merge_provenance(content, old_text or None, partition_repo)
+            f.seek(0)
+            f.write(merged)
+            f.truncate()
+    else:
+        doc_path.write_text(content, encoding="utf-8")
     if session:
         session.docs_written += 1
 
