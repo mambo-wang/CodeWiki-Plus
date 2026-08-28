@@ -25,6 +25,28 @@
       "content_hash": "sha256:160863f50fd600698929ee17f83534d0dbea8bc5a6bd765c76a1b2d9775d4c6f",
       "retracted_at": "2026-07-28T13:10:10.103480",
       "retract_mode": "remove_refs"
+    },
+    "README_CN": {
+      "path": "raw\\sources\\README_CN.md",
+      "original_path": "D:\\repos\\WeKnora\\README_CN.md",
+      "source_type": "md",
+      "description": "WeKnora（腾讯开源企业级知识库平台）中文 README，用于测试两阶段知识提取流程",
+      "version": "",
+      "imported_at": "2026-08-03T12:50:45.699559",
+      "related_pages": [],
+      "status": "active",
+      "content_hash": "sha256:1f50cb5774a7165539cf11adc4b8327b217179a602eb68c5bccb1df3ff1dc30d"
+    },
+    "tam-team-memory-practice": {
+      "path": "raw\\sources\\tam-team-memory-practice.md",
+      "original_path": "C:\\Users\\Administrator\\.qwenworkcn\\workspace\\msvrbmt5zvkq5t6g\\tam-team-memory-practice.md",
+      "source_type": "md",
+      "description": "腾讯技术工程官方文章：TencentDB Agent Memory 团队记忆工程实践。内容涵盖协作带宽定义、OPC 与三层 AI 组织架构、四类记忆资产（Chat Memory/Wiki/CodeGraph/Skill）、L0-L3 内容分层与五层路由装配、资产形成四步管线（证据切分→候选抽取→作用域绑定→验证后升级）、2600 Session 内部数据研究（强关系/Shadow 置信分层、卡点分布：逻辑返工 1350 远大于缺上下文 269）、Redis 真实 Case 工程边界、SWE-bench 经验继承评测（60%→80%）、六条设计原则与六类治理问题。是 CodeWiki-Plus 记忆分层提取（系列 4）所借鉴 TAM 项目的设计源头文档。",
+      "version": "2026-08",
+      "imported_at": "2026-08-21T09:37:37.749153",
+      "related_pages": [],
+      "status": "active",
+      "content_hash": "sha256:2bb0311d91dd66faa594b4abd8d1d8f4d0a702840dc8792a424dfe1eaa54bc32"
     }
   },
   "version": 1

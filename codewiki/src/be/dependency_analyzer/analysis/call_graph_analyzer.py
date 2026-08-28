@@ -11,6 +11,7 @@ import logging
 import traceback
 import time
 import signal
+import threading
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -22,7 +23,7 @@ from codewiki.src.be.dependency_analyzer.analyzers.route_extractors.mq_patterns 
     extract_mq_routes,
 )
 from codewiki.src.be.dependency_analyzer.utils.patterns import CODE_EXTENSIONS
-from codewiki.src.be.dependency_analyzer.utils.security import safe_open_text
+from codewiki.src.be.dependency_analyzer.utils.security import safe_open_text, is_likely_minified
 from codewiki.src.be.dependency_analyzer.utils.external_symbols import (
     CPP_STANDARD_HEADERS,
     is_external_symbol,
@@ -34,29 +35,39 @@ logger = logging.getLogger(__name__)
 
 class TimeoutError(Exception):
     """Raised when file parsing exceeds timeout."""
+
     pass
 
 
 @contextmanager
 def timeout(seconds):
-    """Context manager for timeout on file parsing."""
+    """Context manager for timeout on file parsing.
+
+    Uses SIGALRM, which is only available on the MAIN thread of a Unix
+    process.  When running elsewhere (Windows, or a worker thread such as
+    the MCP registry's mode="thread" dispatch via asyncio.to_thread),
+    signal.signal() raises ValueError, so we skip the timeout protection
+    and parse without it instead of failing every file.
+    """
+
     def signal_handler(signum, frame):
         raise TimeoutError(f"File parsing exceeded {seconds}s timeout")
-    
-    # Only use signal on Unix systems (not Windows)
-    try:
-        old_handler = signal.signal(signal.SIGALRM, signal_handler)
-        signal.alarm(seconds)
+
+    use_signal = (
+        hasattr(signal, "SIGALRM") and threading.current_thread() is threading.main_thread()
+    )
+    if not use_signal:
+        # Windows / non-main thread: SIGALRM unavailable, skip timeout
         yield
-    except AttributeError:
-        # Windows doesn't support SIGALRM, skip timeout
+        return
+
+    old_handler = signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    try:
         yield
     finally:
-        try:
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, old_handler)
-        except (AttributeError, ValueError):
-            pass
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
 
 
 class CallGraphAnalyzer:
@@ -66,10 +77,13 @@ class CallGraphAnalyzer:
         self.call_relationships: List[CallRelationship] = []
         self.routes: List[RouteNode] = []
         self._repo_name: str = ""
+        self._python_project_modules: set = set()
+        self._python_external_import_roots: set = set()
         logger.debug("CallGraphAnalyzer initialized.")
 
-    def analyze_code_files(self, code_files: List[Dict], base_dir: str,
-                           skip_file_paths: Optional[Set[str]] = None) -> Dict:
+    def analyze_code_files(
+        self, code_files: List[Dict], base_dir: str, skip_file_paths: Optional[Set[str]] = None
+    ) -> Dict:
         """
         Complete analysis: Analyze all files to build complete call graph with all nodes.
 
@@ -86,9 +100,11 @@ class CallGraphAnalyzer:
         """
         if skip_file_paths:
             original_count = len(code_files)
-            code_files = [f for f in code_files if f.get('path') not in skip_file_paths]
-            logger.info(f"Incremental mode: skipping {original_count - len(code_files)} unchanged files, "
-                        f"parsing {len(code_files)} changed files")
+            code_files = [f for f in code_files if f.get("path") not in skip_file_paths]
+            logger.info(
+                f"Incremental mode: skipping {original_count - len(code_files)} unchanged files, "
+                f"parsing {len(code_files)} changed files"
+            )
 
         logger.debug(f"Starting analysis of {len(code_files)} files")
         logger.info(f"📊 Parsing {len(code_files)} source files (this may take a few minutes)...")
@@ -98,27 +114,33 @@ class CallGraphAnalyzer:
         self.routes = []
         self._repo_name = Path(base_dir).name
         code_files = self._route_contextual_headers(code_files, base_dir)
+        self._python_project_modules = self._collect_python_modules(code_files)
+        self._python_external_import_roots = set()
 
         files_analyzed = 0
         files_failed = 0
         start_time = time.time()
-        
+
         for idx, file_info in enumerate(code_files, 1):
-            file_path = file_info['path']
+            file_path = file_info["path"]
             try:
                 # Log progress every file with elapsed time
                 if idx % max(1, len(code_files) // 10) == 0 or idx <= 5:
                     elapsed = time.time() - start_time
                     rate = idx / elapsed if elapsed > 0 else 0
                     remaining = (len(code_files) - idx) / rate if rate > 0 else 0
-                    logger.info(f"  [{idx}/{len(code_files)}] {file_path} ({elapsed:.1f}s elapsed, ~{remaining:.1f}s remaining)")
-                
+                    logger.info(
+                        f"  [{idx}/{len(code_files)}] {file_path} ({elapsed:.1f}s elapsed, ~{remaining:.1f}s remaining)"
+                    )
+
                 self._analyze_code_file(base_dir, file_info)
                 files_analyzed += 1
             except Exception as e:
                 files_failed += 1
-                logger.warning(f"  ⚠️  [{idx}/{len(code_files)}] Failed to analyze {file_path}: {str(e)[:100]}")
-        
+                logger.warning(
+                    f"  ⚠️  [{idx}/{len(code_files)}] Failed to analyze {file_path}: {str(e)[:100]}"
+                )
+
         elapsed_time = time.time() - start_time
         logger.info(
             f"✓ Analysis complete: {files_analyzed}/{len(code_files)} files analyzed, "
@@ -246,6 +268,12 @@ class CallGraphAnalyzer:
             # Add timeout protection (30 seconds per file max)
             with timeout(30):
                 content = safe_open_text(base, file_path)
+
+                # Skip minified/bundled files that pass the size guard
+                if is_likely_minified(content):
+                    logger.debug(f"Skipping minified/bundled file: {file_path}")
+                    return
+
                 language = file_info["language"]
                 if language == "python":
                     self._analyze_python_file(file_path, content, repo_dir)
@@ -293,8 +321,11 @@ class CallGraphAnalyzer:
         from codewiki.src.be.dependency_analyzer.analyzers.python import analyze_python_file
 
         try:
-            functions, relationships = analyze_python_file(
-                file_path, content, repo_path=base_dir
+            functions, relationships, external_import_roots = analyze_python_file(
+                file_path,
+                content,
+                repo_path=base_dir,
+                project_modules=self._python_project_modules,
             )
 
             for func in functions:
@@ -302,8 +333,28 @@ class CallGraphAnalyzer:
                 self.functions[func_id] = func
 
             self.call_relationships.extend(relationships)
+            self._python_external_import_roots.update(external_import_roots)
         except Exception as e:
             logger.error(f"Failed to analyze Python file {file_path}: {e}", exc_info=True)
+
+    @staticmethod
+    def _collect_python_modules(code_files: List[Dict]) -> set:
+        """Dotted module paths for every Python file in the repository."""
+        modules = set()
+        for file_info in code_files:
+            if file_info.get("language") != "python":
+                continue
+            path = file_info["path"]
+            for ext in (".py", ".pyx"):
+                if path.endswith(ext):
+                    path = path[: -len(ext)]
+                    break
+            module = path.replace("/", ".").replace("\\", ".")
+            if module.endswith(".__init__"):
+                module = module[: -len(".__init__")]
+            if module:
+                modules.add(module)
+        return modules
 
     def _analyze_javascript_file(self, file_path: str, content: str, repo_dir: str):
         """
@@ -315,8 +366,9 @@ class CallGraphAnalyzer:
             repo_dir: Repository base directory
         """
         try:
-
-            from codewiki.src.be.dependency_analyzer.analyzers.javascript import analyze_javascript_file_treesitter
+            from codewiki.src.be.dependency_analyzer.analyzers.javascript import (
+                analyze_javascript_file_treesitter,
+            )
 
             functions, relationships = analyze_javascript_file_treesitter(
                 file_path, content, repo_path=repo_dir
@@ -333,15 +385,16 @@ class CallGraphAnalyzer:
 
     def _analyze_typescript_file(self, file_path: str, content: str, repo_dir: str):
         """
-        Analyze TypeScript file using tree-sitter based AST analyzer 
+        Analyze TypeScript file using tree-sitter based AST analyzer
 
         Args:
             file_path: Relative path to the TypeScript file
             content: File content string
         """
         try:
-
-            from codewiki.src.be.dependency_analyzer.analyzers.typescript import analyze_typescript_file_treesitter
+            from codewiki.src.be.dependency_analyzer.analyzers.typescript import (
+                analyze_typescript_file_treesitter,
+            )
 
             functions, relationships = analyze_typescript_file_treesitter(
                 file_path, content, repo_path=repo_dir
@@ -355,8 +408,6 @@ class CallGraphAnalyzer:
 
         except Exception as e:
             logger.error(f"Failed to analyze TypeScript file {file_path}: {e}", exc_info=True)
-
-
 
     def _analyze_c_file(self, file_path: str, content: str, repo_dir: str):
         """
@@ -387,9 +438,7 @@ class CallGraphAnalyzer:
         """
         from codewiki.src.be.dependency_analyzer.analyzers.cpp import analyze_cpp_file
 
-        functions, relationships = analyze_cpp_file(
-            file_path, content, repo_path=repo_dir
-        )
+        functions, relationships = analyze_cpp_file(file_path, content, repo_path=repo_dir)
 
         for func in functions:
             func_id = func.id if func.id else f"{file_path}:{func.name}"
@@ -536,11 +585,12 @@ class CallGraphAnalyzer:
         Attempts to match function calls to actual function definitions,
         handling cross-language calls where possible.
         """
-        indexes = self._build_resolution_indexes()
         for func_id, func_info in self.functions.items():
             if not func_info.language:
                 file_ext = Path(func_info.file_path).suffix.lower()
                 func_info.language = CODE_EXTENSIONS.get(file_ext)
+
+        indexes = self._build_resolution_indexes()
 
         resolved_count = 0
         for relationship in self.call_relationships:
@@ -553,7 +603,7 @@ class CallGraphAnalyzer:
                 relationship.is_resolved = True
                 resolved_count += 1
 
-        java_packages = self._java_project_packages()
+        dotted_packages = self._dotted_project_packages()
         self.call_relationships = [
             relationship
             for relationship in self.call_relationships
@@ -561,57 +611,102 @@ class CallGraphAnalyzer:
             or not self._is_external_callee(
                 self._caller_language(relationship.caller),
                 relationship.callee,
-                java_packages,
+                dotted_packages,
             )
         ]
 
-    def _java_project_packages(self) -> set:
-        packages = set()
+    def _dotted_project_packages(self) -> Dict[str, set]:
+        """Project packages/namespaces, partitioned by language. Java and C#
+        share the namespace-origin rule: a dotted callee qualified to a package
+        with no prefix relation to any project package came from a third-party
+        import."""
+        packages: Dict[str, set] = defaultdict(set)
         for func_info in self.functions.values():
-            if func_info.language == "java":
-                package = self._java_package_for_node(func_info)
+            if func_info.language in ("java", "csharp"):
+                package = self._dotted_package_for_node(func_info)
                 if package:
-                    packages.add(package)
+                    packages[func_info.language].add(package)
         return packages
 
-    def _is_external_callee(self, language: Optional[str], callee: str, java_packages: set) -> bool:
+    def _is_external_callee(
+        self, language: Optional[str], callee: str, dotted_packages: Dict[str, set]
+    ) -> bool:
         """Classify a still-unresolved callee as external, after project
         resolution has had its chance.
 
         Rules are generic, not name lists: prefix/standard-library knowledge in
         is_external_symbol, the C/C++ ALL_CAPS macro convention (macros are
-        never components, so such calls can never resolve), and Java package
-        origin — a dotted name qualified to a package with no prefix relation
-        to any project package came from a third-party import.
+        never components, so such calls can never resolve), Java/C# package
+        origin, and Python import-origin + object-method heuristics.
         """
         if is_external_symbol(language, callee):
             return True
         if language in ("c", "cpp") and is_macro_name(callee):
             return True
-        if language == "java" and "." in callee and java_packages:
+        if language in ("java", "csharp") and "." in callee and dotted_packages.get(language):
             package = callee.rsplit(".", 1)[0]
             if not any(
                 package == project
                 or package.startswith(project + ".")
                 or project.startswith(package + ".")
-                for project in java_packages
+                for project in dotted_packages[language]
             ):
                 return True
+        if language == "python" and "." in callee:
+            return self._is_external_python_callee(callee)
         return False
 
-    def _build_resolution_indexes(self) -> Dict[str, Dict[str, List[str]]]:
-        exact: Dict[str, List[str]] = defaultdict(list)
-        simple: Dict[str, List[str]] = defaultdict(list)
+    def _is_external_python_callee(self, callee: str) -> bool:
+        """Classify a still-unresolved dotted Python callee.
+
+        A callee whose dotted prefix aligns with a project module is an
+        honest project gap, never external. Otherwise the import-origin rule
+        (head was imported from outside the project) and the core-object
+        method rule (a tail like ``append``/``endswith`` on an unknowable
+        receiver can never be a project component) apply.
+        """
+        from codewiki.src.be.dependency_analyzer.analyzers.python import is_project_import
+        from codewiki.src.be.dependency_analyzer.utils.external_symbols import (
+            PYTHON_OBJECT_METHODS,
+        )
+
+        parts = callee.split(".")
+        if self._python_project_modules:
+            for end in range(len(parts) - 1, 0, -1):
+                if is_project_import(".".join(parts[:end]), self._python_project_modules):
+                    return False
+        if parts[0] in self._python_external_import_roots:
+            return True
+        return parts[-1] in PYTHON_OBJECT_METHODS
+
+    def _build_resolution_indexes(self) -> Dict[str, Dict]:
+        """Build exact/simple-name lookup indexes, both globally and per
+        language. Resolution prefers the caller's own language partition: a
+        name that is unique within the caller's language resolves even when
+        another language defines the same name, and names made ambiguous only
+        by foreign-language components keep resolving as before."""
+
+        def make() -> Dict[str, Dict[str, List[str]]]:
+            return {"exact": defaultdict(list), "simple": defaultdict(list)}
+
+        global_indexes = make()
+        by_lang: Dict[str, Dict[str, Dict[str, List[str]]]] = defaultdict(make)
 
         def add(index: Dict[str, List[str]], key: Optional[str], func_id: str) -> None:
             if key and func_id not in index[key]:
                 index[key].append(func_id)
 
         for func_id, func_info in self.functions.items():
-            add(exact, func_id, func_id)
-            add(exact, func_info.component_id, func_id)
-            add(exact, func_info.qualified_name, func_id)
-            add(exact, func_info.name, func_id)
+            targets = [global_indexes]
+            if func_info.language:
+                targets.append(by_lang[func_info.language])
+
+            exact_keys = [
+                func_id,
+                func_info.component_id,
+                func_info.qualified_name,
+                func_info.name,
+            ]
 
             names = {func_info.name}
             if func_info.component_id:
@@ -622,55 +717,90 @@ class CallGraphAnalyzer:
                 if len(parts) >= 2:
                     names.add(".".join(parts[-2:]))
 
-            for name in names:
-                add(simple, name, func_id)
-                if name and "." in name:
-                    add(simple, name.split(".")[-1], func_id)
+            for target in targets:
+                for key in exact_keys:
+                    add(target["exact"], key, func_id)
+                for name in names:
+                    add(target["simple"], name, func_id)
+                    if name and "." in name:
+                        add(target["simple"], name.split(".")[-1], func_id)
 
-        return {"exact": exact, "simple": simple}
+        return {
+            "exact": global_indexes["exact"],
+            "simple": global_indexes["simple"],
+            "by_lang": dict(by_lang),
+        }
 
-    def _resolve_callee(self, relationship: CallRelationship, indexes: Dict[str, Dict[str, List[str]]]) -> Optional[str]:
+    def _resolve_callee(
+        self, relationship: CallRelationship, indexes: Dict[str, Dict]
+    ) -> Optional[str]:
+        caller = self.functions.get(relationship.caller)
+        caller_language = caller.language if caller else None
+
+        lang_indexes = indexes["by_lang"].get(caller_language) if caller_language else None
+        if lang_indexes:
+            match = self._resolve_callee_in(
+                relationship, lang_indexes["exact"], lang_indexes["simple"]
+            )
+            if match:
+                return match
+
+        # Global fallback — reject cross-language matches when caller language is known
+        match = self._resolve_callee_in(relationship, indexes["exact"], indexes["simple"])
+        if match and caller_language:
+            target = self.functions.get(match)
+            if target and target.language and target.language != caller_language:
+                return None  # Reject cross-language false positive
+        return match
+
+    def _resolve_callee_in(
+        self,
+        relationship: CallRelationship,
+        exact: Dict[str, List[str]],
+        simple: Dict[str, List[str]],
+    ) -> Optional[str]:
         callee_name = relationship.callee
 
-        exact_match = self._unique_match(indexes["exact"], callee_name)
+        exact_match = self._unique_match(exact, callee_name)
         if exact_match:
             return exact_match
 
         if "::" in callee_name:
             suffix = callee_name.split("::")[-1]
-            exact_match = self._unique_match(indexes["exact"], suffix)
+            exact_match = self._unique_match(exact, suffix)
             if exact_match:
                 return exact_match
-            simple_match = self._unique_match(indexes["simple"], suffix)
+            simple_match = self._unique_match(simple, suffix)
             if simple_match:
                 return simple_match
 
         if "." in callee_name:
-            exact_match = self._unique_match(indexes["exact"], callee_name)
-            if exact_match:
-                return exact_match
-            simple_match = self._unique_match(indexes["simple"], callee_name)
+            simple_match = self._unique_match(simple, callee_name)
             if simple_match:
                 return simple_match
-            tail_match = self._unique_match(indexes["simple"], callee_name.split(".")[-1])
+            tail_match = self._unique_match(simple, callee_name.split(".")[-1])
             if tail_match:
                 return tail_match
 
         caller = self.functions.get(relationship.caller)
-        if caller and caller.language == "java" and "." not in callee_name:
-            package = self._java_package_for_node(caller)
+        if caller and caller.language in ("java", "csharp") and "." not in callee_name:
+            package = self._dotted_package_for_node(caller)
             if package:
-                same_package_match = self._unique_match(indexes["exact"], f"{package}.{callee_name}")
+                same_package_match = self._unique_match(exact, f"{package}.{callee_name}")
                 if same_package_match:
                     return same_package_match
 
-        return self._unique_match(indexes["simple"], callee_name)
+        return self._unique_match(simple, callee_name)
 
     def _unique_match(self, index: Dict[str, List[str]], key: str) -> Optional[str]:
         matches = index.get(key, [])
         return matches[0] if len(matches) == 1 else None
 
-    def _java_package_for_node(self, node: Node) -> str:
+    def _dotted_package_for_node(self, node: Node) -> str:
+        """The package (Java) / namespace (C#) a node lives in, derived from its
+        dotted qualified name. Both languages share the same shape: a type's
+        package is its qualified name minus the type, a method's is minus
+        ``Type.method``."""
         qualified_name = node.qualified_name or ""
         parts = qualified_name.split(".")
         if len(parts) < 2:
@@ -733,7 +863,15 @@ class CallGraphAnalyzer:
                 node_classes.append("lang-typescript")
             elif language == "c":
                 node_classes.append("lang-c")
-            elif language == "cpp" or file_ext in [".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hxx", ".h++"]:
+            elif language == "cpp" or file_ext in [
+                ".cpp",
+                ".cc",
+                ".cxx",
+                ".c++",
+                ".hpp",
+                ".hxx",
+                ".h++",
+            ]:
                 node_classes.append("lang-cpp")
             elif file_ext in [".kt", ".kts"]:
                 node_classes.append("lang-kotlin")
@@ -850,12 +988,12 @@ class CallGraphAnalyzer:
 
         selected_func_ids = sorted_func_ids[:target_count]
 
-        original_func_count = len(self.functions)
+        len(self.functions)
         self.functions = {
             fid: func for fid, func in self.functions.items() if fid in selected_func_ids
         }
 
-        original_rel_count = len(self.call_relationships)
+        len(self.call_relationships)
         self.call_relationships = [
             rel
             for rel in self.call_relationships

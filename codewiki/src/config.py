@@ -1,45 +1,194 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 import argparse
 import os
-import sys
-from dotenv import load_dotenv
-load_dotenv()
+import re
 
 # Constants
-OUTPUT_BASE_DIR = 'output'
-DEPENDENCY_GRAPHS_DIR = 'dependency_graphs'
-DOCS_DIR = 'docs'
-META_DIR = '.meta'
-FIRST_MODULE_TREE_FILENAME = 'first_module_tree.json'
-MODULE_TREE_FILENAME = 'module_tree.json'
-OVERVIEW_FILENAME = 'overview.md'
+OUTPUT_BASE_DIR = "output"
+DEPENDENCY_GRAPHS_DIR = "dependency_graphs"
+DOCS_DIR = "docs"
+META_DIR = ".meta"
+FIRST_MODULE_TREE_FILENAME = "first_module_tree.json"
+MODULE_TREE_FILENAME = "module_tree.json"
+OVERVIEW_FILENAME = "overview.md"
 # LLM Wiki constants
-SCHEMA_FILENAME = 'schema.yaml'
-NOTES_DIR = 'notes'
-INDEX_FILENAME = 'index.md'
-LOG_FILENAME = 'log.md'
-SEARCH_INDEX_FILENAME = 'search_index.db'
-SYMBOL_MAP_FILENAME = 'symbol_map.json'
+SCHEMA_FILENAME = "schema.yaml"
+NOTES_DIR = "notes"
+INDEX_FILENAME = "index.md"
+LOG_FILENAME = "log.md"
+SEARCH_INDEX_FILENAME = "search_index.db"
+SYMBOL_MAP_FILENAME = "symbol_map.json"
 # LLM Wiki knowledge layer — structured layout constants
-WIKI_DIR = 'wiki'
-RAW_DIR = 'raw'
-RAW_SOURCES_DIR = 'raw/sources'
-SOURCE_REGISTRY_FILENAME = 'source_registry.json'
-ISSUES_FILENAME = 'issues.json'
-PURPOSE_FILENAME = 'purpose.md'
-PROJECT_FILENAME = 'project.json'
+WIKI_DIR = "wiki"
+RAW_DIR = "raw"
+RAW_SOURCES_DIR = "raw/sources"
+# L0 archive (team-memory fusion): distilled conversations are moved here for
+# permanent provenance. Link-only layer — NOT indexed for BM25 search; reached
+# by following note source_ref links (view_repo_file). raw/ stays the pending
+# staging queue.
+CONVERSATIONS_DIR = "conversations"
+# Task memory layer — per-task knowledge store (task.md + memories.md + index)
+TASKS_DIR = "tasks"
+TASKS_INDEX_FILENAME = ".index.json"
+TASKS_MEMORIES_FILENAME = "memories.md"
+TASK_BINDINGS_DIR = "task_bindings"
+SOURCE_REGISTRY_FILENAME = "source_registry.json"
+ISSUES_FILENAME = "issues.json"
+PROJECT_FILENAME = "project.json"
 # Mapping from page_type to subdirectory name under wiki/
 PAGE_TYPE_DIRS = {
-    'module': 'modules',
-    'entity': 'entities',
-    'concept': 'concepts',
-    'source': 'sources',
-    'comparison': 'comparisons',
-    'query': 'queries',
+    "module": "modules",
+    "entity": "entities",
+    "concept": "concepts",
+    "source": "sources",
+    "comparison": "comparisons",
+    "query": "queries",
+    # P2 (team-memory fusion): L2 work-method scene blocks — consolidated
+    # reusable knowledge (SOP / judgment logic / taboos / principles) distilled
+    # from confirmed notes via consolidate_notes.
+    "scenario": "scenarios",
 }
 # Files excluded from wiki index and search (system files)
-WIKI_SYSTEM_FILES = {'index.md', 'log.md', 'overview.md', 'schema.yaml', 'purpose.md'}
+WIKI_SYSTEM_FILES = {"index.md", "log.md", "overview.md", "schema.yaml"}
+
+# OKF v0.2 actor convention (§7): '<producer>/<version>' for agents and tools
+# (e.g. ``reference_agent/gemini-2.5-pro``), 'human:<id>' for people,
+# 'process:<id>' for pipelines.  Single source of truth for the actor string
+# used in `generated.by` / `verified[].by` fields.
+ACTOR_NAME = "codewiki"
+OKF_VERSION = "0.2"
+
+
+def actor_id() -> str:
+    """Return the OKF actor id for this tool, e.g. ``codewiki/5.2.0`` (§7)."""
+    from codewiki import __version__
+
+    return f"{ACTOR_NAME}/{__version__}"
+
+
+# --------------------------------------------------------------------------- #
+# T2 identity (docs/团队知识库支持优化设计方案.md §4.1)
+# --------------------------------------------------------------------------- #
+
+# Per-user git identity is process-stable: resolve it once. The env override
+# (CODEWIKI_USER) is checked live on every call so pseudonyms apply immediately.
+_GIT_USER_NAME_CACHE: Optional[str] = None
+_GIT_USER_EMAIL_CACHE: Optional[str] = None
+
+# Filename-safe charset for the telemetry namespace: alphanumerics, dash,
+# underscore. Everything else (spaces, CJK, dots...) collapses to a dash.
+_USER_ID_UNSAFE_RE = re.compile(r"[^A-Za-z0-9_-]+")
+
+
+def _git_config_value(key: str) -> str:
+    """``git config <key>`` value (cwd-dependent; global fallback); '' on failure."""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["git", "config", key],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if proc.returncode == 0:
+            return (proc.stdout or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _git_user_name() -> str:
+    """Global ``git config user.name``; '' when unset/failing."""
+    global _GIT_USER_NAME_CACHE
+    if _GIT_USER_NAME_CACHE is None:
+        _GIT_USER_NAME_CACHE = _git_config_value("user.name")
+    return _GIT_USER_NAME_CACHE
+
+
+def _git_user_email() -> str:
+    """Global ``git config user.email``; '' when unset/failing.
+
+    Preferred over user.name for namespacing: emails are effectively globally
+    unique (user.name collisions across teammates are common).
+    """
+    global _GIT_USER_EMAIL_CACHE
+    if _GIT_USER_EMAIL_CACHE is None:
+        _GIT_USER_EMAIL_CACHE = _git_config_value("user.email")
+    return _GIT_USER_EMAIL_CACHE
+
+
+def _login_name() -> str:
+    """OS login name; '' when unavailable (services / some CI sandboxes)."""
+    try:
+        return os.getlogin() or ""
+    except Exception:
+        return ""
+
+
+def _sanitize_user_id(raw: str) -> str:
+    """Filename-safe form of *raw*: [A-Za-z0-9_-] only, truncated to 40 chars."""
+    safe = _USER_ID_UNSAFE_RE.sub("-", (raw or "").strip()).strip("-")
+    if not safe:
+        return "local"
+    return safe[:40]
+
+
+_USER_ID_CACHE_PATH = os.path.join(
+    os.environ.get("APPDATA") or os.path.expanduser("~"),
+    ".codewiki_user_id",
+)
+
+
+def _read_user_id_cache() -> str:
+    """Persisted user_id from a previous process, avoiding a ``git`` subprocess
+    on every cold start. Empty string when absent/unreadable."""
+    try:
+        with open(_USER_ID_CACHE_PATH, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
+def _write_user_id_cache(uid: str) -> None:
+    """Best-effort persist; failure is non-fatal (next start re-derives)."""
+    try:
+        os.makedirs(os.path.dirname(_USER_ID_CACHE_PATH), exist_ok=True)
+        with open(_USER_ID_CACHE_PATH, "w", encoding="utf-8") as f:
+            f.write(uid)
+    except Exception:
+        pass
+
+
+def user_id() -> str:
+    """Stable per-user identity for telemetry / task-memory namespacing.
+    Priority: CODEWIKI_USER env (explicit override, allows pseudonyms)
+    > disk cache > git user.email > git user.name > os.getlogin.
+    Falls back to 'local'. Not an auth mechanism — namespace only.
+
+    email ranks above name because it is effectively globally unique, which
+    keeps per-user files from fragmenting when two teammates share a name —
+    and from colliding when the same person contributes from several
+    machines with consistent git identity. The disk cache makes this stable
+    across process cold-starts without paying a ``git`` subprocess each time.
+    """
+    env = os.getenv("CODEWIKI_USER", "").strip()
+    if env:
+        return _sanitize_user_id(env)
+    cached = _read_user_id_cache()
+    if cached:
+        return cached
+    raw = _git_user_email() or _git_user_name()
+    if not raw:
+        raw = _login_name()
+    if not raw:
+        return "local"
+    uid = _sanitize_user_id(raw)
+    _write_user_id_cache(uid)
+    return uid
 
 
 def meta_join(base_dir, filename):
@@ -75,27 +224,32 @@ MAX_TOKEN_PER_LEAF_MODULE = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE
 # CLI context detection
 _CLI_CONTEXT = False
 
+
 def set_cli_context(enabled: bool = True):
     """Set whether we're running in CLI context (vs web app)."""
     global _CLI_CONTEXT
     _CLI_CONTEXT = enabled
 
+
 def is_cli_context() -> bool:
     """Check if running in CLI context."""
     return _CLI_CONTEXT
 
+
 # LLM services
 # In CLI mode, these will be loaded from ~/.codewiki/config.json + keyring
 # In web app mode, use environment variables
-MAIN_MODEL = os.getenv('MAIN_MODEL', 'claude-sonnet-4')
-FALLBACK_MODEL_1 = os.getenv('FALLBACK_MODEL_1', 'glm-4p5')
-CLUSTER_MODEL = os.getenv('CLUSTER_MODEL', MAIN_MODEL)
-LLM_BASE_URL = os.getenv('LLM_BASE_URL', 'http://0.0.0.0:4000/')
-LLM_API_KEY = os.getenv('LLM_API_KEY', 'sk-1234')
+MAIN_MODEL = os.getenv("MAIN_MODEL", "claude-sonnet-4")
+FALLBACK_MODEL_1 = os.getenv("FALLBACK_MODEL_1", "glm-4p5")
+CLUSTER_MODEL = os.getenv("CLUSTER_MODEL", MAIN_MODEL)
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://0.0.0.0:4000/")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-1234")
+
 
 @dataclass
 class Config:
     """Configuration class for CodeWiki."""
+
     repo_path: str
     output_dir: str
     dependency_graph_dir: str
@@ -118,77 +272,79 @@ class Config:
     max_token_per_leaf_module: int = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE
     # Agent instructions for customization
     agent_instructions: Optional[Dict[str, Any]] = None
-    
+
     @property
     def include_patterns(self) -> Optional[List[str]]:
         """Get file include patterns from agent instructions."""
         if self.agent_instructions:
-            return self.agent_instructions.get('include_patterns')
+            return self.agent_instructions.get("include_patterns")
         return None
-    
+
     @property
     def exclude_patterns(self) -> Optional[List[str]]:
         """Get file exclude patterns from agent instructions."""
         if self.agent_instructions:
-            return self.agent_instructions.get('exclude_patterns')
+            return self.agent_instructions.get("exclude_patterns")
         return None
-    
+
     @property
     def focus_modules(self) -> Optional[List[str]]:
         """Get focus modules from agent instructions."""
         if self.agent_instructions:
-            return self.agent_instructions.get('focus_modules')
+            return self.agent_instructions.get("focus_modules")
         return None
-    
+
     @property
     def doc_type(self) -> Optional[str]:
         """Get documentation type from agent instructions."""
         if self.agent_instructions:
-            return self.agent_instructions.get('doc_type')
+            return self.agent_instructions.get("doc_type")
         return None
-    
+
     @property
     def custom_instructions(self) -> Optional[str]:
         """Get custom instructions from agent instructions."""
         if self.agent_instructions:
-            return self.agent_instructions.get('custom_instructions')
+            return self.agent_instructions.get("custom_instructions")
         return None
-    
+
     def get_prompt_addition(self) -> str:
         """Generate prompt additions based on agent instructions."""
         if not self.agent_instructions:
             return ""
-        
+
         additions = []
-        
+
         if self.doc_type:
             doc_type_instructions = {
-                'api': "Focus on API documentation: endpoints, parameters, return types, and usage examples.",
-                'architecture': "Focus on architecture documentation: system design, component relationships, and data flow.",
-                'user-guide': "Focus on user guide documentation: how to use features, step-by-step tutorials.",
-                'developer': "Focus on developer documentation: code structure, contribution guidelines, and implementation details.",
-                'business': "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details.",
-                'design': "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity.",
+                "api": "Focus on API documentation: endpoints, parameters, return types, and usage examples.",
+                "architecture": "Focus on architecture documentation: system design, component relationships, and data flow.",
+                "user-guide": "Focus on user guide documentation: how to use features, step-by-step tutorials.",
+                "developer": "Focus on developer documentation: code structure, contribution guidelines, and implementation details.",
+                "business": "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details.",
+                "design": "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity.",
             }
             if self.doc_type.lower() in doc_type_instructions:
                 additions.append(doc_type_instructions[self.doc_type.lower()])
             else:
                 additions.append(f"Focus on generating {self.doc_type} documentation.")
-        
+
         if self.focus_modules:
-            additions.append(f"Pay special attention to and provide more detailed documentation for these modules: {', '.join(self.focus_modules)}")
-        
+            additions.append(
+                f"Pay special attention to and provide more detailed documentation for these modules: {', '.join(self.focus_modules)}"
+            )
+
         if self.custom_instructions:
             additions.append(f"Additional instructions: {self.custom_instructions}")
-        
+
         return "\n".join(additions) if additions else ""
-    
+
     @classmethod
-    def from_args(cls, args: argparse.Namespace) -> 'Config':
+    def from_args(cls, args: argparse.Namespace) -> "Config":
         """Create configuration from parsed arguments."""
         repo_name = os.path.basename(os.path.normpath(args.repo_path))
-        sanitized_repo_name = ''.join(c if c.isalnum() else '_' for c in repo_name)
-        
+        sanitized_repo_name = "".join(c if c.isalnum() else "_" for c in repo_name)
+
         return cls(
             repo_path=args.repo_path,
             output_dir=OUTPUT_BASE_DIR,
@@ -199,9 +355,9 @@ class Config:
             llm_api_key=LLM_API_KEY,
             main_model=MAIN_MODEL,
             cluster_model=CLUSTER_MODEL,
-            fallback_model=FALLBACK_MODEL_1
+            fallback_model=FALLBACK_MODEL_1,
         )
-    
+
     @classmethod
     def from_cli(
         cls,
@@ -220,8 +376,8 @@ class Config:
         max_token_per_module: int = DEFAULT_MAX_TOKEN_PER_MODULE,
         max_token_per_leaf_module: int = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE,
         max_depth: int = MAX_DEPTH,
-        agent_instructions: Optional[Dict[str, Any]] = None
-    ) -> 'Config':
+        agent_instructions: Optional[Dict[str, Any]] = None,
+    ) -> "Config":
         """
         Create configuration for CLI context.
 
@@ -246,7 +402,7 @@ class Config:
         Returns:
             Config instance
         """
-        repo_name = os.path.basename(os.path.normpath(repo_path))
+        os.path.basename(os.path.normpath(repo_path))
         base_output_dir = os.path.join(output_dir, "temp")
 
         return cls(
@@ -267,5 +423,5 @@ class Config:
             max_tokens=max_tokens,
             max_token_per_module=max_token_per_module,
             max_token_per_leaf_module=max_token_per_leaf_module,
-            agent_instructions=agent_instructions
+            agent_instructions=agent_instructions,
         )

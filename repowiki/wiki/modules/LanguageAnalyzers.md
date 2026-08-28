@@ -1,33 +1,25 @@
 ---
 title: LanguageAnalyzers
-depth: 2
-module_type: leaf
-component_count: 21
-components:
-  - codewiki/src/be/dependency_analyzer/analyzers/c.py::TreeSitterCAnalyzer
-  - codewiki/src/be/dependency_analyzer/analyzers/c.py::analyze_c_file
-  - codewiki/src/be/dependency_analyzer/analyzers/cpp.py::TreeSitterCppAnalyzer
-  - codewiki/src/be/dependency_analyzer/analyzers/cpp.py::analyze_cpp_file
-  - codewiki/src/be/dependency_analyzer/analyzers/csharp.py::TreeSitterCSharpAnalyzer
-  - codewiki/src/be/dependency_analyzer/analyzers/csharp.py::analyze_csharp_file
-  - codewiki/src/be/dependency_analyzer/analyzers/go.py::TreeSitterGoAnalyzer
-  - codewiki/src/be/dependency_analyzer/analyzers/go.py::analyze_go_file
-  - codewiki/src/be/dependency_analyzer/analyzers/java.py::TreeSitterJavaAnalyzer
-  - codewiki/src/be/dependency_analyzer/analyzers/java.py::analyze_java_file
-  - codewiki/src/be/dependency_analyzer/analyzers/javascript.py::TreeSitterJSAnalyzer
-  - codewiki/src/be/dependency_analyzer/analyzers/javascript.py::analyze_javascript_file_treesitter
-  - codewiki/src/be/dependency_analyzer/analyzers/kotlin.py::TreeSitterKotlinAnalyzer
-  - codewiki/src/be/dependency_analyzer/analyzers/kotlin.py::analyze_kotlin_file
-  - codewiki/src/be/dependency_analyzer/analyzers/php.py::NamespaceResolver
-  - codewiki/src/be/dependency_analyzer/analyzers/php.py::TreeSitterPHPAnalyzer
-  - codewiki/src/be/dependency_analyzer/analyzers/php.py::analyze_php_file
-  - codewiki/src/be/dependency_analyzer/analyzers/python.py::PythonASTAnalyzer
-  - codewiki/src/be/dependency_analyzer/analyzers/python.py::analyze_python_file
-  - codewiki/src/be/dependency_analyzer/analyzers/typescript.py::TreeSitterTSAnalyzer
-  - codewiki/src/be/dependency_analyzer/analyzers/typescript.py::analyze_typescript_file_treesitter
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 21
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: LanguageAnalyzers 是 DependencyAnalyzer 的叶子模块，包含针对 10 种编程语言的源码分析器。每个分析器接收一个文件路径与源码内容（外加可选的
+  `repo_path`），解析后产出两类标准对象：`Node`（类、函数、方法、接口等符号）与 `CallRelationship`（调用/
+aliases:
+- LanguageAnalyzers
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:17Z'
 ---
 
 # LanguageAnalyzers 模块文档

@@ -40,6 +40,9 @@ def handle_list_components(
     component_type : str (optional)
         Only include components of this type (e.g. ``class``,
         ``function``, ``interface``).
+    leaf_only : bool (optional, default False)
+        If true, only include leaf components — those with no outgoing
+        dependencies in the call graph (i.e. they don't call anything).
     summary : bool (optional, default False)
         If true, return a compact file-level summary instead of
         individual component entries.  Useful for module clustering.
@@ -53,13 +56,19 @@ def handle_list_components(
     session = resolve_session(arguments, store)
     if session is None:
         return json.dumps(
-            {"error": "Session not found. Provide a valid repo_path pointing to a previously analyzed repository."},
+            {
+                "error": "Session not found. Provide a valid repo_path pointing to a previously analyzed repository."
+            },
             ensure_ascii=False,
         )
 
     file_prefix = arguments.get("file_prefix", "")
     component_type = arguments.get("component_type", "")
     summary_mode = arguments.get("summary", False)
+    leaf_only = arguments.get("leaf_only", False)
+
+    # Build a set of leaf node IDs for fast lookup when leaf_only is requested.
+    leaf_node_set = set(session.leaf_nodes) if leaf_only else None
 
     # Collect filtered components from the in-memory session.
     raw_entries: list = []
@@ -67,14 +76,16 @@ def handle_list_components(
         comp_type = getattr(node, "component_type", "unknown")
         comp_file = getattr(node, "relative_path", "")
 
-        if file_prefix and not comp_file.replace("\\", "/").startswith(file_prefix.replace("\\", "/")):
+        if file_prefix and not comp_file.replace("\\", "/").startswith(
+            file_prefix.replace("\\", "/")
+        ):
             continue
         if component_type and comp_type != component_type:
             continue
+        if leaf_node_set is not None and comp_id not in leaf_node_set:
+            continue
 
-        raw_entries.append(
-            {"id": comp_id, "type": comp_type, "file": comp_file}
-        )
+        raw_entries.append({"id": comp_id, "type": comp_type, "file": comp_file})
 
     total = len(raw_entries)
 
@@ -88,6 +99,7 @@ def handle_list_components(
 #  Full mode                                                          #
 # ------------------------------------------------------------------ #
 
+
 def _build_full(session, entries: list, total: int) -> str:
     """Write every component entry to component_list.json."""
     entries.sort(key=lambda c: (c["file"], c["id"]))
@@ -99,9 +111,13 @@ def _build_full(session, entries: list, total: int) -> str:
         summary={
             "total": total,
             "hint": "Read the file for the full component list. "
-                    "Use read_code_components to fetch source code.",
+            "Use read_code_components to fetch source code.",
         },
     )
+    # Graph freshness hint (only present when watch mode is active).
+    from codewiki.mcp.tools.watch import attach_graph_stale
+
+    response = attach_graph_stale(response, session)
     return json.dumps(response, indent=2, ensure_ascii=False)
 
 
@@ -154,8 +170,12 @@ def _build_summary(session, entries: list, total: int) -> str:
             "total_components": total,
             "mode": "summary",
             "hint": "Read the file for the per-file summary. "
-                    "Use list_components(file_prefix=<dir>) for exact IDs "
-                    "when generating docs for a specific module.",
+            "Use list_components(file_prefix=<dir>) for exact IDs "
+            "when generating docs for a specific module.",
         },
     )
+    # Graph freshness hint (only present when watch mode is active).
+    from codewiki.mcp.tools.watch import attach_graph_stale
+
+    response = attach_graph_stale(response, session)
     return json.dumps(response, indent=2, ensure_ascii=False)

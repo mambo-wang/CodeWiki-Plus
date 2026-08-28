@@ -3,12 +3,13 @@
 Supports listing all links, filtering by service name, HTTP method, or path,
 and tracing a specific route's call chain.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -20,18 +21,53 @@ def handle_query_cross_service(
 
     Arguments:
         workspace_path: Path to the workspace directory.
+        output_dir: Explicit output directory containing .meta/ with cross-service data.
         filter_type: One of "all", "by_service", "by_method", "by_path", "trace".
         filter_value: The value to filter by (service name, HTTP method, path prefix).
     """
     workspace_path = Path(arguments.get("workspace_path", ".")).resolve()
     filter_type = arguments.get("filter_type", "all")
-    filter_value = arguments.get("filter_value", "")
+    # filter_value is the canonical param; accept repo_name / service as
+    # aliases for compatibility with older AGENTS.md quick-reference tables.
+    filter_value = (
+        arguments.get("filter_value")
+        or arguments.get("repo_name")
+        or arguments.get("service")
+        or ""
+    )
 
-    # Load topology from workspace meta
-    # Try workspace-level first (analyze_workspace), then repo-level (analyze_repo monorepo)
-    meta_dir = workspace_path / "workspace-wiki" / ".meta"
-    if not meta_dir.exists():
+    # Guard: non-"all" filters require a non-empty value. An empty string
+    # would match everything via substring/startswith, producing confusing
+    # results (e.g. by_service returning all links with service: "").
+    if filter_type != "all" and not filter_value.strip():
+        return json.dumps(
+            {
+                "error": f"filter_value is required when filter_type='{filter_type}'. "
+                "Pass the service name / HTTP method / path prefix / route key "
+                "as the 'filter_value' parameter.",
+            },
+            ensure_ascii=False,
+        )
+
+    # Resolve meta directory: explicit output_dir first, then auto-derive
+    explicit_od = arguments.get("output_dir")
+    if explicit_od:
+        meta_dir = Path(explicit_od).expanduser().resolve() / ".meta"
+    else:
         meta_dir = workspace_path / "repowiki" / ".meta"
+        if not meta_dir.exists():
+            # Legacy: pre-unification analyze_workspace output location
+            meta_dir = workspace_path / "workspace-wiki" / ".meta"
+        if not meta_dir.exists():
+            # Broader search: try common workspace subdirs
+            for candidate in workspace_path.iterdir():
+                if not candidate.is_dir() or candidate.name.startswith("."):
+                    continue
+                test_dir = candidate / ".meta"
+                if test_dir.exists() and (test_dir / "cross_service_links.json").exists():
+                    meta_dir = test_dir
+                    break
+
     links_path = meta_dir / "cross_service_links.json"
     routes_path = meta_dir / "workspace_routes.json"
 
@@ -80,57 +116,66 @@ def _format_all(links: List[Dict], routes: List[Dict]) -> Dict:
         "summary": summary,
         "links": links,
         "unmatched_routes": [
-            r for r in routes
-            if not any(
-                l.get("route_key") == r.get("route_key") for l in links
-            )
+            r
+            for r in routes
+            if not any(link.get("route_key") == r.get("route_key") for link in links)
         ],
     }
 
 
 def _filter_by_service(links: List[Dict], service: str) -> Dict:
     matching = [
-        l for l in links
-        if service.lower() in l.get("client_repo", "").lower()
-        or service.lower() in l.get("server_repo", "").lower()
+        link
+        for link in links
+        if service.lower() in link.get("client_repo", "").lower()
+        or service.lower() in link.get("server_repo", "").lower()
     ]
     return {
         "service": service,
         "count": len(matching),
-        "as_client": [l for l in matching if service.lower() in l.get("client_repo", "").lower()],
-        "as_server": [l for l in matching if service.lower() in l.get("server_repo", "").lower()],
+        "as_client": [
+            link for link in matching if service.lower() in link.get("client_repo", "").lower()
+        ],
+        "as_server": [
+            link for link in matching if service.lower() in link.get("server_repo", "").lower()
+        ],
     }
 
 
 def _filter_by_method(links: List[Dict], method: str) -> Dict:
     # MQ links serialize method as null — guard against None before .upper()
-    matching = [l for l in links if (l.get("method") or "").upper() == method.upper()]
+    matching = [link for link in links if (link.get("method") or "").upper() == method.upper()]
     return {"method": method.upper(), "count": len(matching), "links": matching}
 
 
 def _filter_by_path(links: List[Dict], path_prefix: str) -> Dict:
-    matching = [l for l in links if (l.get("path") or "").startswith(path_prefix)]
+    prefix_lower = path_prefix.lower()
+    matching = [link for link in links if (link.get("path") or "").lower().startswith(prefix_lower)]
     return {"path_prefix": path_prefix, "count": len(matching), "links": matching}
 
 
 def _trace_route(links: List[Dict], routes: List[Dict], route_key: str) -> Dict:
     """Trace a specific route: find all clients and servers involved."""
-    matching_links = [l for l in links if l.get("route_key") == route_key]
+    matching_links = [link for link in links if link.get("route_key") == route_key]
     matching_routes = [r for r in routes if r.get("route_key") == route_key]
 
     clients = []
     servers = []
     for link in matching_links:
-        clients.append({
-            "repo": link.get("client_repo"),
-            "function": link.get("client_function"),
-            "component_id": link.get("client_component_id"),
-        })
-        servers.append({
-            "repo": link.get("server_repo"),
-            "function": link.get("server_function"),
-            "component_id": link.get("server_component_id"),
-        })
+        clients.append(
+            {
+                "repo": link.get("client_repo"),
+                "function": link.get("client_function"),
+                "component_id": link.get("client_component_id"),
+            }
+        )
+        servers.append(
+            {
+                "repo": link.get("server_repo"),
+                "function": link.get("server_function"),
+                "component_id": link.get("server_component_id"),
+            }
+        )
 
     return {
         "route_key": route_key,

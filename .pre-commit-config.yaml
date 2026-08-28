@@ -1,0 +1,12 @@
+# Pre-commit hooks for CodeWiki-Plus
+# Setup: uv sync --frozen && uv run pre-commit install
+# Run manually: uv run pre-commit run --all-files
+# CI also enforces these on changed files (see .github/workflows/ci.yml)
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.3  # must match ruff pin in pyproject.toml
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format

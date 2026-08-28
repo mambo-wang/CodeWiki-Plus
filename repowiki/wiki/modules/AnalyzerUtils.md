@@ -1,32 +1,24 @@
 ---
 title: AnalyzerUtils
-depth: 2
-module_type: leaf
-component_count: 20
-components:
-  - codewiki/src/be/dependency_analyzer/utils/external_symbols.py::is_external_symbol
-  - codewiki/src/be/dependency_analyzer/utils/external_symbols.py::is_macro_name
-  - codewiki/src/be/dependency_analyzer/utils/external_symbols.py::normalize_symbol
-  - codewiki/src/be/dependency_analyzer/utils/logging_config.py::ColoredFormatter
-  - codewiki/src/be/dependency_analyzer/utils/logging_config.py::setup_logging
-  - codewiki/src/be/dependency_analyzer/utils/logging_config.py::setup_module_logging
-  - codewiki/src/be/dependency_analyzer/utils/path_canonicalizer.py::canonicalize_path
-  - codewiki/src/be/dependency_analyzer/utils/path_canonicalizer.py::make_mq_route_key
-  - codewiki/src/be/dependency_analyzer/utils/path_canonicalizer.py::make_route_key
-  - codewiki/src/be/dependency_analyzer/utils/patterns.py::fallback_priority
-  - codewiki/src/be/dependency_analyzer/utils/patterns.py::find_fallback_connectivity_files
-  - codewiki/src/be/dependency_analyzer/utils/patterns.py::find_fallback_entry_points
-  - codewiki/src/be/dependency_analyzer/utils/patterns.py::get_function_patterns_for_language
-  - codewiki/src/be/dependency_analyzer/utils/patterns.py::has_high_connectivity_potential
-  - codewiki/src/be/dependency_analyzer/utils/patterns.py::is_critical_function
-  - codewiki/src/be/dependency_analyzer/utils/patterns.py::is_entry_point_file
-  - codewiki/src/be/dependency_analyzer/utils/patterns.py::is_entry_point_path
-  - codewiki/src/be/dependency_analyzer/utils/security.py::_inside
-  - codewiki/src/be/dependency_analyzer/utils/security.py::assert_safe_path
-  - codewiki/src/be/dependency_analyzer/utils/security.py::safe_open_text
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:38+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 20
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: '`AnalyzerUtils` 是 `DependencyAnalyzer` 的叶子工具模块，集中存放依赖分析过程中跨语言、跨分析器复用的纯函数与配置表。它不持有状态，不发起网络调用，只提供：符号去外部化判定、彩色日志、URL/路由键规范化、入口点与高连接性启发式判定、连接性回退策略，以及路径安全读取。'
+aliases:
+- AnalyzerUtils
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:15Z'
 ---
 
 # AnalyzerUtils 模块文档
@@ -124,13 +116,17 @@ flowchart TD
 ## 使用示例
 ```python
 from codewiki.src.be.dependency_analyzer.utils import (
-    external_symbols, path_canonicalizer, patterns, security, logging_config,
+    external_symbols,
+    path_canonicalizer,
+    patterns,
+    security,
+    logging_config,
 )
 
 # 判定符号是否外部，避免垃圾边
-external_symbols.is_external_symbol("c", "printf")      # True
+external_symbols.is_external_symbol("c", "printf")  # True
 external_symbols.is_external_symbol("cpp", "std::vector")  # True
-external_symbols.is_macro_name("MAX_SIZE")              # True
+external_symbols.is_macro_name("MAX_SIZE")  # True
 
 # 路由键统一（Express 与 Spring 同一路径可比对）
 key = path_canonicalizer.make_route_key("GET", "/users/:id")

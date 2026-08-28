@@ -40,6 +40,7 @@
 if session.docs_written > 0:
     try:
         from codewiki.mcp.tools.agents_md import write_agents_md
+
         write_agents_md(session)
     except Exception:
         logger.debug("Failed to update AGENTS.md", exc_info=True)

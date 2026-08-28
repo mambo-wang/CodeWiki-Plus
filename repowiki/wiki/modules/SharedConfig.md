@@ -1,18 +1,25 @@
 ---
 title: SharedConfig
-depth: 1
-module_type: leaf
-component_count: 6
-components:
-  - codewiki/src/config.py::Config
-  - codewiki/src/config.py::ConfigError
-  - codewiki/src/config.py::from_cli
-  - codewiki/src/config.py::from_cli_args
-  - codewiki/src/config.py::meta_resolve
-  - codewiki/src/utils.py::file_manager
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 1
+  module_type: leaf
+  component_count: 6
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: '`SharedConfig` 是 CodeWiki 横跨 CLI、后端分析与 MCP 服务的**共享配置与文件管理基座**（位于 `codewiki/src/`）。它仅由两个源文件、6
+  个组件构成，却是各模块协同的基石：`Config` 统一承载仓库路径、LLM 端点、Token 预算、运行模式等全局参数，并提供 `f'
+aliases:
+- SharedConfig
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:19Z'
 ---
 
 # SharedConfig 模块文档
@@ -76,10 +83,11 @@ cfg = from_cli_args(
 print(cfg.output_dir, cfg.main_model)
 
 # 元数据路径统一解析
-config_path = cfg.meta_resolve("config.json")   # -> .../wiki/.meta/config.json
+config_path = cfg.meta_resolve("config.json")  # -> .../wiki/.meta/config.json
 
 # 文件读写经单例
 from codewiki.src.utils import file_manager
+
 file_manager.save_text(config_path, "# wiki config")
 data = file_manager.load_json(cfg.meta_resolve("metadata.json"))
 ```

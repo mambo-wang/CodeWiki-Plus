@@ -1,36 +1,26 @@
 ---
 title: MCP_Tools_Analysis
-depth: 2
-module_type: leaf
-component_count: 24
-components:
-  - codewiki/mcp/tools/analysis.py::_build_no_change_response
-  - codewiki/mcp/tools/analysis.py::_build_symbol_map
-  - codewiki/mcp/tools/analysis.py::_check_overview_stale
-  - codewiki/mcp/tools/analysis.py::_detect_doc_changes
-  - codewiki/mcp/tools/analysis.py::_detect_git_from_meta
-  - codewiki/mcp/tools/analysis.py::_detect_mtime_from_meta
-  - codewiki/mcp/tools/analysis.py::_extract_overview_refs
-  - codewiki/mcp/tools/analysis.py::_find_affected_modules
-  - codewiki/mcp/tools/analysis.py::_load_overview_refs
-  - codewiki/mcp/tools/analysis.py::_n
-  - codewiki/mcp/tools/analysis.py::_read_source_from_disk
-  - codewiki/mcp/tools/analysis.py::_retag_routes_by_service
-  - codewiki/mcp/tools/analysis.py::_run_monorepo_cross_service
-  - codewiki/mcp/tools/analysis.py::_save_overview_refs
-  - codewiki/mcp/tools/analysis.py::_walk
-  - codewiki/mcp/tools/analysis.py::_walk_graph
-  - codewiki/mcp/tools/analysis.py::add
-  - codewiki/mcp/tools/analysis.py::handle_analyze_repo
-  - codewiki/mcp/tools/workspace_analyzer.py::_generate_overview
-  - codewiki/mcp/tools/workspace_analyzer.py::_run_cross_service_analysis
-  - codewiki/mcp/tools/workspace_analyzer.py::_scan_git_repos
-  - codewiki/mcp/tools/workspace_analyzer.py::handle_analyze_workspace
-  - codewiki/mcp/tools/workspace_result.py::resolve_session
-  - codewiki/mcp/tools/workspace_result.py::write_result
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 24
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: 本模块是 [[MCP_Server]] 的"分析类"工具集合，提供仓库级与多仓库工作区级的结构解析入口。核心是 `analyze_repo`（单仓分析）与
+  `analyze_workspace`（多仓工作区分析）两个 MCP 工具，二者均为**纯 Tree-sitter 静态分析、不调用 LLM**，运行结果缓存进
+  S
+aliases:
+- MCP_Tools_Analysis
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:18Z'
 ---
 
 # MCP_Tools_Analysis 模块文档
@@ -63,7 +53,7 @@ updated_at: 2026-07-28
 ## 关键设计
 **单仓分析 `handle_analyze_repo`**：参数 `repo_path`(必填)、`output_dir`(默认 `<repo>/repowiki`)、`include_patterns`/`exclude_patterns`、`doc_type`(默认 design)、`custom_instructions`、`incremental`(默认 True)、`detect_services`(默认 True)。流程：① 构建 `Config`（llm 字段占位，分析阶段不调用 [[LLM_Backend]]）；② 取共享 [[MCP_Cache]] 的 `AnalysisCache`；③ 若 `cache.is_fresh()` 且 `detect_changes()` 无变更则走 `_build_no_change_response`；④ 否则调用 `DependencyGraphBuilder.build_dependency_graph(skip_file_paths=...)`（来自 [[DependencyAnalyzer]]）得 `components/leaf_nodes/routes`，增量时仅解析变更文件并合并缓存未变组件、重算 leaf；⑤ `batch_insert_components/routes` 写 SQLite；⑥ 若 `detect_services` 则 `_run_monorepo_cross_service`（调 `detect_services` + `CrossServiceMatcher` + `TopologyVisualizer`）；⑦ 用 `ComponentMeta` 构建 `LazyComponentStore`，`store.create()` 建会话并记录 `analyzed_commit`；⑧ 写 `summary.json`/`schema.yaml`（[[MCP_Tools_DocWriter]]）、`changes.json`、`symbol_map.json`、`overview_refs.json`、重建 wiki 索引（[[MCP_Tools_Quality]]）；⑨ 返回含 `session_id`/`stats`/`files`/`changes`/`cross_service` 的 JSON。
 
-**多仓分析 `handle_analyze_workspace`**：参数 `workspace_path`(必填)、`exclude_dirs`、`output_dir`(默认 `<ws>/workspace-wiki`)。先 `_scan_git_repos` 找 .git 子仓，逐个内部调用 `handle_analyze_repo`，再 `_run_cross_service_analysis` 跨仓匹配，最后 `_generate_overview` 生成 overview.md；返回 `workspace_session_id`/`repos`/`cross_service`。
+**多仓分析 `handle_analyze_workspace`**：参数 `workspace_path`(必填)、`exclude_dirs`、`output_dir`(默认 `<ws>/repowiki`)。先 `_scan_git_repos` 找 .git 子仓，逐个内部调用 `handle_analyze_repo`，再 `_run_cross_service_analysis` 跨仓匹配，最后 `_generate_overview` 生成 overview.md；返回 `workspace_session_id`/`repos`/`cross_service`。
 
 **增量与影响面**：`_detect_git_from_meta`/`_detect_mtime_from_meta` 识别变更文件；`_find_affected_modules` 优先用 `topo_sort.transitive_impact(depended_by)` 做图传播，回退到路径前缀匹配；`_check_overview_stale` 比对 overview 引用决定是否级联概览。
 

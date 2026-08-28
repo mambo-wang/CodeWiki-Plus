@@ -1,23 +1,24 @@
 ---
 title: MCP_Cache
-depth: 2
-module_type: leaf
-component_count: 11
-components:
-  - codewiki/mcp/cache.py::AnalysisCache
-  - codewiki/mcp/cache.py::ComponentMeta
-  - codewiki/mcp/cache.py::LazyComponentStore
-  - codewiki/mcp/cache.py::_build_indexable_text
-  - codewiki/mcp/cache.py::_extract_frontmatter
-  - codewiki/mcp/cache.py::_extract_snippet
-  - codewiki/mcp/cache.py::_extract_title
-  - codewiki/mcp/cache.py::_parse_frontmatter_dict
-  - codewiki/mcp/cache.py::_parse_row
-  - codewiki/mcp/cache.py::_tokenize
-  - codewiki/mcp/cache.py::_sql_chunks
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 11
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: '`MCP_Cache` 是 [[MCP_Server]] 的持久化与检索核心，位于 `codewiki/mcp/cache.py`。'
+aliases:
+- MCP_Cache
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:17Z'
 ---
 
 # MCP_Cache 模块文档

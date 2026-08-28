@@ -1,75 +1,30 @@
 ---
 title: MCP_Tools_Quality
-depth: 2
-module_type: leaf
-component_count: 57
-components:
-  - codewiki/mcp/tools/cbm_integration.py::cbm_get_architecture
-  - codewiki/mcp/tools/cbm_integration.py::cbm_trace_cross_service
-  - codewiki/mcp/tools/cbm_integration.py::is_cbm_available
-  - codewiki/mcp/tools/cbm_integration.py::merge_cbm_and_local_results
-  - codewiki/mcp/tools/file_param.py::read_json_param
-  - codewiki/mcp/tools/file_param.py::read_param
-  - codewiki/mcp/tools/issue_tracker.py::_fnv1a_32
-  - codewiki/mcp/tools/issue_tracker.py::_generate_issue_id
-  - codewiki/mcp/tools/issue_tracker.py::_load_issues
-  - codewiki/mcp/tools/issue_tracker.py::_save_issues
-  - codewiki/mcp/tools/issue_tracker.py::handle_flag_issue
-  - codewiki/mcp/tools/prompt_server.py::_build_schema_constraints
-  - codewiki/mcp/tools/prompt_server.py::_resolve_prompt
-  - codewiki/mcp/tools/prompt_server.py::handle_get_prompt
-  - codewiki/mcp/tools/wiki_index.py::_append_with_lock
-  - codewiki/mcp/tools/wiki_index.py::_atomic_write
-  - codewiki/mcp/tools/wiki_index.py::_compute_health_score
-  - codewiki/mcp/tools/wiki_index.py::_extract_doc_title_and_summary
-  - codewiki/mcp/tools/wiki_index.py::_parse_note_frontmatter
-  - codewiki/mcp/tools/wiki_index.py::_render_index
-  - codewiki/mcp/tools/wiki_index.py::append_log
-  - codewiki/mcp/tools/wiki_index.py::rebuild_index
-  - codewiki/mcp/tools/wiki_lint.py::_check_broken_links
-  - codewiki/mcp/tools/wiki_lint.py::_check_coverage
-  - codewiki/mcp/tools/wiki_lint.py::_check_cycles
-  - codewiki/mcp/tools/wiki_lint.py::_check_missing_aliases
-  - codewiki/mcp/tools/wiki_lint.py::_check_no_outlinks
-  - codewiki/mcp/tools/wiki_lint.py::_check_orphan_pages
-  - codewiki/mcp/tools/wiki_lint.py::_check_overview_stale_lint
-  - codewiki/mcp/tools/wiki_lint.py::_check_stale_refs
-  - codewiki/mcp/tools/wiki_lint.py::_check_stale_sources
-  - codewiki/mcp/tools/wiki_lint.py::_check_superseded_pages
-  - codewiki/mcp/tools/wiki_lint.py::_check_undocumented
-  - codewiki/mcp/tools/wiki_lint.py::_check_unsupported_claims
-  - codewiki/mcp/tools/wiki_lint.py::_get_all_module_names
-  - codewiki/mcp/tools/wiki_lint.py::_get_documented_components
-  - codewiki/mcp/tools/wiki_lint.py::_get_output_dir
-  - codewiki/mcp/tools/wiki_lint.py::_load_module_tree
-  - codewiki/mcp/tools/wiki_lint.py::_walk
-  - codewiki/mcp/tools/wiki_lint.py::handle_lint_wiki
-  - codewiki/mcp/tools/wiki_search.py::_IndexData
-  - codewiki/mcp/tools/wiki_search.py::_check_jieba
-  - codewiki/mcp/tools/wiki_search.py::_extract_fm
-  - codewiki/mcp/tools/wiki_search.py::_extract_snippet
-  - codewiki/mcp/tools/wiki_search.py::_extract_title
-  - codewiki/mcp/tools/wiki_search.py::_index_path
-  - codewiki/mcp/tools/wiki_search.py::_load_index
-  - codewiki/mcp/tools/wiki_search.py::_open_standalone_cache
-  - codewiki/mcp/tools/wiki_search.py::_read_doc
-  - codewiki/mcp/tools/wiki_search.py::_read_note
-  - codewiki/mcp/tools/wiki_search.py::_resolve_db_path
-  - codewiki/mcp/tools/wiki_search.py::_save_index
-  - codewiki/mcp/tools/wiki_search.py::_tokenize
-  - codewiki/mcp/tools/wiki_search.py::build_full_index
-  - codewiki/mcp/tools/wiki_search.py::remove_file
-  - codewiki/mcp/tools/wiki_search.py::search
-  - codewiki/mcp/tools/wiki_search.py::update_file
-  - codewiki/mcp/tools/impact.py::_build_comp_module_index
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 61
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-08-25
+description: '`MCP_Tools_Quality` 是 CodeWiki MCP 工具层中的质量与索引子模块，负责对生成的 Wiki 文档进行健康检查（lint）、全文检索（search）、索引重建（index）、问题标记（issue）、跨服务架构追踪（cbm）以及
+  prompt 解析（prompt_server）。它保障了 Wi'
+aliases:
+- MCP_Tools_Quality
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:19Z'
 ---
 
 # MCP_Tools_Quality 模块文档
 ## 概述
-`MCP_Tools_Quality` 是 CodeWiki MCP 工具层中的质量与索引子模块，负责对生成的 Wiki 文档进行健康检查（lint）、全文检索（search）、索引重建（index）、问题标记（issue）、跨服务架构追踪（cbm）以及 prompt 解析（prompt_server）。它保障了 Wiki 内容的一致性、可追溯性与可检索性，是 [[MCP_Server]] 对外暴露质量类工具的核心实现。
+`MCP_Tools_Quality` 是 CodeWiki MCP 工具层中的质量与索引子模块，负责对生成的 Wiki 文档进行健康检查（lint）、全文检索（search）、索引重建（index）、问题标记（issue）、跨服务架构追踪（cbm）以及 prompt 解析（prompt_server）。它保障了 Wiki 内容的一致性、可追溯性与可检索性，是 [MCP_Server](MCP_Server.md) 对外暴露质量类工具的核心实现；`review_changes` 进一步以 git diff 驱动四轴评审证据装配（spec/convention/module_knowledge/general），回答「变更是否正确」这一质量问题。
 
 ## 组件清单
 | 组件 | 类型 | 文件 | 职责 |
@@ -80,27 +35,35 @@ updated_at: 2026-07-28
 | handle_flag_issue | 函数 | issue_tracker.py | MCP 入口：标记 Wiki 中的质量问题为 issue 并落盘 |
 | _build_schema_constraints / _resolve_prompt | 私有函数 | prompt_server.py | 构造 prompt 的 schema 约束并解析 prompt 模板 |
 | handle_get_prompt | 函数 | prompt_server.py | MCP 入口：按名称返回带 schema 约束的 prompt |
-| _append_with_lock / _atomic_write / _parse_note_frontmatter / _extract_doc_title_and_summary / _render_index | 私有函数 | wiki_index.py | 加锁追加、原子写、解析笔记 frontmatter、抽取标题摘要、渲染索引页 |
+| _append_with_lock / _atomic_write / _parse_note_frontmatter / _extract_doc_title_and_summary / _render_index | 私有函数 | wiki_index.py | 加锁追加、原子写、解析笔记 frontmatter、抽取标题摘要、渲染索引页（含「入门指引」根级页面与「场景方法」分区） |
 | _compute_health_score | 私有函数 | wiki_index.py | 计算 Wiki 健康度评分 |
-| append_log / rebuild_index | 函数 | wiki_index.py | 记录操作日志、重建整体 Wiki 索引与健康度 |
-| _check_broken_links / _check_coverage / _check_cycles / _check_missing_aliases / _check_no_outlinks / _check_orphan_pages / _check_overview_stale_lint / _check_stale_refs / _check_stale_sources / _check_superseded_pages / _check_undocumented / _check_unsupported_claims | 私有函数 | wiki_lint.py | 12 项质量检查：死链、覆盖率、环路、缺别名、无外链、孤儿页、概览过期、陈旧引用、陈旧源、被取代页、未文档化组件、无支撑声明 |
+| append_log / rebuild_index | 函数 | wiki_index.py | 记录操作日志、重建整体 Wiki 索引与健康度；rebuild_index 除按页面类型收集子目录外，还收录 wiki/ 根级页面（doctrine/reading-guide 等）与 scenarios 目录 |
+| _check_broken_links / _check_coverage / _check_cycles / _check_missing_aliases / _check_no_outlinks / _check_orphan_pages / _check_overview_stale_lint / _check_stale_refs / _check_stale_sources / _check_superseded_pages / _check_undocumented / _check_unsupported_claims | 私有函数 | wiki_lint.py | 12 项质量检查：死链、覆盖率、环路、缺别名、无外链、孤儿页、概览过期、陈旧引用、陈旧源、被取代页、未文档化组件、无支撑声明。已实现系统层豁免：raw/sources（外部同步源）、conversations/（蒸馏归档）、tasks/（任务记忆）不参与链接/OKF/出链检查；index.md 等系统文件同时作为孤儿页链接来源 |
 | _get_all_module_names / _get_documented_components / _get_output_dir / _load_module_tree / _walk | 私有函数 | wiki_lint.py | 收集模块名、已文档组件、输出目录、加载模块树并遍历 |
 | handle_lint_wiki | 函数 | wiki_lint.py | MCP 入口：执行全部 lint 检查并返回报告 |
 | _IndexData / _check_jieba / _extract_fm / _extract_snippet / _extract_title / _index_path / _load_index / _open_standalone_cache / _read_doc / _read_note / _resolve_db_path / _save_index / _tokenize | 私有函数 | wiki_search.py | 索引数据结构、jieba 检测、frontmatter/摘要/标题抽取、路径与 DB 解析、读写缓存与索引、文档/笔记读取、分词 |
 | build_full_index / update_file / remove_file / search | 函数 | wiki_search.py | 全量建索引、增量更新/删除、检索查询 |
 | _build_comp_module_index | 函数 | impact.py | 构建组件到模块的索引，支撑影响分析 |
+| handle_review_changes | 函数 | review_changes.py | MCP 入口：按四轴（spec/convention/module_knowledge/general）收集变更评审证据；prepare 组装上下文包（diff + 注释变更源 + 四轴依据）写工作区，submit 校验并归档报告；确定性、无 LLM |
+| _auto_discover_specs / _collect_spec_evidence / _collect_convention_evidence / _collect_module_evidence / _collect_general_evidence / _note_metadata / _validate_report / _slugify / _build_changed_sources | 私有函数 | review_changes.py | 规格自动发现（docs/specs/.scratch/openspec）、四轴证据收集、笔记 frontmatter 补充读取（type/related_modules）、报告校验与 slug 化 |
+| load_project_checklist / get_checklist | 函数 | review_checklist.py | 评审清单加载：内置 + 项目覆盖（`<repo>/repowiki/review_checklist.yaml`，同 id 覆盖内置、新 id 追加），按语言筛选条目 |
 
 ## 关键设计
 - **分层私有辅助**：大量 `_` 前缀私有函数封装细节，公开 `handle_*` / `build_*` / `search` 等作为 MCP 工具边界。
 - **原子与并发安全**：`wiki_index` 用 `_atomic_write` + `_append_with_lock` 保证多进程写入安全。
 - **可插拔分词**：`_check_jieba` 自动检测 jieba，降级为正则分词，兼容无依赖环境。
+- **确定性评审装配**：`review_changes` 持有无 LLM 的确定性装配（Doctrine：推理留在调用方 Agent）；四轴依据冲突时裁决顺序 spec > convention > module_knowledge > general；since 模式从 HEAD 读变更源保证与 diff 严格一致。
+- **清单合并覆盖**：`get_checklist` 合并内置清单与 `<repo>/repowiki/review_checklist.yaml` 项目覆盖，同 id 条目覆盖内置、新 id 追加；模板由 `init_wiki` 拷贝且已存在则跳过（不覆盖用户自定义）。
 - **质量门禁**：`wiki_lint` 的 12 项检查覆盖链接、覆盖、时效、一致性，输出结构化报告。
+- **系统层豁免**：raw/sources（外部同步的源文档层）、conversations/（蒸馏归档层）、tasks/（任务记忆层）属于系统生成/同步层，其内部相对链接指向源仓库文件，且无需向 wiki 出链，`stale_refs`/`broken_links`/`no_outlinks`/OKF 合规检查对其整层跳过，避免误报。
+- **孤儿页判定**：`_check_orphan_pages` 将 index.md 等系统文件也纳入链接来源扫描（仅从「待被链接」集合排除），保证 index 内的链接计入可及性；`_strip_code_blocks` 的 inline-code 正则限定单行作用域，避免奇数个反引号跨行吞掉真实链接导致误报孤儿。
+- **reject_reason 容忍**：`_check_okf_conformance` 的 legacy 顶层键容忍列表包含 `reject_reason`（`knowledge_loop.py` reject 笔记时写入的合法私有键），与 `migrate_okf --fold-private` 行为一致。
 - **CBM 融合**：`cbm_integration` 在本地分析外引入架构知识库，合并视图提升准确性。
 
 ## 数据流（mermaid）
 ```mermaid
 flowchart TD
-  A[[MCP_Server]] --> B[handle_lint_wiki]
+  A[MCP_Server](MCP_Server.md) --> B[handle_lint_wiki]
   A --> C[handle_flag_issue]
   A --> D[handle_get_prompt]
   A --> E[rebuild_index]
@@ -110,20 +73,20 @@ flowchart TD
   D --> I[prompt_server _resolve_prompt]
   E --> J[wiki_index _render_index/_compute_health_score]
   F --> K[wiki_search _load_index/_tokenize]
-  G --> L[[MCP_Tools_Knowledge]]
-  K --> M[[MCP_Cache]]
-  F --> N[[LLM_Backend]]
+  G --> L[MCP_Tools_Knowledge](MCP_Tools_Knowledge.md)
+  K --> M[MCP_Cache](MCP_Cache.md)
+  F --> N[LLM_Backend](LLM_Backend.md)
   B --> O[impact _build_comp_module_index]
-  P[cbm_integration] --> Q[[MCP_Core]]
+  P[cbm_integration] --> Q[MCP_Core](MCP_Core.md)
 ```
 
 ## 依赖关系
-- [[MCP_Server]]：工具注册与调用入口
-- [[MCP_Core]]：CBM/基础能力
-- [[MCP_Cache]]：搜索索引缓存
-- [[MCP_Tools_Knowledge]]：模块树与文档元数据
-- [[LLM_Backend]]：声明校验与语义
-- [[SharedConfig]]：输出目录与配置
+- [MCP_Server](MCP_Server.md)：工具注册与调用入口
+- [MCP_Core](MCP_Core.md)：CBM/基础能力
+- [MCP_Cache](MCP_Cache.md)：搜索索引缓存
+- [MCP_Tools_Knowledge](MCP_Tools_Knowledge.md)：模块树与文档元数据
+- [LLM_Backend](LLM_Backend.md)：声明校验与语义
+- [SharedConfig](SharedConfig.md)：输出目录与配置
 
 ## 使用示例
 ```python
@@ -135,6 +98,10 @@ hits = search(query="认证流程", db_path="./wiki/search.db")
 rebuild_index(output_dir="./wiki")
 # 标记问题
 handle_flag_issue(path="auth.md", reason="死链")
+# 收集变更评审证据（确定性四轴装配）
+result = handle_review_changes(repo_path=".", mode="prepare")
+# 语言相关评审清单（内置 + 项目覆盖合并）
+items = get_checklist(repo_path=".", changed_files=["a.py"])
 ```
 
 ## 扩展点（新增质量工具）
@@ -142,11 +109,12 @@ handle_flag_issue(path="auth.md", reason="死链")
 2. 在 `wiki_search.py` 扩展 `_tokenize` 支持新语言或向量检索。
 3. 在 `cbm_integration.py` 接入新的外部知识源并合并。
 4. 复用 `file_param.py` 的 `read_param` 解析新工具入参。
+5. 在 `<repo>/repowiki/review_checklist.yaml` 添加团队评审规则，`get_checklist` 自动合并（同 id 覆盖内置、新 id 追加）。
 
 ## 相关模块
-- [[MCP_Server]] 工具路由
-- [[MCP_Tools_Knowledge]] 知识抽取
-- [[MCP_Tools_DocWriter]] 文档生成
-- [[MCP_Tools_Analysis]] 代码分析
-- [[MCP_Cache]] 索引缓存
-- [[SharedConfig]] 配置中心
+- [MCP_Server](MCP_Server.md) 工具路由
+- [MCP_Tools_Knowledge](MCP_Tools_Knowledge.md) 知识抽取
+- [MCP_Tools_DocWriter](MCP_Tools_DocWriter.md) 文档生成
+- [MCP_Tools_Analysis](MCP_Tools_Analysis.md) 代码分析
+- [MCP_Cache](MCP_Cache.md) 索引缓存
+- [SharedConfig](SharedConfig.md) 配置中心

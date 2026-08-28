@@ -7,20 +7,62 @@ without overwriting user-authored content.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from codewiki.mcp.session import SessionState
+    pass
 
 logger = logging.getLogger(__name__)
 
 # Delimiters for the injectable section
 _BEGIN_MARKER = "<!-- CodeWiki LLM Wiki -->"
 _END_MARKER = "<!-- /CodeWiki LLM Wiki -->"
+
+# Delimiters for the multi-repo workspace conventions section.  Independent
+# from the CodeWiki usage block above: the two sections are upserted
+# separately and never touch each other.
+_WORKSPACE_BEGIN_MARKER = "<!-- CodeWiki Workspace Conventions -->"
+_WORKSPACE_END_MARKER = "<!-- /CodeWiki Workspace Conventions -->"
+
+_WORKSPACE_TEMPLATE = (
+    Path(__file__).resolve().parents[2] / "templates" / "workspace" / "agents-md-workspace.md.tpl"
+)
+
+
+def _upsert_marked_section(agents_path: Path, begin: str, end: str, section: str) -> str:
+    """Insert or replace a marker-delimited section in AGENTS.md.
+
+    - File missing → create it with the section.
+    - Markers found → replace only the delimited block, keep the rest.
+    - File without markers → append the section at the end.
+
+    Returns ``"created"``, ``"replaced"`` or ``"appended"``.
+    """
+    if agents_path.exists():
+        content = agents_path.read_text(encoding="utf-8")
+        begin_idx = content.find(begin)
+        end_idx = content.find(end)
+
+        if begin_idx != -1 and end_idx != -1 and end_idx > begin_idx:
+            # Replace existing section (keep content before/after)
+            before = content[:begin_idx]
+            after = content[end_idx + len(end) :]
+            new_content = before + section + after
+            action = "replaced"
+        else:
+            # Append section at end
+            separator = "\n\n" if not content.endswith("\n") else "\n"
+            new_content = content + separator + section + "\n"
+            action = "appended"
+    else:
+        new_content = section + "\n"
+        action = "created"
+
+    agents_path.write_text(new_content, encoding="utf-8")
+    return action
 
 
 def write_agents_md(*, repo_path: str, output_dir: str, module_tree: dict | None = None) -> None:
@@ -51,33 +93,50 @@ def _write_agents_md(repo_path: str, output_dir: str, module_tree: dict) -> None
     # Extract module names from the saved module tree
     modules = _extract_modules(module_tree)
 
-    section = _build_section(rel_path, modules)
+    section = _build_section(rel_path, modules, output_dir_p)
     agents_path = repo_path_p / "AGENTS.md"
 
-    if agents_path.exists():
-        content = agents_path.read_text(encoding="utf-8")
-        begin_idx = content.find(_BEGIN_MARKER)
-        end_idx = content.find(_END_MARKER)
-
-        if begin_idx != -1 and end_idx != -1 and end_idx > begin_idx:
-            # Replace existing section (keep content before/after)
-            before = content[:begin_idx]
-            after = content[end_idx + len(_END_MARKER):]
-            new_content = before + section + after
-        else:
-            # Append section at end
-            separator = "\n\n" if not content.endswith("\n") else "\n"
-            new_content = content + separator + section + "\n"
-    else:
-        new_content = section + "\n"
-
-    agents_path.write_text(new_content, encoding="utf-8")
+    _upsert_marked_section(agents_path, _BEGIN_MARKER, _END_MARKER, section)
     logger.info("Updated AGENTS.md at %s", agents_path)
+
+
+def write_workspace_conventions(
+    *, workspace_path: str, workspace_name: str, refresh: bool = False
+) -> str:
+    """Write the multi-repo workspace conventions section into AGENTS.md.
+
+    Deliberately different overwrite policy from the CodeWiki usage block:
+    the conventions are a team contract that users hand-evolve, so an
+    existing marked block is kept as-is unless ``refresh=True``.
+
+    Returns ``"created"`` | ``"kept"`` | ``"refreshed"``.
+    """
+    workspace_path_p = Path(workspace_path)
+    agents_path = workspace_path_p / "AGENTS.md"
+
+    if agents_path.exists() and not refresh:
+        content = agents_path.read_text(encoding="utf-8")
+        begin_idx = content.find(_WORKSPACE_BEGIN_MARKER)
+        end_idx = content.find(_WORKSPACE_END_MARKER)
+        if begin_idx != -1 and end_idx != -1 and end_idx > begin_idx:
+            logger.info("Workspace conventions already present in %s, kept", agents_path)
+            return "kept"
+
+    body = _WORKSPACE_TEMPLATE.read_text(encoding="utf-8").replace(
+        "{{WORKSPACE_NAME}}", workspace_name
+    )
+    section = f"{_WORKSPACE_BEGIN_MARKER}\n\n{body}\n{_WORKSPACE_END_MARKER}"
+    action = _upsert_marked_section(
+        agents_path, _WORKSPACE_BEGIN_MARKER, _WORKSPACE_END_MARKER, section
+    )
+    logger.info("Workspace conventions %s in %s", action, agents_path)
+    return "refreshed" if action == "replaced" else "created"
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _extract_modules(module_tree: dict) -> list[str]:
     """Recursively collect all module names (top-level + nested children)."""
@@ -92,58 +151,30 @@ def _extract_modules(module_tree: dict) -> list[str]:
     return names
 
 
-# Quick-reference table of all MCP tools with their *required* parameters.
-# Parameter names match the server-enforced JSON schema (verified by the
-# server rejecting unknown params).  Kept here so every generated AGENTS.md
-# stays accurate and agents stop guessing wrong param names.
-_TOOLS_QUICKREF = """\
-### MCP 工具参数速查
-
-以下为全部 25 个工具的**必填参数**（其余均为可选）。参数名以 MCP server 强制校验的 schema 为准，传错参数名会被 server 直接拒绝。
-
-> 常见陷阱：`analyze_repo` / `analyze_workspace` 会返回 `session_id`，但**下游工具并不接收 `session_id`**，请改用 `repo_path` 或 `output_dir`。
-
-| 工具 | 必填参数 | 常用可选参数 |
-| --- | --- | --- |
-| analyze_repo | repo_path | include_patterns, output_dir, exclude_patterns, max_workers |
-| read_code_components | repo_path, component_ids | include_bodies, include_source_refs |
-| write_doc_file | output_dir, filename, content | page_type, frontmatter, content_file |
-| edit_doc_file | output_dir, filename, command | page_type, old_str, new_str, target_heading |
-| save_module_tree | repo_path | module_tree, module_tree_file |
-| get_processing_order | repo_path | — |
-| get_prompt | prompt_type | variables, repo_path |
-| close_session | repo_path | — |
-| list_dependencies | repo_path | component_ids, direction, dependency_types, max_depth |
-| analyze_impact | repo_path, component_ids | direction, max_depth, include_paths |
-| lint_wiki | output_dir | checks, severity_filter, page_types |
-| ingest_note | output_dir, note_type, title, content | aliases, related_modules |
-| query_wiki | output_dir, query | scope, type_filter, include_notes, max_results, expand |
-| confirm_note | output_dir, note_file | — |
-| reject_note | output_dir, note_file | reason |
-| ingest_source | output_dir, source_path | name, description, source_type |
-| retract_source | output_dir | name, source_id, mode, dry_run |
-| batch_ingest | output_dir, items | — |
-| flag_issue | output_dir, issue_type, page_path, description | severity, related_components |
-| analyze_workspace | workspace_path | output_dir, include_patterns, max_workers |
-| list_components | repo_path | component_types, file_path, name_pattern |
-| view_repo_file | repo_path, path | max_lines, line_offset, include_line_numbers |
-| query_cross_service | workspace_path | filter_type, repo_name, http_method, min_confidence |
-| get_module_tree | repo_path, wiki_base_dir | — |
-| generate_docs | repo_path, wiki_base_dir | page_types, max_workers |
-
-注：`generate_docs`（legacy）会调用火山引擎方舟（Volcengine Ark）远程 LLM 生成文档，需配置有效 CodingPlan 订阅；未配置时返回 `InvalidSubscription`。
-"""
-
-
-def _build_section(rel_path: str, modules: list[str]) -> str:
+def _build_section(rel_path: str, modules: list[str], output_dir_p: Path) -> str:
     """Build the delimited Markdown section for AGENTS.md."""
 
     # Module listing with links (structured wiki layout)
     if modules:
+        # V2 (injection budget): cap the module list; overflow collapses to a
+        # pointer line so AGENTS.md stops growing linearly with module count.
+        try:
+            from codewiki.mcp.tools.page_router import load_schema
+            from codewiki.mcp.tools.injection_budget import cap_module_lines
+
+            capped = cap_module_lines(modules, output_dir_p, load_schema(str(output_dir_p)))
+        except Exception:  # budget must never break AGENTS.md injection
+            capped = {"lines": modules, "hidden_count": 0}
         module_lines = "\n".join(
-            f"- [{m}]({rel_path}/wiki/modules/{m}.md)" for m in modules
+            f"- [{m}]({rel_path}/wiki/modules/{m}.md)" for m in capped["lines"]
         )
-        modules_block = f"\n**模块列表：**\n\n{module_lines}\n"
+        hidden = int(capped.get("hidden_count") or 0)
+        overflow = (
+            f"\n（其余 {hidden} 个模块省略——用 `{rel_path}/wiki/index.md` 或 `query_wiki` 检索）"
+            if hidden
+            else ""
+        )
+        modules_block = f"\n**模块列表：**\n\n{module_lines}{overflow}\n"
     else:
         modules_block = ""
 
@@ -152,61 +183,32 @@ def _build_section(rel_path: str, modules: list[str]) -> str:
 
 ## CodeWiki LLM Wiki
 
-本项目已使用 [CodeWiki](https://github.com/mambo-wang/CodeWiki-CN) 生成 LLM Wiki 文档，位于 `{rel_path}/` 目录。
+本项目已使用 [CodeWiki](https://github.com/mambo-wang/CodeWiki-Plus) 生成 LLM Wiki 文档，位于 `{rel_path}/` 目录。
 
 **入口文件：**
 
 - [`{rel_path}/wiki/overview.md`]({rel_path}/wiki/overview.md) — 仓库级架构总览（含 Mermaid 架构图）
 - [`{rel_path}/wiki/index.md`]({rel_path}/wiki/index.md) — 文档目录与知识笔记索引
-- [`{rel_path}/wiki/schema.yaml`]({rel_path}/wiki/schema.yaml) — 项目文档约定（命名规范、必填章节等）
+- [`{rel_path}/schema.yaml`]({rel_path}/schema.yaml) — 项目文档约定（命名规范、必填章节等）
 {modules_block}
-### MCP 工具用法
-
-如果当前 IDE 已配置 CodeWiki MCP 服务器，可直接使用以下工具：
-
-**查询文档和笔记（query_wiki）：**
-
-```json
-{{
-  "query": "如何处理依赖分析",
-  "scope": "模块名（可选，限定搜索范围）",
-  "include_notes": true,
-  "include_code_refs": true,
-  "max_results": 10,
-  "expand_terms": ["依赖图", "依赖追踪"]
-}}
-```
-
-返回排序后的匹配结果（含上下文片段）和相关组件 ID。在编码、调试或做设计决策时，先查询 wiki 获取相关上下文。
-
-**归档决策/经验教训（ingest_note）：**
-
-```json
-{{
-  "note_type": "decision",
-  "title": "选择 SQLite 作为缓存后端",
-  "content": "选择原因：...",
-  "related_modules": ["模块名"]
-}}
-```
-
-`note_type` 可选值：`decision`（设计决策）、`lesson`（经验教训）、`architecture`（架构说明）、`bug_fix`（Bug 修复记录）、`general`（通用笔记）。笔记存储在 `{rel_path}/notes/` 目录，可被 `query_wiki` 检索。
-
-**文档一致性检查（lint_wiki）：**
-
-```json
-{{}}
-```
-
-检查文档与代码是否一致，包括：过时引用、断链、未文档化组件、循环依赖、覆盖率。
-
-{_TOOLS_QUICKREF}
 ### 使用建议
 
 1. **编码前**：先用 `query_wiki` 搜索相关模块文档，了解架构约定和依赖关系
 2. **做决策时**：用 `query_wiki` 搜索已有的 `decision` 类型笔记，避免重复讨论
 3. **完成重要决策后**：用 `ingest_note` 归档，让未来的 Agent 和团队成员都能查到
 4. **定期维护**：用 `lint_wiki` 检查文档是否过时，保持文档与代码同步
+
+### 采纳声明（检索反馈）
+
+当你通过 `query_wiki` 检索并**实际使用了**某条结果（作为决策依据、修改参照或答案来源）时，在最终回复中附带一行声明注释：
+
+```
+<!-- codewiki:referenced-docs: ["notes/pitfall-xxx.md", "wiki/modules/yyy.md"] -->
+```
+
+路径必须与 query_wiki 返回的 `file` 字段完全一致。声明过的文档会获得采纳计数（`usage.adopted_count`），在未来检索中排序提升（采纳权重是单纯召回的 2 倍）；长期高频召回却零采纳的笔记会被 `lint_wiki` 的 `low_adoption` 检查标记为"需要重写得更可操作"。
+
+**注意**：只声明真正用到的文档——这是帮助知识库学习"什么内容真正有用"的信号，不是礼貌性致谢。忘了声明没关系（漏报可容忍），但不要声明没用过的（误报不可容忍）。
 
 ### 纠正识别与经验沉淀
 
@@ -238,5 +240,53 @@ def _build_section(rel_path: str, modules: list[str]) -> str:
 ```
 
 **注意**：不是每次纠正都需要沉淀。只记录有复用价值的经验——特定于本次任务的临时调整、用户个人偏好等不需要记录。判断标准：如果未来的 Agent 或新同事遇到同样场景时这条经验有用，就值得记录。
+
+### 主动知识沉淀
+
+不要等用户纠正才记录。当对话中出现以下信号时，主动执行反思并提取知识：
+
+**触发信号（满足任一即激活反思）：**
+
+- 完成一个多步骤调试/排查后定位到根因（尤其是走了弯路的情况）
+- 讨论了两个及以上方案并做出了选择
+- 发现代码实际行为与文档/命名/注释不一致
+- 用户补充了隐性项目知识（约定、历史原因、"我们一直这么做"）
+- 一次探索性调研收敛到明确结论
+- 发现了可复用的模式、工具链用法或环境配置技巧
+
+**四问过滤（全部通过才值得记录）：**
+
+1. 下一次对话（无本次上下文）还能用到吗？
+2. 另一个 Agent 或新同事遇到同样场景能直接受益吗？
+3. `query_wiki` 确认现有文档未覆盖？
+4. 属于"事实/决策/模式/教训"而非"本次任务临时状态"？
+
+**路由表：**
+
+| 知识类型 | 写入方式 |
+|---------|---------|
+| 做了技术选型/方案取舍 | `ingest_note(note_type="decision")` |
+| 踩坑/易错点 | `ingest_note(note_type="pitfall")` |
+| 经验教训（调试过程、认知修正） | `ingest_note(note_type="lesson")` |
+| 架构层面的事实发现 | `ingest_note(note_type="architecture")` |
+| 临时绕过方案（含恢复条件） | `ingest_note(note_type="workaround")` |
+| 多方案横向对比（含表格） | `write_doc_file(page_type="comparison")` |
+| 调研结论存档 | `write_doc_file(page_type="query")` |
+
+**执行流程：**
+
+1. 识别到触发信号后，回顾相关对话片段，提取候选知识项
+2. 对每个候选项执行四问过滤，丢弃未通过的
+3. 用 `query_wiki` 检查是否已有覆盖（避免重复）
+4. 按路由表确定写入方式，起草结构化内容（背景→结论→根因→适用范围）
+5. 向用户展示草稿并征求确认——**必须确认后才写入**
+6. 一次对话中可积累多个候选项，在自然停顿点（任务完成、话题切换）统一呈现，避免频繁打断
+
+**不要记录的内容：**
+
+- 仅与本次任务相关的临时变量、路径、参数
+- 用户个人偏好（这属于 Agent 记忆，不属于项目 Wiki）
+- 已在代码注释或 README 中明确写明的信息
+- 未经验证的猜测或"可能""也许"级别的推断
 
 {_END_MARKER}"""

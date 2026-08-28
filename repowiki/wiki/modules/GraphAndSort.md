@@ -1,26 +1,24 @@
 ---
 title: GraphAndSort
-depth: 2
-module_type: leaf
-component_count: 14
-components:
-  - codewiki/src/be/dependency_analyzer/ast_parser.py::DependencyParser
-  - codewiki/src/be/dependency_analyzer/dependency_graphs_builder.py::DependencyGraphBuilder
-  - codewiki/src/be/dependency_analyzer/topo_sort.py::build_graph_from_components
-  - codewiki/src/be/dependency_analyzer/topo_sort.py::build_reverse_graph
-  - codewiki/src/be/dependency_analyzer/topo_sort.py::concise_node
-  - codewiki/src/be/dependency_analyzer/topo_sort.py::dependency_first_dfs
-  - codewiki/src/be/dependency_analyzer/topo_sort.py::detect_cycles
-  - codewiki/src/be/dependency_analyzer/topo_sort.py::dfs
-  - codewiki/src/be/dependency_analyzer/topo_sort.py::get_leaf_nodes
-  - codewiki/src/be/dependency_analyzer/topo_sort.py::resolve_cycles
-  - codewiki/src/be/dependency_analyzer/topo_sort.py::resolve_files_to_components
-  - codewiki/src/be/dependency_analyzer/topo_sort.py::strongconnect
-  - codewiki/src/be/dependency_analyzer/topo_sort.py::topological_sort
-  - codewiki/src/be/dependency_analyzer/topo_sort.py::transitive_impact
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 14
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: GraphAndSort 是 DependencyAnalyzer 的叶子模块，负责把多语言代码仓库解析出的代码组件（函数/类/接口/结构体）及其依赖关系，转换为可遍历的**依赖图**，再经**拓扑排序**与**叶节点提取**产出「叶优先（leaf-first）」的文档生成顺序。
+aliases:
+- GraphAndSort
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:17Z'
 ---
 
 # GraphAndSort 模块文档
@@ -108,15 +106,19 @@ components, leaf_nodes, routes = builder.build_dependency_graph()
 
 # 叶优先全序（底层依赖在前）
 from codewiki.src.be.dependency_analyzer.topo_sort import (
-    build_graph_from_components, topological_sort
+    build_graph_from_components,
+    topological_sort,
 )
+
 graph = build_graph_from_components(components)
-order = topological_sort(graph)   # 文档生成按此顺序遍历
+order = topological_sort(graph)  # 文档生成按此顺序遍历
 
 # 文件变更影响分析
 from codewiki.src.be.dependency_analyzer.topo_sort import (
-    transitive_impact, resolve_files_to_components
+    transitive_impact,
+    resolve_files_to_components,
 )
+
 changed = resolve_files_to_components(components, ["src/api/handler.py"])
 impact = transitive_impact(graph, set(changed), direction="depended_by", max_depth=5)
 ```

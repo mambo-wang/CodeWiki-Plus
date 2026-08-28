@@ -20,6 +20,8 @@
           "codewiki/cli/commands/generate.py::_invalidate_affected_modules",
           "codewiki/cli/commands/generate.py::generate_command",
           "codewiki/cli/commands/generate.py::parse_patterns",
+          "codewiki/cli/commands/install_hooks.py::_echo_summary",
+          "codewiki/cli/commands/install_hooks.py::install_hooks",
           "codewiki/cli/main.py::cli",
           "codewiki/cli/main.py::main",
           "codewiki/cli/main.py::mcp_command",
@@ -63,6 +65,12 @@
           "codewiki/cli/utils/fs.py::get_file_size",
           "codewiki/cli/utils/fs.py::safe_read",
           "codewiki/cli/utils/fs.py::safe_write",
+          "codewiki/cli/utils/ide_config.py::IdeWiringError",
+          "codewiki/cli/utils/ide_config.py::_resolve_pkg_sources",
+          "codewiki/cli/utils/ide_config.py::detect_ide_dirs",
+          "codewiki/cli/utils/ide_config.py::merge_settings_json",
+          "codewiki/cli/utils/ide_config.py::upsert_agents_section",
+          "codewiki/cli/utils/ide_config.py::install_for_ide",
           "codewiki/cli/utils/instructions.py::compute_github_pages_url",
           "codewiki/cli/utils/instructions.py::display_generation_summary",
           "codewiki/cli/utils/instructions.py::display_post_generation_instructions",
@@ -422,18 +430,27 @@
       },
       "MCP_Prompts": {
         "components": [
-          "codewiki/mcp/server.py::_prompt_architecture_review",
-          "codewiki/mcp/server.py::_prompt_code_analysis",
-          "codewiki/mcp/server.py::_prompt_cross_service_trace",
-          "codewiki/mcp/server.py::_prompt_extract_knowledge",
-          "codewiki/mcp/server.py::_prompt_generate_wiki",
-          "codewiki/mcp/server.py::_prompt_impact_review",
-          "codewiki/mcp/server.py::_prompt_incremental_update",
-          "codewiki/mcp/server.py::_prompt_quality_check",
-          "codewiki/mcp/server.py::_prompt_search_wiki",
-          "codewiki/mcp/server.py::_prompt_workspace_analysis"
+          "codewiki/mcp/prompts.py::_prompt_architecture_review",
+          "codewiki/mcp/prompts.py::_prompt_code_analysis",
+          "codewiki/mcp/prompts.py::_prompt_consolidate_knowledge",
+          "codewiki/mcp/prompts.py::_prompt_cross_service_trace",
+          "codewiki/mcp/prompts.py::_prompt_distill_conversations",
+          "codewiki/mcp/prompts.py::_prompt_extract_knowledge",
+          "codewiki/mcp/prompts.py::_prompt_generate_wiki",
+          "codewiki/mcp/prompts.py::_prompt_impact_review",
+          "codewiki/mcp/prompts.py::_prompt_incremental_update",
+          "codewiki/mcp/prompts.py::_prompt_ingest_note",
+          "codewiki/mcp/prompts.py::_prompt_init_wiki",
+          "codewiki/mcp/prompts.py::_prompt_promote_note",
+          "codewiki/mcp/prompts.py::_prompt_quality_check",
+          "codewiki/mcp/prompts.py::_prompt_search_wiki",
+          "codewiki/mcp/prompts.py::_prompt_task_workflow",
+          "codewiki/mcp/prompts.py::_prompt_team_memory_hook",
+          "codewiki/mcp/prompts.py::_prompt_workspace_analysis",
+          "codewiki/mcp/prompts.py::_resolve_path",
+          "codewiki/mcp/prompts.py::register"
         ],
-        "path": "codewiki/mcp/server.py"
+        "path": "codewiki/mcp/prompts.py"
       },
       "MCP_Tools_Analysis": {
         "components": [
@@ -460,7 +477,21 @@
           "codewiki/mcp/tools/workspace_analyzer.py::_scan_git_repos",
           "codewiki/mcp/tools/workspace_analyzer.py::handle_analyze_workspace",
           "codewiki/mcp/tools/workspace_result.py::resolve_session",
-          "codewiki/mcp/tools/workspace_result.py::write_result"
+          "codewiki/mcp/tools/workspace_result.py::write_result",
+          "codewiki/mcp/tools/change_analysis.py::FileChange",
+          "codewiki/mcp/tools/change_analysis.py::parse_unified_diff",
+          "codewiki/mcp/tools/change_analysis.py::collect_git_changes",
+          "codewiki/mcp/tools/change_analysis.py::locate_changed_components",
+          "codewiki/mcp/tools/change_analysis.py::suggest_tests",
+          "codewiki/mcp/tools/change_analysis.py::handle_analyze_changes",
+          "codewiki/mcp/tools/watch.py::RepoWatcher",
+          "codewiki/mcp/tools/watch.py::handle_watch_repo",
+          "codewiki/mcp/tools/watch.py::graph_stale_info",
+          "codewiki/mcp/tools/watch.py::attach_graph_stale",
+          "codewiki/mcp/tools/watch.py::start",
+          "codewiki/mcp/tools/watch.py::stop",
+          "codewiki/mcp/tools/watch.py::status",
+          "codewiki/mcp/tools/watch.py::refresh_once"
         ],
         "path": "codewiki/mcp/tools"
       },
@@ -640,7 +671,10 @@
           "codewiki/mcp/tools/wiki_search.py::remove_file",
           "codewiki/mcp/tools/wiki_search.py::search",
           "codewiki/mcp/tools/wiki_search.py::update_file",
-          "codewiki/mcp/tools/impact.py::_build_comp_module_index"
+          "codewiki/mcp/tools/impact.py::_build_comp_module_index",
+          "codewiki/mcp/tools/review_changes.py::handle_review_changes",
+          "codewiki/mcp/tools/review_checklist.py::load_project_checklist",
+          "codewiki/mcp/tools/review_checklist.py::get_checklist"
         ],
         "path": "codewiki/mcp/tools"
       }

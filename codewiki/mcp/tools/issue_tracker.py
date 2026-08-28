@@ -11,7 +11,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from codewiki.mcp.session import SessionStore
 
@@ -40,6 +40,7 @@ def _generate_issue_id(issue_type: str, page_path: str) -> str:
 def _load_issues(output_dir: Path) -> Dict[str, Any]:
     """Load issues.json from .meta/. Returns empty tracker on failure."""
     from codewiki.src.config import ISSUES_FILENAME, meta_resolve
+
     issues_path = Path(meta_resolve(output_dir, ISSUES_FILENAME))
     if not issues_path.exists():
         return {"issues": {}, "version": 1}
@@ -53,6 +54,7 @@ def _load_issues(output_dir: Path) -> Dict[str, Any]:
 def _save_issues(output_dir: Path, tracker: Dict[str, Any]) -> None:
     """Persist issues.json to .meta/."""
     from codewiki.src.config import ISSUES_FILENAME, meta_join
+
     issues_path = Path(meta_join(output_dir, ISSUES_FILENAME))
     issues_path.parent.mkdir(parents=True, exist_ok=True)
     issues_path.write_text(
@@ -84,7 +86,11 @@ def handle_flag_issue(
             latest = max(sessions.values(), key=lambda s: s.last_accessed)
             output_dir = latest.output_dir
     if not output_dir:
-        return json.dumps({"error": "output_dir is required."})
+        rp = arguments.get("repo_path")
+        if rp:
+            output_dir = str(Path(rp).expanduser().resolve() / "repowiki")
+        else:
+            return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
     output_dir = Path(output_dir).expanduser().resolve()
 
     # Validate inputs
@@ -93,9 +99,15 @@ def handle_flag_issue(
         return json.dumps({"error": "issue_type is required."})
 
     valid_types = {
-        "orphan_page", "no_outlinks", "missing_aliases",
-        "stale_source", "broken_link", "outdated_content",
-        "missing_section", "low_coverage", "custom",
+        "orphan_page",
+        "no_outlinks",
+        "missing_aliases",
+        "stale_source",
+        "broken_link",
+        "outdated_content",
+        "missing_section",
+        "low_coverage",
+        "custom",
     }
     if issue_type not in valid_types:
         logger.warning("Unknown issue_type '%s', treating as 'custom'", issue_type)
@@ -113,33 +125,49 @@ def handle_flag_issue(
     now = datetime.now().isoformat()
 
     is_new = issue_id not in tracker["issues"]
-    tracker["issues"][issue_id] = {
-        "id": issue_id,
-        "issue_type": issue_type,
-        "page_path": page_path,
-        "description": description,
-        "severity": severity,
-        "created_at": tracker["issues"].get(issue_id, {}).get("created_at", now),
-        "updated_at": now,
-        "status": "open",
-        "occurrences": tracker["issues"].get(issue_id, {}).get("occurrences", 0) + 1,
-    }
+    if is_new:
+        tracker["issues"][issue_id] = {
+            "id": issue_id,
+            "issue_type": issue_type,
+            "page_path": page_path,
+            "description": description,
+            "severity": severity,
+            "created_at": now,
+            "updated_at": now,
+            "status": "open",
+            "occurrences": 1,
+            "updates": [],
+        }
+    else:
+        # BUG-19: preserve original description, append new info as update entry
+        existing = tracker["issues"][issue_id]
+        existing["updated_at"] = now
+        existing["occurrences"] = existing.get("occurrences", 1) + 1
+        if severity:
+            existing["severity"] = severity
+        if description and description != existing.get("description", ""):
+            updates = existing.setdefault("updates", [])
+            updates.append({"timestamp": now, "description": description})
     _save_issues(output_dir, tracker)
 
     # Log the operation
     try:
         from codewiki.mcp.tools.wiki_index import append_log
+
         action = "新增" if is_new else "更新"
-        append_log(str(output_dir), "flag_issue",
-                   f"{action}问题: [{issue_type}] {page_path}")
+        append_log(str(output_dir), "flag_issue", f"{action}问题: [{issue_type}] {page_path}")
     except Exception:
         pass
 
-    return json.dumps({
-        "status": "flagged",
-        "issue_id": issue_id,
-        "issue_type": issue_type,
-        "page_path": page_path,
-        "is_new": is_new,
-        "total_issues": len(tracker["issues"]),
-    }, indent=2, ensure_ascii=False)
+    return json.dumps(
+        {
+            "status": "flagged",
+            "issue_id": issue_id,
+            "issue_type": issue_type,
+            "page_path": page_path,
+            "is_new": is_new,
+            "total_issues": len(tracker["issues"]),
+        },
+        indent=2,
+        ensure_ascii=False,
+    )

@@ -1,0 +1,19 @@
+# ----------------------------------------------------------------------------
+# 节 1: terms（保留，向后兼容现有检索扩展机制 wiki_search._expand_with_ontology）
+#
+# 定义规范词及其别名。当用户/Agent 搜索某别名时，检索引擎自动扩展查询以
+# 包含同组所有同义词，缓解词汇不一致导致的召回损失。
+#
+# Format:
+#   terms:
+#     <canonical_term>:
+#       aliases: [alias1, alias2, ...]
+#
+# Example:
+#   terms:
+#     search_index:
+#       aliases: [BM25 cache, retrieval cache, inverted index]
+#     authentication:
+#       aliases: [auth, permission check]
+
+terms: {}

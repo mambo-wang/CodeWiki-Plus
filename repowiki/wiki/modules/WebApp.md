@@ -1,27 +1,26 @@
 ---
 title: WebApp
-depth: 2
-module_type: leaf
-component_count: 15
-components:
-  - codewiki/src/fe/background_worker.py::BackgroundWorker
-  - codewiki/src/fe/cache_manager.py::CacheManager
-  - codewiki/src/fe/config.py::WebAppConfig
-  - codewiki/src/fe/github_processor.py::GitHubRepoProcessor
-  - codewiki/src/fe/models.py::CacheEntry
-  - codewiki/src/fe/models.py::JobStatus
-  - codewiki/src/fe/models.py::JobStatusResponse
-  - codewiki/src/fe/models.py::RepositorySubmission
-  - codewiki/src/fe/routes.py::WebRoutes
-  - codewiki/src/fe/web_app.py::get_job_status
-  - codewiki/src/fe/web_app.py::index_get
-  - codewiki/src/fe/web_app.py::index_post
-  - codewiki/src/fe/web_app.py::main
-  - codewiki/src/fe/web_app.py::serve_generated_docs
-  - codewiki/src/fe/web_app.py::view_docs
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 15
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: '`Frontend/WebApp` 是 CodeWiki 的 Web 入口层，基于 FastAPI 提供图形化界面，让用户提交 GitHub
+  仓库 URL 即可异步生成完整文档。它由 7 个源文件、15 个组件组成，核心职责是：接收仓库提交、排队后台生成任务、缓存结果、跟踪任务状态、以及将生成的 Markdown
+  文档'
+aliases:
+- WebApp
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:19Z'
 ---
 
 # WebApp 模块文档

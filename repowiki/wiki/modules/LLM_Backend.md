@@ -1,76 +1,25 @@
 ---
 title: LLM_Backend
-depth: 1
-module_type: leaf
-component_count: 57
-components:
-  - codewiki/src/be/backend.py::BackendConfig
-  - codewiki/src/be/backend.py::is_caw_provider
-  - codewiki/src/be/backend.py::set_cli_context
-  - codewiki/src/be/cache.py::generate_cache_key
-  - codewiki/src/be/cache.py::get_cache
-  - codewiki/src/be/cache.py::is_cache_valid
-  - codewiki/src/be/cache.py::save_cache
-  - codewiki/src/be/caching/__init__.py::clear_cache
-  - codewiki/src/be/caching/__init__.py::generate_cache_key
-  - codewiki/src/be/caching/__init__.py::get_cache
-  - codewiki/src/be/caching/__init__.py::get_cache_path
-  - codewiki/src/be/caching/__init__.py::invalidate_cache
-  - codewiki/src/be/caching/__init__.py::is_cache_valid
-  - codewiki/src/be/caching/__init__.py::save_cache
-  - codewiki/src/be/clustering/__init__.py::cluster_modules
-  - codewiki/src/be/clustering/__init__.py::extract_module_names_from_tree
-  - codewiki/src/be/clustering/__init__.py::first_module_tree
-  - codewiki/src/be/clustering/__init__.py::get_component_id
-  - codewiki/src/be/clustering/__init__.py::group_components_by_module
-  - codewiki/src/be/clustering/__init__.py::load_first_module_tree
-  - codewiki/src/be/clustering/__init__.py::save_first_module_tree
-  - codewiki/src/be/llm/__init__.py::create_llm_client
-  - codewiki/src/be/llm/__init__.py::generate_response
-  - codewiki/src/be/llm/anthropic_client.py::AnthropicClient
-  - codewiki/src/be/llm/anthropic_client.py::call_llm
-  - codewiki/src/be/llm/base.py::BaseLLMClient
-  - codewiki/src/be/llm/base.py::LLMResponse
-  - codewiki/src/be/llm/bedrock_client.py::BedrockClient
-  - codewiki/src/be/llm/bedrock_client.py::call_llm
-  - codewiki/src/be/llm/client.py::LLMClient
-  - codewiki/src/be/llm/client.py::call_llm
-  - codewiki/src/be/llm/openai_client.py::OpenAIClient
-  - codewiki/src/be/llm/openai_client.py::call_llm
-  - codewiki/src/be/prompts/__init__.py::get_prompt
-  - codewiki/src/be/prompts/__init__.py::list_module_prompts
-  - codewiki/src/be/prompts/__init__.py::render_prompt
-  - codewiki/src/be/prompts/module_prompt.py::MODULE_PROMPTS
-  - codewiki/src/be/prompts/module_prompt.py::get_module_prompt
-  - codewiki/src/be/prompts/module_prompt.py::render_module_prompt
-  - codewiki/src/be/prompts/prompt_config.py::PromptConfig
-  - codewiki/src/be/prompts/prompt_config.py::load_prompt_config
-  - codewiki/src/be/prompts/prompt_config.py::render_with_prompt_config
-  - codewiki/src/be/documentation_generator.py::DocumentationGenerator
-  - codewiki/src/be/documentation_generator.py::ModuleMetadata
-  - codewiki/src/be/documentation_generator.py::create_documentation_metadata
-  - codewiki/src/be/documentation_generator.py::generate_overview
-  - codewiki/src/be/documentation_generator.py::generate_module_documentation
-  - codewiki/src/be/file_manager.py::create_documentation_metadata
-  - codewiki/src/be/file_manager.py::extract_repo_name
-  - codewiki/src/be/file_manager.py::file_manager
-  - codewiki/src/be/file_manager.py::load_json
-  - codewiki/src/be/file_manager.py::load_text
-  - codewiki/src/be/file_manager.py::meta_join
-  - codewiki/src/be/file_manager.py::meta_resolve
-  - codewiki/src/be/file_manager.py::safe_join
-  - codewiki/src/be/file_manager.py::save_json
-  - codewiki/src/be/file_manager.py::save_text
-  - codewiki/src/be/llm/llm.py::LLMClient
-  - codewiki/src/be/llm/llm.py::call_llm
-  - codewiki/src/be/config_adapter.py::BackendConfig
-  - codewiki/src/be/config_adapter.py::from_cli
-  - codewiki/src/be/config_adapter.py::from_cli_args
-  - codewiki/src/be/config_adapter.py::from_dict
-  - codewiki/src/be/documentation_generator.py::check_module_exists
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 1
+  module_type: leaf
+  component_count: 64
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: '`LLM_Backend` 是 CodeWiki 的文档生成后端引擎（位于 `codewiki/src/be/`），是整个工具的核心能力提供方。它把「依赖分析
+  → 模块聚类 → 逐模块 LLM 文档生成 → 缓存/落盘」串成可复用的能力，被 [[CLI_Adapter]]、[[MCP_Server]]、[[WebApp'
+aliases:
+- LLM_Backend
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:17Z'
 ---
 
 # LLM_Backend 模块文档
@@ -159,7 +108,7 @@ from codewiki.src.be.documentation_generator import DocumentationGenerator
 
 cfg = Config(repo_path="/path/to/repo", output_dir="/path/to/repo/wiki")
 gen = DocumentationGenerator(config=cfg, commit_id="abc123", no_cache=False)
-await gen.run()   # 生成各模块 .md + overview.md + metadata.json
+await gen.run()  # 生成各模块 .md + overview.md + metadata.json
 ```
 
 ## 扩展点

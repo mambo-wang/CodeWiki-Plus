@@ -8,11 +8,13 @@ a :class:`LazyComponentStore`.
 
 from __future__ import annotations
 
-import threading, time, uuid
+import threading
+import time
+import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from codewiki.mcp.cache import AnalysisCache, ComponentMeta, LazyComponentStore
+from codewiki.mcp.cache import AnalysisCache, LazyComponentStore
 
 if TYPE_CHECKING:
     from codewiki.mcp.workspace import SessionWorkspace
@@ -41,10 +43,17 @@ class SessionState:
     cache: Optional[AnalysisCache] = None
     analyzed_commit: Optional[str] = None
     docs_written: int = 0
+    # Watch-mode state: background poller that keeps the graph in sync with
+    # disk (set by watch_repo start; None when watch is not active).
+    watcher: Optional[Any] = None
+    # Options the session was analyzed with (include/exclude patterns etc.) so
+    # watch-mode incremental re-parses apply the same filtering.
+    analyze_options: Dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
     last_accessed: float = field(default_factory=time.time)
 
-    def touch(self) -> None: self.last_accessed = time.time()
+    def touch(self) -> None:
+        self.last_accessed = time.time()
 
     @property
     def is_expired(self) -> bool:
@@ -89,14 +98,21 @@ class SessionStore:
                 del self._sessions[oldest_id]
                 # The workspace dir is shared per-repo: only wipe sources/
                 # when no other live session still uses the same repo.
-                if evicted.workspace is not None and not self._repo_in_use_locked(evicted.repo_path):
+                if evicted.workspace is not None and not self._repo_in_use_locked(
+                    evicted.repo_path
+                ):
                     evicted.workspace.cleanup()
             sid = uuid.uuid4().hex[:12]
-            while sid in self._sessions: sid = uuid.uuid4().hex[:12]
+            while sid in self._sessions:
+                sid = uuid.uuid4().hex[:12]
             state = SessionState(
-                session_id=sid, repo_path=repo_path, output_dir=output_dir,
-                components=components, leaf_nodes=leaf_nodes,
-                workspace=workspace, cache=cache,
+                session_id=sid,
+                repo_path=repo_path,
+                output_dir=output_dir,
+                components=components,
+                leaf_nodes=leaf_nodes,
+                workspace=workspace,
+                cache=cache,
             )
             self._sessions[sid] = state
             return state
@@ -105,7 +121,8 @@ class SessionStore:
         """Return the session or ``None`` if not found / expired."""
         with self._lock:
             state = self._sessions.get(session_id)
-            if state is None: return None
+            if state is None:
+                return None
             if state.is_expired:
                 del self._sessions[session_id]
                 if state.workspace is not None and not self._repo_in_use_locked(state.repo_path):
@@ -115,7 +132,26 @@ class SessionStore:
             return state
 
     def remove(self, session_id: str) -> bool:
-        with self._lock: return self._sessions.pop(session_id, None) is not None
+        with self._lock:
+            return self._sessions.pop(session_id, None) is not None
+
+    def find_active(self, repo_path: str) -> Optional[SessionState]:
+        """Return a live in-memory session for *repo_path*, or ``None``.
+
+        Unlike :meth:`find_or_restore`, this never reconstructs a session
+        from the SQLite cache — it only reports whether an active session
+        currently exists in memory. ``close_session`` uses this to tell a
+        first close (active session present) from a repeated close (session
+        already removed), which ``find_or_restore`` would otherwise mask by
+        silently restoring from cache.
+        """
+        rp = str(repo_path)
+        with self._lock:
+            for state in self._sessions.values():
+                if state.repo_path == rp and not state.is_expired:
+                    state.touch()
+                    return state
+        return None
 
     def find_or_restore(self, repo_path: str) -> Optional[SessionState]:
         """Find an active session for *repo_path*, or restore from SQLite cache.
@@ -150,6 +186,7 @@ class SessionStore:
         # Determine output_dir: prefer the dir recorded by the last
         # analyze_repo (honours custom output_dir), else repo convention
         from pathlib import Path as _P
+
         output_dir = None
         try:
             output_dir = cache.get_output_dir()
@@ -159,12 +196,16 @@ class SessionStore:
             output_dir = str(_P(rp) / "repowiki")
 
         session = self.create(
-            repo_path=rp, output_dir=output_dir,
-            components=lazy_store, leaf_nodes=leaf_nodes, cache=cache,
+            repo_path=rp,
+            output_dir=output_dir,
+            components=lazy_store,
+            leaf_nodes=leaf_nodes,
+            cache=cache,
         )
 
         # Create a lightweight workspace so write_result works
         from codewiki.mcp.workspace import SessionWorkspace
+
         workspace = SessionWorkspace(_P(rp), session.session_id)
         session.workspace = workspace
         return session
@@ -173,7 +214,8 @@ class SessionStore:
         """Close a repo's shared cache (e.g. on server shutdown)."""
         with self._lock:
             cache = self._caches.pop(str(repo_path), None)
-            if cache: cache.close()
+            if cache:
+                cache.close()
 
     def _repo_in_use_locked(self, repo_path: str) -> bool:
         """True if any remaining live session still uses *repo_path*.
@@ -182,10 +224,7 @@ class SessionStore:
         must not be wiped while another active session may still reference
         file paths under it.
         """
-        return any(
-            s.repo_path == repo_path and not s.is_expired
-            for s in self._sessions.values()
-        )
+        return any(s.repo_path == repo_path and not s.is_expired for s in self._sessions.values())
 
     def _purge_expired_locked(self) -> None:
         expired = [(sid, s) for sid, s in self._sessions.items() if s.is_expired]

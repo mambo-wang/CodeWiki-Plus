@@ -47,7 +47,7 @@ _log_create_lock = threading.Lock()
 _TZ_CST = timezone(timedelta(hours=8))
 
 # Files to exclude from the module-docs table in index.md
-_EXCLUDED_FROM_INDEX = {"index.md", "log.md", "overview.md", "schema.yaml", "purpose.md"}
+_EXCLUDED_FROM_INDEX = {"index.md", "log.md", "overview.md", "schema.yaml"}
 
 
 # ===================================================================
@@ -84,13 +84,29 @@ def rebuild_index(output_dir: str | Path) -> None:
         index_path = wiki_dir / INDEX_FILENAME
 
         # --- Collect wiki pages by type ---
-        type_entries: Dict[str, List[Dict[str, str]]] = {
-            pt: [] for pt in PAGE_TYPE_DIRS
-        }
+        type_entries: Dict[str, List[Dict[str, str]]] = {pt: [] for pt in PAGE_TYPE_DIRS}
+        # Root-level wiki/ files (doctrine.md, reading-guide.md, ...) — not a
+        # subdirectory page type, but real pages that must appear in the index
+        # so they are reachable (and not flagged as orphans).
+        root_entries: List[Dict[str, str]] = []
         note_entries: List[Dict[str, str]] = []
 
         # Scan wiki/ subdirectories
         if wiki_dir.is_dir():
+            # wiki/ 根下的页面文件（非系统文件、非子目录）
+            for md_file in sorted(wiki_dir.iterdir()):
+                if not md_file.is_file() or md_file.suffix != ".md":
+                    continue
+                if md_file.name in _EXCLUDED_FROM_INDEX:
+                    continue
+                title, summary = _extract_doc_title_and_summary(md_file)
+                root_entries.append(
+                    {
+                        "title": title,
+                        "summary": summary,
+                        "relpath": md_file.name,
+                    }
+                )
             for page_type, dir_name in PAGE_TYPE_DIRS.items():
                 type_dir = wiki_dir / dir_name
                 if not type_dir.is_dir():
@@ -118,7 +134,9 @@ def rebuild_index(output_dir: str | Path) -> None:
                     {
                         "title": fm.get("title", note_file.stem),
                         "type": fm.get("type", "note"),
-                        "date": str(fm.get("date", "")),
+                        "date": str(
+                            fm.get("date", "") or (fm.get("metadata") or {}).get("date", "")
+                        ),
                         "relpath": f"../{NOTES_DIR}/{note_file.name}",
                     }
                 )
@@ -135,7 +153,7 @@ def rebuild_index(output_dir: str | Path) -> None:
         health_score = _compute_health_score(output_dir)
 
         now = datetime.now(_TZ_CST).strftime("%Y-%m-%dT%H:%M:%S+08:00")
-        content = _render_index(type_entries, note_entries, now, health_score)
+        content = _render_index(type_entries, note_entries, now, health_score, root_entries)
         _atomic_write(index_path, content)
         logger.debug("Rebuilt %s", index_path)
 
@@ -143,41 +161,53 @@ def rebuild_index(output_dir: str | Path) -> None:
 def _compute_health_score(output_dir: Path) -> int:
     """Compute a 0-100 health score for the wiki.
 
-    Reads from .meta/issues.json if available, otherwise computes from
-    simple heuristics (broken links, orphan pages).
+    Uses the same calculation as lint_wiki (the authoritative source):
+    run file-based lint checks and apply the scoring formula
+    (100 - 10*errors - 3*warnings - 1*info, clamped to 0).
     """
-    from codewiki.src.config import ISSUES_FILENAME, meta_resolve
+    try:
+        from codewiki.mcp.tools.wiki_lint import (
+            _check_stale_refs,
+            _check_broken_links,
+            _check_orphan_pages,
+            _check_no_outlinks,
+            _check_missing_aliases,
+            _check_stale_sources,
+            _check_superseded_pages,
+            _check_overview_stale_lint,
+            _check_unsupported_claims,
+            _load_module_tree,
+            _build_anchor_map,
+        )
 
-    issues_path = Path(meta_resolve(output_dir, ISSUES_FILENAME))
-    if issues_path.exists():
-        try:
-            import json
-            data = json.loads(issues_path.read_text(encoding="utf-8"))
-            issues = data.get("issues", {})
-            open_issues = [
-                v for v in issues.values()
-                if isinstance(v, dict) and v.get("status") == "open"
-            ]
-            score = 100
-            for issue in open_issues:
-                sev = issue.get("severity", "warning")
-                if sev == "error":
-                    score -= 10
-                elif sev == "warning":
-                    score -= 3
-                else:
-                    score -= 1
-            return max(0, score)
-        except Exception:
-            pass
+        module_tree = _load_module_tree(output_dir)
+        anchor_map = _build_anchor_map(output_dir)
 
-    # Fallback: count wiki pages as a proxy for wiki maturity
-    wiki_dir = output_dir / "wiki"
-    if not wiki_dir.is_dir():
-        return 50  # neutral score when no wiki/ exists yet
-    page_count = sum(1 for f in wiki_dir.rglob("*.md") if f.is_file())
-    # Simple heuristic: more pages = healthier (cap at 100)
-    return min(100, 50 + page_count * 2)
+        issues: list = []
+        issues.extend(_check_stale_refs(output_dir, module_tree))
+        issues.extend(_check_broken_links(output_dir))
+        issues.extend(_check_orphan_pages(output_dir, anchor_map))
+        issues.extend(_check_no_outlinks(output_dir, anchor_map))
+        issues.extend(_check_missing_aliases(output_dir))
+        issues.extend(_check_stale_sources(output_dir))
+        issues.extend(_check_superseded_pages(output_dir))
+        issues.extend(_check_overview_stale_lint(output_dir))
+        issues.extend(_check_unsupported_claims(output_dir))
+
+        # Same scoring formula as lint_wiki
+        score = 100
+        for issue in issues:
+            sev = issue.get("severity", "info")
+            if sev == "error":
+                score -= 10
+            elif sev == "warning":
+                score -= 3
+            else:
+                score -= 1
+        return max(0, score)
+    except Exception:
+        # If lint checks fail entirely, fall back to neutral score
+        return 50
 
 
 def append_log(
@@ -185,11 +215,19 @@ def append_log(
     operation: str,
     summary: str,
 ) -> None:
-    """Append one timestamped row to ``wiki/log.md``.
+    """Record one operation in ``wiki/log.md`` (OKF v0.2 §9 format).
 
-    Creates the file with a header on first call.  Uses ``fcntl.flock``
-    for safe concurrent appends.  Silently returns if *output_dir* does
-    not exist.
+    §9: flat list of date-grouped entries, newest first::
+
+        # Directory Update Log
+
+        ## 2026-08-03
+        * **write_doc_file**: Created foo.md
+
+    Entries for the same day are appended to that day's block; a new day
+    section is inserted at the top.  Legacy v5.1.x table logs are kept
+    below the new sections, marked once with an archive comment.
+    Silently returns if *output_dir* does not exist.
     """
     output_dir = Path(output_dir)
     if not output_dir.is_dir():
@@ -202,32 +240,59 @@ def append_log(
     wiki_dir.mkdir(parents=True, exist_ok=True)
     log_path = wiki_dir / LOG_FILENAME
 
-    # Escape pipe characters to prevent table corruption
-    safe_op = operation.replace("|", "\\|")
-    safe_summary = summary.replace("|", "\\|")
+    safe_op = operation.replace("\n", " ").replace("|", "/")
+    safe_summary = summary.replace("\n", " ").replace("|", "/")
+    now = datetime.now(_TZ_CST)
+    date_str = now.strftime("%Y-%m-%d")
+    entry = f"* **{safe_op}**: {safe_summary}"
 
-    now = datetime.now(_TZ_CST).strftime("%Y-%m-%dT%H:%M:%S+08:00")
-    row = f"| {now} | {safe_op} | {safe_summary} |"
+    with _log_create_lock:
+        if not log_path.exists():
+            header = (
+                "# 操作日志\n\n> 按日期倒序分组的操作记录，由系统自动维护（OKF v0.2 §9 格式）\n\n"
+            )
+            try:
+                log_path.write_text(header, encoding="utf-8")
+            except OSError as e:
+                logger.warning("Failed to create log.md: %s", e)
+                return
 
-    # If the file doesn't exist yet, create with header (thread-safe)
-    if not log_path.exists():
-        with _log_create_lock:
-            # Double-check after acquiring lock
-            if not log_path.exists():
-                header = (
-                    "# 操作日志\n\n"
-                    "> 本文件为追加写入的操作记录，由系统自动维护\n\n"
-                    "| 时间 | 操作 | 说明 |\n"
-                    "|------|------|------|\n"
-                )
-                try:
-                    log_path.parent.mkdir(parents=True, exist_ok=True)
-                    log_path.write_text(header, encoding="utf-8")
-                except Exception as e:
-                    logger.warning("Failed to create log.md: %s", e)
-                    return
+        try:
+            content = log_path.read_text(encoding="utf-8")
+        except OSError as e:
+            logger.warning("Failed to read log.md: %s", e)
+            return
 
-    _append_with_lock(log_path, row)
+        lines = content.split("\n")
+        n = len(lines)
+
+        # Anchor: first date heading, or legacy table row (v5.1.x format)
+        idx = 0
+        while idx < n and not lines[idx].startswith("## ") and not lines[idx].startswith("|"):
+            idx += 1
+
+        if idx < n and lines[idx].startswith("|"):
+            # Legacy table log: insert new-format section before the table,
+            # marking the archive boundary once.
+            marker = "<!-- 以下为 v5.1.x 旧格式日志存档 -->"
+            block = [f"## {date_str}", entry, ""]
+            if marker not in content:
+                block.append(marker)
+            lines = lines[:idx] + block + lines[idx:]
+        elif idx < n and lines[idx].strip() == f"## {date_str}":
+            # Same-day section exists: append after its last non-empty line
+            j = idx + 1
+            while j < n and not lines[j].startswith("## "):
+                j += 1
+            k = j
+            while k > idx + 1 and lines[k - 1].strip() == "":
+                k -= 1
+            lines.insert(k, entry)
+        else:
+            # New day section at the top (newest first)
+            lines = lines[:idx] + [f"## {date_str}", entry, ""] + lines[idx:]
+
+        _atomic_write(log_path, "\n".join(lines))
     logger.debug("Appended log entry: %s", safe_op)
 
 
@@ -237,9 +302,29 @@ def append_log(
 
 
 def _extract_doc_title_and_summary(filepath: Path) -> Tuple[str, str]:
-    """Read the first 50 lines of a .md file and extract title + summary."""
-    title: Optional[str] = None
-    summary: Optional[str] = None
+    """Extract title + summary for an index entry.
+
+    OKF v0.2 §8: entries SHOULD carry the concept's frontmatter
+    ``description``.  Prefer ``title``/``description`` from YAML
+    frontmatter, falling back to H1 / first-paragraph scanning.
+    """
+    fm = _parse_note_frontmatter(filepath)  # generic frontmatter parser
+    fm_title = fm.get("title")
+    fm_desc = fm.get("description")
+    if (
+        isinstance(fm_title, str)
+        and fm_title.strip()
+        and isinstance(fm_desc, str)
+        and fm_desc.strip()
+    ):
+        return fm_title.strip(), fm_desc.strip()[:120]
+
+    title: Optional[str] = (
+        fm_title.strip() if isinstance(fm_title, str) and fm_title.strip() else None
+    )
+    summary: Optional[str] = (
+        fm_desc.strip()[:120] if isinstance(fm_desc, str) and fm_desc.strip() else None
+    )
     try:
         with open(filepath, encoding="utf-8", errors="replace") as f:
             for i, line in enumerate(f):
@@ -307,6 +392,7 @@ _PAGE_TYPE_LABELS = {
     "source": "外部文档",
     "comparison": "对比分析",
     "query": "研究查询",
+    "scenario": "场景方法",
 }
 
 
@@ -315,37 +401,60 @@ def _render_index(
     note_entries: List[Dict[str, str]],
     generated_at: str,
     health_score: int = 100,
+    root_entries: Optional[List[Dict[str, str]]] = None,
 ) -> str:
-    """Produce the full index.md markdown string with by-type sections."""
+    """Produce the full index.md markdown string (OKF v0.2 §8 format).
+
+    §8: body sections group concepts as ``* [Title](url) - description``
+    bullets.  §12: the bundle-root index may carry only ``okf_version``
+    frontmatter; generation metadata lives in an HTML comment so the file
+    stays conformant while keeping its self-describing header.
+    """
+    try:
+        from codewiki.src.config import OKF_VERSION
+    except Exception:
+        OKF_VERSION = "0.2"
     parts: List[str] = [
-        "# 项目文档索引\n",
-        f"> 自动生成于 {generated_at} | Health Score: **{health_score}/100** | 本文件由系统自动维护\n",
+        "---",
+        f'okf_version: "{OKF_VERSION}"',
+        "aliases:",
+        "- 项目文档索引",
+        "- 文档索引",
+        "- 知识笔记索引",
+        "---",
+        "",
+        f"<!-- 自动生成于 {generated_at} | Health Score: {health_score}/100 | 本文件由系统自动维护 -->",
+        "",
+        "# 项目文档索引",
+        "",
     ]
 
-    # Render each page type section
+    # Root-level pages (wiki/doctrine.md, wiki/reading-guide.md, ...)
+    if root_entries:
+        parts.append("## 入门指引")
+        parts.append("")
+        for entry in root_entries:
+            parts.append(f"* [{entry['title']}]({entry['relpath']}) - {entry['summary']}")
+        parts.append("")
+
+    # Render each page type section (§8 bullet lists)
     for page_type, label in _PAGE_TYPE_LABELS.items():
         entries = type_entries.get(page_type, [])
         if not entries:
             continue
-        parts.append(f"## {label}\n")
-        parts.append("| 文档 | 说明 |")
-        parts.append("|------|------|")
+        parts.append(f"## {label}")
+        parts.append("")
         for entry in entries:
-            parts.append(
-                f"| [{entry['title']}]({entry['relpath']}) | {entry['summary']} |"
-            )
+            parts.append(f"* [{entry['title']}]({entry['relpath']}) - {entry['summary']}")
         parts.append("")
 
     # Notes section
     if note_entries:
-        parts.append("## 知识笔记\n")
-        parts.append("| 标题 | 类型 | 日期 | 文件 |")
-        parts.append("|------|------|------|------|")
+        parts.append("## 知识笔记")
+        parts.append("")
         for entry in note_entries:
-            parts.append(
-                f"| {entry['title']} | {entry['type']} | {entry['date']}"
-                f" | [链接]({entry['relpath']}) |"
-            )
+            meta = f" ({entry['type']}, {entry['date']})" if entry.get("date") else ""
+            parts.append(f"* [{entry['title']}]({entry['relpath']}) - {entry['type']}{meta}")
         parts.append("")
 
     return "\n".join(parts)

@@ -1,55 +1,25 @@
 ---
 title: AnalysisPipeline
-depth: 2
-module_type: leaf
-component_count: 61
-components:
-  - codewiki/src/be/dependency_analyzer/analysis/analysis_service.py::AnalysisService
-  - codewiki/src/be/dependency_analyzer/analysis/analysis_service.py::analyze_repository
-  - codewiki/src/be/dependency_analyzer/analysis/analysis_service.py::analyze_repository_structure_only
-  - codewiki/src/be/dependency_analyzer/analysis/call_graph_analyzer.py::CallGraphAnalyzer
-  - codewiki/src/be/dependency_analyzer/analysis/call_graph_analyzer.py::TimeoutError
-  - codewiki/src/be/dependency_analyzer/analysis/call_graph_analyzer.py::signal_handler
-  - codewiki/src/be/dependency_analyzer/analysis/call_graph_analyzer.py::timeout
-  - codewiki/src/be/dependency_analyzer/analysis/cloning.py::cleanup_repository
-  - codewiki/src/be/dependency_analyzer/analysis/cloning.py::cleanup_repository_safe
-  - codewiki/src/be/dependency_analyzer/analysis/cloning.py::clone_repository
-  - codewiki/src/be/dependency_analyzer/analysis/cloning.py::handle_remove_readonly
-  - codewiki/src/be/dependency_analyzer/analysis/cloning.py::parse_github_url
-  - codewiki/src/be/dependency_analyzer/analysis/cloning.py::sanitize_github_url
-  - codewiki/src/be/dependency_analyzer/analysis/cross_service_matcher.py::CrossServiceMatcher
-  - codewiki/src/be/dependency_analyzer/analysis/cross_service_matcher.py::path_matches_template
-  - codewiki/src/be/dependency_analyzer/analysis/infra_scanner.py::InfraScanner
-  - codewiki/src/be/dependency_analyzer/analysis/infra_scanner.py::InfraServiceInfo
-  - codewiki/src/be/dependency_analyzer/analysis/infra_scanner.py::scan_workspace_infra
-  - codewiki/src/be/dependency_analyzer/analysis/repo_analyzer.py::RepoAnalyzer
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::ServiceInfo
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_depth
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_detect_from_build_manifests
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_detect_from_compose
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_detect_from_convention_dirs
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_detect_from_dockerfiles
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_detect_from_spring_config
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_extract_spring_app_name_properties
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_extract_spring_app_name_yml
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_find_files
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_find_files_glob
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_find_service_root
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_has_source_files
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_is_excluded_rel
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_package_json_is_service
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_parse_compose_for_services
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_register_service
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_register_spring_service
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_remove_nested_services
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_service_name_from_path
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::_walk_pruned
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::assign_service_label
-  - codewiki/src/be/dependency_analyzer/analysis/service_detector.py::detect_services
-  - codewiki/src/be/dependency_analyzer/analysis/topology_visualizer.py::TopologyVisualizer
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:38+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 43
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: AnalysisPipeline 是 DependencyAnalyzer 下负责**仓库分析编排**的叶子模块，位于 `codewiki/src/be/dependency_analyzer/analysis/`。它串起「克隆
+  → 结构扫描 → 服务边界识别 → 多语言 AST 解析生成调用图 → 跨服务路由匹配 →
+aliases:
+- AnalysisPipeline
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:14Z'
 ---
 
 # AnalysisPipeline 模块文档
@@ -131,7 +101,9 @@ struct, _ = analyze_repository_structure_only("https://github.com/owner/repo")
 # 跨服务匹配
 from codewiki.src.be.dependency_analyzer.analysis.cross_service_matcher import CrossServiceMatcher
 from codewiki.src.be.dependency_analyzer.analysis.topology_visualizer import TopologyVisualizer
-m = CrossServiceMatcher(); m.add_repo_routes("svc-a", routes_a)
+
+m = CrossServiceMatcher()
+m.add_repo_routes("svc-a", routes_a)
 topo = m.match()
 print(TopologyVisualizer().render_all(topo))
 ```

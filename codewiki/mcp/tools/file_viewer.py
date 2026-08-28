@@ -24,19 +24,24 @@ def handle_view_repo_file(
 ) -> str:
     """Read a file or list a directory within the repository."""
     from codewiki.mcp.tools.workspace_result import resolve_session
+
     session = resolve_session(arguments, store)
     if session is None:
         return json.dumps(
-            {"error": "Session not found. Ensure repo_path points to a previously analyzed repository."},
+            {
+                "error": "Session not found. Ensure repo_path points to a previously analyzed repository."
+            },
             ensure_ascii=False,
         )
 
-    rel_path = arguments.get("path", "")
+    rel_path = arguments.get("file_path", "")
     if not rel_path:
         return json.dumps(
-            {"error": "Argument 'path' is required."},
+            {"error": "Argument 'file_path' is required."},
             ensure_ascii=False,
         )
+
+    max_lines = arguments.get("max_lines")
 
     repo_root = Path(session.repo_path).resolve()
 
@@ -62,17 +67,21 @@ def handle_view_repo_file(
         for item in sorted(target.iterdir()):
             try:
                 stat = item.stat()
-                entries.append({
-                    "name": item.name,
-                    "type": "directory" if item.is_dir() else "file",
-                    "size": stat.st_size if item.is_file() else None,
-                })
+                entries.append(
+                    {
+                        "name": item.name,
+                        "type": "directory" if item.is_dir() else "file",
+                        "size": stat.st_size if item.is_file() else None,
+                    }
+                )
             except OSError:
-                entries.append({
-                    "name": item.name,
-                    "type": "directory" if item.is_dir() else "file",
-                    "size": None,
-                })
+                entries.append(
+                    {
+                        "name": item.name,
+                        "type": "directory" if item.is_dir() else "file",
+                        "size": None,
+                    }
+                )
         return json.dumps(
             {
                 "path": rel_path,
@@ -94,12 +103,24 @@ def handle_view_repo_file(
 
     size = len(content)
 
+    # Always compute total_lines so callers know the full extent of the file
+    # even when truncation happens via _MAX_INLINE_CHARS rather than max_lines.
+    total_lines = len(content.splitlines())
+
+    # Apply max_lines truncation if requested (before large-file check so
+    # that a max_lines preview of a huge file stays manageable).
+    truncated_by_lines = False
+    if max_lines and isinstance(max_lines, int) and max_lines > 0:
+        lines = content.splitlines(keepends=True)
+        if total_lines > max_lines:
+            content = "".join(lines[:max_lines])
+            truncated_by_lines = True
+            size = len(content)
+
     # Large files: write to workspace and return the path.
     if size > _MAX_INLINE_CHARS:
         if session.workspace is not None:
-            safe_name = (
-                rel_path.replace("/", "__").replace("\\", "__")[:180]
-            )
+            safe_name = rel_path.replace("/", "__").replace("\\", "__")[:180]
             ws_path = session.workspace.root / f"view_{safe_name}"
             ws_path.write_text(content, encoding="utf-8")
             return json.dumps(
@@ -109,6 +130,7 @@ def handle_view_repo_file(
                     "workspace_file": str(ws_path),
                     "size": size,
                     "truncated": True,
+                    "total_lines": total_lines,
                 },
                 ensure_ascii=False,
             )
@@ -120,6 +142,7 @@ def handle_view_repo_file(
                 "content": content[:_MAX_INLINE_CHARS],
                 "size": size,
                 "truncated": True,
+                "total_lines": total_lines,
                 "notice": "Content truncated (no workspace available).",
             },
             indent=2,
@@ -132,6 +155,8 @@ def handle_view_repo_file(
             "type": "file",
             "content": content,
             "size": size,
+            "total_lines": total_lines,
+            "truncated": truncated_by_lines,
         },
         indent=2,
         ensure_ascii=False,

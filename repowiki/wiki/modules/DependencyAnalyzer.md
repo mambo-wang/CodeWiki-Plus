@@ -1,11 +1,25 @@
 ---
 title: DependencyAnalyzer
-depth: 1
-module_type: overview
-component_count: 0
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 1
+  module_type: overview
+  component_count: 0
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: DependencyAnalyzer 是 CodeWiki 后端的顶层依赖分析模块，负责将任意（多语言）代码仓库转换为可供 LLM 文档生成消费的「节点—调用关系—路由—拓扑」结构化数据。它覆盖从仓库克隆/校验、多语言
+  AST 调用图分析、服务与基础设施探测、跨服务路由匹配，到依赖图构建、拓扑排序与可视化渲染的完整流水
+aliases:
+- DependencyAnalyzer
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:16Z'
 ---
 
 # DependencyAnalyzer 模块文档（概览）

@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import List, Tuple
 import logging
 import tiktoken
-import traceback
 
 
 logger = logging.getLogger(__name__)
@@ -29,9 +28,11 @@ def set_main_loop(loop: asyncio.AbstractEventLoop) -> None:
     _main_loop = loop
     _main_loop_thread_ident = threading.get_ident()
 
+
 # ------------------------------------------------------------
 # ---------------------- Complexity Check --------------------
 # ------------------------------------------------------------
+
 
 def is_complex_module(components: dict[str, any], core_component_ids: list[str]) -> bool:
     files = set()
@@ -50,6 +51,7 @@ def is_complex_module(components: dict[str, any], core_component_ids: list[str])
 
 enc = tiktoken.encoding_for_model("gpt-4")
 
+
 def count_tokens(text: str) -> int:
     """
     Count the number of tokens in a text.
@@ -63,10 +65,11 @@ def count_tokens(text: str) -> int:
 # ---------------------- Mermaid Validation -----------------
 # ------------------------------------------------------------
 
+
 async def validate_mermaid_diagrams(md_file_path: str, relative_path: str) -> str:
     """
     Validate all Mermaid diagrams in a markdown file.
-    
+
     Args:
         md_file_path: Path to the markdown file to check
         relative_path: Relative path to the markdown file
@@ -80,15 +83,15 @@ async def validate_mermaid_diagrams(md_file_path: str, relative_path: str) -> st
         file_path = Path(md_file_path)
         if not file_path.exists():
             return f"Error: File '{md_file_path}' does not exist"
-        
-        content = file_path.read_text(encoding='utf-8')
-        
+
+        content = file_path.read_text(encoding="utf-8")
+
         # Extract all mermaid code blocks
         mermaid_blocks = extract_mermaid_blocks(content)
-        
+
         if not mermaid_blocks:
             return "No mermaid diagrams found in the file"
-        
+
         # Validate each mermaid diagram sequentially to avoid segfaults
         errors = []
         for i, (line_start, diagram_content) in enumerate(mermaid_blocks, 1):
@@ -96,52 +99,149 @@ async def validate_mermaid_diagrams(md_file_path: str, relative_path: str) -> st
             if error_msg:
                 errors.append("\n")
                 errors.append(error_msg)
-        
+
         # if errors:
         #     logger.debug(f"Mermaid syntax errors found in file: {md_file_path}: {errors}")
-        
+
         if errors:
-            return "Mermaid syntax errors found in file: " + relative_path + "\n" + "\n".join(errors)
+            return (
+                "Mermaid syntax errors found in file: " + relative_path + "\n" + "\n".join(errors)
+            )
         else:
             return "All mermaid diagrams in file: " + relative_path + " are syntax correct"
-            
+
     except Exception as e:
         return f"Error processing file: {str(e)}"
+
+
+def auto_fix_mermaid_blocks(content: str) -> Tuple[str, List[str]]:
+    """Apply mechanical auto-fixes to common Mermaid syntax errors.
+
+    Returns (fixed_content, fixes) where *fixes* is a list of human-readable
+    description strings (empty if nothing was changed).
+
+    Fix rules:
+    1. Multi-node one-liner: ``A[label] B[label]`` → split into two lines.
+       ``A --> B`` is valid and left untouched.
+    2. Unquoted labels with special chars: ``A[{id}]`` → ``A["{id}"]``.
+    3. Unquoted CJK subgraph titles: ``subgraph 中文`` → ``subgraph "中文"``.
+    """
+    fixes: List[str] = []
+    lines = content.split("\n")
+    result_lines: List[str] = []
+    in_mermaid = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Track mermaid block boundaries
+        if stripped == "```mermaid" or stripped.startswith("```mermaid"):
+            in_mermaid = True
+            result_lines.append(line)
+            continue
+        if in_mermaid and stripped == "```":
+            in_mermaid = False
+            result_lines.append(line)
+            continue
+
+        if not in_mermaid:
+            result_lines.append(line)
+            continue
+
+        # --- Inside a Mermaid block: apply fixes line-by-line ---
+
+        # Skip 'click' directives — semantic issue, left for the validator.
+        if stripped.startswith("click "):
+            result_lines.append(line)
+            continue
+
+        # Rule 3: Quote CJK subgraph titles
+        m = re.match(r"^(\s*subgraph\s+)([\u4e00-\u9fff][^\"]*?)$", line)
+        if m and not m.group(2).strip().startswith('"'):
+            title = m.group(2).strip()
+            line = f'{m.group(1)}"{title}"'
+            fixes.append(f'Quoted CJK subgraph title: "{title}"')
+
+        # Rule 2: Quote labels containing { } inside [ ] that aren't already quoted
+        # Matches A[xxx{yyy}zzz] but not A["..."] or A{label} (rhombus shape)
+        def _quote_brace_label(mo: re.Match) -> str:
+            prefix, label = mo.group(1), mo.group(2)
+            if label.startswith('"'):
+                return mo.group(0)  # already quoted
+            fixes.append(f"Quoted label with curly braces: {label[:30]}")
+            return f'{prefix}"{label}"]'
+
+        line = re.sub(
+            r"(\w\[)([^\]]*[{}][^\]]*)\]",
+            _quote_brace_label,
+            line,
+        )
+
+        # Rule 1: Split multi-node one-liners.
+        # Detect ] followed by whitespace and another node-start (word + [ or ( ),
+        # but NOT when --, -, ., ==, --> follows (that's an edge, which is valid).
+        if "]" in line:
+            # Preserve original indentation for split parts
+            indent = re.match(r"^(\s*)", line).group(1)
+            # Find positions where a ] is followed by space + identifier + [ or (
+            # but not preceded by an edge arrow
+            parts = [line]
+            while True:
+                m = re.search(r"\](\s+)(\w[\w]*)\s*[\[\(]", parts[-1])
+                if not m:
+                    break
+                # Check the text between ] and the next node — reject if it's an edge
+                between = m.group(1)
+                if re.search(r"(-->|--|-|->|==|\.->|\.\.)", between.strip()):
+                    break
+                # Split: everything up to and including ] stays, rest goes to new line
+                split_pos = m.start() + 1  # right after the ]
+                parts.append(indent + parts[-1][split_pos:].strip())
+                parts[-2] = parts[-2][:split_pos].rstrip()
+                fixes.append("Split multi-node one-liner into separate lines")
+            if len(parts) > 1:
+                result_lines.extend(parts)
+                continue
+
+        result_lines.append(line)
+
+    fixed_content = "\n".join(result_lines)
+    return fixed_content, fixes
 
 
 def extract_mermaid_blocks(content: str) -> List[Tuple[int, str]]:
     """
     Extract all mermaid code blocks from markdown content.
-    
+
     Returns:
         List of tuples containing (line_number, diagram_content)
     """
     mermaid_blocks = []
-    lines = content.split('\n')
+    lines = content.split("\n")
     i = 0
-    
+
     while i < len(lines):
         line = lines[i].strip()
-        
+
         # Look for mermaid code block start
-        if line == '```mermaid' or line.startswith('```mermaid'):
+        if line == "```mermaid" or line.startswith("```mermaid"):
             start_line = i + 1
             diagram_lines = []
             i += 1
-            
+
             # Collect lines until we find the closing ```
             while i < len(lines):
-                if lines[i].strip() == '```':
+                if lines[i].strip() == "```":
                     break
                 diagram_lines.append(lines[i])
                 i += 1
-            
+
             if diagram_lines:  # Only add non-empty diagrams
-                diagram_content = '\n'.join(diagram_lines)
+                diagram_content = "\n".join(diagram_lines)
                 mermaid_blocks.append((start_line, diagram_content))
-        
+
         i += 1
-    
+
     return mermaid_blocks
 
 
@@ -178,16 +278,14 @@ async def _try_pythonmonkey_parse(diagram_content: str) -> str | None:
         return None
 
     old_stderr = sys.stderr
-    sys.stderr = open(os.devnull, 'w')
+    sys.stderr = open(os.devnull, "w")
     try:
         if (
             _main_loop is not None
             and _main_loop.is_running()
             and threading.get_ident() != _main_loop_thread_ident
         ):
-            fut = asyncio.run_coroutine_threadsafe(
-                parse_mermaid_py(diagram_content), _main_loop
-            )
+            fut = asyncio.run_coroutine_threadsafe(parse_mermaid_py(diagram_content), _main_loop)
             await asyncio.wrap_future(fut)
         else:
             await parse_mermaid_py(diagram_content)
@@ -218,6 +316,7 @@ def _parse_via_mermaid_py(diagram_content: str) -> str:
     text, otherwise a successful SVG gets reported as a parse error.
     """
     import mermaid as md
+
     try:
         md.Mermaid(diagram_content)
         return ""
@@ -237,6 +336,16 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
     Returns:
         Error message if invalid, empty string if valid
     """
+    # Pre-check: reject interactive 'click' directives (semantic issue, not
+    # auto-fixable). Must be caught before the external parser which may or
+    # may not flag them depending on version.
+    for line in diagram_content.split("\n"):
+        if line.strip().startswith("click "):
+            return (
+                f"Diagram {diagram_num}: Interactive 'click' directive is not "
+                f"allowed in documentation diagrams."
+            )
+
     global _MERMAID_PY_BROKEN
     core_error = await _try_pythonmonkey_parse(diagram_content)
     if core_error is None:
@@ -244,7 +353,9 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
             # Validation disabled/unavailable is not a syntax error — a
             # non-empty return here would make callers report valid diagrams
             # as broken and send agents into fix loops.
-            logger.debug("Diagram %d: validation skipped (mermaid-py disabled or unavailable)", diagram_num)
+            logger.debug(
+                "Diagram %d: validation skipped (mermaid-py disabled or unavailable)", diagram_num
+            )
             return ""
         try:
             core_error = await asyncio.wait_for(
@@ -256,7 +367,10 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
             # diagrams (and later calls) don't each block 15s on the same
             # broken Node.js setup.
             _MERMAID_PY_BROKEN = True
-            logger.warning("Diagram %d: mermaid validation timed out (15s); skipping further validation", diagram_num)
+            logger.warning(
+                "Diagram %d: mermaid validation timed out (15s); skipping further validation",
+                diagram_num,
+            )
             return ""
         except Exception as e:
             return f"  Diagram {diagram_num}: Exception during validation - {str(e)}"
@@ -264,11 +378,11 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
     if not core_error:
         return ""
 
-    line_match = re.search(r'line (\d+)', core_error)
+    line_match = re.search(r"line (\d+)", core_error)
     if line_match:
         error_line_in_diagram = int(line_match.group(1))
         actual_line_in_file = line_start + error_line_in_diagram
-        newline = '\n'
+        newline = "\n"
         return f"Diagram {diagram_num}: Parse error on line {actual_line_in_file}:{newline}{newline.join(core_error.split(newline)[1:])}"
     return f"Diagram {diagram_num}: {core_error}"
 
@@ -276,6 +390,7 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
 if __name__ == "__main__":
     # Test with the provided file
     import asyncio
+
     test_file = "output/docs/SWE_agent-docs/agent_hooks.md"
     result = asyncio.run(validate_mermaid_diagrams(test_file, "agent_hooks.md"))
     print(result)

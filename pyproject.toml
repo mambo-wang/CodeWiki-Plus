@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=68.0.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
-name = "codewiki"
-version = "1.0.1"
+name = "codewiki-plus"
+version = "5.5.0"
 description = "Transform codebases into comprehensive documentation using AI-powered analysis"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,7 +12,7 @@ license = {text = "MIT"}
 authors = [
     {name = "CodeWiki Contributors"}
 ]
-keywords = ["documentation", "code-analysis", "ai", "llm", "developer-tools"]
+keywords = ["documentation", "code-analysis", "ai", "llm", "developer-tools", "mcp"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -51,6 +51,7 @@ dependencies = [
     "networkx>=3.5",
     "psutil>=7.0.0",
     "PyYAML>=6.0.2",
+    "ruamel.yaml>=0.18.0",
     "mermaid-parser-py>=0.0.2",
     "mermaid-py>=0.8.0",
     "fastapi>=0.116.0",
@@ -59,62 +60,50 @@ dependencies = [
     "colorama>=0.4.6",
     "logfire>=4.1.0",
     "coding-agent-wrapper>=0.1.2",
-    "mcp>=1.0.0",
-    "jieba>=0.42.1"
+    "mcp>=1.0.0,<2",
+    "jieba>=0.42.1",
+    "pathspec>=0.12.1"
 ]
 
-[external]
-# Node.js is required for mermaid-py which validates mermaid diagrams in generated documentation
-build-requires = [
-    { name = "nodejs", version = ">=14.0.0" }
+[dependency-groups]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
+    "mypy>=1.5.0",
+    "ruff==0.16.3",
+    "pre-commit>=4.0.0",
 ]
 
+# Keep pip-compatible extra for `pip install -e .[dev]` fallback (uv canonical is dependency-groups above)
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "pytest-asyncio>=0.21.0",
-    "black>=23.0.0",
     "mypy>=1.5.0",
-    "ruff>=0.1.0",
+    "ruff==0.16.3",
+    "pre-commit>=4.0.0",
 ]
 
 [project.scripts]
 codewiki = "codewiki.cli.main:cli"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/codewiki"
-Documentation = "https://github.com/yourusername/codewiki/docs"
-Repository = "https://github.com/yourusername/codewiki"
-Issues = "https://github.com/yourusername/codewiki/issues"
+Homepage = "https://github.com/mambo-wang/CodeWiki-Plus"
+Documentation = "https://github.com/mambo-wang/CodeWiki-Plus/blob/main/README.md"
+Repository = "https://github.com/mambo-wang/CodeWiki-Plus"
+Issues = "https://github.com/mambo-wang/CodeWiki-Plus/issues"
 
-[tool.setuptools]
-packages = [
-    "codewiki", 
-    "codewiki.cli", 
-    "codewiki.cli.commands", 
-    "codewiki.cli.models", 
-    "codewiki.cli.utils", 
-    "codewiki.cli.adapters",
-    "codewiki.src",
-    "codewiki.src.be",
-    "codewiki.src.be.agent_tools",
-    "codewiki.src.be.dependency_analyzer",
-    "codewiki.src.be.dependency_analyzer.analysis",
-    "codewiki.src.be.dependency_analyzer.analyzers",
-    "codewiki.src.be.dependency_analyzer.models",
-    "codewiki.src.be.dependency_analyzer.utils",
-    "codewiki.src.fe",
-    "codewiki.mcp",
-    "codewiki.mcp.tools"
-]
+[tool.hatch.build]
+artifacts = ["codewiki/templates/**/*", "codewiki/py.typed", "codewiki/agents/**/*"]
 
-[tool.setuptools.package-data]
-codewiki = ["templates/**/*", "py.typed"]
+[tool.hatch.build.targets.wheel]
+packages = ["codewiki"]
 
-[tool.black]
-line-length = 100
-target-version = ['py312']
+[tool.uv]
+managed = true
+default-groups = ["dev"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -127,10 +116,27 @@ disallow_incomplete_defs = false
 line-length = 100
 target-version = "py312"
 
+[tool.ruff.lint]
+# Pin the rule set to the classic ruff default so lint behavior stays stable
+# across ruff versions (0.16 broadened its default to include UP/BLE/S/...,
+# which most of the existing codebase does not satisfy — see CI failures on
+# c22fc26/99e4c44). Widen deliberately, not by upgrade accident.
+select = ["E4", "E7", "E9", "F"]
+# E701/E702 (multiple statements on one line) are style-only with 250+ legacy
+# occurrences — relaxed in #17 until a dedicated cleanup pass.
+# E741/E731 were re-tightened after fixing all violations (post-#17 cleanup);
+# E501 is never active under this select, so it needs no ignore.
+# E402 (import not at top) is ignored globally because 9 files intentionally
+# do sys.path manipulation before imports (e.g. codewiki/run_web_app.py:11-13,
+# codewiki/cli/main.py:33). Fixing would require structural refactor, not
+# low-value for pre-commit gate.
+ignore = ["E701", "E702", "E402"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=codewiki --cov-report=term-missing"
+addopts = "-v"
+# Coverage is CI-only: `uv run pytest --cov=codewiki --cov-report=term-missing` (keeps `uv sync` without dev + local `uv run pytest -q` working without pytest-cov)
 

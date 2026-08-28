@@ -66,6 +66,23 @@ Rules for the index table:
 5. This table serves as a navigation aid — readers scan it first, then jump to relevant sections.
 </COMPONENT_CONSTRAINT_INDEX>
 
+<ANTI_FILLER>
+Write precise, information-dense documentation. STRICTLY AVOID these filler patterns:
+- "This file/module is responsible for..." → State what it DOES directly
+- "various", "etc.", "and more", "and so on" → List specifics or omit
+- "It provides functionality for..." → Name the exact functions/capabilities
+- "This is used to handle..." → Say WHO calls it and WHEN
+- "The main purpose of this component is to..." → Just describe the behavior
+- Empty adjectives: "robust", "comprehensive", "seamless", "powerful", "flexible"
+- Redundant restatements of the class/function name in prose
+
+Rules:
+1. Every sentence must convey information not derivable from the code's naming alone.
+2. Prefer concrete nouns (specific class names, method names, data structures) over abstract descriptions.
+3. If you cannot say something specific, omit the sentence entirely.
+4. Quantify where possible: "processes 3 event types" not "processes various events".
+</ANTI_FILLER>
+
 <WORKFLOW>
 1. Analyze the provided code components and module structure, explore the not given dependencies between the components if needed
 2. Create the main `{module_name}.md` file with overview and architecture in working directory
@@ -138,6 +155,23 @@ Rules for the index table:
 5. This table serves as a navigation aid — readers scan it first, then jump to relevant sections.
 </COMPONENT_CONSTRAINT_INDEX>
 
+<ANTI_FILLER>
+Write precise, information-dense documentation. STRICTLY AVOID these filler patterns:
+- "This file/module is responsible for..." → State what it DOES directly
+- "various", "etc.", "and more", "and so on" → List specifics or omit
+- "It provides functionality for..." → Name the exact functions/capabilities
+- "This is used to handle..." → Say WHO calls it and WHEN
+- "The main purpose of this component is to..." → Just describe the behavior
+- Empty adjectives: "robust", "comprehensive", "seamless", "powerful", "flexible"
+- Redundant restatements of the class/function name in prose
+
+Rules:
+1. Every sentence must convey information not derivable from the code's naming alone.
+2. Prefer concrete nouns (specific class names, method names, data structures) over abstract descriptions.
+3. If you cannot say something specific, omit the sentence entirely.
+4. Quantify where possible: "processes 3 event types" not "processes various events".
+</ANTI_FILLER>
+
 <WORKFLOW>
 1. Analyze provided code components and module structure
 2. Explore dependencies between components if needed
@@ -202,6 +236,38 @@ overview_content
 </OVERVIEW>
 """.strip()
 
+WORKSPACE_OVERVIEW_PROMPT = """
+You are an AI documentation assistant. Your task is to generate an architectural overview of the `{workspace_name}` multi-repo workspace.
+
+The workspace contains the following services:
+<SERVICES>
+{services_summary}
+</SERVICES>
+
+Cross-service topology and aggregated call summary:
+<CROSS_SERVICE>
+{cross_service_data}
+</CROSS_SERVICE>
+{custom_instructions}
+Please generate a workspace overview in markdown with the following structure:
+
+1. **Architecture Narrative** (2-3 paragraphs): Describe the system's overall purpose, how the services collaborate to deliver end-to-end functionality, the primary data flow between services, and any notable architectural patterns (e.g., API gateway, event-driven, CQRS).
+
+2. **Service Topology** (Mermaid diagram): Refine or reproduce the provided Mermaid flowchart. Group related services with subgraphs if appropriate. Keep edge labels concise (method + path prefix, not every individual endpoint).
+
+3. **Cross-Service Summary**: For each service pair with interactions, write one line in the format:
+   **Client → Server**: N calls (representative endpoints…)
+   Add a brief note on the nature of the interaction (e.g., "user authentication", "order fulfillment").
+
+4. **Service Directory**: A compact table linking to each service's wiki.
+
+Write in clear technical prose. Focus on WHY services are separated and HOW they communicate, not on listing every API endpoint.
+
+<OVERVIEW>
+overview_content
+</OVERVIEW>
+""".strip()
+
 CLUSTER_REPO_PROMPT = """
 Here is list of all potential core components of the repository (It's normal that some components are not essential to the repository):
 <POTENTIAL_CORE_COMPONENTS>
@@ -211,6 +277,8 @@ Here is list of all potential core components of the repository (It's normal tha
 Please group the components into groups such that each group is a set of components that are closely related to each other and together they form a module. DO NOT include components that are not essential to the repository.
 
 Each component ID has the form `<file_path>::<name>`. Return the IDs EXACTLY as given — do NOT strip the `<file_path>::` prefix or shorten the ID to the bare name.
+
+IMPORTANT: Use your own reasoning to analyze component names, file paths, and their relationships to determine logical groupings. The classification should be done by YOU, not by code.
 
 Firstly reason about the components and then group them and return the result in the following format:
 <GROUPED_COMPONENTS>
@@ -251,6 +319,8 @@ Here is list of all potential core components of the module {module_name} (It's 
 Please group the components into groups such that each group is a set of components that are closely related to each other and together they form a smaller module. DO NOT include components that are not essential to the module.
 
 Each component ID has the form `<file_path>::<name>`. Return the IDs EXACTLY as given — do NOT strip the `<file_path>::` prefix or shorten the ID to the bare name.
+
+IMPORTANT: Do NOT write a script or program to classify components. Use your own reasoning to analyze component names, file paths, and their relationships to determine logical groupings. The classification should be done by YOU, not by code.
 
 Firstly reason based on given context and then group them and return the result in the following format:
 <GROUPED_COMPONENTS>
@@ -300,27 +370,63 @@ from codewiki.src.utils import file_manager
 _DEFAULT_CODE_ROUTING = {
     "boilerplate": {
         "suffixes": [
-            "DTO", "VO", "Request", "Response", "Entity", "PO", "DO",
-            "Model", "Schema", "Form", "Serializer", "Mapper", "Repository",
-            "Dao", "DAO", "DataClass",
+            "DTO",
+            "VO",
+            "Request",
+            "Response",
+            "Entity",
+            "PO",
+            "DO",
+            "Model",
+            "Schema",
+            "Form",
+            "Serializer",
+            "Mapper",
+            "Repository",
+            "Dao",
+            "DAO",
+            "DataClass",
         ],
         "annotations": ["@Data", "@Getter", "@Setter", "@Entity", "@Table", "@Document"],
         "path_keywords": ["model", "models", "dto", "vo", "entity", "entities", "schema", "pojo"],
     },
     "business": {
         "suffixes": [
-            "Service", "Controller", "Job", "Consumer", "Handler",
-            "Manager", "Processor", "Executor", "UseCase", "Interactor",
-            "Provider", "Resolver", "Facade", "Orchestrator",
+            "Service",
+            "Controller",
+            "Job",
+            "Consumer",
+            "Handler",
+            "Manager",
+            "Processor",
+            "Executor",
+            "UseCase",
+            "Interactor",
+            "Provider",
+            "Resolver",
+            "Facade",
+            "Orchestrator",
         ],
         "annotations": ["@Service", "@RestController", "@Controller", "@Component", "@Scheduled"],
         "path_keywords": ["service", "services", "controller", "handler", "job", "consumer"],
     },
     "infra": {
         "suffixes": [
-            "Util", "Utils", "Helper", "Factory", "Builder", "Interceptor",
-            "Filter", "Middleware", "Adapter", "Wrapper", "Proxy", "Client",
-            "Config", "Configuration", "Properties",
+            "Util",
+            "Utils",
+            "Helper",
+            "Factory",
+            "Builder",
+            "Interceptor",
+            "Filter",
+            "Middleware",
+            "Adapter",
+            "Wrapper",
+            "Proxy",
+            "Client",
+            "Config",
+            "Configuration",
+            "Properties",
         ],
         "annotations": ["@Configuration", "@ConfigurationProperties", "@Bean"],
         "path_keywords": ["util", "utils", "config", "infrastructure", "common", "shared"],
@@ -335,18 +441,23 @@ def _normalize_routing_config(config: dict) -> dict:
     and the schema.yaml format written by schema_generator
     ({"boilerplate_patterns": {"suffix": [...], "annotation": [...]}}).
     """
-    key_aliases = {"suffix": "suffixes", "annotation": "annotations", "path_keyword": "path_keywords"}
+    key_aliases = {
+        "suffix": "suffixes",
+        "annotation": "annotations",
+        "path_keyword": "path_keywords",
+    }
     normalized: dict = {}
     for category, rules in config.items():
         if not isinstance(rules, dict):
             continue
-        cat = category[:-len("_patterns")] if category.endswith("_patterns") else category
+        cat = category[: -len("_patterns")] if category.endswith("_patterns") else category
         normalized[cat] = {key_aliases.get(k, k): v for k, v in rules.items()}
     return normalized
 
 
-def classify_component(name: str, relative_path: str = "", source_code: str = "",
-                       routing_config: dict | None = None) -> str:
+def classify_component(
+    name: str, relative_path: str = "", source_code: str = "", routing_config: dict | None = None
+) -> str:
     """Classify a component as 'boilerplate', 'business', or 'infra'.
 
     Uses suffix matching on the component/class name, path keyword matching,
@@ -392,37 +503,40 @@ EXTENSION_TO_LANGUAGE = {
     ".hpp": "cpp",
     ".tsx": "typescript",
     ".cc": "cpp",
-    ".hpp": "cpp",
     ".cxx": "cpp",
     ".jsx": "javascript",
     ".mjs": "javascript",
     ".cjs": "javascript",
-    ".jsx": "javascript",
     ".cs": "csharp",
     ".kt": "kotlin",
     ".kts": "kotlin",
     ".php": "php",
     ".phtml": "php",
-    ".inc": "php"
+    ".inc": "php",
 }
 
 
-def format_user_prompt(module_name: str, core_component_ids: list[str], components: Dict[str, Any], module_tree: dict[str, any]) -> str:
+def format_user_prompt(
+    module_name: str,
+    core_component_ids: list[str],
+    components: Dict[str, Any],
+    module_tree: dict[str, any],
+) -> str:
     """
     Format the user prompt with module name and organized core component codes.
-    
+
     Args:
         module_name: Name of the module to document
         core_component_ids: List of component IDs to include
         components: Dictionary mapping component IDs to CodeComponent objects
-    
+
     Returns:
         Formatted user prompt string
     """
 
     # format module tree
     lines = []
-    
+
     def _format_module_tree(module_tree: dict[str, any], indent: int = 0):
         for key, value in module_tree.items():
             if key == module_name:
@@ -432,8 +546,9 @@ def format_user_prompt(module_name: str, core_component_ids: list[str], componen
 
             # Group components by file
             from collections import defaultdict
+
             by_file = defaultdict(list)
-            for c in value['components']:
+            for c in value["components"]:
                 if "::" in c:
                     fpath, name = c.split("::", 1)
                     by_file[fpath].append(name)
@@ -481,14 +596,14 @@ def format_user_prompt(module_name: str, core_component_ids: list[str], componen
         is_boilerplate = file_categories == {"boilerplate"}
 
         core_component_codes += f"# File: {path}\n\n"
-        core_component_codes += f"## Core Components in this file:\n"
+        core_component_codes += "## Core Components in this file:\n"
 
         for component_id in component_ids_in_file:
             core_component_codes += f"- {component_id}\n"
 
         if is_boilerplate:
             # Abbreviated: signature-only for boilerplate (DTO/VO/Entity/Mapper)
-            core_component_codes += f"\n## File Content (data class — signature only):\n"
+            core_component_codes += "\n## File Content (data class — signature only):\n"
             for cid in component_ids_in_file:
                 comp = components[cid]
                 params = getattr(comp, "parameters", None) or []
@@ -497,10 +612,12 @@ def format_user_prompt(module_name: str, core_component_ids: list[str], componen
             core_component_codes += "\n"
         else:
             # Full source for business/infra components
-            lang = EXTENSION_TO_LANGUAGE.get('.' + path.split('.')[-1], "")
+            lang = EXTENSION_TO_LANGUAGE.get("." + path.split(".")[-1], "")
             core_component_codes += f"\n## File Content:\n```{lang}\n"
             try:
-                core_component_codes += file_manager.load_text(components[component_ids_in_file[0]].file_path)
+                core_component_codes += file_manager.load_text(
+                    components[component_ids_in_file[0]].file_path
+                )
             except (FileNotFoundError, IOError) as e:
                 core_component_codes += f"# Error reading file: {e}\n"
             core_component_codes += "```\n\n"
@@ -549,8 +666,9 @@ def format_user_prompt(module_name: str, core_component_ids: list[str], componen
     return prompt + call_context
 
 
-
-def format_cluster_prompt(potential_core_components: str, module_tree: dict[str, any] = {}, module_name: str = None) -> str:
+def format_cluster_prompt(
+    potential_core_components: str, module_tree: dict[str, any] = {}, module_name: str = None
+) -> str:
     """
     Format the cluster prompt with potential core components and module tree.
     """
@@ -559,18 +677,19 @@ def format_cluster_prompt(potential_core_components: str, module_tree: dict[str,
     lines = []
 
     # print(f"Module tree:\n{json.dumps(module_tree, indent=2)}")
-    
+
     def _format_module_tree(module_tree: dict[str, any], indent: int = 0):
         for key, value in module_tree.items():
             if key == module_name:
                 lines.append(f"{'  ' * indent}{key} (current module)")
             else:
                 lines.append(f"{'  ' * indent}{key}")
-            
+
             # Group components by file
             from collections import defaultdict
+
             by_file = defaultdict(list)
-            for c in value['components']:
+            for c in value["components"]:
                 if "::" in c:
                     fpath, name = c.split("::", 1)
                     by_file[fpath].append(name)
@@ -582,51 +701,60 @@ def format_cluster_prompt(potential_core_components: str, module_tree: dict[str,
                 else:
                     lines.append(f"{'  ' * (indent + 1)} {', '.join(names)}")
 
-            if ("children" in value) and isinstance(value["children"], dict) and len(value["children"]) > 0:
+            if (
+                ("children" in value)
+                and isinstance(value["children"], dict)
+                and len(value["children"]) > 0
+            ):
                 lines.append(f"{'  ' * (indent + 1)} Children:")
                 _format_module_tree(value["children"], indent + 2)
-    
+
     _format_module_tree(module_tree, 0)
     formatted_module_tree = "\n".join(lines)
-
 
     if module_tree == {}:
         return CLUSTER_REPO_PROMPT.format(potential_core_components=potential_core_components)
     else:
-        return CLUSTER_MODULE_PROMPT.format(potential_core_components=potential_core_components, module_tree=formatted_module_tree, module_name=module_name)
+        return CLUSTER_MODULE_PROMPT.format(
+            potential_core_components=potential_core_components,
+            module_tree=formatted_module_tree,
+            module_name=module_name,
+        )
 
 
 def format_system_prompt(module_name: str, custom_instructions: str = None) -> str:
     """
     Format the system prompt with module name and optional custom instructions.
-    
+
     Args:
         module_name: Name of the module to document
         custom_instructions: Optional custom instructions to append
-        
+
     Returns:
         Formatted system prompt string
     """
     custom_section = ""
     if custom_instructions:
         custom_section = f"\n\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
-    
+
     return SYSTEM_PROMPT.format(module_name=module_name, custom_instructions=custom_section).strip()
 
 
 def format_leaf_system_prompt(module_name: str, custom_instructions: str = None) -> str:
     """
     Format the leaf system prompt with module name and optional custom instructions.
-    
+
     Args:
         module_name: Name of the module to document
         custom_instructions: Optional custom instructions to append
-        
+
     Returns:
         Formatted leaf system prompt string
     """
     custom_section = ""
     if custom_instructions:
         custom_section = f"\n\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
-    
-    return LEAF_SYSTEM_PROMPT.format(module_name=module_name, custom_instructions=custom_section).strip()
+
+    return LEAF_SYSTEM_PROMPT.format(
+        module_name=module_name, custom_instructions=custom_section
+    ).strip()

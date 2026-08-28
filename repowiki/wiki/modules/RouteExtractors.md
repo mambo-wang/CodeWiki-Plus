@@ -1,38 +1,25 @@
 ---
 title: RouteExtractors
-depth: 2
-module_type: leaf
-component_count: 27
-components:
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/__init__.py::_lazy_register
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/__init__.py::get_extractor
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/go_routes.py::_GoRouteParser
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/go_routes.py::_get_relative_path
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/go_routes.py::_strip_url_to_path
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/go_routes.py::extract_go_routes
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/java_routes.py::_JavaRouteParser
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/java_routes.py::_extract_string_literal
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/java_routes.py::_get_relative_path
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/java_routes.py::_strip_url_to_path
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/java_routes.py::extract_java_routes
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/js_routes.py::_JsRouteParser
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/js_routes.py::_get_relative_path
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/js_routes.py::_strip_url_to_path
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/js_routes.py::extract_js_routes
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/js_routes.py::extract_ts_routes
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/mq_patterns.py::_Pattern
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/mq_patterns.py::_component_id
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/mq_patterns.py::_find_enclosing_class
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/mq_patterns.py::_find_enclosing_function
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/mq_patterns.py::extract_mq_routes
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/python_routes.py::_RouteVisitor
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/python_routes.py::_component_id_from_context
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/python_routes.py::_get_relative_path
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/python_routes.py::_strip_url_to_path
-  - codewiki/src/be/dependency_analyzer/analyzers/route_extractors/python_routes.py::extract_python_routes
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 26
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: RouteExtractors 是 `DependencyAnalyzer` 的叶子模块，负责从各语言源文件中**提取路由节点（`RouteNode`）**，供跨服务（cross-service）调用分析使用。它位于
+  AST/调用图分析之后的一次轻量级「后处理」（post-pass）。
+aliases:
+- RouteExtractors
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:19Z'
 ---
 
 # RouteExtractors 模块文档
@@ -114,9 +101,11 @@ flowchart LR
 ## 使用示例
 ```python
 from codewiki.src.be.dependency_analyzer.analyzers.route_extractors import get_extractor
-from codewiki.src.be.dependency_analyzer.analyzers.route_extractors.mq_patterns import extract_mq_routes
+from codewiki.src.be.dependency_analyzer.analyzers.route_extractors.mq_patterns import (
+    extract_mq_routes,
+)
 
-extractor = get_extractor(".go")          # -> extract_go_routes
+extractor = get_extractor(".go")  # -> extract_go_routes
 routes = extractor("svc/handler.go", src, "myrepo")
 routes += extract_mq_routes("svc/handler.go", src, "myrepo")
 for r in routes:

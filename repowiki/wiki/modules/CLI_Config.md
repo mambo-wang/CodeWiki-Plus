@@ -1,22 +1,25 @@
 ---
 title: CLI_Config
-depth: 2
-module_type: leaf
-component_count: 10
-components:
-  - codewiki/cli/config_manager.py::ConfigManager
-  - codewiki/cli/git_manager.py::GitManager
-  - codewiki/cli/html_generator.py::HTMLGenerator
-  - codewiki/cli/models/config.py::AgentInstructions
-  - codewiki/cli/models/config.py::Configuration
-  - codewiki/cli/models/job.py::DocumentationJob
-  - codewiki/cli/models/job.py::GenerationOptions
-  - codewiki/cli/models/job.py::JobStatistics
-  - codewiki/cli/models/job.py::JobStatus
-  - codewiki/cli/models/job.py::LLMConfig
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 10
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: '`CLI_Config` 是 CodeWiki CLI 的「配置与作业状态」叶子模块，负责持久化用户设置、安全存储凭据、管理 Git 仓库操作、生成
+  GitHub Pages 静态查看器，以及定义文档生成作业的数据模型。它是连接命令行层（[[CLI_Commands]]、[[CLI]]、[[CLI_Adapter]]）'
+aliases:
+- CLI_Config
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:16Z'
 ---
 
 # CLI_Config 模块文档
@@ -145,27 +148,39 @@ flowchart TD
 ```python
 # 保存并校验配置
 from codewiki.cli.config_manager import ConfigManager
+
 cm = ConfigManager()
-cm.save(api_key="sk-...", base_url="https://api.openai.com/v1",
-        main_model="gpt-4o", cluster_model="gpt-4o-mini")
+cm.save(
+    api_key="sk-...",
+    base_url="https://api.openai.com/v1",
+    main_model="gpt-4o",
+    cluster_model="gpt-4o-mini",
+)
 assert cm.is_configured()
 
 # 生成后端配置（桥接）
 from codewiki.src.config import Config
+
 cfg = cm.get_config().to_backend_config(
-    repo_path="/repo", output_dir="docs", api_key=cm.get_api_key())
+    repo_path="/repo", output_dir="docs", api_key=cm.get_api_key()
+)
 
 # 创建文档分支并提交
 from codewiki.cli.git_manager import GitManager
+
 gm = GitManager("/repo")
 gm.create_documentation_branch(force=True)
 sha = gm.commit_documentation(Path("docs"))
 
 # 生成静态查看器
 from codewiki.cli.html_generator import HTMLGenerator
+
 HTMLGenerator().generate(
-    output_path=Path("docs/index.html"), title="My Repo",
-    docs_dir=Path("docs"), repository_url="https://github.com/u/r")
+    output_path=Path("docs/index.html"),
+    title="My Repo",
+    docs_dir=Path("docs"),
+    repository_url="https://github.com/u/r",
+)
 ```
 
 ## 扩展点

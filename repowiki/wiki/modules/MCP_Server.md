@@ -1,11 +1,25 @@
 ---
 title: MCP_Server
-depth: 1
-module_type: overview
-component_count: 0
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 1
+  module_type: overview
+  component_count: 0
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: 'MCP_Server 是 CodeWiki 的 MCP（Model Context Protocol）协议服务端，基于 stdio 传输，把后端的代码分析、文档生成、知识库管理与
+  Wiki 质量校验能力以「工具（tool）」形式暴露给 IDE Agent（Cursor / Claude Desktop 等）。入口位于 '
+aliases:
+- MCP_Server
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:18Z'
 ---
 
 # MCP_Server 模块文档（概览）

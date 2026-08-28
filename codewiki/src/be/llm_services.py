@@ -6,14 +6,19 @@ return slightly non-standard responses (e.g. choices[].index = None).
 
 Supports multiple providers: openai-compatible, anthropic, bedrock, azure-openai.
 """
-import logging
-from openai.types import chat
 
-from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.models.openai import OpenAIModelSettings
+import logging
+
+from openai import BadRequestError, OpenAI
+from openai.types import chat
 from pydantic_ai.models.fallback import FallbackModel
-from openai import OpenAI, BadRequestError
+from pydantic_ai.models.openai import (
+    OpenAIChatModel as OpenAIModel,
+)
+from pydantic_ai.models.openai import (
+    OpenAIChatModelSettings as OpenAIModelSettings,
+)
+from pydantic_ai.providers.openai import OpenAIProvider
 
 from codewiki.src.config import Config
 
@@ -33,22 +38,14 @@ def _should_use_max_completion_tokens(model_name: str, base_url: str) -> bool:
     if any(pattern in model_lower for pattern in new_openai_patterns):
         return True
     # If base_url points to OpenAI directly, newer models may need it
-    if base_url and "api.openai.com" in base_url:
-        return True
-    return False
+    return bool(base_url and "api.openai.com" in base_url)
 
 
 def _build_model_settings(config: Config, model_name: str) -> OpenAIModelSettings:
     """Build model settings with the correct token parameter."""
     if _should_use_max_completion_tokens(model_name, config.llm_base_url):
-        return OpenAIModelSettings(
-            temperature=0.0,
-            max_completion_tokens=config.max_tokens
-        )
-    return OpenAIModelSettings(
-        temperature=0.0,
-        max_tokens=config.max_tokens
-    )
+        return OpenAIModelSettings(temperature=0.0, max_completion_tokens=config.max_tokens)
+    return OpenAIModelSettings(temperature=0.0, max_tokens=config.max_tokens)
 
 
 def _get_litellm_model_name(model_name: str, provider: str) -> str:
@@ -58,12 +55,10 @@ def _get_litellm_model_name(model_name: str, provider: str) -> str:
     For Bedrock, prefixes the model name with 'bedrock/' if not already prefixed.
     For Anthropic, prefixes with 'anthropic/' if not already prefixed.
     """
-    if provider == "bedrock":
-        if not model_name.startswith("bedrock/"):
-            return f"bedrock/{model_name}"
-    elif provider == "anthropic":
-        if not model_name.startswith("anthropic/"):
-            return f"anthropic/{model_name}"
+    if provider == "bedrock" and not model_name.startswith("bedrock/"):
+        return f"bedrock/{model_name}"
+    if provider == "anthropic" and not model_name.startswith("anthropic/"):
+        return f"anthropic/{model_name}"
     return model_name
 
 
@@ -90,10 +85,10 @@ def _create_litellm_openai_client(config: Config) -> OpenAI:
 
     litellm translates OpenAI API calls to Bedrock, Anthropic, etc.
     """
-    import litellm
     # Configure litellm for the provider
     if config.provider == "bedrock":
         import os
+
         os.environ.setdefault("AWS_DEFAULT_REGION", config.aws_region)
         os.environ.setdefault("AWS_REGION_NAME", config.aws_region)
 
@@ -110,11 +105,8 @@ def create_main_model(config: Config) -> CompatibleOpenAIModel:
     """Create the main LLM model from configuration."""
     return CompatibleOpenAIModel(
         model_name=config.main_model,
-        provider=OpenAIProvider(
-            base_url=config.llm_base_url,
-            api_key=config.llm_api_key
-        ),
-        settings=_build_model_settings(config, config.main_model)
+        provider=OpenAIProvider(base_url=config.llm_base_url, api_key=config.llm_api_key),
+        settings=_build_model_settings(config, config.main_model),
     )
 
 
@@ -122,11 +114,8 @@ def create_fallback_model(config: Config) -> CompatibleOpenAIModel:
     """Create the fallback LLM model from configuration."""
     return CompatibleOpenAIModel(
         model_name=config.fallback_model,
-        provider=OpenAIProvider(
-            base_url=config.llm_base_url,
-            api_key=config.llm_api_key
-        ),
-        settings=_build_model_settings(config, config.fallback_model)
+        provider=OpenAIProvider(base_url=config.llm_base_url, api_key=config.llm_api_key),
+        settings=_build_model_settings(config, config.fallback_model),
     )
 
 
@@ -139,17 +128,11 @@ def create_fallback_models(config: Config) -> FallbackModel:
 
 def create_openai_client(config: Config) -> OpenAI:
     """Create OpenAI client from configuration."""
-    return OpenAI(
-        base_url=config.llm_base_url,
-        api_key=config.llm_api_key
-    )
+    return OpenAI(base_url=config.llm_base_url, api_key=config.llm_api_key)
 
 
 def call_llm(
-    prompt: str,
-    config: Config,
-    model: str = None,
-    temperature: float = 0.0
+    prompt: str, config: Config, model: str | None = None, temperature: float = 0.0
 ) -> str:
     """
     Call LLM with the given prompt.
@@ -201,7 +184,9 @@ def call_llm(
         if _is_unsupported_token_param_error(e, primary_key):
             logger.info(
                 "Provider rejected %s for model %s; retrying with %s.",
-                primary_key, model, fallback_key,
+                primary_key,
+                model,
+                fallback_key,
             )
             response = client.chat.completions.create(
                 **base_kwargs,
@@ -217,27 +202,26 @@ def _is_unsupported_token_param_error(err: BadRequestError, param: str) -> bool:
     body = getattr(err, "body", None) or {}
     if isinstance(body, dict):
         error = body.get("error") or {}
-        if isinstance(error, dict):
-            if error.get("param") == param and error.get("code") == "unsupported_parameter":
-                return True
+        if (
+            isinstance(error, dict)
+            and error.get("param") == param
+            and error.get("code") == "unsupported_parameter"
+        ):
+            return True
     # Fallback: message-based sniff for proxies that don't preserve structure
     msg = str(err).lower()
     return "unsupported parameter" in msg and param in msg
 
 
-def _call_llm_via_litellm(
-    prompt: str,
-    config: Config,
-    model: str,
-    temperature: float = 0.0
-) -> str:
+def _call_llm_via_litellm(prompt: str, config: Config, model: str, temperature: float = 0.0) -> str:
     """
     Call LLM via litellm for Bedrock/Anthropic providers.
 
     litellm handles the provider-specific API translation automatically.
     """
-    import litellm
     import os
+
+    import litellm
 
     litellm_model = _get_litellm_model_name(model, config.provider)
 
@@ -258,12 +242,7 @@ def _call_llm_via_litellm(
     return response.choices[0].message.content
 
 
-def _call_llm_via_azure(
-    prompt: str,
-    config: Config,
-    model: str,
-    temperature: float = 0.0
-) -> str:
+def _call_llm_via_azure(prompt: str, config: Config, model: str, temperature: float = 0.0) -> str:
     """
     Call LLM via Azure OpenAI.
 
@@ -279,7 +258,9 @@ def _call_llm_via_azure(
     )
 
     deployment = config.azure_deployment or model
-    logger.debug("Calling Azure OpenAI deployment %s (api_version=%s)", deployment, config.api_version)
+    logger.debug(
+        "Calling Azure OpenAI deployment %s (api_version=%s)", deployment, config.api_version
+    )
 
     response = client.chat.completions.create(
         model=deployment,

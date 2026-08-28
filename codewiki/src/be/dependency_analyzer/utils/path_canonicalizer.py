@@ -4,6 +4,7 @@ Borrowed from CBM's ``cbm_route_canon_path()`` (pass_route_nodes.c:59-129).
 All parameter placeholders are unified to ``{}`` so that different
 frameworks can match against the same Route key.
 """
+
 from __future__ import annotations
 
 import re
@@ -43,6 +44,13 @@ def canonicalize_path(path: str) -> str:
     path = re.sub(r"\{[^}]+\}", "{}", path)
     # Flask / Rocket  <name> or <int:name>  →  {}
     path = re.sub(r"<[^>]+>", "{}", path)
+
+    # Strip leading placeholder segment that represents a variable base URL
+    # e.g. /{baseUrl}/api/tools → //{}/api/tools → /api/tools
+    if path.startswith("/{}"):
+        path = path[3:] or "/"
+        if not path.startswith("/"):
+            path = "/" + path
 
     # Strip trailing slash (keep root "/")
     if len(path) > 1 and path.endswith("/"):

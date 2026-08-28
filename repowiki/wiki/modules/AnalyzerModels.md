@@ -1,22 +1,25 @@
 ---
 title: AnalyzerModels
-depth: 2
-module_type: leaf
-component_count: 10
-components:
-  - codewiki/src/be/dependency_analyzer/models/analysis.py::AnalysisResult
-  - codewiki/src/be/dependency_analyzer/models/analysis.py::NodeSelection
-  - codewiki/src/be/dependency_analyzer/models/core.py::CallRelationship
-  - codewiki/src/be/dependency_analyzer/models/core.py::Node
-  - codewiki/src/be/dependency_analyzer/models/core.py::Repository
-  - codewiki/src/be/dependency_analyzer/models/cross_service.py::CrossServiceLink
-  - codewiki/src/be/dependency_analyzer/models/cross_service.py::RouteNode
-  - codewiki/src/be/dependency_analyzer/models/cross_service.py::RouteProtocol
-  - codewiki/src/be/dependency_analyzer/models/cross_service.py::RouteRole
-  - codewiki/src/be/dependency_analyzer/models/cross_service.py::WorkspaceTopology
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:38+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 10
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: AnalyzerModels 是依赖分析子系统（`DependencyAnalyzer`）的纯数据层，定义了从单仓库静态分析到多仓库跨服务调用链匹配所需的全部
+  Pydantic 模型。它不包含业务逻辑，仅作为各分析阶段之间传递、聚合与持久化的「契约」。
+aliases:
+- AnalyzerModels
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:15Z'
 ---
 
 # AnalyzerModels 模块文档
@@ -88,7 +91,8 @@ node = Node(
     file_path="src/api/orders.py",
     relative_path="src/api/orders.py",
     depends_on={"src/db/session.py::get_session"},
-    start_line=10, end_line=42,
+    start_line=10,
+    end_line=42,
     language="python",
     component_id="src/api/orders.py::create_order",
 )
@@ -96,8 +100,14 @@ node = Node(
 result = AnalysisResult(
     repository=Repository(url=".", name="demo", clone_path="/tmp/demo", analysis_id="a1"),
     functions=[node],
-    relationships=[CallRelationship(caller=node.id, callee="src/db/session.py::get_session", call_line=21, is_resolved=True)],
-    file_tree={}, summary={"total_functions": 1}, visualization={},
+    relationships=[
+        CallRelationship(
+            caller=node.id, callee="src/db/session.py::get_session", call_line=21, is_resolved=True
+        )
+    ],
+    file_tree={},
+    summary={"total_functions": 1},
+    visualization={},
 )
 print(result.model_dump_json())
 ```

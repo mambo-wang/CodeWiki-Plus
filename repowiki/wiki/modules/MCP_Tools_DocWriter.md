@@ -1,55 +1,25 @@
 ---
 title: MCP_Tools_DocWriter
-depth: 2
-module_type: leaf
-component_count: 43
-components:
-  - codewiki/mcp/tools/doc_writer.py::_build_okf_frontmatter
-  - codewiki/mcp/tools/doc_writer.py::_collect_wiki_terms
-  - codewiki/mcp/tools/doc_writer.py::_comp_to_module
-  - codewiki/mcp/tools/doc_writer.py::_convert_wikilinks_to_md
-  - codewiki/mcp/tools/doc_writer.py::_ensure_parent_dirs
-  - codewiki/mcp/tools/doc_writer.py::_extract_source_refs
-  - codewiki/mcp/tools/doc_writer.py::_find_components
-  - codewiki/mcp/tools/doc_writer.py::_find_sources
-  - codewiki/mcp/tools/doc_writer.py::_inject_crosslinks
-  - codewiki/mcp/tools/doc_writer.py::_inject_frontmatter
-  - codewiki/mcp/tools/doc_writer.py::_inject_lightweight_frontmatter
-  - codewiki/mcp/tools/doc_writer.py::_inject_wiki_links
-  - codewiki/mcp/tools/doc_writer.py::_is_within
-  - codewiki/mcp/tools/doc_writer.py::_replace_wikilink
-  - codewiki/mcp/tools/doc_writer.py::_resolve_doc_path_safe
-  - codewiki/mcp/tools/doc_writer.py::_resync_source_refs
-  - codewiki/mcp/tools/doc_writer.py::_safe_doc_path
-  - codewiki/mcp/tools/doc_writer.py::_save_history
-  - codewiki/mcp/tools/doc_writer.py::_validate_mermaid
-  - codewiki/mcp/tools/doc_writer.py::handle_edit_doc_file
-  - codewiki/mcp/tools/doc_writer.py::handle_write_doc_file
-  - codewiki/mcp/tools/module_tree.py::_collect
-  - codewiki/mcp/tools/module_tree.py::_count
-  - codewiki/mcp/tools/module_tree.py::_get_processing_order
-  - codewiki/mcp/tools/module_tree.py::_save_and_compute_order
-  - codewiki/mcp/tools/module_tree.py::handle_get_processing_order
-  - codewiki/mcp/tools/module_tree.py::handle_save_module_tree
-  - codewiki/mcp/tools/page_router.py::compute_depth
-  - codewiki/mcp/tools/page_router.py::compute_link_path
-  - codewiki/mcp/tools/page_router.py::ensure_wiki_dirs
-  - codewiki/mcp/tools/page_router.py::get_page_type_dir
-  - codewiki/mcp/tools/page_router.py::invalidate_schema_cache
-  - codewiki/mcp/tools/page_router.py::is_wiki_system_file
-  - codewiki/mcp/tools/page_router.py::load_schema
-  - codewiki/mcp/tools/page_router.py::resolve_doc_path
-  - codewiki/mcp/tools/page_router.py::resolve_wiki_paths
-  - codewiki/mcp/tools/schema_generator.py::_detect_naming_convention
-  - codewiki/mcp/tools/schema_generator.py::_get_defaults
-  - codewiki/mcp/tools/schema_generator.py::_load_existing_schema
-  - codewiki/mcp/tools/schema_generator.py::_load_project_config
-  - codewiki/mcp/tools/schema_generator.py::_merge_schemas
-  - codewiki/mcp/tools/schema_generator.py::_write_yaml
-  - codewiki/mcp/tools/schema_generator.py::generate_schema
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 43
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: '`MCP_Tools_DocWriter` 是 CodeWiki 的文档写入与骨架生成层，负责把 [[MCP_Tools_Analysis]]
+  与 [[DependencyAnalyzer]] 产出的分析结果，转化为可落盘的 Wiki Markdown 文件。它包含四个子文件：`doc_writer.'
+aliases:
+- MCP_Tools_DocWriter
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:18Z'
 ---
 
 # MCP_Tools_DocWriter 模块文档

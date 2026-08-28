@@ -1,0 +1,5 @@
+# Ignore bulk format commit(s) in git blame
+# PR #20 (squash-merged 2026-08-27) reformatted the whole codebase in one commit:
+#   refactor: enforce consistent lint and formatting with pre-commit and CI (#20)
+48fb8aae8c1308350e4572cfbc9dd9b8b95b23d5
+# Configure locally: git config blame.ignoreRevsFile .git-blame-ignore-revs

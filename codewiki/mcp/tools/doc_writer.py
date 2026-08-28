@@ -10,25 +10,28 @@ import json
 import logging
 import os
 import re
+from datetime import UTC
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from codewiki.mcp.session import SessionState, SessionStore
 from codewiki.mcp.tools.file_param import read_param
 from codewiki.mcp.tools.page_router import (
-    resolve_doc_path,
-    compute_link_path,
     compute_depth,
+    compute_link_path,
     load_schema,
+    resolve_doc_path,
 )
+from codewiki.src.frontmatter import is_okf_standard_key
 
 logger = logging.getLogger(__name__)
 
 # Max edit history entries per file (prevent unbounded memory growth)
 _MAX_HISTORY_PER_FILE = 20
 
-# Pattern for inline source-reference annotations: [^src:<name>:<start>-<end>]
-_SOURCE_REF_PATTERN = re.compile(r"\[\^src:([^:\]]+):(\d+-\d+)\]")
+# Pattern for inline source-reference annotations: [^src:<name>:<start>-<end>].
+# A single line number (e.g. [^src:name:59]) is also accepted as a one-line range.
+_SOURCE_REF_PATTERN = re.compile(r"\[\^src:([^:\]]+):(\d+(?:-\d+)?)\]")
 
 # Pattern for simple wikilinks: [[target]] or [[target|display]]
 _WIKILINK_RE = re.compile(r"\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]")
@@ -48,7 +51,7 @@ def _convert_wikilinks_to_md(content: str, output_dir: Path, current_file: Path)
     current_resolved = current_file.resolve()
 
     # Build title → relative-path mapping from existing wiki pages
-    title_to_rel: Dict[str, str] = {}
+    title_to_rel: dict[str, str] = {}
     if wiki_dir.is_dir():
         for md in wiki_dir.rglob("*.md"):
             if not md.is_file() or md.name in WIKI_SYSTEM_FILES:
@@ -84,7 +87,9 @@ def _convert_wikilinks_to_md(content: str, output_dir: Path, current_file: Path)
         # Compute relative path from current file's directory to target
         target_abs = od / rel_path
         try:
-            from_current = os.path.relpath(str(target_abs), str(current_resolved.parent)).replace("\\", "/")
+            from_current = os.path.relpath(str(target_abs), str(current_resolved.parent)).replace(
+                "\\", "/"
+            )
         except ValueError:
             from_current = rel_path
         return f"[{display}]({from_current})"
@@ -112,9 +117,11 @@ def _extract_source_refs(content: str) -> tuple[list[str], list[str]]:
 def _resync_source_refs(content: str) -> str:
     """Re-parse ``[^src:...]`` refs from body and sync frontmatter fields.
 
-    Rewrites (or inserts) the ``source_refs`` and ``chunk_refs`` lines inside
+    Rewrites (or inserts) the ``source_refs`` and ``chunk_refs`` rows inside
     an existing YAML frontmatter block so they always reflect the current
-    body.  Returns *content* unchanged when there is no frontmatter block.
+    body.  The rows are folded under ``metadata:`` (OKF v0.2 producer-private
+    convention), so an edit can never resurrect top-level private keys.
+    Returns *content* unchanged when there is no frontmatter block.
     """
     if not content.startswith("---"):
         return content
@@ -128,22 +135,39 @@ def _resync_source_refs(content: str) -> str:
     if close_idx is None:
         return content
 
-    body = "\n".join(lines[close_idx + 1:])
+    body = "\n".join(lines[close_idx + 1 :])
     source_refs, chunk_refs = _extract_source_refs(body)
 
-    # Drop any existing source_refs/chunk_refs lines within the frontmatter
+    # Drop any existing source_refs/chunk_refs rows, whether they sit at the
+    # top level (legacy files) or folded under metadata: (OKF v0.2).  They are
+    # always re-emitted folded so an edit cannot resurrect top-level private
+    # keys during a later regeneration.
     fm_lines = [
-        ln for ln in lines[1:close_idx]
-        if not ln.startswith("source_refs:") and not ln.startswith("chunk_refs:")
+        ln
+        for ln in lines[1:close_idx]
+        if not ln.lstrip().startswith("source_refs:") and not ln.lstrip().startswith("chunk_refs:")
     ]
+    ref_rows: list[str] = []
     if source_refs:
-        refs_str = ", ".join(f'"{r}"' for r in source_refs)
-        fm_lines.append(f"source_refs: [{refs_str}]")
+        ref_rows.append(f"  source_refs: {json.dumps(source_refs, ensure_ascii=False)}")
     if chunk_refs:
-        chunks_str = ", ".join(f'"{c}"' for c in chunk_refs)
-        fm_lines.append(f"chunk_refs: [{chunks_str}]")
+        ref_rows.append(f"  chunk_refs: {json.dumps(chunk_refs, ensure_ascii=False)}")
+    if ref_rows:
+        meta_idx = None
+        for _i, _ln in enumerate(fm_lines):
+            if _ln.rstrip() == "metadata:":
+                meta_idx = _i
+                break
+        if meta_idx is not None:
+            insert = meta_idx + 1
+            while insert < len(fm_lines) and fm_lines[insert].startswith(("  ", "\t")):
+                insert += 1
+            fm_lines = fm_lines[:insert] + ref_rows + fm_lines[insert:]
+        else:
+            fm_lines.append("metadata:")
+            fm_lines.extend(ref_rows)
 
-    rebuilt = ["---"] + fm_lines + ["---"] + lines[close_idx + 1:]
+    rebuilt = ["---"] + fm_lines + ["---"] + lines[close_idx + 1 :]
     return "\n".join(rebuilt)
 
 
@@ -159,7 +183,7 @@ def _split_frontmatter(content: str) -> tuple:
         lines = content.split("\n")
         for i in range(1, len(lines)):
             if lines[i].strip() == "---":
-                return "\n".join(lines[: i + 1]), "\n".join(lines[i + 1:])
+                return "\n".join(lines[: i + 1]), "\n".join(lines[i + 1 :])
     return "", content
 
 
@@ -209,12 +233,203 @@ def _safe_doc_path(
         return None
 
 
+def _title_from_filename(name: str) -> str:
+    """Derive a human-readable title from a filename stem.
+
+    If the name is already CamelCase (starts with uppercase and has internal
+    uppercase letters), keep it as-is to preserve names like TestEntityPage.
+    Only apply title-casing to snake_case or kebab-case names.
+    """
+    # Strip extension if present
+    name = name.replace(".md", "")
+    # Detect CamelCase: starts with uppercase and has at least one internal uppercase
+    if name[0:1].isupper() and any(c.isupper() for c in name[1:]):
+        return name
+    # For snake_case or kebab-case, convert to title case
+    return name.replace("_", " ").replace("-", " ").title()
+
+
+# ---------------------------------------------------------------------
+# OKF v0.2 helpers
+# ---------------------------------------------------------------------
+
+# page_type → OKF `type` value (shared by build and patch paths)
+_OKF_TYPE_MAP = {
+    "module": "Module",
+    "entity": "Entity",
+    "concept": "Concept",
+    "source": "Source",
+    "comparison": "Comparison",
+    "query": "Query",
+}
+
+
+def _okf_stale_date(schema: dict | None, ref_date=None) -> str:
+    """Return ``today + default_stale_days`` as ``YYYY-MM-DD`` (OKF §5.5).
+
+    Reads ``conventions.default_stale_days`` from *schema* (default 90,
+    aligned with the lint stale_notes policy).
+    """
+    from datetime import datetime, timedelta
+
+    days = 90
+    try:
+        days = int((schema or {}).get("conventions", {}).get("default_stale_days", 90))
+    except (TypeError, ValueError):
+        pass
+    base = ref_date or datetime.now(UTC)
+    return (base + timedelta(days=days)).strftime("%Y-%m-%d")
+
+
+def _okf_generated_line() -> str:
+    """Build the OKF v0.2 §5.2 ``generated: {by, at}`` frontmatter line."""
+    from datetime import datetime
+
+    now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        from codewiki.src.config import actor_id
+
+        actor = actor_id()
+    except Exception:
+        actor = "codewiki"
+    return f"generated: {{ by: {actor}, at: {now_iso} }}"
+
+
+def _okf_patch_defaults(
+    filename: str,
+    page_type: str = "module",
+    user_title: str | None = None,
+    user_description: str | None = None,
+    schema: dict | None = None,
+) -> list:
+    """Ordered ``(key, formatted_line)`` defaults used to patch existing frontmatter.
+
+    Only genuinely missing keys are applied (see _patch_existing_frontmatter).
+    """
+    import json as _json
+
+    doc_type = _OKF_TYPE_MAP.get(page_type, page_type.capitalize())
+    lines = [("type", f"type: {doc_type}")]
+    title = user_title or _title_from_filename(filename)
+    lines.append(("title", f"title: {_json.dumps(title, ensure_ascii=False)}"))
+    # Default alias keeps the doc discoverable by its slug (mirrors the
+    # _build_okf_frontmatter path).  Applied only when `aliases` is missing
+    # from existing frontmatter, so hand-written aliases are never clobbered.
+    lines.append(
+        ("aliases", f"aliases: [{_json.dumps(filename.replace('.md', ''), ensure_ascii=False)}]")
+    )
+    if user_description:
+        lines.append(
+            ("description", f"description: {_json.dumps(user_description, ensure_ascii=False)}")
+        )
+    lines.append(("generated", _okf_generated_line()))
+    # OKF v0.2 lifecycle: code-generated wiki pages are stable knowledge by
+    # default (applied only when the key is missing from existing frontmatter).
+    lines.append(("status", "status: stable"))
+    lines.append(("stale_after", f"stale_after: {_okf_stale_date(schema)}"))
+    return lines
+
+
+def _patch_existing_frontmatter(
+    content: str,
+    filename: str,
+    page_type: str = "module",
+    user_title: str | None = None,
+    user_description: str | None = None,
+    schema: dict | None = None,
+) -> str:
+    """Patch an existing YAML frontmatter block with missing OKF keys.
+
+    OKF v0.2 §11 requires every concept document to carry parseable
+    frontmatter with a non-empty ``type``.  Agent-provided frontmatter
+    often omits it, so we add missing keys instead of skipping the file.
+
+    Additive only: existing keys are never overridden or reordered, and
+    unparseable frontmatter is returned untouched.
+    """
+    if not content.startswith("---"):
+        return content
+    lines = content.split("\n")
+    end = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end is None:
+        return content  # malformed frontmatter; leave untouched
+
+    fm_text = "\n".join(lines[1:end])
+    try:
+        import yaml
+
+        data = yaml.safe_load(fm_text)
+        if not isinstance(data, dict):
+            return content
+    except Exception:
+        return content  # unparseable; leave untouched
+
+    additions = [
+        line
+        for key, line in _okf_patch_defaults(
+            filename,
+            page_type,
+            user_title,
+            user_description,
+            schema,
+        )
+        if key not in data
+    ]
+    if not additions:
+        return content
+
+    head = "\n".join(lines[:end]).rstrip("\n")
+    tail = "\n".join(lines[end:])  # starts with the closing '---'
+    return head + "\n" + "\n".join(additions) + "\n" + tail
+
+
+def _okf_sources_block(output_dir, source_refs: list) -> list:
+    """Build OKF v0.2 ``sources:`` frontmatter lines (SPEC §5.1).
+
+    Maps *source_refs* that exist in source_registry.json to
+    ``{id, resource, title, last_modified}`` entries.  Returns [] when
+    nothing matches (the field is optional in OKF).
+    """
+    if not source_refs:
+        return []
+    try:
+        from codewiki.mcp.tools.source_ingest import _load_registry, _okf_source_entry
+
+        registry = _load_registry(Path(output_dir)).get("sources", {})
+    except Exception:
+        return []
+    entries = []
+    for name in source_refs:
+        info = registry.get(name)
+        if isinstance(info, dict) and info.get("status") != "retracted":
+            entries.append(_okf_source_entry(Path(output_dir), name, info))
+    if not entries:
+        return []
+    import json as _json
+
+    lines = ["sources:"]
+    for e in entries:
+        lines.append(f"  - id: {e['id']}")
+        for key in ("resource", "title", "last_modified"):
+            if key in e:
+                val = _json.dumps(e[key], ensure_ascii=False) if key == "title" else e[key]
+                lines.append(f"    {key}: {val}")
+    return lines
+
+
 def _build_okf_frontmatter(
     session: SessionState,
     filename: str,
     content: str,
     page_type: str = "module",
     frontmatter_extra: dict | None = None,
+    user_title: str | None = None,
+    user_description: str | None = None,
+    user_tags: list | None = None,
 ) -> str | None:
     """Build OKF-compliant YAML frontmatter from session metadata.
 
@@ -232,7 +447,9 @@ def _build_okf_frontmatter(
     if content.startswith("---"):
         return None
 
-    mod_name = filename.replace(".md", "").replace("_", " ").title()
+    mod_name = _title_from_filename(filename)
+    if user_title:
+        mod_name = user_title
     repo_name = Path(session.repo_path).name if session.repo_path else "unknown"
 
     # Determine type from page_type (capitalised)
@@ -260,7 +477,13 @@ def _build_okf_frontmatter(
         if line.startswith("---"):
             continue
         description = line[:200]
+        # BUG-16: strip dangling punctuation after truncation
+        if len(line) > 200:
+            description = description.rstrip("，,、。；;：: ")
+            description += "…"
         break
+    if user_description:
+        description = user_description
 
     # Get source files from module tree (only for module type)
     source_files: list[str] = []
@@ -304,33 +527,58 @@ def _build_okf_frontmatter(
     if schema.get("conventions", {}).get("okf_tags"):
         tags.extend(schema["conventions"]["okf_tags"])
 
+    # User-provided tags take priority over auto-generated
+    if user_tags:
+        tags = list(user_tags)
+
     # Build frontmatter lines
     fm_parts = [
         "---",
         f"type: {doc_type}",
         f"title: {mod_name}",
         f'description: "{description}"' if description else f"description: {mod_name}",
-        f"resource: {resource}",
         f"tags: [{', '.join(tags)}]",
     ]
 
     # Roadmap 1.4: record code version for freshness tracking
+    # OKF P2: `resource` / `generated_from` are producer-private extensions —
+    # folded under `metadata:` to keep the top level OKF-standard-only.
     _gen_from = ""
     if session.repo_path:
         try:
             import subprocess
+
             _sha = subprocess.run(
                 ["git", "rev-parse", "--short", "HEAD"],
-                cwd=session.repo_path, capture_output=True, text=True, timeout=5,
+                cwd=session.repo_path,
+                capture_output=True,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                timeout=5,
             ).stdout.strip()
             if _sha:
                 _gen_from = _sha
         except Exception:
             pass
     if not _gen_from:
-        from datetime import datetime, timezone
-        _gen_from = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    fm_parts.append(f"generated_from: {_gen_from}")
+        from datetime import datetime
+
+        _gen_from = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # OKF v0.2 §5.2: `generated: {by, at}` with actor convention (§7).
+    from datetime import datetime as _dt
+
+    _now_iso = _dt.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        from codewiki.src.config import actor_id as _actor_id
+
+        _actor = _actor_id()
+    except Exception:
+        _actor = "codewiki"
+    fm_parts.append(f"generated: {{ by: {_actor}, at: {_now_iso} }}")
+
+    # OKF v0.2 §5.5: absolute staleness date (default_stale_days from schema)
+    fm_parts.append(f"stale_after: {_okf_stale_date(schema)}")
 
     # Merge frontmatter_extra
     extra = frontmatter_extra or {}
@@ -341,21 +589,63 @@ def _build_okf_frontmatter(
         aliases = [filename.replace(".md", "")]
     aliases_str = ", ".join(f'"{a}"' for a in aliases)
     fm_parts.append(f"aliases: [{aliases_str}]")
-    # Type-specific fields from extra
-    for key in ("category", "domain", "origin", "version", "format",
-                "decision", "status", "decided_at", "severity", "root_cause"):
-        if key in extra and extra[key]:
-            val = extra[key]
-            fm_parts.append(f'{key}: "{val}"' if isinstance(val, str) else f"{key}: {val}")
+    # OKF v0.2 lifecycle: code-generated wiki pages are stable knowledge by
+    # default — an explicit `status` in frontmatter_extra overrides this.
+    fm_parts.append(f"status: {extra.get('status') or 'stable'}")
+    # Type-specific fields from extra:
+    #  - OKF v0.2 standard keys (status/tags/description/...) stay at the
+    #    top level — the only fields the spec allows there.
+    #  - Everything else is producer-private (related_modules,
+    #    severity, origin, category, ...) and folds under `metadata:` so a
+    #    later full regeneration cannot resurrect it at the top level.
+    #  - `components` (full component-id lists) is dropped entirely: no code
+    #    consumer reads it (retrieval/lint/reading-guide all resolve
+    #    components via module_tree + SQLite index) and large modules blow
+    #    up the frontmatter by several KB of context noise. `component_count`
+    #    survives as the compact summary.
+    _private_extra = {}
+    for key, val in extra.items():
+        # description/tags/aliases are produced from dedicated parameters
+        # above — skip so no duplicate top-level rows are emitted.
+        if not val or key in ("aliases", "description", "tags", "status"):
+            continue
+        if key == "components":
+            # Never persist full component-id lists; rewrite to a count.
+            if isinstance(val, (list, tuple, set)):
+                _private_extra["component_count"] = len(val)
+            continue
+        if is_okf_standard_key(key):
+            fm_parts.append(f"{key}: {json.dumps(val, ensure_ascii=False)}")
+        else:
+            _private_extra[key] = val
+    _private_extra["resource"] = resource
+    _private_extra["generated_from"] = _gen_from
 
-    # Auto-extract source references from body ([^src:name:start-end])
+    # Auto-extract source references from body ([^src:name:start-end] and
+    # OKF v0.2 bare footnotes [^name] keyed to registered source ids)
     source_refs, chunk_refs = _extract_source_refs(content)
+    try:
+        from codewiki.mcp.tools.source_ingest import _load_registry
+
+        _registry = _load_registry(Path(session.output_dir)).get("sources", {})
+    except Exception:
+        _registry = {}
+    if _registry:
+        _bare_labels = set(re.findall(r"\[\^([A-Za-z0-9_\-\.]+)\]", content))
+        _matched = _bare_labels & set(_registry)
+        if _matched:
+            source_refs = sorted(set(source_refs) | _matched)
     if source_refs:
-        refs_str = ", ".join(f'"{r}"' for r in source_refs)
-        fm_parts.append(f"source_refs: [{refs_str}]")
+        _private_extra["source_refs"] = source_refs
     if chunk_refs:
-        chunks_str = ", ".join(f'"{c}"' for c in chunk_refs)
-        fm_parts.append(f"chunk_refs: [{chunks_str}]")
+        _private_extra["chunk_refs"] = chunk_refs
+    if _private_extra:
+        fm_parts.append("metadata:")
+        for _k in sorted(_private_extra):
+            fm_parts.append(f"  {_k}: {json.dumps(_private_extra[_k], ensure_ascii=False)}")
+
+    # OKF v0.2 §5.1: `sources` frontmatter family from source_registry.json
+    fm_parts.extend(_okf_sources_block(session.output_dir, source_refs))
 
     fm_parts.append("---")
     fm_parts.append("")
@@ -368,16 +658,36 @@ def _inject_frontmatter(
     content: str,
     page_type: str = "module",
     frontmatter_extra: dict | None = None,
+    user_title: str | None = None,
+    user_description: str | None = None,
+    user_tags: list | None = None,
 ) -> str:
     """Prepend OKF frontmatter to content if not already present and enabled in schema."""
     schema = load_schema(session.output_dir)
     if not schema.get("conventions", {}).get("okf_frontmatter", True):
         return content
 
+    # OKF P0: content already has frontmatter → patch missing OKF keys
+    # (agents often hand-write frontmatter without `type`; OKF §11 requires it).
+    if content.startswith("---"):
+        return _patch_existing_frontmatter(
+            content,
+            filename,
+            page_type=page_type,
+            user_title=user_title,
+            user_description=user_description,
+            schema=schema,
+        )
+
     frontmatter = _build_okf_frontmatter(
-        session, filename, content,
+        session,
+        filename,
+        content,
         page_type=page_type,
         frontmatter_extra=frontmatter_extra,
+        user_title=user_title,
+        user_description=user_description,
+        user_tags=user_tags,
     )
     if frontmatter:
         return frontmatter + content
@@ -393,9 +703,24 @@ async def _validate_mermaid(file_path: str, relative_path: str) -> str:
     """Run Mermaid validation and return the result string."""
     try:
         from codewiki.src.be.utils import validate_mermaid_diagrams
+
         return await validate_mermaid_diagrams(file_path, relative_path)
     except Exception as e:
         return f"Mermaid validation skipped: {e}"
+
+
+def _auto_fix_mermaid(content: str) -> tuple[str, list[str]]:
+    """Apply mechanical auto-fixes to Mermaid blocks in *content*.
+
+    Returns (fixed_content, fixes_list).  When *fixes_list* is empty the
+    content is returned unchanged.
+    """
+    try:
+        from codewiki.src.be.utils import auto_fix_mermaid_blocks
+
+        return auto_fix_mermaid_blocks(content)
+    except Exception:
+        return content, []
 
 
 def _save_history(output_dir: str, doc_path: Path, content: str) -> None:
@@ -404,6 +729,7 @@ def _save_history(output_dir: str, doc_path: Path, content: str) -> None:
     History is persisted to ``output_dir/.meta/edit_history.json``.
     """
     from codewiki.src.config import meta_join
+
     history_path = Path(meta_join(output_dir, "edit_history.json"))
     history: dict = {}
     if history_path.exists():
@@ -499,6 +825,22 @@ def _inject_crosslinks(
     if not depends_on_modules and not depended_by_modules:
         return None
 
+    # Filter out modules whose doc page does not exist yet (BUG-4 fix)
+    from codewiki.src.config import PAGE_TYPE_DIRS, WIKI_DIR
+
+    od = Path(session.output_dir).resolve()
+    modules_dir = od / WIKI_DIR / PAGE_TYPE_DIRS["module"]
+
+    def _module_doc_exists(mod: str) -> bool:
+        target = modules_dir / f"{mod.lower().replace(' ', '_')}.md"
+        return target.is_file()
+
+    depends_on_modules = {m for m in depends_on_modules if _module_doc_exists(m)}
+    depended_by_modules = {m for m in depended_by_modules if _module_doc_exists(m)}
+
+    if not depends_on_modules and not depended_by_modules:
+        return None
+
     # Build crosslinks section
     lines = ["\n<!-- crosslinks (auto-generated) -->", "## Related Modules"]
     if depends_on_modules:
@@ -590,7 +932,7 @@ def _inject_wiki_links(content: str, terms: dict[str, str]) -> str:
         for i in range(1, len(parts)):
             if parts[i].strip() == "---":
                 prefix = "\n".join(parts[: i + 1]) + "\n"
-                body = "\n".join(parts[i + 1:])
+                body = "\n".join(parts[i + 1 :])
                 break
 
     # Sort longer terms first to prefer specific matches
@@ -617,13 +959,15 @@ def _inject_wiki_links(content: str, terms: dict[str, str]) -> str:
             m = pattern.search(line)
             if m:
                 matched = m.group(1)
-                line = line[: m.start()] + f"[[{slug}|{matched}]]" + line[m.end():]
+                line = line[: m.start()] + f"[[{slug}|{matched}]]" + line[m.end() :]
                 lines[idx] = line
                 linked.add(term_lower)
     return prefix + "\n".join(lines)
 
 
-def _resolve_doc_path_safe(output_dir: Path, filename: str, page_type: str = "module") -> Path | None:
+def _resolve_doc_path_safe(
+    output_dir: Path, filename: str, page_type: str = "module"
+) -> Path | None:
     """Resolve filename within output_dir using page type routing (sessionless version)."""
     try:
         return resolve_doc_path(filename, page_type, str(output_dir), load_schema(str(output_dir)))
@@ -636,17 +980,36 @@ def _inject_lightweight_frontmatter(
     content: str,
     page_type: str = "module",
     frontmatter_extra: dict | None = None,
+    user_title: str | None = None,
+    user_description: str | None = None,
+    user_tags: list | None = None,
+    output_dir: str | None = None,
 ) -> str:
     """Inject minimal YAML frontmatter when no session is available."""
+    # OKF P0: existing frontmatter → patch missing OKF keys (schema may be
+    # unavailable in sessionless mode; defaults apply).
     if content.startswith("---"):
-        return content  # Already has frontmatter
+        return _patch_existing_frontmatter(
+            content,
+            filename,
+            page_type=page_type,
+            user_title=user_title,
+            user_description=user_description,
+            schema=None,
+        )
 
-    mod_name = filename.replace(".md", "").replace("_", " ").title()
+    mod_name = _title_from_filename(filename)
     _TYPE_MAP = {
-        "module": "Module", "entity": "Entity", "concept": "Concept",
-        "source": "Source", "comparison": "Comparison", "query": "Query",
+        "module": "Module",
+        "entity": "Entity",
+        "concept": "Concept",
+        "source": "Source",
+        "comparison": "Comparison",
+        "query": "Query",
     }
     doc_type = _TYPE_MAP.get(page_type, page_type.capitalize())
+    if user_title:
+        mod_name = user_title
 
     # Extract description from first paragraph
     description = ""
@@ -657,32 +1020,80 @@ def _inject_lightweight_frontmatter(
         if line.startswith("#") or line.startswith("```") or line.startswith("---"):
             continue
         description = line[:200]
+        # BUG-16: strip dangling punctuation after truncation
+        if len(line) > 200:
+            description = description.rstrip("，,、。；;：: ")
+            description += "…"
         break
+    if user_description:
+        description = user_description
 
     fm_lines = [
         "---",
-        f"title: \"{mod_name}\"",
+        f'title: "{mod_name}"',
         f"type: {doc_type}",
-        f"description: \"{description}\"" if description else f"description: {mod_name}",
+        f'description: "{description}"' if description else f"description: {mod_name}",
     ]
+
+    # OKF v0.2 §5.2/§5.5: trust + lifecycle fields
+    fm_lines.append(_okf_generated_line())
+    fm_lines.append(f"stale_after: {_okf_stale_date(None)}")
 
     # Default alias keeps the doc discoverable by its slug.
     aliases = (frontmatter_extra or {}).get("aliases")
     if not aliases:
         aliases = [filename.replace(".md", "")]
     fm_lines.append(f"aliases: [{', '.join(str(v) for v in aliases)}]")
+    # OKF v0.2 lifecycle: code-generated wiki pages are stable knowledge by
+    # default — an explicit `status` in frontmatter_extra overrides this.
+    fm_lines.append(f"status: {(frontmatter_extra or {}).get('status') or 'stable'}")
 
-    # Merge frontmatter_extra
+    # User-provided tags
+    if user_tags:
+        fm_lines.append(f"tags: [{', '.join(str(t) for t in user_tags)}]")
+
+    # Merge frontmatter_extra: OKF v0.2 standard keys stay at the top level;
+    # everything else is producer-private (components, related_modules,
+    # category, severity, ...) and folds under `metadata:` so a later full
+    # regeneration cannot resurrect it at the top level.
+    _metadata_lines: list[str] = []
     if frontmatter_extra:
         for key, value in frontmatter_extra.items():
-            if key == "aliases":
+            # description/tags/aliases are produced from dedicated parameters
+            # above — skip so no duplicate top-level rows are emitted.
+            if key in ("aliases", "description", "tags", "status") or value is None:
                 continue
-            if isinstance(value, list):
-                fm_lines.append(f"{key}: [{', '.join(str(v) for v in value)}]")
-            elif isinstance(value, str):
-                fm_lines.append(f"{key}: \"{value}\"")
+            if is_okf_standard_key(key):
+                fm_lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
             else:
-                fm_lines.append(f"{key}: {value}")
+                _metadata_lines.append(f"  {key}: {json.dumps(value, ensure_ascii=False)}")
+
+    # Auto-extract source references from body ([^src:name:lines] and OKF
+    # v0.2 bare footnotes [^name] keyed to registered source ids).  Mirrors
+    # the session-based _build_okf_frontmatter path so sessionless writes
+    # keep the provenance pipeline intact.
+    source_refs, chunk_refs = _extract_source_refs(content)
+    if output_dir:
+        try:
+            from codewiki.mcp.tools.source_ingest import _load_registry
+
+            _registry = _load_registry(Path(output_dir)).get("sources", {})
+        except Exception:
+            _registry = {}
+        if _registry:
+            _bare_labels = set(re.findall(r"\[\^([A-Za-z0-9_\-\.]+)\]", content))
+            _matched = _bare_labels & set(_registry)
+            if _matched:
+                source_refs = sorted(set(source_refs) | _matched)
+    if source_refs:
+        _metadata_lines.append(f"  source_refs: {json.dumps(source_refs, ensure_ascii=False)}")
+    if chunk_refs:
+        _metadata_lines.append(f"  chunk_refs: {json.dumps(chunk_refs, ensure_ascii=False)}")
+    if _metadata_lines:
+        fm_lines.append("metadata:")
+        fm_lines.extend(_metadata_lines)
+    if output_dir:
+        fm_lines.extend(_okf_sources_block(str(output_dir), source_refs))
 
     fm_lines.append("---")
     fm_lines.append("")
@@ -690,7 +1101,7 @@ def _inject_lightweight_frontmatter(
 
 
 async def handle_write_doc_file(
-    arguments: Dict[str, Any],
+    arguments: dict[str, Any],
     store: SessionStore,
 ) -> str:
     """Create a new documentation file in the output directory."""
@@ -699,10 +1110,15 @@ async def handle_write_doc_file(
     rp = arguments.get("repo_path")
     repo_path = None
     if rp:
-        repo_path = str(Path(rp).expanduser().resolve()) if Path(rp).is_absolute() else str((Path.cwd() / rp).expanduser().resolve())
+        repo_path = (
+            str(Path(rp).expanduser().resolve())
+            if Path(rp).is_absolute()
+            else str((Path.cwd() / rp).expanduser().resolve())
+        )
 
     # Try to find/restore an active session (rich frontmatter, crosslinks, symbol links)
     from codewiki.mcp.tools.workspace_result import resolve_session
+
     session = resolve_session(arguments, store)
 
     if od:
@@ -721,6 +1137,7 @@ async def handle_write_doc_file(
     filename = arguments["filename"]
     page_type = arguments.get("page_type", "module")
     frontmatter_extra = arguments.get("frontmatter_extra") or None
+    strict = bool(arguments.get("strict", False))
 
     # Resolve document path using page type routing
     doc_path = _resolve_doc_path_safe(output_dir, filename, page_type=page_type)
@@ -734,23 +1151,40 @@ async def handle_write_doc_file(
     _ensure_parent_dirs(doc_path)
 
     if doc_path.exists():
-        return json.dumps({
-            "error": f"File already exists: {filename}. Use edit_doc_file to modify it."
-        })
+        return json.dumps(
+            {"error": f"File already exists: {filename}. Use edit_doc_file to modify it."}
+        )
 
     # OKF: inject YAML frontmatter (only when session is available)
+    user_title = arguments.get("title") or None
+    user_description = arguments.get("description") or None
+    user_tags = arguments.get("tags") or None
     if session:
         content = _inject_frontmatter(
-            session, filename, content,
+            session,
+            filename,
+            content,
             page_type=page_type,
             frontmatter_extra=frontmatter_extra,
+            user_title=user_title,
+            user_description=user_description,
+            user_tags=user_tags,
         )
     else:
         # Lightweight frontmatter for sessionless mode
         content = _inject_lightweight_frontmatter(
-            filename, content, page_type=page_type,
+            filename,
+            content,
+            page_type=page_type,
             frontmatter_extra=frontmatter_extra,
+            user_title=user_title,
+            user_description=user_description,
+            user_tags=user_tags,
+            output_dir=str(output_dir) if output_dir else None,
         )
+
+    # Auto-fix common Mermaid syntax errors before writing
+    content, mermaid_fixes = _auto_fix_mermaid(content)
 
     doc_path.write_text(content, encoding="utf-8")
     if session:
@@ -765,8 +1199,23 @@ async def handle_write_doc_file(
     except Exception:
         pass
 
-    # Mermaid validation
+    # Mermaid validation (on auto-fixed content)
     mermaid_result = await _validate_mermaid(str(doc_path), filename)
+
+    # strict mode: block the write if Mermaid validation STILL has errors after auto-fix
+    if strict and "syntax errors" in mermaid_result.lower():
+        try:
+            doc_path.unlink()
+        except OSError:
+            pass
+        return json.dumps(
+            {
+                "error": "Mermaid validation failed in strict mode (even after auto-fix). File was not written.",
+                "mermaid_warnings": mermaid_result,
+                "mermaid_auto_fixes": mermaid_fixes,
+            },
+            ensure_ascii=False,
+        )
 
     # LLM Wiki: wiki-link injection ([[slug|display]]) opt-in via schema.wiki_link_syntax
     try:
@@ -789,11 +1238,11 @@ async def handle_write_doc_file(
     if session and repo_path:
         try:
             from codewiki.mcp.tools.knowledge_loop import _inject_symbol_links
+
             raw = doc_path.read_text(encoding="utf-8")
             depth = compute_depth(doc_path, str(output_dir))
             try:
-                extra = len(Path(output_dir).resolve().relative_to(
-                    Path(repo_path).resolve()).parts)
+                extra = len(Path(output_dir).resolve().relative_to(Path(repo_path).resolve()).parts)
             except (ValueError, AttributeError):
                 extra = 0
             linked = _inject_symbol_links(raw, output_dir, depth=depth + extra, session=session)
@@ -809,13 +1258,18 @@ async def handle_write_doc_file(
         "page_type": page_type,
         "lines": content.count("\n") + 1,
         "mermaid_validation": mermaid_result,
+        "mermaid_auto_fixes": mermaid_fixes,
     }
+    # BUG-17: surface Mermaid warnings prominently in the response
+    if "syntax errors" in mermaid_result.lower():
+        result["mermaid_warnings"] = mermaid_result
     if crosslink_info:
         result["crosslinks"] = crosslink_info
 
     # LLM Wiki: update index.md and log.md
     try:
-        from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
+        from codewiki.mcp.tools.wiki_index import append_log, rebuild_index
+
         append_log(str(output_dir), "write_doc_file", f"创建 {filename}")
         rebuild_index(str(output_dir))
     except Exception as e:
@@ -824,15 +1278,29 @@ async def handle_write_doc_file(
     # Update BM25 search index (SQLite-backed when session available)
     try:
         from codewiki.mcp.tools.wiki_search import update_file
+
         update_file(str(output_dir), doc_path, session=session)
     except Exception as e:
         logger.warning("Search index update failed (non-fatal): %s", e)
+
+    # V7' (doc_update_notify): same reminder on creation — a brand-new module
+    # page can still intersect existing notes' related_modules declarations.
+    try:
+        from codewiki.mcp.tools.doc_update_notify import reminder_payload
+
+        _names = [Path(filename).stem] if page_type == "module" else []
+        if _names:
+            _rem = reminder_payload(output_dir, _names)
+            if _rem:
+                result["note_review_reminder"] = _rem
+    except Exception as e:
+        logger.debug("note review reminder skipped: %s", e)
 
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
 async def handle_edit_doc_file(
-    arguments: Dict[str, Any],
+    arguments: dict[str, Any],
     store: SessionStore,
 ) -> str:
     """Edit an existing documentation file (str_replace, insert, or undo)."""
@@ -841,10 +1309,15 @@ async def handle_edit_doc_file(
     rp = arguments.get("repo_path")
     repo_path = None
     if rp:
-        repo_path = str(Path(rp).expanduser().resolve()) if Path(rp).is_absolute() else str((Path.cwd() / rp).expanduser().resolve())
+        repo_path = (
+            str(Path(rp).expanduser().resolve())
+            if Path(rp).is_absolute()
+            else str((Path.cwd() / rp).expanduser().resolve())
+        )
 
     # Try to find active session for caching purposes (optional)
     from codewiki.mcp.tools.workspace_result import resolve_session
+
     session = resolve_session(arguments, store)
 
     if od:
@@ -879,6 +1352,7 @@ async def handle_edit_doc_file(
     if command == "undo":
         # Undo via disk-based history
         from codewiki.src.config import meta_join
+
         history_path = Path(meta_join(output_dir, "edit_history.json"))
         history: dict = {}
         if history_path.exists():
@@ -893,6 +1367,23 @@ async def handle_edit_doc_file(
         history[str(doc_path)] = path_history
         history_path.parent.mkdir(parents=True, exist_ok=True)
         history_path.write_text(json.dumps(history, ensure_ascii=False), encoding="utf-8")
+
+        # Defensive repair: fix frontmatter/body concatenation if the history
+        # snapshot was saved from corrupted content (e.g. "---# Title" instead
+        # of "---\n# Title").
+        if old_content.startswith("---"):
+            _lines = old_content.split("\n")
+            for _i in range(1, len(_lines)):
+                if _lines[_i].strip() == "---":
+                    break  # Proper closing delimiter found, no repair needed
+                if _lines[_i].startswith("---") and len(_lines[_i]) > 3:
+                    # Corrupted: closing --- concatenated with body line
+                    remainder = _lines[_i][3:]
+                    _lines[_i] = "---"
+                    _lines.insert(_i + 1, remainder)
+                    old_content = "\n".join(_lines)
+                    break
+
         doc_path.write_text(old_content, encoding="utf-8")
 
         # Validate Mermaid after undo
@@ -901,6 +1392,7 @@ async def handle_edit_doc_file(
         # LLM Wiki: update log.md (undo changes file content)
         try:
             from codewiki.mcp.tools.wiki_index import append_log
+
             append_log(output_dir, "edit_doc_file", f"撤销 {filename}")
         except Exception:
             pass
@@ -908,49 +1400,57 @@ async def handle_edit_doc_file(
         # Update BM25 search index after undo (SQLite-backed when session available)
         try:
             from codewiki.mcp.tools.wiki_search import update_file
+
             update_file(output_dir, doc_path, session=session)
         except Exception:
             pass
 
-        return json.dumps({
-            "status": "undone",
-            "filename": filename,
-            "mermaid_validation": mermaid_result,
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "status": "undone",
+                "filename": filename,
+                "mermaid_validation": mermaid_result,
+            },
+            ensure_ascii=False,
+        )
 
     if not doc_path.exists():
-        return json.dumps({"error": f"File not found: {filename}. Use write_doc_file to create it."})
+        return json.dumps(
+            {"error": f"File not found: {filename}. Use write_doc_file to create it."}
+        )
 
     current_content = doc_path.read_text(encoding="utf-8")
 
     if command == "str_replace":
-        old_str = read_param(arguments, "old_str")
-        new_str = read_param(arguments, "new_str") or ""
-        if old_str is None:
-            return json.dumps({"error": "old_str is required for str_replace."})
+        old_string = read_param(arguments, "old_string")
+        new_string = read_param(arguments, "new_string") or ""
+        if old_string is None:
+            return json.dumps({"error": "old_string is required for str_replace."})
 
         # Frontmatter (e.g. the auto-generated ``description:``) may echo a
         # sentence from the body; count occurrences against the body only so
         # editing the body is not blocked by its own frontmatter copy.
         fm, body = _split_frontmatter(current_content)
-        occurrences = body.count(old_str)
+        occurrences = body.count(old_string)
         if occurrences == 0:
             # Fall back to a whole-document search (e.g. editing frontmatter).
-            occurrences = current_content.count(old_str)
+            occurrences = current_content.count(old_string)
             if occurrences == 0:
-                return json.dumps({"error": f"old_str not found in {filename}."})
-            new_content = current_content.replace(old_str, new_str, 1)
+                return json.dumps({"error": f"old_string not found in {filename}."})
+            new_content = current_content.replace(old_string, new_string, 1)
         elif occurrences > 1:
-            return json.dumps({"error": f"old_str appears {occurrences} times in {filename}. Make it unique."})
+            return json.dumps(
+                {"error": f"old_string appears {occurrences} times in {filename}. Make it unique."}
+            )
         else:
-            new_content = fm + body.replace(old_str, new_str, 1)
+            new_content = fm + "\n" + body.replace(old_string, new_string, 1)
         # Calculate edit position BEFORE replacement so snippet shows the
         # actual edit location (find() on new_content may hit a wrong match
-        # or fail entirely for deletions where new_str is empty).
+        # or fail entirely for deletions where new_string is empty).
         if occurrences == 1:
-            edit_line = body.split(old_str)[0].count("\n")
+            edit_line = body.split(old_string)[0].count("\n")
         else:
-            edit_line = current_content.split(old_str)[0].count("\n")
+            edit_line = current_content.split(old_string)[0].count("\n")
         # Save history only for edits that actually happen, so undo never
         # pops a no-op entry left behind by a failed/rejected command.
         _save_history(output_dir, doc_path, current_content)
@@ -970,18 +1470,34 @@ async def handle_edit_doc_file(
         replacement_line = fm_line_count + edit_line
         lines = new_content.split("\n")
         start = max(0, replacement_line - 4)
-        end = min(len(lines), start + max(new_str.count("\n"), 0) + 9)
+        end = min(len(lines), start + max(new_string.count("\n"), 0) + 9)
         snippet = "\n".join(f"{i + 1:6}\t{lines[i]}" for i in range(start, end))
 
     elif command == "insert":
         insert_line = arguments.get("insert_line", 0)
-        new_str = read_param(arguments, "new_str") or ""
-        if not new_str:
-            return json.dumps({"error": "new_str is required for insert."})
+        new_string = read_param(arguments, "new_string") or ""
+        if not new_string:
+            return json.dumps({"error": "new_string is required for insert."})
 
         lines = current_content.split("\n")
         insert_line = max(0, min(insert_line, len(lines)))
-        new_str_lines = new_str.split("\n")
+
+        # Guard: reject inserts that would corrupt YAML frontmatter
+        if current_content.startswith("---"):
+            fm_end = None
+            for _fi in range(1, len(lines)):
+                if lines[_fi].strip() == "---":
+                    fm_end = _fi
+                    break
+            if fm_end is not None and insert_line <= fm_end:
+                return json.dumps(
+                    {
+                        "error": f"insert_line falls within YAML frontmatter (lines 0-{fm_end}). "
+                        f"Use insert_line >= {fm_end + 1} to insert into the body."
+                    }
+                )
+
+        new_str_lines = new_string.split("\n")
         lines = lines[:insert_line] + new_str_lines + lines[insert_line:]
         new_content = "\n".join(lines)
         _save_history(output_dir, doc_path, current_content)
@@ -1001,7 +1517,9 @@ async def handle_edit_doc_file(
         snippet = "\n".join(f"{i + 1:6}\t{lines[i]}" for i in range(start, end))
 
     else:
-        return json.dumps({"error": f"Unknown command: {command}. Use str_replace, insert, or undo."})
+        return json.dumps(
+            {"error": f"Unknown command: {command}. Use str_replace, insert, or undo."}
+        )
 
     if session is not None:
         session.docs_written += 1
@@ -1021,6 +1539,7 @@ async def handle_edit_doc_file(
     # LLM Wiki: inject source-file links for CamelCase symbols
     try:
         from codewiki.mcp.tools.knowledge_loop import _inject_symbol_links
+
         raw = doc_path.read_text(encoding="utf-8")
         depth = compute_depth(doc_path, output_dir)
         # symbol_map paths are relative to repo root; add extra levels to
@@ -1028,8 +1547,7 @@ async def handle_edit_doc_file(
         extra = 0
         if repo_path:
             try:
-                extra = len(Path(output_dir).resolve().relative_to(
-                    Path(repo_path).resolve()).parts)
+                extra = len(Path(output_dir).resolve().relative_to(Path(repo_path).resolve()).parts)
             except (ValueError, AttributeError):
                 pass
         linked = _inject_symbol_links(raw, Path(output_dir), depth=depth + extra, session=session)
@@ -1045,12 +1563,15 @@ async def handle_edit_doc_file(
         "snippet": snippet,
         "mermaid_validation": mermaid_result,
     }
+    # BUG-17: surface Mermaid warnings prominently in the response
+    if "syntax errors" in mermaid_result.lower():
+        result["mermaid_warnings"] = mermaid_result
 
     # LLM Wiki: update index.md and log.md
     try:
-        from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
-        append_log(output_dir, "edit_doc_file",
-                   f"更新 {filename} ({command})")
+        from codewiki.mcp.tools.wiki_index import append_log, rebuild_index
+
+        append_log(output_dir, "edit_doc_file", f"更新 {filename} ({command})")
         rebuild_index(output_dir)
     except Exception as e:
         logger.warning("Index/log update failed (non-fatal): %s", e)
@@ -1058,8 +1579,23 @@ async def handle_edit_doc_file(
     # Update BM25 search index (SQLite-backed when session available)
     try:
         from codewiki.mcp.tools.wiki_search import update_file
+
         update_file(output_dir, doc_path, session=session)
     except Exception as e:
         logger.warning("Search index update failed (non-fatal): %s", e)
+
+    # V7' (doc_update_notify): the wiki page just changed — surface notes whose
+    # related_modules reference this module so the agent can ask the user to
+    # review them. Nudge only; never an automatic status change.
+    try:
+        from codewiki.mcp.tools.doc_update_notify import reminder_payload
+
+        _names = [Path(filename).stem] if page_type == "module" else []
+        if _names:
+            _rem = reminder_payload(Path(output_dir), _names)
+            if _rem:
+                result["note_review_reminder"] = _rem
+    except Exception as e:
+        logger.debug("note review reminder skipped: %s", e)
 
     return json.dumps(result, indent=2, ensure_ascii=False)

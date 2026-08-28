@@ -1,24 +1,25 @@
 ---
 title: DocVisualizer
-depth: 2
-module_type: leaf
-component_count: 12
-components:
-  - codewiki/src/fe/template_utils.py::StringTemplateLoader
-  - codewiki/src/fe/template_utils.py::render_job_list
-  - codewiki/src/fe/template_utils.py::render_navigation
-  - codewiki/src/fe/template_utils.py::render_template
-  - codewiki/src/fe/visualise_docs.py::get_file_title
-  - codewiki/src/fe/visualise_docs.py::index
-  - codewiki/src/fe/visualise_docs.py::initialize_globals
-  - codewiki/src/fe/visualise_docs.py::load_module_tree
-  - codewiki/src/fe/visualise_docs.py::main
-  - codewiki/src/fe/visualise_docs.py::markdown_to_html
-  - codewiki/src/fe/visualise_docs.py::replace_mermaid
-  - codewiki/src/fe/visualise_docs.py::serve_doc
-generated_by: codewiki
-generator_version: "1.0"
-updated_at: 2026-07-28
+type: Module
+generated:
+  by: codewiki/5.2.0
+  at: 2026-08-02 23:41:39+00:00
+stale_after: '2027-02-22'
+metadata:
+  depth: 2
+  module_type: leaf
+  component_count: 12
+  generated_by: codewiki
+  generator_version: '1.0'
+  updated_at: 2026-07-28
+description: DocVisualizer（位于 `codewiki/src/fe/`）是 CodeWiki 的轻量级文档可视化前端叶子模块，负责将 LLM
+  生成的 Markdown 文档（`overview.md`、各模块的 `.
+aliases:
+- DocVisualizer
+status: stable
+verified:
+- by: human:wangbao
+  at: '2026-08-25T16:48:16Z'
 ---
 
 # DocVisualizer 模块文档

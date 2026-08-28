@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from codewiki.mcp.session import SessionStore
 
@@ -24,7 +24,8 @@ def handle_batch_ingest(
 
     Accepts either an inline ``items`` list or an ``items_file`` path
     pointing to a JSON file with the same structure.  Each item must have
-    a ``kind`` field: ``"note"`` or ``"source"``.
+    a ``kind`` field: ``"note"`` or ``"source"`` (``type`` is accepted as
+    an alias for ``kind``).
 
     Returns a summary of succeeded/failed items.
     """
@@ -58,8 +59,14 @@ def handle_batch_ingest(
             if "session_id" not in item:
                 item["session_id"] = session_id
 
-    # Inject output_dir into each item if not already set
+    # Inject output_dir into each item if not already set.
+    # When output_dir is absent, derive it from repo_path (repo_path/repowiki)
+    # to stay consistent with handle_ingest_note / handle_ingest_source.
     top_output_dir = arguments.get("output_dir")
+    if not top_output_dir:
+        rp = arguments.get("repo_path")
+        if rp:
+            top_output_dir = str(Path(rp).expanduser().resolve() / "repowiki")
     if top_output_dir:
         for item in items:
             if "output_dir" not in item and "session_id" not in item:
@@ -74,47 +81,55 @@ def handle_batch_ingest(
     from codewiki.mcp.tools.source_ingest import handle_ingest_source
 
     for i, item in enumerate(items):
-        kind = item.pop("kind", "note")
+        kind = item.pop("kind", None)
+        if kind is None:
+            # Tolerate the common alias 'type' (e.g. {"type": "source"}),
+            # otherwise such items would be silently ingested as notes.
+            kind = item.pop("type", None)
+            if kind is not None:
+                logger.info("batch item %d: accepted 'type' as alias for 'kind'", i)
+        if kind is None:
+            kind = "note"
         try:
             if kind == "note":
                 raw = handle_ingest_note(item, store)
             elif kind == "source":
                 raw = handle_ingest_source(item, store)
             else:
-                results.append({"index": i, "kind": kind, "status": "error",
-                                "error": f"Unknown kind: {kind}"})
+                results.append(
+                    {"index": i, "kind": kind, "status": "error", "error": f"Unknown kind: {kind}"}
+                )
                 failed += 1
                 continue
 
             parsed = json.loads(raw)
             if "error" in parsed:
-                results.append({"index": i, "kind": kind, "status": "error",
-                                "error": parsed["error"]})
+                results.append(
+                    {"index": i, "kind": kind, "status": "error", "error": parsed["error"]}
+                )
                 failed += 1
             else:
-                results.append({"index": i, "kind": kind, "status": "ok",
-                                "detail": parsed})
+                results.append({"index": i, "kind": kind, "status": "ok", "detail": parsed})
                 succeeded += 1
         except Exception as e:
-            results.append({"index": i, "kind": kind, "status": "error",
-                            "error": str(e)})
+            results.append({"index": i, "kind": kind, "status": "error", "error": str(e)})
             failed += 1
 
     # Single index rebuild at the end
     output_dir = None
     if session:
-        output_dir = Path(session.output_dir)
-    else:
-        od = arguments.get("output_dir")
-        if od:
-            output_dir = Path(od).expanduser().resolve()
+        output_dir = Path(session.output_dir).expanduser().resolve()
+    elif top_output_dir:
+        output_dir = Path(top_output_dir).expanduser().resolve()
 
     if output_dir:
         output_dir.mkdir(parents=True, exist_ok=True)
         try:
             from codewiki.mcp.tools.wiki_index import rebuild_index, append_log
-            append_log(str(output_dir), "batch_ingest",
-                       f"批量导入完成: {succeeded} 成功, {failed} 失败")
+
+            append_log(
+                str(output_dir), "batch_ingest", f"批量导入完成: {succeeded} 成功, {failed} 失败"
+            )
             rebuild_index(str(output_dir))
         except Exception as e:
             logger.warning("Post-batch index rebuild failed: %s", e)
@@ -122,14 +137,19 @@ def handle_batch_ingest(
         # Rebuild search index
         try:
             from codewiki.mcp.tools.wiki_search import build_full_index
+
             build_full_index(output_dir, session=session)
         except Exception:
             pass
 
-    return json.dumps({
-        "status": "completed",
-        "total": len(items),
-        "succeeded": succeeded,
-        "failed": failed,
-        "results": results,
-    }, indent=2, ensure_ascii=False)
+    return json.dumps(
+        {
+            "status": "completed",
+            "total": len(items),
+            "succeeded": succeeded,
+            "failed": failed,
+            "results": results,
+        },
+        indent=2,
+        ensure_ascii=False,
+    )
