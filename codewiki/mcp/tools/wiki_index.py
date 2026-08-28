@@ -15,25 +15,14 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from codewiki.src.locks import file_lock
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Cross-platform file locking: fcntl is Unix-only; on Windows we fall back to
-# msvcrt, and if neither is available we degrade gracefully to a thread lock.
+# Cross-platform file locking lives in codewiki.src.locks; _append_with_lock
+# below is a thin convenience wrapper over the generic read-modify-write lock.
 # ---------------------------------------------------------------------------
-try:
-    import fcntl as _fcntl  # type: ignore
-except ImportError:  # pragma: no cover - Windows
-    _fcntl = None
-
-try:
-    import msvcrt as _msvcrt  # type: ignore
-except ImportError:  # pragma: no cover - non-Windows
-    _msvcrt = None
-
-# Process-local fallback lock for the append path when no OS-level file lock
-# primitive is available.
-_append_fallback_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Module-level lock for index rebuilds (serialises concurrent rebuild calls)
@@ -479,36 +468,14 @@ def _atomic_write(path: Path, content: str) -> None:
 def _append_with_lock(filepath: Path, line: str) -> None:
     """Append a single line to *filepath* with an exclusive file lock.
 
-    Cross-platform: uses ``fcntl.flock`` on Unix, ``msvcrt.locking`` on
-    Windows, and a process-local thread lock as a last-resort fallback.
+    Thin wrapper over :func:`codewiki.src.locks.file_lock` (cross-platform:
+    ``fcntl.flock`` on Unix, ``msvcrt.locking`` on Windows, plus a
+    process-local thread layer on every platform).  All I/O goes through
+    the handle that holds the lock (required on Windows).
     """
     try:
-        with open(filepath, "a", encoding="utf-8") as f:
-            if _fcntl is not None:
-                _fcntl.flock(f.fileno(), _fcntl.LOCK_EX)
-                try:
-                    f.write(line + "\n")
-                    f.flush()
-                finally:
-                    _fcntl.flock(f.fileno(), _fcntl.LOCK_UN)
-            elif _msvcrt is not None:
-                # msvcrt locks byte ranges; lock a 1-byte region at the
-                # current position for the duration of the write.
-                try:
-                    _msvcrt.locking(f.fileno(), _msvcrt.LK_LOCK, 1)
-                except OSError:
-                    pass  # locking may fail on some filesystems; still write
-                try:
-                    f.write(line + "\n")
-                    f.flush()
-                finally:
-                    try:
-                        _msvcrt.locking(f.fileno(), _msvcrt.LK_UNLCK, 1)
-                    except OSError:
-                        pass
-            else:
-                with _append_fallback_lock:
-                    f.write(line + "\n")
-                    f.flush()
+        with file_lock(filepath) as f:
+            f.seek(0, 2)  # end of file
+            f.write(line + "\n")
     except Exception as e:
         logger.warning("Failed to append to %s: %s", filepath, e)

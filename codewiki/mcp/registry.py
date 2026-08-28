@@ -2068,8 +2068,12 @@ _register(
             ".gitignore, not submodules). Generates bootstrap.sh / bootstrap.ps1 "
             "clone scripts with an empty registration table, a .gitignore that keeps "
             "business repos out of the harness git, a repo-map.md navigation skeleton, "
-            "workspace conventions (two-hop retrieval routing, commit discipline) as a "
-            "marked section in AGENTS.md, and the standard product-level repowiki. "
+            "workspace conventions (retrieval routing per layout, commit discipline) as "
+            "a marked section in AGENTS.md, and the standard product-level repowiki. "
+            "The layout parameter selects the knowledge layout: colocated (default — "
+            "every business repo keeps its own repowiki; two-hop retrieval; identical "
+            "to v5.5.0 output) or centralized (all knowledge lives in the workspace "
+            "repowiki; business repos carry no repowiki; one-hop retrieval). "
             "Idempotent: bootstrap scripts, repo-map, README and schema.yaml are never "
             "clobbered on re-run; the conventions block is only refreshed when "
             "refresh_conventions=true. Registration and cloning of business repos are "
@@ -2086,6 +2090,11 @@ _register(
                 "output_dir": {
                     "type": "string",
                     "description": "Product-level repowiki directory (default: <workspace>/repowiki).",
+                },
+                "layout": {
+                    "type": "string",
+                    "enum": ["colocated", "centralized"],
+                    "description": "Knowledge layout mode. colocated (default): every business repo keeps its own repowiki, two-hop retrieval, identical to v5.5.0 output. centralized: all knowledge lives in the workspace repowiki (wiki/modules/<repo>/ partitions + shared pools), business repos carry no repowiki, one-hop retrieval. The choice is persisted to <repowiki>/.meta/workspace.json and cannot be changed in place later.",
                 },
                 "refresh_conventions": {
                     "type": "boolean",

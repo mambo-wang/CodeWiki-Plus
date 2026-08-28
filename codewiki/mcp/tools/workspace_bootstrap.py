@@ -30,6 +30,13 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from codewiki.mcp.tools.workspace_layout import (
+    LAYOUT_CENTRALIZED,
+    LAYOUT_COLOCATED,
+    VALID_LAYOUTS,
+    read_layout_value,
+)
+
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "templates" / "workspace"
@@ -104,6 +111,23 @@ def _parse_entries(body: str, is_sh: bool) -> dict:
         if m:
             entries[m.group(1)] = m.group(2)
     return entries
+
+
+def read_registration_table_names(workspace_p: Path) -> set[str]:
+    """Directory names registered in the workspace's bootstrap table.
+
+    Public seam for workspace_layout's membership check: bootstrap.sh is
+    the single source of truth for registration (transactionally kept in
+    sync with bootstrap.ps1).  Missing script or table yields an empty set.
+    """
+    try:
+        text = _read_text(workspace_p / "bootstrap.sh")
+    except OSError:
+        return set()
+    m = _SH_TABLE_RE.search(text)
+    if not m:
+        return set()
+    return set(_parse_entries(m.group(2), True))
 
 
 def _load_tables(workspace_p: Path) -> tuple[dict | None, str | None]:
@@ -323,6 +347,10 @@ def handle_init_workspace(arguments: dict) -> str:
         workspace_path: Existing directory to become the workspace root
             (default: current working directory).
         output_dir: Product-level repowiki directory (default: <workspace>/repowiki).
+        layout: Knowledge layout mode — ``colocated`` (default; every
+            business repo keeps its own repowiki, identical to v5.5.0
+            output) or ``centralized`` (all knowledge lives in the
+            workspace repowiki; business repos carry no repowiki).
         refresh_conventions: Force-refresh the AGENTS.md conventions block
             (default: false — existing block is kept).
         with_readme: Create a README.md skeleton when missing (default: true).
@@ -339,6 +367,10 @@ def handle_init_workspace(arguments: dict) -> str:
     if not workspace_p.is_dir():
         return _err(f"workspace_path is not a directory: {workspace_p}")
 
+    layout = (arguments.get("layout") or "").strip() or LAYOUT_COLOCATED
+    if layout not in VALID_LAYOUTS:
+        return _err(f"invalid layout {layout!r}: expected one of {list(VALID_LAYOUTS)}")
+
     name = workspace_p.name
     output_dir = (arguments.get("output_dir") or "").strip()
     if not output_dir:
@@ -354,9 +386,39 @@ def handle_init_workspace(arguments: dict) -> str:
     results: dict = {
         "workspace_path": str(workspace_p),
         "name": name,
+        "layout": layout,
         "output_dir": str(output_dir_p),
     }
     warnings: list[str] = []
+
+    # ── Layout config (centralized only; absent config means colocated) ──
+    config_path = output_dir_p / ".meta" / "workspace.json"
+    if layout == LAYOUT_CENTRALIZED and output_dir_p != workspace_p / "repowiki":
+        return _err(
+            "centralized layout requires the default output_dir <workspace>/repowiki: "
+            "workspace discovery is anchored at <workspace>/repowiki/.meta/workspace.json, "
+            "so a custom output_dir would make the layout config invisible to routing."
+        )
+    if config_path.exists():
+        existing_layout = read_layout_value(config_path)
+        if existing_layout != layout:
+            return _err(
+                f"workspace config already exists with layout {existing_layout!r} "
+                f"({config_path}); refusing to change the layout in place — "
+                "switching layouts is a manual migration (design doc §13)."
+            )
+        results["workspace_config"] = f"kept (already {layout}): {config_path}"
+    elif layout == LAYOUT_CENTRALIZED:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_text(
+            config_path,
+            json.dumps({"wiki_layout": LAYOUT_CENTRALIZED}, ensure_ascii=False) + "\n",
+        )
+        results["workspace_config"] = str(config_path)
+    else:
+        results["workspace_config"] = (
+            "not written (colocated is the default; an absent config means colocated)"
+        )
 
     # ── Bootstrap scripts (empty registration table; add via add_workspace_repo) ──
     sh_path = workspace_p / "bootstrap.sh"
@@ -415,7 +477,10 @@ def handle_init_workspace(arguments: dict) -> str:
 
     # Conventions block first so it reads before the CodeWiki usage block.
     results["agents_md_conventions"] = write_workspace_conventions(
-        workspace_path=str(workspace_p), workspace_name=name, refresh=refresh_conventions
+        workspace_path=str(workspace_p),
+        workspace_name=name,
+        refresh=refresh_conventions,
+        layout=layout,
     )
     try:
         write_agents_md(repo_path=str(workspace_p), output_dir=str(output_dir_p), module_tree=None)
@@ -426,14 +491,25 @@ def handle_init_workspace(arguments: dict) -> str:
 
     results["warnings"] = warnings
     results["status"] = "ok"
-    results["next_steps"] = (
-        "Workspace initialized. Next: "
-        "1) Register business repos with add_workspace_repo(url=<clone URL>); "
-        "2) For each business repo run init_wiki / analyze_repo with "
-        "output_dir=<workspace>/<repo>/repowiki to build its repo-level wiki; "
-        "3) Run analyze_workspace(workspace_path=<workspace root>) for cross-repo analysis; "
-        "4) On POSIX run: chmod +x bootstrap.sh"
-    )
+    if layout == LAYOUT_CENTRALIZED:
+        results["next_steps"] = (
+            "Workspace initialized (centralized layout). Next: "
+            "1) Register business repos with add_workspace_repo(url=<clone URL>); "
+            "2) Run analyze_workspace(workspace_path=<workspace root>) for cross-repo "
+            "analysis; 3) On POSIX run: chmod +x bootstrap.sh. "
+            "Note: layout-aware knowledge routing (per-repo modules partitions, shared "
+            "pools, one-hop query filters) lands with the follow-up tickets under "
+            ".scratch/centralized-wiki-layout/issues/."
+        )
+    else:
+        results["next_steps"] = (
+            "Workspace initialized. Next: "
+            "1) Register business repos with add_workspace_repo(url=<clone URL>); "
+            "2) For each business repo run init_wiki / analyze_repo with "
+            "output_dir=<workspace>/<repo>/repowiki to build its repo-level wiki; "
+            "3) Run analyze_workspace(workspace_path=<workspace root>) for cross-repo analysis; "
+            "4) On POSIX run: chmod +x bootstrap.sh"
+        )
     return json.dumps(results, ensure_ascii=False, indent=2)
 
 

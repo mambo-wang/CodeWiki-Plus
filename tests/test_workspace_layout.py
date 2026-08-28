@@ -1,0 +1,217 @@
+"""Tests for ticket 02: workspace layout foundation.
+
+Covers the workspace-resolution guardrails (single-repo zero impact,
+unregistered-directory anti-hijack, tri-state fallback, caching) and the
+init_workspace layout parameter (config write, idempotence, conflict,
+conventions variant).
+
+Handler invocation style follows test_workspace_bootstrap.py.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from codewiki.mcp.tools import workspace_bootstrap as wb
+from codewiki.mcp.tools import workspace_layout as wl
+
+URL_A = "https://example.com/a.git"  # derived name: a
+
+
+@pytest.fixture(autouse=True)
+def _clear_layout_cache():
+    wl.clear_cache()
+    yield
+    wl.clear_cache()
+
+
+def _init(tmp_path, **extra):
+    args = {"workspace_path": str(tmp_path)}
+    args.update(extra)
+    return json.loads(wb.handle_init_workspace(args))
+
+
+def _register(tmp_path, url=URL_A):
+    return json.loads(
+        wb.handle_add_workspace_repo({"workspace_path": str(tmp_path), "url": url, "clone": False})
+    )
+
+
+def _config_path(tmp_path):
+    return tmp_path / "repowiki" / ".meta" / "workspace.json"
+
+
+# ---------------------------------------------------------------------------
+# Resolution guardrails
+# ---------------------------------------------------------------------------
+class TestResolutionGuardrails:
+    def test_single_repo_no_workspace(self, tmp_path):
+        """Single-repo scenario: no workspace.json anywhere → status quo."""
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        res = wl.resolve_workspace(repo)
+        assert res.root is None
+        assert res.layout == wl.LAYOUT_COLOCATED
+        assert res.member is False
+        assert res.centralized is False
+
+    def test_centralized_registered_member(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        _register(tmp_path)
+        repo = tmp_path / "a"
+        repo.mkdir(exist_ok=True)
+        res = wl.resolve_workspace(repo)
+        assert res.root == tmp_path.resolve()
+        assert res.layout == wl.LAYOUT_CENTRALIZED
+        assert res.member is True
+        assert res.centralized is True
+
+    def test_unregistered_dir_not_hijacked(self, tmp_path):
+        """A stray clone inside the workspace tree keeps status-quo paths."""
+        _init(tmp_path, layout="centralized")
+        _register(tmp_path)
+        stray = tmp_path / "stray"
+        stray.mkdir()
+        res = wl.resolve_workspace(stray)
+        assert res.root == tmp_path.resolve()
+        assert res.member is False
+        assert res.centralized is False
+
+    def test_colocated_config_no_central_routing(self, tmp_path):
+        _init(tmp_path)  # default colocated
+        # Hand-written colocated config must not enable central routing.
+        _config_path(tmp_path).parent.mkdir(parents=True, exist_ok=True)
+        _config_path(tmp_path).write_text(
+            json.dumps({"wiki_layout": "colocated"}), encoding="utf-8"
+        )
+        _register(tmp_path)
+        repo = tmp_path / "a"
+        repo.mkdir(exist_ok=True)
+        res = wl.resolve_workspace(repo)
+        assert res.member is True
+        assert res.layout == wl.LAYOUT_COLOCATED
+        assert res.centralized is False
+
+    def test_malformed_config_falls_back_to_colocated(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        _register(tmp_path)
+        _config_path(tmp_path).write_text("{not json", encoding="utf-8")
+        repo = tmp_path / "a"
+        repo.mkdir(exist_ok=True)
+        res = wl.resolve_workspace(repo)
+        assert res.layout == wl.LAYOUT_COLOCATED
+        assert res.centralized is False
+
+    def test_nested_repo_path_resolves_via_first_component(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        _register(tmp_path)
+        nested = tmp_path / "a" / "src" / "deep"
+        nested.mkdir(parents=True)
+        res = wl.resolve_workspace(nested)
+        assert res.member is True
+        assert res.centralized is True
+
+    def test_registration_table_alone_is_not_a_workspace(self, tmp_path):
+        """Guardrail 1: the bootstrap table is NOT a discovery signal."""
+        # init (colocated) creates the table but writes no workspace.json.
+        _init(tmp_path)
+        _register(tmp_path)
+        assert not _config_path(tmp_path).exists()
+        repo = tmp_path / "a"
+        repo.mkdir(exist_ok=True)
+        res = wl.resolve_workspace(repo)
+        assert res.root is None
+        assert res.centralized is False
+
+    def test_workspace_root_itself_is_not_a_member(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        res = wl.resolve_workspace(tmp_path)
+        assert res.root == tmp_path.resolve()
+        assert res.member is False
+        assert res.centralized is False
+
+    def test_cache_holds_until_cleared(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        _register(tmp_path)
+        repo = tmp_path / "a"
+        repo.mkdir(exist_ok=True)
+        assert wl.resolve_workspace(repo).centralized is True
+        # Delete the config behind the cache's back.
+        _config_path(tmp_path).unlink()
+        assert wl.resolve_workspace(repo).centralized is True  # cached
+        wl.clear_cache()
+        assert wl.resolve_workspace(repo).centralized is False  # re-resolved
+
+
+# ---------------------------------------------------------------------------
+# init_workspace layout parameter
+# ---------------------------------------------------------------------------
+class TestInitLayout:
+    def test_centralized_writes_config_and_skeleton(self, tmp_path):
+        res = _init(tmp_path, layout="centralized")
+        assert res["status"] == "ok"
+        assert res["layout"] == "centralized"
+        config = _config_path(tmp_path)
+        assert json.loads(config.read_text(encoding="utf-8")) == {"wiki_layout": "centralized"}
+        # Skeleton: modules partition root + shared pools + repo-map.
+        assert (tmp_path / "repowiki" / "wiki" / "modules").is_dir()
+        assert (tmp_path / "repowiki" / "wiki" / "entities").is_dir()
+        assert (tmp_path / "repowiki" / "notes").is_dir()
+        assert (tmp_path / "repowiki" / "wiki" / "repo-map.md").is_file()
+
+    def test_centralized_init_idempotent(self, tmp_path):
+        first = _init(tmp_path, layout="centralized")
+        assert first["status"] == "ok"
+        config_text = _config_path(tmp_path).read_text(encoding="utf-8")
+        second = _init(tmp_path, layout="centralized")
+        assert second["status"] == "ok"
+        assert second["workspace_config"].startswith("kept")
+        assert _config_path(tmp_path).read_text(encoding="utf-8") == config_text
+
+    def test_default_layout_writes_no_config(self, tmp_path):
+        """Default = colocated = v5.5.0 output: no workspace.json appears."""
+        res = _init(tmp_path)
+        assert res["status"] == "ok"
+        assert res["layout"] == wl.LAYOUT_COLOCATED
+        assert not _config_path(tmp_path).exists()
+        assert res["workspace_config"].startswith("not written")
+
+    def test_layout_conflict_is_an_error(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        res = _init(tmp_path)  # default colocated over a centralized config
+        assert "error" in res
+        assert "refusing" in res["error"]
+
+    def test_invalid_layout_value(self, tmp_path):
+        res = _init(tmp_path, layout="hub")
+        assert "error" in res
+        assert "invalid layout" in res["error"]
+        assert not _config_path(tmp_path).exists()
+
+    def test_conventions_variant_centralized(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+        assert "一跳" in agents
+        assert "集中式知识布局" in agents
+
+    def test_conventions_variant_colocated_default(self, tmp_path):
+        _init(tmp_path)
+        agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+        assert "两跳" in agents
+        assert "集中式知识布局" not in agents
+
+    def test_centralized_refresh_switches_variant(self, tmp_path):
+        _init(tmp_path)  # colocated block written
+        _init(tmp_path, layout="centralized", refresh_conventions=True)
+        agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+        assert "一跳" in agents
+
+    def test_centralized_rejects_custom_output_dir(self, tmp_path):
+        """Discovery is anchored at <workspace>/repowiki — a custom output_dir
+        would make the layout config invisible to routing."""
+        res = _init(tmp_path, layout="centralized", output_dir="custom-wiki")
+        assert "error" in res
+        assert "output_dir" in res["error"]
+        assert not (tmp_path / "custom-wiki" / ".meta" / "workspace.json").exists()
