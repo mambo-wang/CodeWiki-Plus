@@ -1831,6 +1831,15 @@ _register(
                     "type": "string",
                     "description": "Comma-separated directory names to skip (default: node_modules,.venv,__pycache__)",
                 },
+                "generate_repo_wikis": {
+                    "type": "boolean",
+                    "description": (
+                        "Centralized layout only: also run the heavy per-repo analysis to "
+                        "populate each repo's knowledge partition (default: false — only the "
+                        "workspace topology/overview is produced). Ignored for colocated "
+                        "workspaces, which always analyze every repo."
+                    ),
+                },
             },
             "required": ["workspace_path"],
         },

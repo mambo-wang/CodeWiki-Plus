@@ -407,6 +407,16 @@ def handle_analyze_workspace(
         output_dir = workspace_path / "repowiki"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Layout detection (ticket 08): centralized workspaces keep all knowledge
+    # in the workspace repowiki, so per-repo analysis targets it instead of
+    # the (nonexistent) in-repo repowiki. generate_repo_wikis gates the heavy
+    # per-repo analysis under centralized (default off — topology still runs).
+    from codewiki.mcp.tools.workspace_layout import LAYOUT_CENTRALIZED, read_layout
+
+    layout = read_layout(workspace_path)
+    centralized = layout == LAYOUT_CENTRALIZED
+    generate_repo_wikis = bool(arguments.get("generate_repo_wikis", False))
+
     # Scan for git repos
     repos = _scan_git_repos(workspace_path, exclude_dirs)
     if not repos:
@@ -429,51 +439,84 @@ def handle_analyze_workspace(
     errors: List[Dict[str, str]] = []
 
     for repo_path in repos:
-        repo_output_dir = repo_path / "repowiki"
-        logger.info("Analyzing %s → %s", repo_path.name, repo_output_dir)
-        try:
-            result_json = handle_analyze_repo(
-                {
-                    "repo_path": str(repo_path),
-                    "output_dir": str(repo_output_dir),
-                },
-                store,
-            )
-            result = json.loads(result_json)
+        # Layout-aware per-repo target (ticket 08): centralized keeps all
+        # knowledge in the workspace repowiki; colocated keeps <repo>/repowiki.
+        if centralized:
+            repo_output_dir = output_dir
+        else:
+            repo_output_dir = repo_path / "repowiki"
 
-            # Read summary.json for richer info (path comes from analyze_repo result)
-            summary = {}
-            summary_path = Path(
-                result.get("files", {}).get("summary") or (repo_output_dir / "summary.json")
-            )
-            if summary_path.exists():
-                try:
-                    summary = json.loads(summary_path.read_text(encoding="utf-8"))
-                except Exception:
-                    pass
-            stats = result.get("stats") or {}
+        # Under centralized the heavy per-repo analysis is gated by
+        # generate_repo_wikis (default off); topology/overview still build from
+        # whatever analysis caches already exist. Colocated always analyzes.
+        should_analyze = (not centralized) or generate_repo_wikis
 
-            repo_results.append(
-                {
-                    "name": repo_path.name,
-                    "relative_path": str(repo_path.relative_to(workspace_path)),
-                    "path": str(repo_path),
-                    "output_dir": str(repo_output_dir),
-                    "session_id": result.get("session_id"),
-                    "total_components": stats.get(
-                        "total_components", summary.get("total_components", 0)
-                    ),
-                    "total_leaf_nodes": stats.get(
-                        "total_leaf_nodes", summary.get("total_leaf_nodes", 0)
-                    ),
-                    "languages": stats.get("languages", summary.get("languages", {})),
-                    "has_overview": (repo_output_dir / "overview.md").exists()
-                    or (repo_output_dir / "wiki" / "overview.md").exists(),
-                }
-            )
-        except Exception as e:
-            logger.error("Failed to analyze %s: %s", repo_path.name, e)
-            errors.append({"repo": repo_path.name, "error": str(e)})
+        entry: Dict[str, Any] = {
+            "name": repo_path.name,
+            "relative_path": str(repo_path.relative_to(workspace_path)),
+            "path": str(repo_path),
+            "output_dir": str(repo_output_dir),
+            "analyzed": False,
+            "session_id": None,
+            "total_components": 0,
+            "total_leaf_nodes": 0,
+            "languages": {},
+            "has_overview": False,
+        }
+
+        if should_analyze:
+            logger.info("Analyzing %s → %s", repo_path.name, repo_output_dir)
+            try:
+                result_json = handle_analyze_repo(
+                    {
+                        "repo_path": str(repo_path),
+                        "output_dir": str(repo_output_dir),
+                    },
+                    store,
+                )
+                result = json.loads(result_json)
+
+                # Read summary.json for richer info (path comes from analyze_repo result)
+                summary = {}
+                summary_path = Path(
+                    result.get("files", {}).get("summary") or (repo_output_dir / "summary.json")
+                )
+                if summary_path.exists():
+                    try:
+                        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+                stats = result.get("stats") or {}
+
+                entry.update(
+                    {
+                        "analyzed": True,
+                        "session_id": result.get("session_id"),
+                        "total_components": stats.get(
+                            "total_components", summary.get("total_components", 0)
+                        ),
+                        "total_leaf_nodes": stats.get(
+                            "total_leaf_nodes", summary.get("total_leaf_nodes", 0)
+                        ),
+                        "languages": stats.get("languages", summary.get("languages", {})),
+                    }
+                )
+            except Exception as e:
+                logger.error("Failed to analyze %s: %s", repo_path.name, e)
+                errors.append({"repo": repo_path.name, "error": str(e)})
+
+        # Overview presence: centralized partitions live under
+        # wiki/modules/<repo>/; colocated uses the in-repo repowiki.
+        if centralized:
+            entry["has_overview"] = (
+                repo_output_dir / "wiki" / "modules" / repo_path.name / "overview.md"
+            ).exists()
+        else:
+            entry["has_overview"] = (repo_output_dir / "overview.md").exists() or (
+                repo_output_dir / "wiki" / "overview.md"
+            ).exists()
+
+        repo_results.append(entry)
 
     # Cross-service analysis
     cross_service_info = {}
@@ -508,6 +551,8 @@ def handle_analyze_workspace(
         {
             "workspace_session_id": workspace_session.session_id,
             "workspace_path": str(workspace_path),
+            "layout": layout,
+            "generate_repo_wikis": generate_repo_wikis if centralized else None,
             "overview_path": str(overview_path),
             "repos_analyzed": len(repo_results),
             "repos": repo_results,
