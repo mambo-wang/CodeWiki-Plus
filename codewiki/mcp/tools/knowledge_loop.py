@@ -1596,6 +1596,33 @@ def _query_mode_check(
     return json.dumps(verdict, indent=2, ensure_ascii=False)
 
 
+def _repo_scope_match(output_dir: Path, rel_file: str, repo_name: str) -> bool:
+    """True when *rel_file* (relative to output_dir) applies to *repo_name*.
+
+    Centralized-layout scope rule (design doc §7.1 / ticket 05):
+    * the repo's modules partition (``wiki/modules/<repo>/...``);
+    * shared-pool pages whose provenance includes the repo;
+    * pages without provenance (product-line global knowledge).
+
+    Other repos' partitions and other repos' tagged pages are excluded.
+    Unreadable pages are kept — hiding knowledge on I/O errors is worse.
+    """
+    rel = rel_file.replace("\\", "/")
+    modules_prefix = "wiki/modules/"
+    if rel.startswith(modules_prefix):
+        return rel[len(modules_prefix) :].startswith(repo_name + "/")
+    try:
+        from codewiki.mcp.tools.workspace_layout import read_provenance
+
+        page = output_dir / rel_file
+        with open(page, encoding="utf-8", errors="replace") as f:
+            head = f.read(16384)  # frontmatter lives at the top
+        prov = read_provenance(head)
+    except OSError:
+        return True
+    return (not prov) or (repo_name in prov)
+
+
 def handle_query_wiki(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -1616,10 +1643,14 @@ def handle_query_wiki(
     elif session:
         output_dir = Path(session.output_dir).expanduser().resolve()
     else:
-        # Fallback: derive from repo_path if available
+        # Fallback: derive from repo_path if available. Layout-aware
+        # (ticket 05): a centralized-workspace member queries the workspace
+        # knowledge base (one hop); everything else keeps <repo>/repowiki.
         rp = arguments.get("repo_path")
         if rp:
-            output_dir = Path(rp).expanduser().resolve() / "repowiki"
+            from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+            output_dir = default_output_dir(rp)
         else:
             return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
 
@@ -1647,6 +1678,23 @@ def handle_query_wiki(
     # Task routing: restrict results to notes stamped with a given task_id.
     # Never validates task existence (ghost task_id is allowed post-delete).
     task_id_filter = arguments.get("task_id")
+    # Centralized-layout scope filter (ticket 05): repo=<name> narrows results
+    # to "knowledge applicable to that repo" = its modules partition +
+    # shared-pool pages tagged with it + untagged (global) pages. Combined
+    # with an explicit output_dir, the filter applies WITHIN that corpus
+    # (output_dir picks the corpus, repo= narrows inside it).
+    repo_filter = (arguments.get("repo") or "").strip() or None
+    # The repo= scope filter is centralized-layout semantics: inert outside a
+    # centralized corpus (registry contract), so single-repo and colocated
+    # queries are never disturbed by it.
+    repo_filter_active = False
+    if repo_filter:
+        from codewiki.mcp.tools.workspace_layout import is_centralized_corpus
+
+        repo_filter_active = is_centralized_corpus(output_dir)
+    # Over-fetch before filtering so a selective scope can still fill
+    # max_results.
+    search_budget = min(60, max_results * 3) if repo_filter_active else max_results
 
     # --- Progressive reading modes (early return) ---
     if mode == "overview":
@@ -1704,7 +1752,7 @@ def handle_query_wiki(
             query,
             scope=scope,
             include_notes=include_notes,
-            max_results=max_results,
+            max_results=search_budget,
             expand_terms=expand_terms,
             session=session,
             type_filter=type_filter,
@@ -1852,11 +1900,21 @@ def handle_query_wiki(
             scope,
             include_notes,
             include_code_refs,
-            max_results,
+            search_budget,
             module_tree,
             type_filter=type_filter,
             include_sources=include_sources,
         )
+
+    # Centralized-layout repo scope filter (ticket 05), applied uniformly to
+    # BM25 and legacy-fallback results: keep the repo's modules partition,
+    # shared pages tagged with it, and untagged global pages; then trim the
+    # over-fetched candidates back to max_results.
+    if repo_filter_active:
+        results = [
+            r for r in results if _repo_scope_match(output_dir, r.get("file", ""), repo_filter)
+        ]
+        results = results[:max_results]
 
     # T5: team-memory fusion — ensure every note carries an `origin` so callers
     # can tell distilled notes apart from LLM-generated ones, and optionally
@@ -1934,6 +1992,7 @@ def handle_query_wiki(
             "query": query,
             "keywords": keywords,
             "search_method": search_method,
+            **({"repo_filter": repo_filter} if repo_filter_active else {}),
             **({"query_coverage": coverage} if coverage else {}),
             **({"budget_degraded": degraded_count} if degraded_count else {}),
             "results": results,

@@ -160,6 +160,27 @@ def default_output_dir(repo_path: Union[str, Path]) -> Path:
     return rp / REPOWIKI_DIRNAME
 
 
+def is_centralized_corpus(output_dir: Union[str, Path]) -> bool:
+    """True when *output_dir* lies within a centralized workspace's corpus.
+
+    Accepts the corpus root itself (``<root>/repowiki``) or any directory
+    inside it (e.g. an explicit partition target).  Used to gate layout-only
+    semantics (e.g. the ``repo=`` query filter), which must stay inert
+    outside centralized workspaces.
+    """
+    try:
+        od = Path(output_dir).resolve()
+    except OSError:
+        return False
+    root = find_workspace_root(od)
+    if root is None:
+        return False
+    if read_layout(root) != LAYOUT_CENTRALIZED:
+        return False
+    corpus = (root / REPOWIKI_DIRNAME).resolve()
+    return od == corpus or corpus in od.parents
+
+
 def routing_for_write(
     output_dir: Union[str, Path], repo_path: Union[str, Path, None]
 ) -> str | None:
