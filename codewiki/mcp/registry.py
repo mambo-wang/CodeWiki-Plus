@@ -213,6 +213,15 @@ _register(
                     ],
                     "description": "LLM Wiki page type. Determines subdirectory routing (default: module → wiki/modules/)",
                 },
+                "scope": {
+                    "description": (
+                        "Centralized-layout shared-pool scope for non-module pages. "
+                        "Omit to auto-stamp the writing repo; 'global' for product-line "
+                        "knowledge applicable to every repo (no provenance tag); or a list "
+                        "of repo names (or comma-separated string) to tag exactly those. "
+                        "Ignored outside centralized workspaces and for module pages."
+                    ),
+                },
                 "frontmatter_extra": {
                     "type": "object",
                     "description": (
@@ -889,6 +898,15 @@ _register(
                 "repo_path": {
                     "type": "string",
                     "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
+                },
+                "scope": {
+                    "description": (
+                        "Centralized-layout shared-pool scope. Omit to auto-stamp the "
+                        "writing repo; 'global' for product-line knowledge applicable to "
+                        "every repo (no provenance tag); or a list of repo names (or "
+                        "comma-separated string) to tag exactly those. Ignored outside "
+                        "centralized workspaces."
+                    ),
                 },
                 "note_type": {
                     "type": "string",
