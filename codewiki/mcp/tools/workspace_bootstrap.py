@@ -736,6 +736,68 @@ def _remove_repo_map_entry(text: str, name: str) -> tuple[str, dict]:
     return new_text, result
 
 
+def _cleanup_centralized_knowledge(workspace_p: Path, name: str) -> dict:
+    """Remove a deregistered repo's knowledge from a centralized workspace.
+
+    Ticket 10. Two phases:
+
+    1. Delete the repo's modules partition ``wiki/modules/<name>/`` (tracked
+       by the harness git — recoverable via version control).
+    2. Scrub the repo from shared-pool provenance, page by page under a file
+       lock: pages with several sources lose just this one; pages whose ONLY
+       source was the repo keep their content but are untagged — they become
+       global/orphans that ``lint_wiki``'s layout_violations check surfaces
+       for a human decision (knowledge is never auto-deleted).
+    """
+    import shutil
+
+    from codewiki.src.locks import file_lock
+    from codewiki.mcp.tools.workspace_layout import merge_provenance, read_provenance
+
+    result: dict = {"modules_partition": "not_present", "pages_updated": 0, "pages_orphaned": 0}
+
+    partition = workspace_p / "repowiki" / "wiki" / "modules" / name
+    if partition.exists():
+        shutil.rmtree(partition, ignore_errors=True)
+        result["modules_partition"] = "deleted"
+
+    shared_dirs = [
+        workspace_p / "repowiki" / "wiki" / "entities",
+        workspace_p / "repowiki" / "wiki" / "concepts",
+        workspace_p / "repowiki" / "wiki" / "sources",
+        workspace_p / "repowiki" / "wiki" / "comparisons",
+        workspace_p / "repowiki" / "wiki" / "queries",
+        workspace_p / "repowiki" / "notes",
+    ]
+    for d in shared_dirs:
+        if not d.is_dir():
+            continue
+        for page in sorted(d.glob("*.md")):
+            try:
+                with file_lock(page) as f:
+                    text = f.read()
+                prov = read_provenance(text)
+                if name not in prov:
+                    continue
+                remaining = sorted(p for p in prov if p != name)
+                scope = remaining if remaining else "global"
+                new_text = merge_provenance(text, None, None, explicit_scope=scope)
+                if new_text == text:
+                    continue
+                with file_lock(page) as f:
+                    f.seek(0)
+                    f.write(new_text)
+                    f.truncate()
+                if remaining:
+                    result["pages_updated"] += 1
+                else:
+                    result["pages_orphaned"] += 1
+            except OSError as e:
+                logger.warning("provenance cleanup of %s failed: %s", page, e)
+
+    return result
+
+
 def handle_remove_workspace_repo(arguments: dict) -> str:
     """Deregister a business repo from an initialized workspace.
 
@@ -796,6 +858,12 @@ def handle_remove_workspace_repo(arguments: dict) -> str:
         results["repo_map"] = rm_status
     else:
         results["repo_map"] = "skipped (repowiki/wiki/repo-map.md not found)"
+
+    # Centralized layout (ticket 10): also clean the workspace knowledge base —
+    # the repo's modules partition and its shared-pool provenance. Colocated
+    # workspaces have no shared knowledge to clean.
+    if read_layout(workspace_p) == LAYOUT_CENTRALIZED:
+        results["knowledge_cleanup"] = _cleanup_centralized_knowledge(workspace_p, name)
 
     # Directory deletion happens after the registration is safely gone.
     dest = workspace_p / name
