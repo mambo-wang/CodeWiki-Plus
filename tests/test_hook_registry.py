@@ -232,3 +232,62 @@ class TestPromptRegistryDriven:
         s = _prompt_init_wiki({"repo_path": ".", "enable_task_management": "true"})
         assert "只为项目根目录已存在配置目录的智能体接线" in s
         assert "绝不主动新建" in s
+
+    def test_init_workspace_prompt_renders(self):
+        import os
+
+        from codewiki.mcp.prompts import _prompt_init_workspace
+
+        ws = os.path.normpath("D:/tmp/ws")
+        s = _prompt_init_workspace({"workspace_path": "D:/tmp/ws"})
+        assert f'init_workspace(workspace_path="{ws}"' in s
+        assert "bootstrap.sh" in s
+        assert "CodeWiki Workspace Conventions" in s
+        assert "不要凭记忆猜测" in s  # URL gathering guardrail
+        assert "add_workspace_repo" in s
+
+    def test_add_workspace_repo_prompt_renders(self):
+        import os
+
+        from codewiki.mcp.prompts import _prompt_add_workspace_repo
+
+        ws = os.path.normpath("D:/tmp/ws")
+        s = _prompt_add_workspace_repo(
+            {"workspace_path": "D:/tmp/ws", "name": "demo", "url": "https://x/demo.git"}
+        )
+        assert f'add_workspace_repo(workspace_path="{ws}"' in s
+        assert "demo" in s
+        assert "https://x/demo.git" in s
+        assert "clone" in s
+
+    def test_new_workspace_prompts_registered(self):
+        # prompts_map (get_prompt path) must know the two new names
+        import asyncio
+
+        from codewiki.mcp.prompts import register
+
+        class FakeServer:
+            def __init__(self):
+                self._list = None
+                self._get = None
+
+            def list_prompts(self):
+                def deco(fn):
+                    self._list = fn
+                    return fn
+
+                return deco
+
+            def get_prompt(self):
+                def deco(fn):
+                    self._get = fn
+                    return fn
+
+                return deco
+
+        srv = FakeServer()
+        register(srv)
+        names = {p.name for p in asyncio.run(srv._list())}
+        assert {"init-workspace", "add-workspace-repo"} <= names
+        res = asyncio.run(srv._get("add-workspace-repo", {"name": "r", "url": "u"}))
+        assert "add_workspace_repo" in res.messages[0].content.text

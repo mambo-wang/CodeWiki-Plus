@@ -201,7 +201,7 @@ repowiki/
 
 ### MCP 工具速查
 
-所有工具均不需要 LLM 配置，由 IDE Agent 通过 MCP 协议调用。MCP Server 内置 **instructions**（能力概览与工作流指南）、**19 个工作流 Prompt**（覆盖初始化、生成、增量、搜索、质检、跨服务、团队记忆融合、任务记忆等全流程）和 **6 个 Resource**（wiki-catalog / module-tree / index-status 等）。
+所有工具均不需要 LLM 配置，由 IDE Agent 通过 MCP 协议调用。MCP Server 内置 **instructions**（能力概览与工作流指南）、**21 个工作流 Prompt**（覆盖初始化、生成、增量、搜索、质检、跨服务、团队记忆融合、任务记忆等全流程）和 **6 个 Resource**（wiki-catalog / module-tree / index-status 等）。
 
 **代码分析（6 个）：**
 
@@ -252,6 +252,14 @@ repowiki/
 | 工具 | 用途 |
 |------|------|
 | `query_cross_service` | 查询跨服务调用关系（HTTP + MQ），支持 by_service / by_method / by_path / trace 过滤 |
+
+**工作区管理（3 个）：**
+
+| 工具 | 用途 |
+|------|------|
+| `init_workspace` | 把当前目录（或 workspace_path）初始化为多仓 harness 工作区：生成 bootstrap 克隆脚本（空登记表）、.gitignore、repo-map 导航骨架、AGENTS.md 工作区约定（两跳检索路由、提交纪律）与产品级 repowiki；幂等，重跑不冲刷用户内容；业务仓登记走 add_workspace_repo |
+| `add_workspace_repo` | 按克隆 URL 向工作区登记业务仓（目录名自动取仓库名）：事务式同步 bootstrap.sh/ps1 登记表、.gitignore、repo-map.md 四处，默认顺带 git clone（失败只警告、不回滚登记）；同名同 URL 重登记为空操作 |
+| `remove_workspace_repo` | 按子目录名移除业务仓登记（bootstrap 表、.gitignore、repo-map.md 四处）；默认保留本地目录，delete_dir=true 才删除（不可恢复） |
 
 **团队记忆融合（2 个）：**
 
@@ -602,11 +610,13 @@ CodeWiki-Plus 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 
 #### 工作流 Prompt
 
-MCP Server 内置 **19 个工作流 Prompt**，在 AI IDE 中通过 Prompt 面板直接触发，Agent 自动编排多工具调用：
+MCP Server 内置 **20 个工作流 Prompt**，在 AI IDE 中通过 Prompt 面板直接触发，Agent 自动编排多工具调用：
 
 | Prompt 名称 | 面向场景 | 核心步骤 |
 |-------------|----------|----------|
 | `init-wiki` | 新项目初始化 Wiki 工作区 | init_wiki 创建目录 + schema.yaml → 自定义 purpose → 验证 AGENTS.md |
+| `init-workspace` | 初始化多仓 harness 工作区 | init_workspace 生成 bootstrap 脚本 + .gitignore + repo-map + 工作区约定 → 克隆业务仓 → 逐个 init_wiki/analyze_repo → analyze_workspace |
+| `add-workspace-repo` | 登记业务仓到工作区 | add_workspace_repo 事务式同步 bootstrap 登记表/.gitignore/repo-map → git clone → 建仓库级 Wiki |
 | `generate-wiki` | 完整文档生成流水线 | analyze_repo → 聚类 save_module_tree → 逐模块 write_doc → overview → lint → close_session |
 | `code-analysis` | 仅分析代码结构，不生成文档 | analyze_repo → list_components → list_dependencies → 缓存到 SQLite |
 | `incremental-update` | 代码变更后增量更新文档 | analyze_repo（增量检测）→ 识别 stale 组件 → 选择性重生成 → close_session |
@@ -943,6 +953,14 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP. The serve
 |------|---------|
 | `query_cross_service` | Query cross-service calls (HTTP + MQ), filter by service/method/path/trace |
 
+**Workspace Management (3):**
+
+| Tool | Purpose |
+|------|---------|
+| `init_workspace` | Initialize the current directory (or workspace_path) as a multi-repo harness workspace: generates bootstrap clone scripts (empty registration table), .gitignore, repo-map navigation skeleton, workspace conventions in AGENTS.md (two-hop retrieval routing, commit discipline) and the product-level repowiki. Idempotent — re-runs never clobber user content. Register business repos via add_workspace_repo |
+| `add_workspace_repo` | Register a business repo by clone URL (directory name derived from the repo name): transactionally updates the bootstrap.sh/ps1 tables, .gitignore and repo-map.md, then git-clones by default (clone failure only warns, registration is kept). Re-registering the same name+URL is a no-op |
+| `remove_workspace_repo` | Deregister a business repo by subdirectory name (bootstrap tables, .gitignore, repo-map.md). The local clone is kept by default; delete_dir=true removes it irreversibly |
+
 **Team Memory Fusion (2):**
 
 | Tool | Purpose |
@@ -1093,11 +1111,13 @@ repowiki/
 
 ### Workflow Prompts
 
-The MCP server includes **19 built-in workflow prompts** that can be triggered from the AI IDE's prompt panel. The Agent automatically orchestrates multi-tool calls:
+The MCP server includes **21 built-in workflow prompts** that can be triggered from the AI IDE's prompt panel. The Agent automatically orchestrates multi-tool calls:
 
 | Prompt | Scenario | Core Steps |
 |--------|----------|------------|
 | `init-wiki` | Initialize Wiki workspace for a new project | init_wiki (dirs + schema.yaml) → customize purpose → verify AGENTS.md |
+| `init-workspace` | Initialize a multi-repo harness workspace | init_workspace (bootstrap scripts + .gitignore + repo-map + conventions) → clone repos → per-repo init_wiki/analyze_repo → analyze_workspace |
+| `add-workspace-repo` | Register a business repo into a workspace | add_workspace_repo (transactional sync of bootstrap tables/.gitignore/repo-map) → git clone → build repo-level Wiki |
 | `generate-wiki` | Full documentation generation pipeline | analyze_repo → cluster → per-module write_doc → overview → lint → close_session |
 | `code-analysis` | Analyze code structure only (no docs) | analyze_repo → list_components → list_dependencies → cache to SQLite |
 | `incremental-update` | Update docs after code changes | analyze_repo (incremental) → detect stale → selective regeneration → close_session |

@@ -399,12 +399,12 @@ def handle_analyze_workspace(
     if exclude_str:
         exclude_dirs.update(d.strip() for d in exclude_str.split(",") if d.strip())
 
-    # Output dir for the workspace-level overview
+    # Output dir for the workspace-level overview (product-level repowiki)
     output_dir_arg = arguments.get("output_dir")
     if output_dir_arg:
         output_dir = Path(output_dir_arg).resolve()
     else:
-        output_dir = workspace_path / "workspace-wiki"
+        output_dir = workspace_path / "repowiki"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Scan for git repos
