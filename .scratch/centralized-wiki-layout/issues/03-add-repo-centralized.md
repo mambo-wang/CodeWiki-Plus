@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved — implemented in 0ee5410 (2026-08-29)
 
 - [ ] 集中模式：分区骨架 + repo-map 导航行/小节生成；四处登记事务式同步的既有语义不变
 - [ ] 业务仓目录内不出现知识库目录；其 AGENTS.md 的知识库引用块被移除，其余内容（含仓自身约定）完整保留

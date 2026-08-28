@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved — implemented in 6406f20 (2026-08-29)
 
 - [ ] 两类 layout-violation 均能正确报告（fixture 构造违规现场）
 - [ ] 合规的集中模式工作区零误报

@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved — implemented in b90b1a4 (2026-08-29)
 
 - [ ] 无过滤一跳覆盖整个知识库（fixture：产品级页 + 两个仓的分区页 + 全局页 + 带标共享页）
 - [ ] `repo=` 结果恰为三态并集；**不含**其他仓的单仓页（负例断言）

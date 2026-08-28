@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved — implemented in aba7a61 (2026-08-29)
 
 - [ ] 泛化后的锁原语可独立复用，支持包住完整"读-改-写"过程（不只是追加）
 - [ ] 既有追加锁调用方全部切换到新原语，现有测试保持全绿

@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved — implemented in 94b9f28 (2026-08-29)
 
 - [ ] 对话采集/蒸馏/任务创建的产物落工作区根的对应目录，相对结构不变
 - [ ] 写入格式、原子追加语义、时间戳头解析边界与现状逐字节一致（尊重 ADR-0001/0002：markdown 不迁格式、记忆直写无确认闸门）

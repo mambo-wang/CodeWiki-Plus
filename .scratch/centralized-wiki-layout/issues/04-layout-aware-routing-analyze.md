@@ -4,7 +4,7 @@
 
 **Blocked by:** 01, 02
 
-**Status:** ready-for-agent
+**Status:** resolved — implemented in e1cceb0 (2026-08-29)
 
 - [ ] modules 页落入该仓分区；sources/entities/concepts/notes 等落入共享池且带正确来源标
 - [ ] 来源只增不减：仓 B 覆盖仓 A 产出的同名实体后，`repos:` 同时含两仓

@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved — implemented in aba7a61 (2026-08-29)
 
 - [ ] 集中模式初始化：共享骨架 + 布局配置正确生成；重跑幂等，不覆盖已有内容
 - [ ] 默认 colocated 的产物与现版本逐字节一致（回归对比）

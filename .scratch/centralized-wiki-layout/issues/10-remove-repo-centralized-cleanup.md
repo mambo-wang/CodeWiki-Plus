@@ -4,7 +4,7 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** resolved — implemented in 0b8078e (2026-08-29)
 
 - [ ] 登记四处清理 + modules 分区删除完整；`delete_dir` 语义不变（默认保留本地克隆目录）
 - [ ] 共享池中该仓的来源引用被清理；该仓是唯一来源的页面：保留页面与内容、解除标注，随后由布局 lint 的"缺来源标"规则报告，交人工裁决（不自动删除）
