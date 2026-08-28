@@ -44,6 +44,8 @@ _ALL_CHECKS = {
     "scenario_orphan",
     # P1 B-line: hot-but-never-adopted notes (usage utility dimension)
     "low_adoption",
+    # Centralized-layout discipline (ticket 09)
+    "layout_violations",
 }
 
 # 归档/调试暂存目录不参与 wiki 一致性审计：.trash/（deprecated 笔记归档区，
@@ -224,11 +226,13 @@ def _get_output_dir(session: Optional[SessionState], arguments: Dict) -> Optiona
         p = Path(output_dir).expanduser().resolve()
         p.mkdir(parents=True, exist_ok=True)
         return p
-    # Fallback: derive from repo_path
+    # Fallback: derive from repo_path (layout-aware, ticket 09: centralized
+    # members lint the workspace knowledge base).
     rp = arguments.get("repo_path")
     if rp:
-        p = Path(rp).expanduser().resolve()
-        return p / "repowiki"
+        from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+        return default_output_dir(Path(rp).expanduser().resolve())
     return None
 
 
@@ -1766,6 +1770,95 @@ def _check_okf_conformance(
     return issues
 
 
+def _check_layout_violations(output_dir: Path) -> List[Dict[str, Any]]:
+    """Centralized-layout discipline (ticket 09).
+
+    Two rules, only meaningful under a centralized workspace (the dispatcher
+    gates on ``is_centralized_corpus``):
+
+    * **knowledge leak** — a registered business repo's directory contains a
+      ``repowiki/``; centralized keeps business repos pure-code, so knowledge
+      has leaked back into the repo. Severity ``warning``.
+    * **missing provenance** — a shared-pool page carries no ``repo:``/
+      ``repos:`` tag. Untagged means "global," which is legitimate, so this
+      is an ``info`` advisory asking the reader to confirm intent; its real
+      job is surfacing orphans whose sole source was stripped by a
+      ``remove_workspace_repo`` cleanup (ticket 10) for a human decision.
+
+    Module partitions are exempt: their location IS their provenance.
+    """
+    from codewiki.mcp.tools.workspace_bootstrap import read_registration_table_names
+    from codewiki.mcp.tools.workspace_layout import read_provenance
+
+    issues: List[Dict[str, Any]] = []
+    workspace_root = output_dir.parent
+
+    # Rule 1: knowledge leaked back into a business repo
+    for name in sorted(read_registration_table_names(workspace_root)):
+        leaked = workspace_root / name / "repowiki"
+        if leaked.exists():
+            issues.append(
+                {
+                    "check": "layout_violations",
+                    "severity": "warning",
+                    "message": (
+                        f"business repo '{name}' contains a repowiki/ directory; "
+                        "centralized layout keeps business repos pure-code."
+                    ),
+                    "file": f"{name}/repowiki",
+                    "line": 1,
+                    "suggestion": (
+                        "Merge the leaked knowledge into the workspace repowiki "
+                        "(modules → wiki/modules/<repo>/, the rest → shared pools "
+                        "with repo: tags), then remove the in-repo repowiki."
+                    ),
+                }
+            )
+
+    # Rule 2: shared-pool pages without provenance (advisory)
+    shared_dirs = [
+        output_dir / "wiki" / "entities",
+        output_dir / "wiki" / "concepts",
+        output_dir / "wiki" / "sources",
+        output_dir / "wiki" / "comparisons",
+        output_dir / "wiki" / "queries",
+        output_dir / "notes",
+    ]
+    for d in shared_dirs:
+        if not d.is_dir():
+            continue
+        for page in sorted(d.glob("*.md")):
+            try:
+                text = page.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if read_provenance(text):
+                continue
+            try:
+                rel = page.relative_to(output_dir).as_posix()
+            except ValueError:
+                rel = page.name
+            issues.append(
+                {
+                    "check": "layout_violations",
+                    "severity": "info",
+                    "message": (
+                        "shared-pool page has no repo:/repos: provenance — "
+                        "confirm it is intentionally product-line (global)."
+                    ),
+                    "file": rel,
+                    "line": 1,
+                    "suggestion": (
+                        "If it belongs to specific repo(s), add a repo:/repos: tag; "
+                        "if it is an orphan left by remove_workspace_repo, keep or "
+                        "delete it deliberately."
+                    ),
+                }
+            )
+
+    return issues
+
+
 # ---------------------------------------------------------------------------
 #  Main handler
 # ---------------------------------------------------------------------------
@@ -1924,6 +2017,14 @@ def handle_lint_wiki(
                 skip_notes_staleness=("stale_notes" in checks),
             )
         )
+
+    # Centralized-layout discipline (ticket 09): gated so non-centralized
+    # corpora never see these checks.
+    if "layout_violations" in checks and output_dir:
+        from codewiki.mcp.tools.workspace_layout import is_centralized_corpus
+
+        if is_centralized_corpus(output_dir):
+            all_issues.extend(_check_layout_violations(output_dir))
 
     # Deduplicate: if a link is already reported as stale_refs, don't also
     # report it as broken_links (same file + line = same underlying problem).

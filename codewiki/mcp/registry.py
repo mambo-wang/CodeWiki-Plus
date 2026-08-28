@@ -847,6 +847,7 @@ _register(
                             "okf_conformance",
                             "scenario_capacity",
                             "scenario_orphan",
+                            "layout_violations",
                         ],
                     },
                     "description": 'Which checks to run (default: ["all"])',
