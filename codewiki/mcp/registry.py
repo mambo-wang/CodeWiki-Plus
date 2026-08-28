@@ -982,6 +982,17 @@ _register(
                     "type": "string",
                     "description": "Limit search to a module name or directory prefix (e.g. 'modules', 'entities', 'notes')",
                 },
+                "repo": {
+                    "type": "string",
+                    "description": (
+                        "Centralized-layout scope filter: narrow results to the knowledge "
+                        "applicable to one business repo = its wiki/modules/<repo>/ partition "
+                        "+ shared-pool pages tagged with it + untagged product-line (global) "
+                        "pages. Omit for a one-hop search across the whole workspace. "
+                        "Combined with output_dir, the filter applies within that corpus. "
+                        "Ignored outside centralized workspaces."
+                    ),
+                },
                 "type_filter": {
                     "type": "string",
                     "enum": [
