@@ -178,7 +178,11 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     elif session is not None and session.output_dir:
         output_dir = session.output_dir
     else:
-        output_dir = str(Path(rp) / "repowiki")
+        # Layout-aware (ticket 07): centralized members close into the
+        # workspace knowledge base; everything else keeps <repo>/repowiki.
+        from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+        output_dir = str(default_output_dir(rp))
 
     # Determine if docs were written
     docs_generated = False

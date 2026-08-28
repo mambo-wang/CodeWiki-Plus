@@ -206,7 +206,11 @@ def _resolve_output_dir(
         return Path(od).expanduser().resolve()
     rp = arguments.get("repo_path")
     if rp:
-        return Path(rp).expanduser().resolve() / "repowiki"
+        # Layout-aware (ticket 07): centralized members capture into the
+        # workspace-root shared area; everything else keeps <repo>/repowiki.
+        from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+        return default_output_dir(Path(rp).expanduser().resolve())
     raise ValueError("output_dir or repo_path is required (or pass an active session).")
 
 

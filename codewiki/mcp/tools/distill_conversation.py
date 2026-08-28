@@ -208,7 +208,11 @@ def _resolve_output_dir(
         return Path(od).expanduser().resolve()
     rp = arguments.get("repo_path")
     if rp:
-        return Path(rp).expanduser().resolve() / "repowiki"
+        # Layout-aware (ticket 07): distillation reads/writes the shared
+        # runtime area at the workspace root under centralized layouts.
+        from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+        return default_output_dir(Path(rp).expanduser().resolve())
     raise ValueError("output_dir or repo_path is required (or pass an active session).")
 
 
