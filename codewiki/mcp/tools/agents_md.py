@@ -78,6 +78,46 @@ def write_agents_md(*, repo_path: str, output_dir: str, module_tree: dict | None
     _write_agents_md(repo_path, output_dir, module_tree or {})
 
 
+def remove_codewiki_block(repo_path: str) -> str:
+    """Remove the CodeWiki usage block from ``<repo_path>/AGENTS.md``.
+
+    Centralized workspaces keep business repos pure-code — there is no
+    in-repo ``repowiki/`` for the block to point at, so the block is a dead
+    reference and is removed when the repo is registered (ticket 03).  All
+    content outside the markers (the repo's own conventions) is preserved.
+
+    Returns ``"removed"`` | ``"kept (no block)"`` | ``"kept (no AGENTS.md)"``.
+    Failures are logged and swallowed — this must never block registration.
+    """
+    repo_path_p = Path(repo_path)
+    agents_path = repo_path_p / "AGENTS.md"
+    if not agents_path.exists():
+        return "kept (no AGENTS.md)"
+
+    try:
+        content = agents_path.read_text(encoding="utf-8")
+        begin_idx = content.find(_BEGIN_MARKER)
+        end_idx = content.find(_END_MARKER)
+        if begin_idx == -1 or end_idx == -1 or end_idx <= begin_idx:
+            return "kept (no block)"
+
+        before = content[:begin_idx]
+        after = content[end_idx + len(_END_MARKER) :]
+        # Avoid leaving a double blank seam where the block used to be.
+        before = before.rstrip("\n")
+        after = after.lstrip("\n")
+        if before and after:
+            new_content = before + "\n\n" + after
+        else:
+            new_content = before + after
+        agents_path.write_text(new_content, encoding="utf-8")
+        logger.info("Removed CodeWiki block from %s", agents_path)
+        return "removed"
+    except Exception as e:  # must never block registration
+        logger.warning("Failed to remove CodeWiki block from %s: %s", agents_path, e)
+        return f"kept (error: {e})"
+
+
 def _write_agents_md(repo_path: str, output_dir: str, module_tree: dict) -> None:
     """Internal implementation of write_agents_md."""
     repo_path_p = Path(repo_path)
