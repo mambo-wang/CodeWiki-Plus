@@ -388,11 +388,11 @@ extraction_granularity: exhaustive
 
 wiki_link_syntax: false
 version: 1
-generated_at: '2026-08-28T16:54:50.113648'
+generated_at: '2026-08-29T15:54:19.931181'
 project:
-  name: codewiki-plus
+  name: CodeWiki-Plus
   languages:
   - python
-  total_components: 1607
+  total_components: 1642
 export:
   html: false

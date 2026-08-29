@@ -51,9 +51,7 @@ def _setup(tmp_path):
 
 def _remove(tmp_path, name):
     return json.loads(
-        wb.handle_remove_workspace_repo(
-            {"workspace_path": str(tmp_path), "name": name}
-        )
+        wb.handle_remove_workspace_repo({"workspace_path": str(tmp_path), "name": name})
     )
 
 
@@ -143,7 +141,9 @@ class TestRemoveCentralizedCleanup:
         assert _repo_scope_match(od, "wiki/entities/OnlyA.md", "b") is True
 
     def test_colocated_removal_unchanged(self, tmp_path):
-        json.loads(wb.handle_init_workspace({"workspace_path": str(tmp_path)}))
+        json.loads(
+            wb.handle_init_workspace({"workspace_path": str(tmp_path), "layout": "colocated"})
+        )
         (tmp_path / "a").mkdir(exist_ok=True)
         json.loads(
             wb.handle_add_workspace_repo(
@@ -151,9 +151,7 @@ class TestRemoveCentralizedCleanup:
             )
         )
         res = json.loads(
-            wb.handle_remove_workspace_repo(
-                {"workspace_path": str(tmp_path), "name": "a"}
-            )
+            wb.handle_remove_workspace_repo({"workspace_path": str(tmp_path), "name": "a"})
         )
         assert res["status"] == "ok"
         assert "knowledge_cleanup" not in res  # nothing to clean
@@ -162,9 +160,7 @@ class TestRemoveCentralizedCleanup:
     def test_unregistered_name_safe_error(self, tmp_path):
         ws = _setup(tmp_path)
         res = json.loads(
-            wb.handle_remove_workspace_repo(
-                {"workspace_path": str(ws), "name": "ghost"}
-            )
+            wb.handle_remove_workspace_repo({"workspace_path": str(ws), "name": "ghost"})
         )
         assert "error" in res
         # registered repos untouched
@@ -274,7 +270,9 @@ class TestRemoveAnalysisArtifacts:
         assert ac["overview"] == "skipped (overview.md not found)"
 
     def test_colocated_also_cleans_meta(self, tmp_path):
-        json.loads(wb.handle_init_workspace({"workspace_path": str(tmp_path)}))
+        json.loads(
+            wb.handle_init_workspace({"workspace_path": str(tmp_path), "layout": "colocated"})
+        )
         (tmp_path / "a").mkdir(exist_ok=True)
         json.loads(
             wb.handle_add_workspace_repo(
@@ -283,18 +281,14 @@ class TestRemoveAnalysisArtifacts:
         )
         _seed_analysis_artifacts(tmp_path)
         res = json.loads(
-            wb.handle_remove_workspace_repo(
-                {"workspace_path": str(tmp_path), "name": "a"}
-            )
+            wb.handle_remove_workspace_repo({"workspace_path": str(tmp_path), "name": "a"})
         )
         assert res["status"] == "ok"
         assert "knowledge_cleanup" not in res  # colocated: no shared knowledge
         # but workspace-level analysis caches are still scrubbed
         assert res["analysis_cleanup"]["routes_removed"] == 1
         routes = json.loads(
-            (tmp_path / "repowiki" / ".meta" / "workspace_routes.json").read_text(
-                encoding="utf-8"
-            )
+            (tmp_path / "repowiki" / ".meta" / "workspace_routes.json").read_text(encoding="utf-8")
         )
         assert [r["repo_name"] for r in routes] == ["b"]  # a's route gone, b stays
 

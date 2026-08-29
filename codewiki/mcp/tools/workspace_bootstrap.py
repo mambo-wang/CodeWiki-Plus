@@ -8,11 +8,17 @@ the repo-map navigation.
 - ``init_workspace`` turns an existing empty directory into such a workspace:
   bootstrap clone scripts, .gitignore, repo-map skeleton, workspace
   conventions section in AGENTS.md, and the standard product-level repowiki
-  (reusing ``init_wiki``'s directory/template logic).  Re-runs detect the
-  traces of a previous init (bootstrap scripts with parseable registration
-  tables, .gitignore, repowiki skeleton) and short-circuit to clone-only
-  adoption — fetching just the missing business-repo clones instead of
-  walking the full skeleton flow again.
+  (reusing ``init_wiki``'s directory/template logic).  The FIRST init
+  requires an explicit knowledge-layout decision: with no persisted layout
+  config and no ``layout`` argument the tool writes nothing and returns
+  ``status="needs_layout_decision"`` so the calling agent asks the user
+  first.  The chosen layout is persisted to
+  ``<output_dir>/.meta/workspace.json`` for BOTH layouts.  Re-runs detect
+  the traces of a previous init (bootstrap scripts with parseable
+  registration tables, .gitignore, repowiki skeleton) and short-circuit to
+  clone-only adoption — fetching just the missing business-repo clones
+  instead of walking the full skeleton flow again (backfilling the layout
+  config when a legacy workspace lacks it).
 
 - ``add_workspace_repo`` registers one more business repo, transactionally
   updating four files: bootstrap.sh table, bootstrap.ps1 table, .gitignore
@@ -427,13 +433,15 @@ def _adopt_initialized_workspace(
 ) -> tuple[dict | None, str | None]:
     """Clone-only adoption branch for re-runs on an initialized workspace.
 
-    Every init trace is present, so NOTHING is regenerated: the layout is
-    adopted (persisted config; colocated when absent), missing .gitignore
-    exclusions are repaired, and the caller proceeds straight to cloning
-    un-cloned registered repos.  Returns (registration info, error).
+    Every init trace is present, so no skeleton artifact is regenerated:
+    the layout is adopted (persisted config; colocated when absent), a
+    missing layout config is backfilled (legacy workspaces initialized
+    before the config became unconditional), missing .gitignore exclusions
+    are repaired, and the caller proceeds straight to cloning un-cloned
+    registered repos.  Returns (registration info, error).
     """
     config_path = output_dir_p / ".meta" / "workspace.json"
-    layout = read_layout_value(config_path) if config_path.exists() else LAYOUT_COLOCATED
+    layout = (read_layout_value(config_path) if config_path.exists() else None) or LAYOUT_COLOCATED
     if layout_arg and layout_arg != layout:
         return None, (
             f"workspace already initialized with layout {layout!r}; refusing "
@@ -453,11 +461,18 @@ def _adopt_initialized_workspace(
         "missing business-repo clones are fetched"
     )
     results["layout"] = layout
-    results["workspace_config"] = (
-        f"kept (already {layout}): {config_path}"
-        if config_path.exists()
-        else "not written (colocated is the default; an absent config means colocated)"
-    )
+    if config_path.exists():
+        results["workspace_config"] = f"kept (already {layout}): {config_path}"
+    else:
+        # Backfill: workspaces initialized before the layout config became
+        # unconditional carry no workspace.json — write the adopted layout
+        # so the workspace is explicitly discoverable from now on.
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_text(
+            config_path,
+            json.dumps({"wiki_layout": layout}, ensure_ascii=False) + "\n",
+        )
+        results["workspace_config"] = f"backfilled (adopted {layout}): {config_path}"
     # Registered repos must stay excluded from the harness git — repair any
     # missing /name/ line (no-op when every exclusion is already present).
     results["gitignore"] = _ensure_gitignore(workspace_p, sorted(info["sh_entries"]))
@@ -475,12 +490,15 @@ def _run_full_skeleton_flow(
     results["mode"] = "full"
 
     # ── Layout: adopt the persisted value on re-runs ───────────────────
-    # First init honors the layout argument (default colocated); re-runs
-    # read it back from .meta/workspace.json so a no-arg re-run never
-    # fights the original decision. Switching layouts stays a hard error.
+    # First init honors the layout argument (the handler's decision gate
+    # makes it explicit for MCP callers); re-runs read it back from
+    # .meta/workspace.json so a no-arg re-run never fights the original
+    # decision. Switching layouts stays a hard error. The config is written
+    # for BOTH layouts so every initialized workspace carries an explicit,
+    # auditable layout record (absent config = legacy pre-config init).
     config_path = output_dir_p / ".meta" / "workspace.json"
     if config_path.exists():
-        layout = read_layout_value(config_path)
+        layout = read_layout_value(config_path) or LAYOUT_COLOCATED
         if layout_arg and layout_arg != layout:
             return None, (
                 f"workspace config already exists with layout {layout!r} "
@@ -492,23 +510,18 @@ def _run_full_skeleton_flow(
     else:
         layout = layout_arg or LAYOUT_COLOCATED
         results["layout"] = layout
-        if layout == LAYOUT_CENTRALIZED:
-            if output_dir_p != workspace_p / "repowiki":
-                return None, (
-                    "centralized layout requires the default output_dir <workspace>/repowiki: "
-                    "workspace discovery is anchored at <workspace>/repowiki/.meta/workspace.json, "
-                    "so a custom output_dir would make the layout config invisible to routing."
-                )
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            _write_text(
-                config_path,
-                json.dumps({"wiki_layout": LAYOUT_CENTRALIZED}, ensure_ascii=False) + "\n",
+        if layout == LAYOUT_CENTRALIZED and output_dir_p != workspace_p / "repowiki":
+            return None, (
+                "centralized layout requires the default output_dir <workspace>/repowiki: "
+                "workspace discovery is anchored at <workspace>/repowiki/.meta/workspace.json, "
+                "so a custom output_dir would make the layout config invisible to routing."
             )
-            results["workspace_config"] = str(config_path)
-        else:
-            results["workspace_config"] = (
-                "not written (colocated is the default; an absent config means colocated)"
-            )
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_text(
+            config_path,
+            json.dumps({"wiki_layout": layout}, ensure_ascii=False) + "\n",
+        )
+        results["workspace_config"] = str(config_path)
 
     # ── Bootstrap scripts (registration table; add via add_workspace_repo) ──
     sh_path = workspace_p / "bootstrap.sh"
@@ -596,33 +609,43 @@ def _run_full_skeleton_flow(
 def handle_init_workspace(arguments: dict) -> str:
     """Initialize (or re-sync) a multi-repo harness workspace.
 
-    Zero-config and idempotent, with two re-run modes:
+    First init requires an explicit knowledge-layout decision: when the
+    skeleton is not complete, no layout config exists yet and ``layout`` is
+    omitted, the tool writes NOTHING and returns
+    ``status="needs_layout_decision"`` with the two options — the calling
+    agent must present them to the user and re-invoke with
+    ``layout=<choice>``.  The chosen layout is persisted to
+    ``<output_dir>/.meta/workspace.json`` for BOTH layouts, so every
+    initialized workspace carries an explicit layout record.
+
+    Re-runs are zero-config and idempotent, with two modes:
 
     - **clone-only adoption** — every init trace is present (bootstrap.sh /
       bootstrap.ps1 with parseable registration tables, .gitignore, and the
       repowiki skeleton ``<output_dir>/wiki/`` + ``schema.yaml``): the
       workspace is considered initialized, so the re-run short-circuits.
-      It git-clones registered business repos that are not yet cloned and
-      repairs missing .gitignore exclusions — nothing else is regenerated
-      and AGENTS.md is left untouched (adopted workspaces stay clean).
-    - **full flow** — any trace missing: the persisted layout is adopted
-      (first init chooses it, default colocated), missing artifacts are
-      created, the AGENTS.md conventions block is force-refreshed, and
-      registered repos are cloned.
+      It git-clones registered business repos that are not yet cloned,
+      repairs missing .gitignore exclusions and backfills a missing layout
+      config (legacy workspaces) — nothing else is regenerated and
+      AGENTS.md is left untouched (adopted workspaces stay clean).
+    - **full flow** — any trace missing: the persisted layout is adopted,
+      missing artifacts are created, the AGENTS.md conventions block is
+      force-refreshed, and registered repos are cloned.
 
     In both modes a failed clone only warns (``bootstrap.sh`` retries
     later).
 
-    Advertised parameter (from arguments dict):
+    Advertised parameters (from arguments dict):
         output_dir: Product-level repowiki directory
             (default: <workspace>/repowiki).
+        layout: ``colocated`` | ``centralized`` — required on FIRST init
+            (ask the user; without it the gate returns
+            ``needs_layout_decision`` and writes nothing); on re-runs the
+            persisted layout wins and a conflicting value is an error
+            (clone-only adoption included).
 
-    Tolerated but unadvertised (MCP schema exposes only ``output_dir``;
-    kept for direct callers and first-init decisions):
+    Tolerated but unadvertised:
         workspace_path: Workspace root (default: current working directory).
-        layout: ``colocated`` | ``centralized`` — honored on FIRST init only
-            (default: colocated); on re-runs the adopted layout wins and a
-            conflicting value is an error (clone-only adoption included).
         with_readme: Ignored — the README skeleton is always created when
             missing (full flow only).
 
@@ -667,6 +690,42 @@ def handle_init_workspace(arguments: dict) -> str:
     traces = _detect_init_traces(workspace_p, output_dir_p)
     adopt = all(traces.values())
     results["traces"] = traces
+
+    # ── Layout decision gate (first init only) ───────────────────────────
+    # A fresh init needs an explicit knowledge-layout decision.  MCP tools
+    # cannot ask the user, so the tool writes NOTHING and hands the
+    # question back to the calling agent.  Re-runs are exempt: the
+    # persisted config (or the legacy no-config = colocated convention,
+    # backfilled on adoption) already settles the layout.
+    config_path = output_dir_p / ".meta" / "workspace.json"
+    if not adopt and not config_path.exists() and not layout_arg:
+        return json.dumps(
+            {
+                "status": "needs_layout_decision",
+                "workspace_path": str(workspace_p),
+                "output_dir": str(output_dir_p),
+                "traces": traces,
+                "question": (
+                    "首次初始化多仓工作区需要选择知识布局：请先询问用户，"
+                    "得到答复后带 layout 参数重新调用 init_workspace。"
+                ),
+                "options": {
+                    LAYOUT_COLOCATED: (
+                        "各业务仓自带 repowiki，wiki 与代码同仓演进，检索两跳（先产品级、再仓库级）"
+                    ),
+                    LAYOUT_CENTRALIZED: (
+                        "知识全部集中在本工作区 repowiki，业务仓为纯代码目录，检索一跳"
+                    ),
+                },
+                "next_steps": (
+                    "Nothing was written. Present the two layouts to the user, then "
+                    "re-invoke init_workspace(layout=<choice>) with the user's answer."
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
     if adopt:
         info, err = _adopt_initialized_workspace(workspace_p, output_dir_p, layout_arg, results)
     else:

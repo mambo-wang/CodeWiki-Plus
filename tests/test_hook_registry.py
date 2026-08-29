@@ -237,10 +237,11 @@ class TestPromptRegistryDriven:
         from codewiki.mcp.prompts import _prompt_init_workspace
 
         s = _prompt_init_workspace({})
-        assert "init_workspace()" in s  # zero-config invocation
+        assert "init_workspace()" in s  # zero-config invocation for skeleton repair
         assert "bootstrap.sh" in s
         assert "CodeWiki Workspace Conventions" in s
-        assert "自动克隆" in s  # re-sync auto-clone wording
+        assert "补克隆" in s  # re-sync clone wording
+        assert "needs_layout_decision" in s  # first-init decision gate handling
         assert "centralized" in s  # first-init layout choice guidance
         assert "不要凭记忆猜测" in s  # URL gathering guardrail
         assert "add_workspace_repo" in s

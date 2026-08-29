@@ -29,6 +29,7 @@ from mcp.types import TextContent, Tool
 # 项目 schema 的自定义类型受 MCP 静态校验所限仍走包内默认表（重启生效），
 # 已知约束记录于 docs/OpenViking借鉴详细设计方案-P3四项.md §1.2。
 from codewiki.mcp.tools.note_types import DEFAULT_NOTE_TYPES as _NOTE_TYPES
+from codewiki.mcp.tools.workspace_layout import VALID_LAYOUTS
 
 logger = logging.getLogger(__name__)
 
@@ -2109,20 +2110,25 @@ _register(
             "keeps business repos out of the harness git, a repo-map.md navigation "
             "skeleton, workspace conventions (retrieval routing per layout, commit "
             "discipline) as a marked section in AGENTS.md, and the standard "
-            "product-level repowiki. Zero-config and idempotent with two re-run "
-            "modes: when every init trace is present (bootstrap scripts with a "
-            "parseable registration table, .gitignore, repowiki skeleton) the re-run "
-            "is clone-only — it adopts the workspace, fetches just the registered "
-            "business repos not yet cloned, and touches nothing else (in that state "
-            "running the workspace's bootstrap script directly achieves the same "
-            "clone sync; the tool mode is a safety net); otherwise it "
-            "runs the full sync flow: adopts the persisted knowledge layout "
-            "(colocated or centralized, chosen on first init), creates missing "
-            "artifacts, force-refreshes the conventions block, and clones uncloned "
-            "repos (a failed clone only warns; ./bootstrap.sh retries later). "
-            "Register new business repos with add_workspace_repo(url); follow up "
-            "with init_wiki / analyze_repo per repo, then analyze_workspace for "
-            "cross-repo analysis."
+            "product-level repowiki. FIRST init requires an explicit knowledge-layout "
+            "decision: ask the user whether knowledge should be colocated (each "
+            "business repo keeps its own repowiki, two-hop retrieval) or centralized "
+            "(one workspace repowiki, one-hop retrieval), then pass layout=<choice>; "
+            "without layout the tool writes nothing and returns "
+            "status='needs_layout_decision'. The chosen layout is persisted to "
+            "repowiki/.meta/workspace.json for BOTH layouts. Re-runs are zero-config "
+            "and idempotent with two modes: when every init trace is present "
+            "(bootstrap scripts with a parseable registration table, .gitignore, "
+            "repowiki skeleton) the re-run is clone-only — it adopts the workspace, "
+            "fetches just the registered business repos not yet cloned, backfills a "
+            "missing layout config, and touches nothing else (in that state running "
+            "the workspace's bootstrap script directly achieves the same clone sync; "
+            "the tool mode is a safety net); otherwise it runs the full sync flow: "
+            "adopts the persisted knowledge layout, creates missing artifacts, "
+            "force-refreshes the conventions block, and clones uncloned repos (a "
+            "failed clone only warns; ./bootstrap.sh retries later). Register new "
+            "business repos with add_workspace_repo(url); follow up with init_wiki / "
+            "analyze_repo per repo, then analyze_workspace for cross-repo analysis."
         ),
         inputSchema={
             "type": "object",
@@ -2130,6 +2136,19 @@ _register(
                 "output_dir": {
                     "type": "string",
                     "description": "Product-level repowiki directory (default: <workspace>/repowiki).",
+                },
+                "layout": {
+                    "type": "string",
+                    "enum": list(VALID_LAYOUTS),
+                    "description": (
+                        "Knowledge layout. Required on FIRST init — ask the user to "
+                        "choose before calling: colocated (each business repo keeps "
+                        "its own repowiki, two-hop retrieval) or centralized (all "
+                        "knowledge in the workspace repowiki, one-hop retrieval). "
+                        "Omit on re-runs: the persisted layout "
+                        "(repowiki/.meta/workspace.json) is adopted automatically; a "
+                        "conflicting value is an error."
+                    ),
                 },
             },
             "required": [],

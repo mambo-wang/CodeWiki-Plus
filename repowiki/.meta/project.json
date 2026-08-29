@@ -1,5 +1,5 @@
 {
-  "repo_name": "codewiki-plus",
+  "repo_name": "CodeWiki-Plus",
   "output_dir": "repowiki",
   "cache_db": ".codewiki/analysis_cache.db"
 }

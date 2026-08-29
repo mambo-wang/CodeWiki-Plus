@@ -42,9 +42,7 @@ def _mk_git_repo(path, name):
 
 
 def _setup(tmp_path, layout):
-    args = {"workspace_path": str(tmp_path)}
-    if layout:
-        args["layout"] = layout
+    args = {"workspace_path": str(tmp_path), "layout": layout or "colocated"}
     json.loads(wb.handle_init_workspace(args))
     for url in (URL_A, URL_B):
         name = url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
