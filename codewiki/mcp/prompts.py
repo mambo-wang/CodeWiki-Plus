@@ -1632,7 +1632,7 @@ def register(server):
             ),
             Prompt(
                 name="team-memory-hook",
-                title="任务管理（跨会话任务记忆）",
+                title="启用/禁用任务管理（跨会话任务记忆）",
                 description=(
                     "管理跨会话任务记忆：启用时注册 SessionEnd 采集 Hook 并向 AGENTS.md "
                     "写入任务引导段（新建会话时提示用户关联已有任务或输入任务名新建），"
