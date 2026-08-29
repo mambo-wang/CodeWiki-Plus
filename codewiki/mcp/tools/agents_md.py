@@ -144,31 +144,22 @@ def write_workspace_conventions(
     *,
     workspace_path: str,
     workspace_name: str,
-    refresh: bool = False,
     layout: str = "colocated",
 ) -> str:
     """Write the multi-repo workspace conventions section into AGENTS.md.
 
-    Deliberately different overwrite policy from the CodeWiki usage block:
-    the conventions are a team contract that users hand-evolve, so an
-    existing marked block is kept as-is unless ``refresh=True``.
+    The marked block is tool-maintained: it is always overwritten on every
+    run, so customizations belong outside the markers (they survive; the
+    block content itself does not).
 
     ``layout`` selects the conventions variant: ``colocated`` (two-hop
     routing, per-repo repowikis) or ``centralized`` (one-hop routing,
     single workspace repowiki).
 
-    Returns ``"created"`` | ``"kept"`` | ``"refreshed"``.
+    Returns ``"created"`` | ``"refreshed"``.
     """
     workspace_path_p = Path(workspace_path)
     agents_path = workspace_path_p / "AGENTS.md"
-
-    if agents_path.exists() and not refresh:
-        content = agents_path.read_text(encoding="utf-8")
-        begin_idx = content.find(_WORKSPACE_BEGIN_MARKER)
-        end_idx = content.find(_WORKSPACE_END_MARKER)
-        if begin_idx != -1 and end_idx != -1 and end_idx > begin_idx:
-            logger.info("Workspace conventions already present in %s, kept", agents_path)
-            return "kept"
 
     from codewiki.mcp.tools.workspace_layout import LAYOUT_CENTRALIZED
 

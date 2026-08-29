@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import importlib
 import json
+from pathlib import Path
 
 import pytest
 
 from codewiki.mcp.tools import workspace_bootstrap as wb
 from codewiki.mcp.tools.agents_md import (
     _BEGIN_MARKER,
+    _END_MARKER,
     _WORKSPACE_BEGIN_MARKER,
 )
 
@@ -34,10 +36,10 @@ def _add(tmp_path, url, clone=False, **extra):
     return json.loads(wb.handle_add_workspace_repo(args))
 
 
-def _remove(tmp_path, name, delete_dir=False):
+def _remove(tmp_path, name):
     return json.loads(
         wb.handle_remove_workspace_repo(
-            {"workspace_path": str(tmp_path), "name": name, "delete_dir": delete_dir}
+            {"workspace_path": str(tmp_path), "name": name}
         )
     )
 
@@ -105,39 +107,33 @@ class TestFreshInit:
 # 2/3. Idempotency and refresh semantics
 # ---------------------------------------------------------------------------
 class TestIdempotency:
-    def test_rerun_preserves_user_content(self, tmp_path):
+    def test_rerun_refreshes_conventions_block(self, tmp_path):
         _init(tmp_path)
-
         agents_path = tmp_path / "AGENTS.md"
-        custom = _read(agents_path).replace("## 分支策略", "## 分支策略（团队定制版）")
-        agents_path.write_text(custom, encoding="utf-8")
+        customized = (
+            _read(agents_path).replace("## 分支策略", "## 分支策略（团队定制版）")
+            + "\n用户自己追加的尾部内容\n"
+        )
+        agents_path.write_text(customized, encoding="utf-8")
+
+        res = _init(tmp_path)
+        assert res["status"] == "ok"
+        assert res["agents_md_conventions"] == "refreshed"
+        new_text = _read(agents_path)
+        assert "团队定制版" not in new_text  # in-block edits clobbered
+        assert "用户自己追加的尾部内容" in new_text  # outside block kept
+
+    def test_rerun_preserves_other_artifacts(self, tmp_path):
+        _init(tmp_path)
 
         schema_path = tmp_path / "repowiki" / "schema.yaml"
         schema_path.write_text("purpose: customized\n", encoding="utf-8")
-
         sh_before = (tmp_path / "bootstrap.sh").read_bytes()
 
         res = _init(tmp_path)
         assert res["status"] == "ok"
-        assert res["agents_md_conventions"] == "kept"
-        assert "团队定制版" in _read(agents_path)
         assert _read(schema_path) == "purpose: customized\n"
         assert (tmp_path / "bootstrap.sh").read_bytes() == sh_before
-
-    def test_refresh_conventions_replaces_block_keeps_rest(self, tmp_path):
-        _init(tmp_path)
-        agents_path = tmp_path / "AGENTS.md"
-        text = _read(agents_path)
-        customized = (
-            text.replace("## 分支策略", "## 分支策略（团队定制版）") + "\n用户自己追加的尾部内容\n"
-        )
-        agents_path.write_text(customized, encoding="utf-8")
-
-        res = _init(tmp_path, refresh_conventions=True)
-        assert res["agents_md_conventions"] == "refreshed"
-        new_text = _read(agents_path)
-        assert "团队定制版" not in new_text  # block content replaced
-        assert "用户自己追加的尾部内容" in new_text  # outside block kept
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +268,7 @@ class TestAddRepo:
 # 8. remove_workspace_repo flows
 # ---------------------------------------------------------------------------
 class TestRemoveRepo:
-    def test_remove_keeps_directory(self, tmp_path):
+    def test_remove_deletes_directory(self, tmp_path):
         _init(tmp_path)
         _add(tmp_path, URL_A)
         clone_dir = tmp_path / "a"
@@ -286,10 +282,7 @@ class TestRemoveRepo:
         assert res["gitignore"]["status"] == "removed"
         assert res["repo_map"]["nav_row"] == "removed"
         assert res["repo_map"]["section"] == "removed"
-        assert res["directory"] == (
-            "kept (delete_dir=false; the directory is no longer gitignored — "
-            "remove it manually or keep it out of the harness git)"
-        )
+        assert res["directory"] == "deleted"
 
         assert '["a"]="https://example.com/a.git"' not in _read(tmp_path / "bootstrap.sh")
         assert '"a" = "https://example.com/a.git"' not in _read(tmp_path / "bootstrap.ps1")
@@ -297,19 +290,16 @@ class TestRemoveRepo:
         repo_map = _read(tmp_path / "repowiki" / "wiki" / "repo-map.md")
         assert "| a | `a/`" not in repo_map
         assert "## a（`a/`）" not in repo_map
-        assert clone_dir.exists()  # directory preserved
+        assert not clone_dir.exists()  # directory deleted
 
-    def test_remove_deletes_directory(self, tmp_path):
+    def test_remove_absent_directory_ok(self, tmp_path):
         _init(tmp_path)
         _add(tmp_path, URL_A)
-        clone_dir = tmp_path / "a"
-        clone_dir.mkdir()
-        (clone_dir / "README.md").write_text("clone", encoding="utf-8")
-
-        res = _remove(tmp_path, "a", delete_dir=True)
+        # never cloned — removal must still succeed
+        res = _remove(tmp_path, "a")
         assert res["status"] == "ok"
-        assert res["directory"] == "deleted"
-        assert not clone_dir.exists()
+        assert res["directory"] == "not present"
+        assert not (tmp_path / "a").exists()
 
     def test_remove_not_registered_is_safe_error(self, tmp_path):
         _init(tmp_path)
@@ -405,7 +395,72 @@ class TestClone:
 
 
 # ---------------------------------------------------------------------------
-# 10. Hand-built workspace adoption
+# 10. init_workspace re-sync auto-clone
+# ---------------------------------------------------------------------------
+class TestInitAutoClone:
+    def test_rerun_clones_registered_repo(self, tmp_path, monkeypatch):
+        _init(tmp_path)
+        _add(tmp_path, URL_C, clone=False)  # registered, not cloned
+        calls = []
+        monkeypatch.setattr(
+            wb.subprocess,
+            "run",
+            lambda cmd, **kw: (calls.append(cmd), _FakeProc(0))[1],
+        )
+        res = _init(tmp_path)  # re-run must auto-clone
+        assert res["status"] == "ok"
+        assert res["clones"]["repo-c"]["status"] == "ok"
+        assert calls and calls[0][:2] == ["git", "clone"]
+        assert calls[0][3] == str(tmp_path / "repo-c")
+
+    def test_rerun_skips_already_cloned(self, tmp_path, monkeypatch):
+        _init(tmp_path)
+        _add(tmp_path, URL_C, clone=False)
+        (tmp_path / "repo-c" / ".git").mkdir(parents=True)  # already cloned
+        monkeypatch.setattr(
+            wb.subprocess, "run", lambda cmd, **kw: _FakeProc(0)
+        )
+        res = _init(tmp_path)
+        assert res["clones"]["repo-c"]["status"] == "skipped"
+
+    def test_clone_failure_warns_not_errors(self, tmp_path, monkeypatch):
+        _init(tmp_path)
+        _add(tmp_path, URL_C, clone=False)
+        monkeypatch.setattr(
+            wb.subprocess, "run", lambda cmd, **kw: _FakeProc(128, "fatal: network")
+        )
+        res = _init(tmp_path)
+        assert res["status"] == "ok"  # a failed clone never fails the init
+        assert res["clones"]["repo-c"]["status"] == "error"
+        assert any("repo-c" in w for w in res["warnings"])
+
+    def test_empty_table_clones_nothing(self, tmp_path):
+        res = _init(tmp_path)
+        assert res["clones"] == {}
+
+    def test_centralized_clone_strips_codewiki_block(self, tmp_path, monkeypatch):
+        _init(tmp_path, layout="centralized")
+        _add(tmp_path, URL_C, clone=False)
+
+        def fake_clone(cmd, **kw):
+            dest = Path(cmd[3])
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / "AGENTS.md").write_text(
+                f"own content\n{_BEGIN_MARKER}\nwiki usage\n{_END_MARKER}\ntail\n",
+                encoding="utf-8",
+            )
+            return _FakeProc(0)
+
+        monkeypatch.setattr(wb.subprocess, "run", fake_clone)
+        res = _init(tmp_path)
+        assert res["clones"]["repo-c"]["status"] == "ok"
+        cloned_agents = _read(tmp_path / "repo-c" / "AGENTS.md")
+        assert _BEGIN_MARKER not in cloned_agents  # block stripped
+        assert "own content" in cloned_agents
+
+
+# ---------------------------------------------------------------------------
+# 11. Hand-built workspace adoption
 # ---------------------------------------------------------------------------
 class TestHandBuiltAdoption:
     def test_adopt_reference_style_scripts(self, tmp_path):
@@ -466,14 +521,10 @@ class TestRegistryWiring:
         tool_def = registry.REGISTRY["init_workspace"]
         props = tool_def.schema.inputSchema["properties"]
         assert tool_def.schema.inputSchema["required"] == []
-        assert set(props) == {
-            "workspace_path",
-            "output_dir",
-            "layout",
-            "refresh_conventions",
-            "with_readme",
-        }
-        assert props["layout"]["enum"] == ["colocated", "centralized"]
+        assert set(props) == {"output_dir"}
+        assert "workspace_path" not in props
+        assert "layout" not in props
+        assert "with_readme" not in props
         assert "repos" not in props
         assert "name" not in props
         assert "clone_repos" not in props
@@ -490,4 +541,4 @@ class TestRegistryWiring:
         rm_props = rm_def.schema.inputSchema["properties"]
         assert rm_def.schema.inputSchema["required"] == ["name"]
         assert "url" not in rm_props
-        assert "delete_dir" in rm_props
+        assert "delete_dir" not in rm_props

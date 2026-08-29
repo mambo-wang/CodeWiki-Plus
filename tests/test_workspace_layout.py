@@ -178,9 +178,16 @@ class TestInitLayout:
         assert not _config_path(tmp_path).exists()
         assert res["workspace_config"].startswith("not written")
 
+    def test_rerun_adopts_persisted_layout(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        res = _init(tmp_path)  # zero-arg re-run: adopt, never fight
+        assert res["status"] == "ok"
+        assert res["layout"] == "centralized"
+        assert res["workspace_config"].startswith("kept")
+
     def test_layout_conflict_is_an_error(self, tmp_path):
         _init(tmp_path, layout="centralized")
-        res = _init(tmp_path)  # default colocated over a centralized config
+        res = _init(tmp_path, layout="colocated")  # explicit conflicting value
         assert "error" in res
         assert "refusing" in res["error"]
 
@@ -202,9 +209,9 @@ class TestInitLayout:
         assert "两跳" in agents
         assert "集中式知识布局" not in agents
 
-    def test_centralized_refresh_switches_variant(self, tmp_path):
+    def test_centralized_reinit_switches_variant(self, tmp_path):
         _init(tmp_path)  # colocated block written
-        _init(tmp_path, layout="centralized", refresh_conventions=True)
+        _init(tmp_path, layout="centralized")  # block always refreshed
         agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
         assert "一跳" in agents
 

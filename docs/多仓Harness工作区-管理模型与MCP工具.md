@@ -99,26 +99,27 @@ CodeWiki-Plus-Harness/          ← harness 主仓库（独立 git，提交稳�
 
 CodeWiki v5.5.0 为这个模型提供了三个开箱即用的 MCP 工具与配套工作流 Prompt。
 
-### 4.1 `init_workspace` — 初始化工作区
+### 4.1 `init_workspace` — 初始化（或重新同步）工作区
 
-把**当前目录**（或显式 `workspace_path`）初始化为多仓 harness 工作区，只建骨架、不做业务仓登记：
+把**当前目录**初始化（或重新同步）为多仓 harness 工作区。**零配置幂等**：重跑时自动沿用已保存的布局、补齐缺失产物、强制刷新约定块，并**自动克隆登记表中尚未克隆的业务仓**（克隆失败只警告，可稍后 `./bootstrap.sh` 或再次重跑补克隆）。
 
 | 参数 | 必填 | 默认 | 说明 |
 |------|------|------|------|
-| `workspace_path` | 否 | 当前目录 | 工作区根目录（必须已存在，不代建） |
 | `output_dir` | 否 | `<workspace>/repowiki` | 产品级 repowiki 目录 |
-| `refresh_conventions` | 否 | `false` | 强制刷新 AGENTS.md 工作区约定块 |
-| `with_readme` | 否 | `true` | 无 README.md 时生成骨架 |
 
 **产物**：
 
-- `bootstrap.sh` / `bootstrap.ps1`：幂等克隆脚本（空登记表，登记走 `add_workspace_repo`）
+- `bootstrap.sh` / `bootstrap.ps1`：幂等克隆脚本（登记表，登记走 `add_workspace_repo`）
 - `.gitignore`：业务仓目录 + 通用忽略（**不忽略** `repowiki/`——产品级知识与跨仓分析产物入库）
 - `repowiki/wiki/repo-map.md`：仓库导航骨架
 - `AGENTS.md`：工作区约定块（两跳检索路由、提交纪律、分支策略、知识写入路由、新仓接入清单）
 - 产品级 repowiki 目录结构与 `schema.yaml` 等模板（复用 `init_wiki` 能力）
 
-**幂等语义**：bootstrap 脚本、repo-map、README、schema.yaml 重跑不覆盖；约定块默认保留（`refresh_conventions=true` 才刷新）。
+**幂等语义**：
+
+- 知识布局（`colocated`/`centralized`）首次初始化时确定并持久化到 `repowiki/.meta/workspace.json`；重跑自动沿用，显式传入冲突值才报错（布局切换是手工迁移）。集中式需在**首次**初始化时显式传 `layout="centralized"`。
+- bootstrap 脚本、repo-map、README、schema.yaml 重跑不覆盖；约定块每次重跑**强制刷新**（该块由工具维护，自定义内容请写在标记块外）。
+- 登记表中已登记但未克隆的业务仓会被自动 `git clone`（逐个执行，单仓超时 600s；失败仅警告不中断）。
 
 ### 4.2 `add_workspace_repo` — 登记并克隆业务仓
 
@@ -148,9 +149,13 @@ CodeWiki v5.5.0 为这个模型提供了三个开箱即用的 MCP 工具与配�
 |------|------|------|------|
 | `workspace_path` | 否 | 当前目录 | 工作区根目录 |
 | `name` | 是 | — | 业务仓子目录名 |
-| `delete_dir` | 否 | `false` | 同时删除本地 clone 目录（不可恢复） |
 
-同样事务式清理四处登记；**默认保留本地目录**——注意目录被移除 `.gitignore` 条目后，harness 仓 `git status` 会看到它，需手动删除或重新忽略。未登记的 name 是安全错误，不影响其他业务仓。
+同样事务式清理四处登记，并**删除本地 clone 目录**（不可恢复）——用户要求移除该仓即视为同意删除其本地克隆，工具不再单独确认。未登记的 name 是安全错误，不影响其他业务仓。
+
+登记之外还有两类清理：
+
+- **集中模式知识清理**：删除该仓的 `wiki/modules/<name>/` 分区；共享池页面按来源标逐页处理——多来源页只移除该仓来源标，唯一来源页保留内容但解除标注，成为孤儿由 `lint_wiki` 的 layout_violations 报告、交人工裁决（工具不静默删知识）。
+- **分析产物清理**：`analyze_workspace` 落在 `repowiki/.meta/` 的缓存按仓归属过滤——`workspace_routes.json` 按 `repo_name`、`cross_service_links.json` 按 `client_repo`/`server_repo`、`infra_services.json` 按 `source_path`（compose 文件相对工作区路径，无该字段的旧缓存条目不动），生成的 `overview.md` 同步删除该仓服务行与链接。这些是可再生的缓存而非知识，过滤后 `query_cross_service` 不再返回已移除仓的幽灵路由。
 
 ### 4.4 配套工作流 Prompt
 
@@ -158,9 +163,9 @@ MCP Server 内置三个 Prompt（IDE Prompt 面板可直接触发）：
 
 | Prompt | 场景 |
 |--------|------|
-| `init-workspace` | 初始化工作区 → 逐个登记业务仓 → 逐仓建 Wiki → 跨仓分析 |
+| `init-workspace` | 初始化（或重跑同步：沿用布局 + 自动补克隆）→ 逐个登记业务仓 → 逐仓建 Wiki → 跨仓分析 |
 | `add-workspace-repo` | 按 URL 登记 + 克隆业务仓 → 校验四处同步 → 建该仓 Wiki |
-| `remove-workspace-repo` | 确认删除范围 → 移除登记 → 校验清理结果 |
+| `remove-workspace-repo` | 移除登记并删除本地目录 → 校验清理结果 |
 
 ## 5. 典型使用流程
 
