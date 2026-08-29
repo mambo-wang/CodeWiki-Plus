@@ -1333,7 +1333,7 @@ def register(server):
         return [
             Prompt(
                 name="init-wiki",
-                title="初始化 Wiki 工作区",
+                title="初始化单仓Wiki工作区",
                 description=(
                     "零配置初始化：创建目录结构、拷贝带注释的 schema.yaml 模板、"
                     "写入 AGENTS.md（含使用建议和自我反思协议）。"
@@ -1359,7 +1359,7 @@ def register(server):
             ),
             Prompt(
                 name="init-workspace",
-                title="初始化多仓 harness 工作区",
+                title="初始化多仓WIKI工作区",
                 description=(
                     "把当前工作目录初始化（或重新同步）为多仓工作区：生成 bootstrap 克隆脚本、"
                     ".gitignore、repo-map 导航骨架、AGENTS.md 工作区约定与产品级 repowiki。"
@@ -1378,7 +1378,7 @@ def register(server):
             ),
             Prompt(
                 name="add-workspace-repo",
-                title="登记业务仓到工作区",
+                title="登记业务仓到多仓工作区",
                 description=(
                     "按克隆 URL 把业务代码仓库登记进已初始化的 harness 工作区：目录名自动取仓库名，"
                     "事务式同步 bootstrap.sh/ps1 登记表、.gitignore、repo-map.md，并默认克隆。"
@@ -1404,7 +1404,7 @@ def register(server):
             ),
             Prompt(
                 name="remove-workspace-repo",
-                title="移除业务仓",
+                title="从多仓工作区移除业务仓",
                 description=(
                     "按子目录名把业务代码仓库从 harness 工作区移除：事务式清理 bootstrap.sh/ps1 "
                     "登记表、.gitignore、repo-map.md，并删除本地 clone 目录（不可恢复）。"
@@ -1424,7 +1424,7 @@ def register(server):
             ),
             Prompt(
                 name="generate-wiki",
-                title="生成代码 Wiki",
+                title="生成单仓代码 Wiki",
                 description="完整的代码仓库 Wiki 生成流水线：分析→聚类→逐模块撰写→总览→质检→关闭会话",
                 arguments=[
                     PromptArgument(
@@ -1441,7 +1441,7 @@ def register(server):
             ),
             Prompt(
                 name="incremental-update",
-                title="增量更新 Wiki",
+                title="更新单仓代码 Wiki",
                 description="检测代码变更并增量更新受影响的 Wiki 模块文档",
                 arguments=[
                     PromptArgument(
@@ -1452,23 +1452,54 @@ def register(server):
                 ],
             ),
             Prompt(
-                name="extract-knowledge",
-                title="外部文档知识抽取",
-                description="导入外部文档并从中抽取实体和概念，生成结构化知识页面并构建 wikilink 图谱。两阶段流程：骨架提取→去重检查→证据校验→页面撰写。",
+                name="code-analysis",
+                title="单仓代码结构分析（不生成 Wiki）",
+                description=(
+                    "仅解析代码结构、构建函数级调用图、查询依赖和评估修改影响范围，"
+                    "不生成任何 Wiki 文档。分析结果缓存在 SQLite 中，后续可随时继续生成 Wiki。"
+                ),
                 arguments=[
                     PromptArgument(
-                        name="source_path",
-                        description="要导入并提取知识的外部文档的绝对路径（支持 PDF/MD/DOCX/HTML）",
+                        name="repo_path",
+                        description="要分析的代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                ],
+            ),
+            Prompt(
+                name="workspace-analysis",
+                title="生成/更新多仓代码Wiki（含跨服务拓扑）",
+                description=(
+                    "扫描父目录下的多个 git 仓库，为每个生成独立 Wiki 并自动执行跨服务分析："
+                    "RouteNode 匹配（HTTP+MQ，覆盖 Py/Java/JS/TS/Go）、Mermaid 服务拓扑图、"
+                    "基础设施扫描（docker-compose/.env/application.yml）。可搭配 codebase-memory-mcp "
+                    "做语义级深度追踪。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="workspace_path",
+                        description="包含多个 git 仓库的父目录路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                ],
+            ),
+            Prompt(
+                name="cross-service-trace",
+                title="跨服务调用链追踪",
+                description=(
+                    "对指定根服务执行跨服务调用链分析：先走 CodeWiki RouteNode 静态匹配（HTTP 路由 + "
+                    "MQ 生产者/消费者），再用 codebase-memory-mcp trace_path(mode='cross_service') "
+                    "做多跳语义追踪，产出调用链图 + 架构诊断（循环依赖/扇入热点/未匹配路由）。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="workspace_path",
+                        description="包含多个 git 仓库的工作区根目录（相对路径基于当前工作目录，默认当前目录；须已执行过 analyze_workspace）",
                         required=False,
                     ),
                     PromptArgument(
-                        name="output_dir",
-                        description="Wiki 输出目录（默认: <cwd>/repowiki）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="granularity",
-                        description="提取粒度：focused（3-7 核心项）| standard（适中覆盖）| exhaustive（应提尽提）。缺省遵循 schema.yaml 的 extraction_granularity",
+                        name="filter_value",
+                        description="追踪起点：服务名 / HTTP 方法 / URL 子串 / 路径前缀（可在对话中补充）",
                         required=False,
                     ),
                 ],
@@ -1498,21 +1529,6 @@ def register(server):
                 ],
             ),
             Prompt(
-                name="code-analysis",
-                title="代码结构分析（不生成 Wiki）",
-                description=(
-                    "仅解析代码结构、构建函数级调用图、查询依赖和评估修改影响范围，"
-                    "不生成任何 Wiki 文档。分析结果缓存在 SQLite 中，后续可随时继续生成 Wiki。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="要分析的代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
                 name="impact-review",
                 title="修改影响范围评估",
                 description=(
@@ -1535,7 +1551,7 @@ def register(server):
             ),
             Prompt(
                 name="change-review",
-                title="变更评估与代码评审（修改后）",
+                title="变更评估与代码评审",
                 description=(
                     "对最近代码变更（commit 范围或未提交变更）执行影响范围分析与代码评审："
                     "git diff 行级解析定位变更函数，传递性影响半径 + 回归测试建议；"
@@ -1573,39 +1589,23 @@ def register(server):
                 ],
             ),
             Prompt(
-                name="workspace-analysis",
-                title="多仓库工作区分析（含跨服务拓扑）",
-                description=(
-                    "扫描父目录下的多个 git 仓库，为每个生成独立 Wiki 并自动执行跨服务分析："
-                    "RouteNode 匹配（HTTP+MQ，覆盖 Py/Java/JS/TS/Go）、Mermaid 服务拓扑图、"
-                    "基础设施扫描（docker-compose/.env/application.yml）。可搭配 codebase-memory-mcp "
-                    "做语义级深度追踪。"
-                ),
+                name="extract-knowledge",
+                title="外部文档知识抽取",
+                description="导入外部文档并从中抽取实体和概念，生成结构化知识页面并构建 wikilink 图谱。两阶段流程：骨架提取→去重检查→证据校验→页面撰写。",
                 arguments=[
                     PromptArgument(
-                        name="workspace_path",
-                        description="包含多个 git 仓库的父目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="cross-service-trace",
-                title="跨服务调用链追踪",
-                description=(
-                    "对指定根服务执行跨服务调用链分析：先走 CodeWiki RouteNode 静态匹配（HTTP 路由 + "
-                    "MQ 生产者/消费者），再用 codebase-memory-mcp trace_path(mode='cross_service') "
-                    "做多跳语义追踪，产出调用链图 + 架构诊断（循环依赖/扇入热点/未匹配路由）。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="workspace_path",
-                        description="包含多个 git 仓库的工作区根目录（相对路径基于当前工作目录，默认当前目录；须已执行过 analyze_workspace）",
+                        name="source_path",
+                        description="要导入并提取知识的外部文档的绝对路径（支持 PDF/MD/DOCX/HTML）",
                         required=False,
                     ),
                     PromptArgument(
-                        name="filter_value",
-                        description="追踪起点：服务名 / HTTP 方法 / URL 子串 / 路径前缀（可在对话中补充）",
+                        name="output_dir",
+                        description="Wiki 输出目录（默认: <cwd>/repowiki）",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="granularity",
+                        description="提取粒度：focused（3-7 核心项）| standard（适中覆盖）| exhaustive（应提尽提）。缺省遵循 schema.yaml 的 extraction_granularity",
                         required=False,
                     ),
                 ],
