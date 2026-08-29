@@ -21,7 +21,6 @@ from codewiki.src.config import (
     FIRST_MODULE_TREE_FILENAME,
     MODULE_TREE_FILENAME,
     meta_join,
-    meta_resolve,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,16 +112,25 @@ def _save_and_compute_order(
     *,
     session: SessionState | None = None,
     workspace: SessionWorkspace | None = None,
+    repo_path: str | None = None,
 ) -> str:
     """Persist a module tree and compute the leaf-first processing order.
 
     Shared by ``handle_save_module_tree``.
     """
-    # Save both immutable snapshot and mutable working copy
-    first_path = meta_join(output_dir, FIRST_MODULE_TREE_FILENAME)
-    working_path = meta_join(output_dir, MODULE_TREE_FILENAME)
+    # Save both immutable snapshot and mutable working copy. Centralized
+    # member repos keep their tree in the per-repo namespaced dir (same
+    # namespace as the analysis cache); everything else stays put.
+    if repo_path:
+        from codewiki.mcp.cache import analysis_meta_dir
 
-    os.makedirs(os.path.dirname(first_path), exist_ok=True)
+        meta_dir = _Path(analysis_meta_dir(repo_path, output_dir))
+    else:
+        meta_dir = _Path(meta_join(output_dir, ""))
+    first_path = meta_dir / FIRST_MODULE_TREE_FILENAME
+    working_path = meta_dir / MODULE_TREE_FILENAME
+
+    os.makedirs(meta_dir, exist_ok=True)
 
     with open(first_path, "w", encoding="utf-8") as f:
         json.dump(module_tree, f, indent=2, ensure_ascii=False)
@@ -193,8 +201,8 @@ def _save_and_compute_order(
         "status": "saved",
         "module_count": total_modules,
         "total_components_assigned": total_assigned,
-        "tree_path": working_path,
-        "first_tree_path": first_path,
+        "tree_path": str(working_path),
+        "first_tree_path": str(first_path),
         "processing_order_file": order_file,
         "hint": (
             "Read the processing_order.json file for the leaf-first generation order. "
@@ -249,7 +257,9 @@ def handle_save_module_tree(
         return json.dumps(
             {"error": "module_tree or module_tree_file is required."}, ensure_ascii=False
         )
-    return _save_and_compute_order(output_dir, module_tree, session=session, workspace=workspace)
+    return _save_and_compute_order(
+        output_dir, module_tree, session=session, workspace=workspace, repo_path=rp
+    )
 
 
 def handle_get_processing_order(
@@ -279,7 +289,9 @@ def handle_get_processing_order(
     # Try session cache first, then disk
     module_tree = session.module_tree if session is not None else {}
     if not module_tree:
-        tree_path = meta_resolve(output_dir, MODULE_TREE_FILENAME)
+        from codewiki.mcp.cache import resolve_analysis_meta_file
+
+        tree_path = resolve_analysis_meta_file(rp, output_dir, MODULE_TREE_FILENAME)
         if os.path.exists(tree_path):
             with open(tree_path, encoding="utf-8") as f:
                 module_tree = json.load(f)

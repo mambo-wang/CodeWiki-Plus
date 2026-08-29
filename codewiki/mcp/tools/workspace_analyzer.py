@@ -16,7 +16,7 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.workspace import SessionWorkspace
@@ -379,6 +379,55 @@ def _handle_monorepo_fallback(
     )
 
 
+def _read_anchor_commit(repo_path: Path, output_dir: Path) -> Optional[str]:
+    """``generation_info.commit_id`` recorded by the repo's last analysis."""
+    from codewiki.mcp.cache import resolve_analysis_meta_file
+
+    mp = resolve_analysis_meta_file(repo_path, output_dir, "metadata.json")
+    if not mp.exists():
+        return None
+    try:
+        md = json.loads(mp.read_text(encoding="utf-8"))
+        return md.get("generation_info", {}).get("commit_id")
+    except Exception:
+        return None
+
+
+def _probe_repo_state(repo_path: Path, output_dir: Path) -> Tuple[Optional[str], bool]:
+    """(HEAD sha, is_dirty).  (None, True) when git is unreadable → never skip.
+
+    Untracked files under the repo's own analysis/wiki output (``.codewiki/``,
+    the colocated ``repowiki/``) are noise — the wiki is committed by the team
+    at its own pace — mirroring ``_detect_git_from_meta``'s filtering.  Any
+    other untracked or modified file counts as dirty.
+    """
+    try:
+        import git
+
+        repo = git.Repo(repo_path)
+        head = repo.head.commit.hexsha
+        dirty = repo.is_dirty(untracked_files=False)
+        if not dirty:
+            try:
+                od_rel = Path(output_dir).resolve().relative_to(
+                    repo_path.resolve()
+                ).as_posix()
+                if od_rel == ".":
+                    od_rel = ""
+            except ValueError:
+                od_rel = ""  # centralized: output_dir outside the repo
+
+            def _noise(p: str) -> bool:
+                if p == ".codewiki" or p.startswith(".codewiki/"):
+                    return True
+                return bool(od_rel) and (p == od_rel or p.startswith(od_rel + "/"))
+
+            dirty = any(not _noise(p) for p in repo.untracked_files)
+        return head, dirty
+    except Exception:
+        return None, True
+
+
 def handle_analyze_workspace(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -446,16 +495,39 @@ def handle_analyze_workspace(
         else:
             repo_output_dir = repo_path / "repowiki"
 
-        # Under centralized the heavy per-repo analysis is gated by
-        # generate_repo_wikis (default off); topology/overview still build from
-        # whatever analysis caches already exist. Colocated always analyzes.
-        should_analyze = (not centralized) or generate_repo_wikis
+        # ── Incremental three-tier dispatch ──────────────────────────────
+        # (docs/多仓Harness工作区-Wiki增量更新设计方案.md)
+        # skipped    : HEAD == persisted anchor + clean worktree + cache
+        #              present → no analyze_repo; the cross-service matcher
+        #              reuses this repo's SQLite routes.
+        # incremental: anchor present but code moved → analyze_repo; the
+        #              returned changes/affected_modules scope the agent's
+        #              doc rewrite (incremental-update prompt).
+        # full       : no anchor → first-time analysis (colocated always;
+        #              centralized under generate_repo_wikis).
+        # deferred   : centralized first-run without generate_repo_wikis
+        #              (status-quo gate; topology from existing caches).
+        from codewiki.mcp.cache import default_cache_db
+
+        anchor = _read_anchor_commit(repo_path, repo_output_dir)
+        cache_present = default_cache_db(repo_path).exists()
+        head, dirty = _probe_repo_state(repo_path, repo_output_dir)
+        unchanged = bool(
+            anchor and cache_present and head and head == anchor and not dirty
+        )
+        if unchanged:
+            mode, should_analyze = "skipped", False
+        elif anchor or (not centralized) or generate_repo_wikis:
+            mode, should_analyze = ("incremental" if anchor else "full"), True
+        else:
+            mode, should_analyze = "deferred", False
 
         entry: Dict[str, Any] = {
             "name": repo_path.name,
             "relative_path": str(repo_path.relative_to(workspace_path)),
             "path": str(repo_path),
             "output_dir": str(repo_output_dir),
+            "mode": mode,
             "analyzed": False,
             "session_id": None,
             "total_components": 0,
@@ -463,6 +535,24 @@ def handle_analyze_workspace(
             "languages": {},
             "has_overview": False,
         }
+
+        if mode == "skipped":
+            # Reuse persisted stats so overview rows stay accurate.
+            summary_path = (
+                SessionWorkspace(repo_path, "incremental-skip").root / "summary.json"
+            )
+            if summary_path.exists():
+                try:
+                    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                    entry.update(
+                        {
+                            "total_components": summary.get("total_components", 0),
+                            "total_leaf_nodes": summary.get("total_leaf_nodes", 0),
+                            "languages": summary.get("languages", {}),
+                        }
+                    )
+                except Exception:
+                    pass
 
         if should_analyze:
             logger.info("Analyzing %s → %s", repo_path.name, repo_output_dir)
@@ -501,6 +591,8 @@ def handle_analyze_workspace(
                         "languages": stats.get("languages", summary.get("languages", {})),
                     }
                 )
+                if result.get("changes") is not None:
+                    entry["changes"] = result["changes"]
             except Exception as e:
                 logger.error("Failed to analyze %s: %s", repo_path.name, e)
                 errors.append({"repo": repo_path.name, "error": str(e)})

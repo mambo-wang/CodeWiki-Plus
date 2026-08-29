@@ -139,8 +139,6 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
 跨会话延续长线工作上下文。任务记忆是**任务范围内的进度知识**(本次做了什么、下一步、待办)，与 Wiki 笔记(**跨任务的通用经验**)互补。
 
 **会话开始时(推荐)：**
-0. **项目定向（必做，独立于任务关联）**：`query_wiki(mode="overview", output_dir=<repo>/repowiki)` 拉取 Team Doctrine 全文 + 场景导航——成本约 1.5K 字符，换来第一句话起就带着团队的做事方式，避免开场跑偏
-   **按需下钻原则**：场景块只注入导航、不预载全文——场景是跨任务的经验卷宗（不绑定任务），预载全文只会烧上下文预算；工作中撞上某条导航对应的领域时，再用 `view_repo_file` 读取该场景全文。Doctrine 是常驻层全文注入，场景是参考资料按需下钻
 1. `list_tasks(status="active")` 列出进行中的任务
 2. **必须用 `ask_followup_question` 工具弹出结构化选择框**（IDE 原生弹框 UI，用户可直接点击），不要用纯文本输出一段话让用户自行回复。选项二选一（加一个"跳过"）：
    - **关联已有任务**：用户从列表中选择，用 `set_session_task(source_session_id=<会话id>, task_id=<任务id>)` 建立绑定，本会话采集的对话会自动带上 `task_id`

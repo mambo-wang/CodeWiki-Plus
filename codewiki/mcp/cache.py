@@ -21,6 +21,7 @@ from codewiki.src.be.dependency_analyzer.models.core import Node
 logger = logging.getLogger(__name__)
 _DB_FILENAME = "analysis_cache.db"
 _CACHE_DIR = ".codewiki"
+_META_DIR = ".meta"
 _DEFAULT_LRU_SIZE = 500
 _K1, _B = 1.5, 0.75
 
@@ -838,6 +839,45 @@ def default_cache_db(repo_path: Path) -> Path:
         first = rp.relative_to(resolution.root).parts[0]
         return resolution.root / _CACHE_DIR / first / _DB_FILENAME
     return rp / _CACHE_DIR / _DB_FILENAME
+
+
+def analysis_meta_dir(repo_path: Path, output_dir: Path) -> Path:
+    """Per-repo analysis-state directory (metadata.json / module_tree.json).
+
+    Standard / colocated: ``<output_dir>/.meta`` (status quo — team-shared,
+    committed with the wiki).  Centralized member repos keep ALL per-repo
+    analysis state under ``<ws>/.codewiki/<repo>/`` (the same namespace as
+    ``default_cache_db``) so repos sharing one workspace repowiki never
+    overwrite each other's incremental anchors and member repos stay
+    pure-code.
+    """
+    rp = Path(repo_path).resolve()
+    try:
+        from codewiki.mcp.tools.workspace_layout import resolve_workspace
+
+        resolution = resolve_workspace(rp)
+    except Exception:  # pragma: no cover - layout resolution must never break analysis
+        return Path(output_dir) / _META_DIR
+    if resolution.centralized and rp != resolution.root:
+        first = rp.relative_to(resolution.root).parts[0]
+        return resolution.root / _CACHE_DIR / first
+    return Path(output_dir) / _META_DIR
+
+
+def resolve_analysis_meta_file(repo_path: Path, output_dir: Path, filename: str) -> Path:
+    """Path to a per-repo analysis-state file, namespaced first.
+
+    Prefers ``analysis_meta_dir``; falls back to the legacy per-output_dir
+    location (``meta_resolve``) so workspaces initialized before namespacing
+    keep their incremental baseline.  A misattributed legacy file degrades
+    safely downstream (an unreachable commit id yields no changes).
+    """
+    primary = analysis_meta_dir(repo_path, output_dir) / filename
+    if primary.exists():
+        return primary
+    from codewiki.src.config import meta_resolve
+
+    return Path(meta_resolve(output_dir, filename))
 
 
 class AnalysisCache:

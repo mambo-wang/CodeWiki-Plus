@@ -2,7 +2,10 @@
   "mcpServers": {
     "codewiki": {
       "command": ".venv\\Scripts\\python.exe",
-      "args": ["-m", "codewiki.mcp.server"],
+      "args": [
+        "-m",
+        "codewiki.mcp.server"
+      ],
       "cwd": "${workspaceRoot}"
     }
   },

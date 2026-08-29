@@ -185,12 +185,18 @@ MCP Server 内置三个 Prompt（IDE Prompt 面板可直接触发）：
    - query_wiki(output_dir=<harness根>/<业务仓>/repowiki)  # 第二跳：仓库级
    - query_cross_service(workspace_path=<harness根>)       # 跨服务调用
 7. 移除业务仓时调用 remove_workspace_repo(name=...)
+8. 增量同步（代码变更后）：直接重跑 analyze_workspace，按返回的 per-repo `mode` 分派——
+   - `skipped`：未变更仓，不碰；
+   - `incremental` / `full`：对该仓按 `changes.affected_modules` 逐仓执行 `incremental-update`
+     prompt 流程增量改写（只改清单内模块页，未列出的不碰）；
+   - `deferred`：centralized 首跑未开 generate_repo_wikis 的仓（仅跨仓分析，现状闸门）。
+   详见《多仓Harness工作区-Wiki增量更新设计方案》。
 ```
 
 ## 6. 与既有能力的协同
 
 - **`init_wiki`**：单仓 Wiki 初始化，被 `init_workspace` 复用（产品级 repowiki 目录结构 + 模板）；每个业务仓各自跑自己的 `init_wiki`。
-- **`analyze_workspace`**：默认输出目录已统一为 `<workspace>/repowiki`，工作区总览（含 Mermaid 跨服务拓扑）与 `.meta/` 跨仓产物直接落入产品级 repowiki，随 harness 仓提交。
+- **`analyze_workspace`**：默认输出目录已统一为 `<workspace>/repowiki`，工作区总览（含 Mermaid 跨服务拓扑）与 `.meta/` 跨仓产物直接落入产品级 repowiki，随 harness 仓提交。默认增量：按 `metadata.json` 的 `generation_info.commit_id` 锚点三档分派（未变更跳过 / 变更增量 / 无锚点全量），centralized 下 per-repo 分析状态按仓命名空间存放（`<ws>/.codewiki/<仓名>/`），见《多仓Harness工作区-Wiki增量更新设计方案》。
 - **`query_cross_service`**：自动从 `<workspace>/repowiki/.meta/` 读取跨仓匹配结果（兼容旧的 `workspace-wiki/.meta/` 数据）。
 - **`query_wiki`**：两跳检索的检索层，产品级与仓库级 repowiki 均可搜。
 
