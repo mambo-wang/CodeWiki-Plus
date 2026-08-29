@@ -230,6 +230,7 @@ def _prompt_init_workspace(args: dict[str, str]) -> str:
 ## 步骤 4: 登记业务仓（仅新工作区需要）
 - 对用户提到的每个业务仓，用 add_workspace_repo(url=<克隆URL>) 逐个登记（目录名自动取仓库名）；用户没给 URL 就先询问，不要凭记忆猜测
 - 登记完成后**不要自动生成 wiki**：不调用 init_wiki / analyze_repo / analyze_workspace，等用户显式要求时再生成
+- 生成时按布局选工具：**centralized** 下 `init_wiki` 不适用于仓库级（知识统一汇入工作区 repowiki，无独立仓库 wiki）——单仓代码知识用 `analyze_repo(<repo_path>)`（不传 output_dir 自动路由到 `wiki/modules/<名>/` 分区），跨仓拓扑与工作区总览用 `analyze_workspace(workspace_path=<工作区根>)`；**colocated** 下按既有流程 `init_wiki` + `analyze_repo`（各仓 wiki 位于 `<repo>/repowiki/`）
 
 ## 注意事项
 - 首次初始化必须显式选择布局：不传 layout 时工具返回 needs_layout_decision 且不写任何产物；重跑自动沿用 `repowiki/.meta/workspace.json` 中持久化的布局（显式传冲突值才报错）
@@ -259,7 +260,7 @@ def _prompt_add_workspace_repo(args: dict[str, str]) -> str:
 - `clone.status` 为 ok；若为 error，登记已保留，提示用户稍后跑 `./bootstrap.sh` 或用 clone=true 重试
 
 ## 步骤 4: 后续
-- 登记完成后**不要自动生成 wiki**：不调用 init_wiki / analyze_repo，等用户显式要求时再建仓库级 Wiki
+- 登记完成后**不要自动生成 wiki**，等用户显式要求时再生成：**centralized** 下 `init_wiki` 不适用于仓库级（知识统一汇入工作区 repowiki）——该仓代码知识用 `analyze_repo(<repo_path>)`（自动路由到 `wiki/modules/<名>/` 分区），跨仓总览用 `analyze_workspace(workspace_path=<工作区根>)`；**colocated** 下按既有流程 `init_wiki` + `analyze_repo`（`<repo>/repowiki/`）
 - 在 repo-map.md 该仓小节填写"业务概述"（替换 <!-- TODO --> 占位）
 
 ## 注意事项

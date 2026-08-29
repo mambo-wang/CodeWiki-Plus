@@ -60,7 +60,20 @@ class SessionWorkspace:
         # Use a fixed directory per repo instead of per-session.
         # Tools write to uniquely-named files (dependencies.json, etc.)
         # and the MCP server is single-threaded per repo, so no conflicts.
-        self.root = repo_path / _WORKSPACE_REL
+        rp = Path(repo_path).resolve()
+        try:
+            from codewiki.mcp.tools.workspace_layout import resolve_workspace
+
+            resolution = resolve_workspace(rp)
+            if resolution.centralized:
+                # Centralized member repos are pure code: their session
+                # workspace lives at <ws>/.codewiki/<repo>/workspace.
+                first = rp.relative_to(resolution.root).parts[0]
+                self.root = resolution.root / ".codewiki" / first / "workspace"
+            else:
+                self.root = rp / _WORKSPACE_REL
+        except Exception:  # pragma: no cover - layout must never break analysis
+            self.root = rp / _WORKSPACE_REL
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / "sources").mkdir(exist_ok=True)
         logger.debug("Workspace at %s", self.root)

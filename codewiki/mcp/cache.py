@@ -819,10 +819,31 @@ class LazyComponentStore:
 # ------------------------------------------------------------------ AnalysisCache
 
 
+def default_cache_db(repo_path: Path) -> Path:
+    """Default analysis-cache DB path for *repo_path*.
+
+    Centralized-workspace members keep their cache under the workspace root
+    (``<ws>/.codewiki/<repo>/analysis_cache.db``) so member repos stay
+    pure-code; everything else keeps the status quo
+    ``repo_path/.codewiki/analysis_cache.db``.
+    """
+    rp = Path(repo_path).resolve()
+    try:
+        from codewiki.mcp.tools.workspace_layout import resolve_workspace
+
+        resolution = resolve_workspace(rp)
+    except Exception:  # pragma: no cover - layout resolution must never break analysis
+        return rp / _CACHE_DIR / _DB_FILENAME
+    if resolution.centralized:
+        first = rp.relative_to(resolution.root).parts[0]
+        return resolution.root / _CACHE_DIR / first / _DB_FILENAME
+    return rp / _CACHE_DIR / _DB_FILENAME
+
+
 class AnalysisCache:
     def __init__(self, repo_path: Path, db_path: Optional[Path] = None):
         self.repo_path = Path(repo_path).resolve()
-        self.db_path = Path(db_path) if db_path else self.repo_path / _CACHE_DIR / _DB_FILENAME
+        self.db_path = Path(db_path) if db_path else default_cache_db(self.repo_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: Optional[sqlite3.Connection] = None
 
