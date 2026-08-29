@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -352,9 +353,9 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         from codewiki.mcp.tools.schema_generator import generate_schema
 
         module_names = []
-        from codewiki.src.config import meta_resolve
+        from codewiki.mcp.cache import resolve_analysis_meta_file
 
-        mtp = Path(meta_resolve(output_dir, "module_tree.json"))
+        mtp = resolve_analysis_meta_file(repo_path, output_dir, "module_tree.json")
         if mtp.exists():
             try:
                 mt = json.loads(mtp.read_text(encoding="utf-8"))
@@ -390,19 +391,28 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     except Exception as e:
         logger.warning("Overview refs extraction failed: %s", e)
 
-    # 7c. Update overview_stale in metadata.json
+    # 7c. Update overview_stale in metadata.json (or create the incremental
+    # baseline anchor: generation_info.commit_id = HEAD at analysis time).
     try:
-        from codewiki.src.config import meta_resolve, PROJECT_FILENAME
+        from codewiki.mcp.cache import analysis_meta_dir
 
-        meta_path = Path(meta_resolve(output_dir, "metadata.json"))
+        meta_path = analysis_meta_dir(repo_path, output_dir) / "metadata.json"
         if meta_path.exists():
             metadata = json.loads(meta_path.read_text(encoding="utf-8"))
             overview_stale = changes_info.get("overview_stale", False) if changes_info else False
             metadata["overview_stale"] = overview_stale
-            meta_path.write_text(
-                json.dumps(metadata, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+        else:
+            meta_path.parent.mkdir(parents=True, exist_ok=True)
+            metadata = {
+                "generation_info": {
+                    "commit_id": _current_head(repo_path),
+                    "timestamp": datetime.now().isoformat(),
+                }
+            }
+        meta_path.write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     except Exception as e:
         logger.warning("Failed to update overview_stale in metadata: %s", e)
 
@@ -762,10 +772,10 @@ def _detect_doc_changes(
     components: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Detect documentation-level changes since last generation (legacy JSON fallback)."""
-    from codewiki.src.config import meta_resolve
+    from codewiki.mcp.cache import resolve_analysis_meta_file
 
-    mp = Path(meta_resolve(output_dir, "metadata.json"))
-    mtp = Path(meta_resolve(output_dir, "module_tree.json"))
+    mp = resolve_analysis_meta_file(repo_path, output_dir, "metadata.json")
+    mtp = resolve_analysis_meta_file(repo_path, output_dir, "module_tree.json")
     if not mp.exists() or not mtp.exists():
         return None
     try:
@@ -809,6 +819,16 @@ def _detect_doc_changes(
         "hint": f"Only {len(affected)} module(s) need updating."
         + (" Overview.md is stale." if overview_stale else ""),
     }
+
+
+def _current_head(repo_path: Path) -> Optional[str]:
+    """HEAD sha of the repo's own git, or None when git is unavailable."""
+    try:
+        import git
+
+        return git.Repo(repo_path).head.commit.hexsha
+    except Exception:
+        return None
 
 
 def _detect_git_from_meta(repo_path: Path, metadata: Dict, output_dir: Path) -> Optional[Dict]:

@@ -90,8 +90,8 @@ class TestAnalyzeWorkspaceCentralized:
             assert entry["output_dir"] == str(ws / "repowiki")
         # Analysis state written into the workspace knowledge base
         assert (ws / "repowiki" / ".meta" / "project.json").is_file()
-        # Per-repo analysis caches stay in the repos (layout-independent)
-        assert (ws / "repo-a" / ".codewiki" / "analysis_cache.db").exists()
+        # Per-repo analysis caches live under <ws>/.codewiki/<repo>/ (pure-code members)
+        assert (ws / ".codewiki" / "repo-a" / "analysis_cache.db").exists()
 
     def test_topology_rerun_after_generation(self, tmp_path):
         ws = _setup(tmp_path, "centralized")
@@ -116,3 +116,68 @@ class TestAnalyzeWorkspaceColocated:
         # Per-repo repowikis created as before
         assert (ws / "repo-a" / "repowiki").is_dir()
         assert (ws / "repo-b" / "repowiki").is_dir()
+
+
+class TestIncrementalDispatch:
+    """Three-tier dispatch: skipped / incremental / full (design doc)."""
+
+    def test_colocated_second_run_skips_unchanged(self, tmp_path):
+        ws = _setup(tmp_path, None)
+        res1 = _analyze(ws)
+        assert all(e["mode"] == "full" for e in res1["repos"])
+
+        res2 = _analyze(ws)
+        for e in res2["repos"]:
+            assert e["mode"] == "skipped"
+            assert e["analyzed"] is False
+            # stats reused from the persisted summary.json
+            assert e["total_components"] >= 1
+
+    def test_commit_flips_repo_to_incremental(self, tmp_path):
+        ws = _setup(tmp_path, None)
+        _analyze(ws)
+        repo = git.Repo(str(ws / "repo-a"))
+        (ws / "repo-a" / "new_mod.py").write_text(PY_MAIN, encoding="utf-8")
+        repo.index.add(["new_mod.py"])
+        repo.index.commit("add module")
+
+        res = _analyze(ws)
+        by = {e["name"]: e for e in res["repos"]}
+        assert by["repo-a"]["mode"] == "incremental"
+        assert by["repo-a"]["analyzed"] is True
+        assert by["repo-b"]["mode"] == "skipped"
+
+    def test_untracked_non_wiki_file_prevents_skip(self, tmp_path):
+        ws = _setup(tmp_path, None)
+        _analyze(ws)
+        (ws / "repo-a" / "dirty.py").write_text("x = 1\n", encoding="utf-8")
+
+        res = _analyze(ws)
+        by = {e["name"]: e for e in res["repos"]}
+        assert by["repo-a"]["mode"] == "incremental"
+        assert by["repo-b"]["mode"] == "skipped"
+
+    def test_centralized_anchors_namespaced_per_repo(self, tmp_path):
+        ws = _setup(tmp_path, "centralized")
+        _analyze(ws, generate_repo_wikis=True)
+        assert (ws / ".codewiki" / "repo-a" / "metadata.json").is_file()
+        assert (ws / ".codewiki" / "repo-b" / "metadata.json").is_file()
+        # the shared knowledge base keeps no per-repo anchor
+        assert not (ws / "repowiki" / ".meta" / "metadata.json").exists()
+
+        res = _analyze(ws)
+        assert all(e["mode"] == "skipped" for e in res["repos"])
+
+    def test_corrupted_anchor_degrades_to_reanalysis(self, tmp_path):
+        ws = _setup(tmp_path, None)
+        _analyze(ws)
+        anchor = ws / "repo-a" / "repowiki" / ".meta" / "metadata.json"
+        md = json.loads(anchor.read_text(encoding="utf-8"))
+        md["generation_info"]["commit_id"] = "0" * 40
+        anchor.write_text(json.dumps(md), encoding="utf-8")
+
+        res = _analyze(ws)
+        by = {e["name"]: e for e in res["repos"]}
+        # anchor mismatch → re-analyze (never skip on a bad anchor)
+        assert by["repo-a"]["analyzed"] is True
+        assert by["repo-b"]["mode"] == "skipped"

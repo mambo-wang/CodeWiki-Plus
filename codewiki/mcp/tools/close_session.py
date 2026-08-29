@@ -125,11 +125,11 @@ def _write_metadata_json(output_dir: str, repo_path: str, commit_id: str | None)
                 "timestamp": datetime.now().isoformat(),
             },
         }
-        from codewiki.src.config import meta_join
+        from codewiki.mcp.cache import analysis_meta_dir
 
-        meta_dir = Path(meta_join(output_dir, ""))
+        meta_dir = analysis_meta_dir(repo_path, output_dir)
         meta_dir.mkdir(parents=True, exist_ok=True)
-        Path(meta_join(output_dir, "metadata.json")).write_text(
+        (meta_dir / "metadata.json").write_text(
             json.dumps(metadata, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
@@ -186,9 +186,9 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
 
     # Determine if docs were written
     docs_generated = False
-    from codewiki.src.config import meta_join
+    from codewiki.mcp.cache import resolve_analysis_meta_file
 
-    if os.path.exists(meta_join(output_dir, "metadata.json")):
+    if resolve_analysis_meta_file(rp, output_dir, "metadata.json").exists():
         docs_generated = True
     elif session is not None and session.docs_written > 0:
         docs_generated = True
