@@ -39,9 +39,7 @@ def _add(tmp_path, url, clone=False, **extra):
 
 def _remove(tmp_path, name):
     return json.loads(
-        wb.handle_remove_workspace_repo(
-            {"workspace_path": str(tmp_path), "name": name}
-        )
+        wb.handle_remove_workspace_repo({"workspace_path": str(tmp_path), "name": name})
     )
 
 
@@ -105,15 +103,43 @@ class TestFreshInit:
 
 
 # ---------------------------------------------------------------------------
+# bootstrap.ps1 UTF-8 BOM (PowerShell 5.1 misdetects BOM-less files as GBK)
+# ---------------------------------------------------------------------------
+class TestPs1Bom:
+    def test_fresh_init_writes_bom(self, tmp_path):
+        _init(tmp_path)
+        assert (tmp_path / "bootstrap.ps1").read_bytes().startswith(wb._UTF8_BOM)
+        assert not (tmp_path / "bootstrap.sh").read_bytes().startswith(wb._UTF8_BOM)
+
+    def test_add_repo_keeps_bom(self, tmp_path):
+        _init(tmp_path)
+        _add(tmp_path, URL_A)
+        assert (tmp_path / "bootstrap.ps1").read_bytes().startswith(wb._UTF8_BOM)
+        assert not (tmp_path / "bootstrap.sh").read_bytes().startswith(wb._UTF8_BOM)
+
+    def test_rerun_repairs_missing_bom(self, tmp_path):
+        _init(tmp_path)
+        ps_path = tmp_path / "bootstrap.ps1"
+        original = ps_path.read_bytes()
+        ps_path.write_bytes(original[len(wb._UTF8_BOM) :])  # simulate pre-fix file
+
+        res = _init(tmp_path)
+        assert res["mode"] == "clone-only"
+        assert res["bootstrap_ps1_bom"].startswith("repaired")
+        assert ps_path.read_bytes() == original  # content untouched, BOM restored
+
+        res = _init(tmp_path)  # idempotent
+        assert "bootstrap_ps1_bom" not in res
+
+
+# ---------------------------------------------------------------------------
 # 2/3. Idempotency and refresh semantics
 # ---------------------------------------------------------------------------
 class TestIdempotency:
     def test_rerun_with_traces_is_clone_only(self, tmp_path):
         _init(tmp_path)
         agents_path = tmp_path / "AGENTS.md"
-        customized = _read(agents_path).replace(
-            "## 分支策略", "## 分支策略（团队定制版）"
-        )
+        customized = _read(agents_path).replace("## 分支策略", "## 分支策略（团队定制版）")
         agents_path.write_text(customized, encoding="utf-8")
         sh_before = (tmp_path / "bootstrap.sh").read_bytes()
 
@@ -440,9 +466,7 @@ class TestInitAutoClone:
         _init(tmp_path)
         _add(tmp_path, URL_C, clone=False)
         (tmp_path / "repo-c" / ".git").mkdir(parents=True)  # already cloned
-        monkeypatch.setattr(
-            wb.subprocess, "run", lambda cmd, **kw: _FakeProc(0)
-        )
+        monkeypatch.setattr(wb.subprocess, "run", lambda cmd, **kw: _FakeProc(0))
         res = _init(tmp_path)
         assert res["clones"]["repo-c"]["status"] == "skipped"
 
@@ -505,19 +529,14 @@ class TestAdoptShortCircuit:
         assert calls and calls[0][:2] == ["git", "clone"]
         # skeleton untouched
         assert (tmp_path / "AGENTS.md").read_bytes() == agents_before
-        assert (
-            tmp_path / "repowiki" / "wiki" / "repo-map.md"
-        ).read_bytes() == repo_map_before
+        assert (tmp_path / "repowiki" / "wiki" / "repo-map.md").read_bytes() == repo_map_before
 
     def test_missing_gitignore_line_repaired(self, tmp_path):
         _init(tmp_path)
         _add(tmp_path, URL_C, clone=False)
         gi_path = tmp_path / ".gitignore"
         gi_path.write_text(
-            "\n".join(
-                line for line in _read(gi_path).splitlines() if line != "/repo-c/"
-            )
-            + "\n",
+            "\n".join(line for line in _read(gi_path).splitlines() if line != "/repo-c/") + "\n",
             encoding="utf-8",
         )
 

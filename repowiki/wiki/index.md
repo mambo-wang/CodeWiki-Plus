@@ -6,7 +6,7 @@ aliases:
 - 知识笔记索引
 ---
 
-<!-- 自动生成于 2026-08-29T06:13:08+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-29T15:03:16+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -75,6 +75,7 @@ aliases:
 
 ## 知识笔记
 
+* [生成的 .ps1 必须带 UTF-8 BOM，否则 PowerShell 5.1 按 GBK 误读](../notes/2026-08-29-生成的-ps1-必须带-utf-8-bom否则-powershell-51-按-gbk-误读.md) - pitfall (pitfall, 2026-08-29)
 * [analyze_changes 的 changed_components 行区间定位是近似，跨函数边界会误报组件](../notes/2026-08-26-analyze-changes-的-changed-components-行区间定位是近似跨函数边界会误报组件.md) - pitfall (pitfall, 2026-08-26)
 * [analyze_repo 增量与依赖图谱的测试并行执行存在时序竞态](../notes/2026-08-26-analyze-repo-增量与依赖图谱的测试并行执行存在时序竞态.md) - lesson (lesson, 2026-08-26)
 * [build 后端 setuptools→hatchling 迁移后 wheel 内容会变化，需对比文件清单而非只看能否安装](../notes/2026-08-26-build-后端-setuptoolshatchling-迁移后-wheel-内容会变化需对比文件清单而非只看能否安装.md) - pitfall (pitfall, 2026-08-26)
