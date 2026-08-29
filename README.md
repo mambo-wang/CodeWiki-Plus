@@ -257,7 +257,7 @@ repowiki/
 
 | 工具 | 用途 |
 |------|------|
-| `init_workspace` | 把当前目录初始化（或重新同步）为多仓 harness 工作区：生成 bootstrap 克隆脚本（登记表）、.gitignore、repo-map 导航骨架、AGENTS.md 工作区约定（两跳检索路由、提交纪律）与产品级 repowiki；零配置幂等——重跑自动沿用布局、强制刷新约定块、自动克隆登记表中未克隆的业务仓；业务仓登记走 add_workspace_repo |
+| `init_workspace` | 把当前目录初始化（或重新同步）为多仓 harness 工作区：生成 bootstrap 克隆脚本（登记表）、.gitignore、repo-map 导航骨架、AGENTS.md 工作区约定（两跳检索路由、提交纪律）与产品级 repowiki；零配置幂等——痕迹齐备（bootstrap 脚本 + .gitignore + repowiki 骨架）时重跑为 clone-only 接管：只补克隆未克隆的业务仓、不触碰其他文件；骨架有缺失才补齐产物并强制刷新约定块；业务仓登记走 add_workspace_repo |
 | `add_workspace_repo` | 按克隆 URL 向工作区登记业务仓（目录名自动取仓库名）：事务式同步 bootstrap.sh/ps1 登记表、.gitignore、repo-map.md 四处，默认顺带 git clone（失败只警告、不回滚登记）；同名同 URL 重登记为空操作 |
 | `remove_workspace_repo` | 按子目录名移除业务仓登记（bootstrap 表、.gitignore、repo-map.md 四处），按仓归属过滤 analyze_workspace 的跨仓分析缓存（.meta routes/links/infra 与生成的 overview），并删除本地目录（不可恢复） |
 
@@ -957,7 +957,7 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP. The serve
 
 | Tool | Purpose |
 |------|---------|
-| `init_workspace` | Initialize (or re-sync) the current directory as a multi-repo harness workspace: generates bootstrap clone scripts (registration table), .gitignore, repo-map navigation skeleton, workspace conventions in AGENTS.md (two-hop retrieval routing, commit discipline) and the product-level repowiki. Zero-config and idempotent — re-runs adopt the persisted layout, force-refresh the conventions block, and git-clone any registered business repo not yet cloned. Register business repos via add_workspace_repo |
+| `init_workspace` | Initialize (or re-sync) the current directory as a multi-repo harness workspace: generates bootstrap clone scripts (registration table), .gitignore, repo-map navigation skeleton, workspace conventions in AGENTS.md (two-hop retrieval routing, commit discipline) and the product-level repowiki. Zero-config and idempotent — when every init trace is present (bootstrap scripts + .gitignore + repowiki skeleton) a re-run is clone-only: it fetches just the uncloned business repos and touches nothing else; missing skeletons are repaired and the conventions block refreshed only in that case. Register business repos via add_workspace_repo |
 | `add_workspace_repo` | Register a business repo by clone URL (directory name derived from the repo name): transactionally updates the bootstrap.sh/ps1 tables, .gitignore and repo-map.md, then git-clones by default (clone failure only warns, registration is kept). Re-registering the same name+URL is a no-op |
 | `remove_workspace_repo` | Deregister a business repo by subdirectory name (bootstrap tables, .gitignore, repo-map.md), scrub the repo from analyze_workspace caches (.meta routes/links/infra and the generated overview), and delete the local clone directory (irreversible) |
 
