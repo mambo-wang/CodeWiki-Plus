@@ -17,7 +17,12 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from codewiki.mcp.cache import AnalysisCache, ComponentMeta, LazyComponentStore
+from codewiki.mcp.cache import (
+    AnalysisCache,
+    ComponentMeta,
+    LazyComponentStore,
+    default_cache_db,
+)
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.workspace import SessionWorkspace
 
@@ -287,11 +292,11 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         # cache_db is resolved by consumers against output_dir.parent; express
         # it relative to that anchor so it stays valid in both layouts
         # (standard: ".codewiki/analysis_cache.db"; centralized:
-        # "<repo>/.codewiki/analysis_cache.db" under the workspace root).
+        # ".codewiki/<repo>/analysis_cache.db" under the workspace root).
         try:
-            _cache_rel = os.path.relpath(
-                repo_path / ".codewiki" / "analysis_cache.db", output_dir.parent
-            ).replace("\\", "/")
+            _cache_rel = os.path.relpath(default_cache_db(repo_path), output_dir.parent).replace(
+                "\\", "/"
+            )
         except ValueError:
             _cache_rel = ".codewiki/analysis_cache.db"
         project_info = {
