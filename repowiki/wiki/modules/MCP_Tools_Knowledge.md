@@ -36,7 +36,7 @@ verified:
 | `handle_ingest_note` | 公开 | knowledge_loop.py | 接收用户笔记要点并暂存为待确认 note |
 | `handle_confirm_note` | 公开 | knowledge_loop.py | 确认 note，注入到对应模块文档 |
 | `handle_reject_note` | 公开 | knowledge_loop.py | 拒绝 note，标记状态 |
-| `handle_batch_ingest` | 公开 | batch_ingest.py | 批量摄入多个源码路径生成文档 |
+| `handle_batch_ingest` | 公开 | batch_ingest.py | 批量摄入 notes/sources；完整逐项报告落盘 `.meta/batch_ingest_report.json`，返回值仅含摘要与报告路径 |
 | `handle_read_code_components` | 公开 | code_reader.py | 读取代码组件（类/函数）用于文档生成 |
 | `handle_view_repo_file` | 公开 | file_viewer.py | 查看仓库内文件内容 |
 | `handle_ingest_source` | 公开 | source_ingest.py | 摄入源文件并建立 source→doc 注册表 |
@@ -56,6 +56,7 @@ verified:
 3. **笔记闭环**：`ingest→confirm/reject` 状态机（`_update_note_status`）保证用户知识可控沉淀。
 4. **源注册表**：source_ingest 维护 registry 记录 source 与生成 doc 的映射，支持 retract 回滚。
 5. **AGENTS.md 自动生成**：从各模块 frontmatter 抽取组件，聚合为仓库入口文档。
+6. **大载荷报告落盘**：`handle_batch_ingest` 将完整逐项结果写入 `<output_dir>/.meta/batch_ingest_report.json`，返回值仅含 `summary` 与 `report_file` 路径，避免 MCP 通道大载荷超时；调用方可用 `view_repo_file` 读取报告详情。无 `output_dir` 时退回内联 `results`。
 
 ## 数据流（mermaid）
 
@@ -77,18 +78,20 @@ flowchart LR
 
 ## 依赖关系
 
-- [[MCP_Server]]：注册并调度上述 `handle_*` 工具。
-- [[MCP_Core]]：复用知识库读写与文档模型。
-- [[MCP_Cache]]：缓存 symbol map 与查询结果。
-- [[MCP_Tools_Quality]]：文档质量校验（注入前）。
-- [[SharedConfig]]：仓库路径、输出目录等配置。
+- [MCP_Server](MCP_Server.md)：注册并调度上述 `handle_*` 工具。
+- [MCP_Core](MCP_Core.md)：复用知识库读写与文档模型。
+- [MCP_Cache](MCP_Cache.md)：缓存 symbol map 与查询结果。
+- [MCP_Tools_Quality](MCP_Tools_Quality.md)：文档质量校验（注入前）。
+- [SharedConfig](SharedConfig.md)：仓库路径、输出目录等配置。
 
 ## 使用示例
 
 ```python
 # 摄入源码并生成文档
 await handle_ingest_source(repo="myrepo", paths=["src/foo.py"])
-await handle_batch_ingest(repo="myrepo", roots=["src/"])
+resp = await handle_batch_ingest(repo="myrepo", items=[{"kind": "source", "paths": ["src/"]}])
+# resp 含 status/total/succeeded/failed 与 report_file（如 .meta/batch_ingest_report.json）
+# 完整逐项结果用 view_repo_file 读取该报告
 
 # 用户补充知识
 await handle_ingest_note(repo="myrepo", text="Foo 负责鉴权", module="Foo")
@@ -107,4 +110,4 @@ result = await handle_query_wiki(repo="myrepo", mode="detail", module="Foo")
 
 ## 相关模块
 
-[[MCP_Server]] [[MCP_Core]] [[MCP_Cache]] [[MCP_Tools_Quality]] [[MCP_Tools_DocWriter]] [[MCP_Tools_Analysis]] [[SharedConfig]] [[LLM_Backend]]
+[MCP_Server](MCP_Server.md) [MCP_Core](MCP_Core.md) [MCP_Cache](MCP_Cache.md) [MCP_Tools_Quality](MCP_Tools_Quality.md) [MCP_Tools_DocWriter](MCP_Tools_DocWriter.md) [MCP_Tools_Analysis](MCP_Tools_Analysis.md) [SharedConfig](SharedConfig.md) [LLM_Backend](LLM_Backend.md)
