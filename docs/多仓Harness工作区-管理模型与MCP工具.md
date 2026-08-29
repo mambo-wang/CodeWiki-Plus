@@ -103,7 +103,7 @@ CodeWiki v5.5.0 为这个模型提供了三个开箱即用的 MCP 工具与配�
 
 把**当前目录**初始化（或重新同步）为多仓 harness 工作区。**零配置幂等**，重跑按初始化痕迹分两种模式（返回的 `mode` / `mode_reason` / `traces` 字段标明走了哪条）：
 
-- **痕迹齐备 → clone-only 接管**：`bootstrap.sh` / `bootstrap.ps1`（登记表可解析）+ `.gitignore` + `repowiki/` 骨架（`wiki/` + `schema.yaml`）都在，就视为工作区已初始化——重跑**只克隆登记表中尚未克隆的业务仓**（顺带补齐缺失的 `.gitignore` 排除行），不重新生成骨架、不改写 AGENTS.md。典型场景：harness 仓在新机器上克隆后直接重跑，只需把业务仓拉下来。
+- **痕迹齐备 → clone-only 接管**：`bootstrap.sh` / `bootstrap.ps1`（登记表可解析）+ `.gitignore` + `repowiki/` 骨架（`wiki/` + `schema.yaml`）都在，就视为工作区已初始化——重跑**只克隆登记表中尚未克隆的业务仓**（顺带补齐缺失的 `.gitignore` 排除行），不重新生成骨架、不改写 AGENTS.md。典型场景：harness 仓在新机器上克隆后直接重跑，只需把业务仓拉下来。该场景也可直接执行 bootstrap 脚本补克隆（脚本与工具读同一张登记表），无需经过本工具；clone-only 是误调用的兜底。
 - **骨架有缺失 → 完整同步修复**：自动沿用已保存的布局、补齐缺失产物、强制刷新约定块，并补克隆（克隆失败只警告，可稍后 `./bootstrap.sh` 或再次重跑补克隆）。
 
 | 参数 | 必填 | 默认 | 说明 |
