@@ -1,13 +1,23 @@
 ---
 type: pitfall
-title: "distill_conversation submit MCP 超时后仍会执行且不幂等——超时重试导致任务记忆重复写入与字节交错损坏"
-tags: ["pitfall", "unicodedecodeerror"]
-aliases: ["distill submit 幂等", "任务记忆损坏", "per-user memories 文件", "distill 重复写入"]
+title: distill_conversation submit MCP 超时后仍会执行且不幂等——超时重试导致任务记忆重复写入与字节交错损坏
+tags:
+- pitfall
+- unicodedecodeerror
+aliases:
+- distill submit 幂等
+- 任务记忆损坏
+- per-user memories 文件
+- distill 重复写入
 metadata:
   date: 2026-08-26
   severity: high
+  consolidated_into:
+  - wiki/scenarios/对话蒸馏管线与raw暂存区.md
 status: stable
-generated: { by: codewiki/5.4.4, at: 2026-08-26T04:31:03Z }
+generated:
+  by: codewiki/5.4.4
+  at: 2026-08-26 04:31:03+00:00
 stale_after: 2027-02-22
 ---
 

@@ -17,6 +17,8 @@ metadata:
   - mcp
   - team-memory
   source_ref: tam-team-memory-practice
+  consolidated_into:
+  - wiki/scenarios/对话蒸馏管线与raw暂存区.md
 status: stable
 generated:
   by: codewiki/5.3.0
