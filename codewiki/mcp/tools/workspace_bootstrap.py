@@ -77,12 +77,35 @@ def _err(message: str) -> str:
 
 
 def _read_text(path: Path) -> str:
-    # Normalize CRLF so the table regexes (anchored on \n) work everywhere.
-    return path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    # utf-8-sig strips any UTF-8 BOM so rewrites never double it (files
+    # without a BOM read identically).  Normalize CRLF so the table regexes
+    # (anchored on \n) work everywhere.
+    return path.read_text(encoding="utf-8-sig").replace("\r\n", "\n")
 
 
 def _write_text(path: Path, text: str) -> None:
-    path.write_text(text, encoding="utf-8", newline="\n")
+    # bootstrap.ps1 must carry a UTF-8 BOM: Windows PowerShell 5.1 decodes
+    # BOM-less scripts as ANSI (GBK on zh-CN Windows), mangling the Chinese
+    # text until the script no longer parses.  bootstrap.sh stays BOM-less —
+    # a BOM would break its shebang.
+    encoding = "utf-8-sig" if path.suffix == ".ps1" else "utf-8"
+    path.write_text(text, encoding=encoding, newline="\n")
+
+
+_UTF8_BOM = b"\xef\xbb\xbf"
+
+
+def _ensure_ps1_bom(ps_path: Path) -> bool:
+    """Prepend a UTF-8 BOM to a bootstrap.ps1 written before the BOM fix.
+
+    Byte-level on purpose: the content (including its line endings) stays
+    bit-identical, only the marker is added.  Returns True when repaired.
+    """
+    data = ps_path.read_bytes()
+    if data.startswith(_UTF8_BOM):
+        return False
+    ps_path.write_bytes(_UTF8_BOM + data)
+    return True
 
 
 def _render_template(name: str, **variables: str) -> str:
@@ -410,9 +433,7 @@ def _adopt_initialized_workspace(
     un-cloned registered repos.  Returns (registration info, error).
     """
     config_path = output_dir_p / ".meta" / "workspace.json"
-    layout = (
-        read_layout_value(config_path) if config_path.exists() else LAYOUT_COLOCATED
-    )
+    layout = read_layout_value(config_path) if config_path.exists() else LAYOUT_COLOCATED
     if layout_arg and layout_arg != layout:
         return None, (
             f"workspace already initialized with layout {layout!r}; refusing "
@@ -422,6 +443,8 @@ def _adopt_initialized_workspace(
     info, err = _load_tables(workspace_p)
     if err:  # trace detection already validated the tables; guard anyway
         return None, err
+    if _ensure_ps1_bom(info["ps_path"]):
+        results["bootstrap_ps1_bom"] = "repaired (was written without a BOM)"
 
     results["mode"] = "clone-only"
     results["mode_reason"] = (
@@ -437,9 +460,7 @@ def _adopt_initialized_workspace(
     )
     # Registered repos must stay excluded from the harness git — repair any
     # missing /name/ line (no-op when every exclusion is already present).
-    results["gitignore"] = _ensure_gitignore(
-        workspace_p, sorted(info["sh_entries"])
-    )
+    results["gitignore"] = _ensure_gitignore(workspace_p, sorted(info["sh_entries"]))
     return info, None
 
 
@@ -507,6 +528,8 @@ def _run_full_skeleton_flow(
     info, err = _load_tables(workspace_p)
     if err:
         return None, err
+    if results["bootstrap_scripts"] != "created" and _ensure_ps1_bom(info["ps_path"]):
+        results["bootstrap_ps1_bom"] = "repaired (was written without a BOM)"
 
     # ── .gitignore ───────────────────────────────────────────────────────
     results["gitignore"] = _ensure_gitignore(workspace_p, [])
@@ -645,17 +668,13 @@ def handle_init_workspace(arguments: dict) -> str:
     adopt = all(traces.values())
     results["traces"] = traces
     if adopt:
-        info, err = _adopt_initialized_workspace(
-            workspace_p, output_dir_p, layout_arg, results
-        )
+        info, err = _adopt_initialized_workspace(workspace_p, output_dir_p, layout_arg, results)
     else:
         missing = sorted(k for k, v in traces.items() if not v)
         results["mode_reason"] = (
             f"missing init traces ({', '.join(missing)}): full initialization/sync flow"
         )
-        info, err = _run_full_skeleton_flow(
-            workspace_p, output_dir_p, layout_arg, results
-        )
+        info, err = _run_full_skeleton_flow(workspace_p, output_dir_p, layout_arg, results)
     if err:
         return _err(err)
 
@@ -1026,11 +1045,7 @@ def _cleanup_analysis_artifacts(workspace_p: Path, name: str) -> dict:
         routes_path = meta_dir / "workspace_routes.json"
         routes = _read_json(routes_path) if routes_path.exists() else None
         if isinstance(routes, list):
-            kept = [
-                r
-                for r in routes
-                if not (isinstance(r, dict) and r.get("repo_name") == name)
-            ]
+            kept = [r for r in routes if not (isinstance(r, dict) and r.get("repo_name") == name)]
             dropped = len(routes) - len(kept)
             if dropped:
                 _write_text(routes_path, json.dumps(kept, ensure_ascii=False, indent=2))
@@ -1092,9 +1107,7 @@ def _remove_repo_from_overview(overview_path: Path, name: str, infra_removed: li
     lines = kept
 
     kept = [
-        ln
-        for ln in lines
-        if not (ln.startswith(f"- [{name}](") or ln.startswith(f"- {name} — "))
+        ln for ln in lines if not (ln.startswith(f"- [{name}](") or ln.startswith(f"- {name} — "))
     ]
     status["overviews_bullet"] = "removed" if len(kept) != len(lines) else "not_found"
     lines = kept
@@ -1102,9 +1115,7 @@ def _remove_repo_from_overview(overview_path: Path, name: str, infra_removed: li
     if infra_removed:
         before = len(lines)
         lines = [
-            ln
-            for ln in lines
-            if not any(ln.startswith(f"| {svc} |") for svc in infra_removed)
+            ln for ln in lines if not any(ln.startswith(f"| {svc} |") for svc in infra_removed)
         ]
         status["infra_rows"] = before - len(lines)
 

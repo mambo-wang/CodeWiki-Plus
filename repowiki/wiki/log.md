@@ -2,6 +2,9 @@
 
 > 本文件为追加写入的操作记录，由系统自动维护
 
+## 2026-08-29
+* **ingest_note**: 添加笔记: 生成的 .ps1 必须带 UTF-8 BOM，否则 PowerShell 5.1 按 GBK 误读
+
 ## 2026-08-28
 * **analyze_repo**: 分析仓库 codewiki-plus，1607 个组件
 
