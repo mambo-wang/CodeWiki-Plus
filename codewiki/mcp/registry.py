@@ -2101,47 +2101,28 @@ _register(
     Tool(
         name="init_workspace",
         description=(
-            "Initialize a multi-repo harness workspace: the current directory (or "
-            "workspace_path) becomes the product-level workbench hosting business "
-            "repos as independent git clones in subdirectories (excluded via "
-            ".gitignore, not submodules). Generates bootstrap.sh / bootstrap.ps1 "
-            "clone scripts with an empty registration table, a .gitignore that keeps "
-            "business repos out of the harness git, a repo-map.md navigation skeleton, "
-            "workspace conventions (retrieval routing per layout, commit discipline) as "
-            "a marked section in AGENTS.md, and the standard product-level repowiki. "
-            "The layout parameter selects the knowledge layout: colocated (default — "
-            "every business repo keeps its own repowiki; two-hop retrieval; identical "
-            "to v5.5.0 output) or centralized (all knowledge lives in the workspace "
-            "repowiki; business repos carry no repowiki; one-hop retrieval). "
-            "Idempotent: bootstrap scripts, repo-map, README and schema.yaml are never "
-            "clobbered on re-run; the conventions block is only refreshed when "
-            "refresh_conventions=true. Registration and cloning of business repos are "
-            "handled by add_workspace_repo(name, url); follow up with init_wiki / "
+            "Initialize (or re-sync) a multi-repo harness workspace in the current "
+            "working directory: the directory becomes the product-level workbench "
+            "hosting business repos as independent git clones in subdirectories "
+            "(excluded via .gitignore, not submodules). Generates bootstrap.sh / "
+            "bootstrap.ps1 clone scripts with a registration table, a .gitignore that "
+            "keeps business repos out of the harness git, a repo-map.md navigation "
+            "skeleton, workspace conventions (retrieval routing per layout, commit "
+            "discipline) as a marked section in AGENTS.md, and the standard "
+            "product-level repowiki. Zero-config and idempotent: re-runs adopt the "
+            "persisted knowledge layout (colocated or centralized, chosen on first "
+            "init), keep existing artifacts, force-refresh the conventions block, and "
+            "git-clone any registered business repo that is not yet cloned (a failed "
+            "clone only warns; ./bootstrap.sh retries later). Register new business "
+            "repos with add_workspace_repo(url); follow up with init_wiki / "
             "analyze_repo per repo, then analyze_workspace for cross-repo analysis."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "workspace_path": {
-                    "type": "string",
-                    "description": "Existing directory to become the workspace root (default: current working directory; not auto-created).",
-                },
                 "output_dir": {
                     "type": "string",
                     "description": "Product-level repowiki directory (default: <workspace>/repowiki).",
-                },
-                "layout": {
-                    "type": "string",
-                    "enum": ["colocated", "centralized"],
-                    "description": "Knowledge layout mode. colocated (default): every business repo keeps its own repowiki, two-hop retrieval, identical to v5.5.0 output. centralized: all knowledge lives in the workspace repowiki (wiki/modules/<repo>/ partitions + shared pools), business repos carry no repowiki, one-hop retrieval. The choice is persisted to <repowiki>/.meta/workspace.json and cannot be changed in place later.",
-                },
-                "refresh_conventions": {
-                    "type": "boolean",
-                    "description": "Force-refresh the workspace conventions block in AGENTS.md (default: false — existing block is kept).",
-                },
-                "with_readme": {
-                    "type": "boolean",
-                    "description": "Create a README.md skeleton when missing (default: true).",
                 },
             },
             "required": [],
@@ -2205,10 +2186,11 @@ _register(
             "Deregister a business repo from an initialized harness workspace by its "
             "subdirectory name. Transactionally removes the entry from the "
             "bootstrap.sh and bootstrap.ps1 registration tables, the /<name>/ line "
-            "from .gitignore and the nav row + section from repo-map.md. The local "
-            "clone directory is kept unless delete_dir=true (irreversible); once the "
-            "gitignore line is gone, a kept directory is no longer hidden from the "
-            "harness git. Removing a name that is not registered is a safe no-op "
+            "from .gitignore and the nav row + section from repo-map.md, scrubs the "
+            "repo from analyze_workspace artifacts (workspace_routes.json / "
+            "cross_service_links.json / infra_services.json under repowiki/.meta/ "
+            "and the generated overview.md), then deletes the local clone directory "
+            "(irreversible). Removing a name that is not registered is a safe no-op "
             "error. Never touches AGENTS.md or the other registered repos."
         ),
         inputSchema={
@@ -2221,10 +2203,6 @@ _register(
                 "name": {
                     "type": "string",
                     "description": "Registered subdirectory name of the business repo to remove.",
-                },
-                "delete_dir": {
-                    "type": "boolean",
-                    "description": "Also delete the cloned directory (default: false; deletion is irreversible).",
                 },
             },
             "required": ["name"],

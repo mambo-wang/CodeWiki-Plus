@@ -234,15 +234,14 @@ class TestPromptRegistryDriven:
         assert "绝不主动新建" in s
 
     def test_init_workspace_prompt_renders(self):
-        import os
-
         from codewiki.mcp.prompts import _prompt_init_workspace
 
-        ws = os.path.normpath("D:/tmp/ws")
-        s = _prompt_init_workspace({"workspace_path": "D:/tmp/ws"})
-        assert f'init_workspace(workspace_path="{ws}"' in s
+        s = _prompt_init_workspace({})
+        assert "init_workspace()" in s  # zero-config invocation
         assert "bootstrap.sh" in s
         assert "CodeWiki Workspace Conventions" in s
+        assert "自动克隆" in s  # re-sync auto-clone wording
+        assert "centralized" in s  # first-init layout choice guidance
         assert "不要凭记忆猜测" in s  # URL gathering guardrail
         assert "add_workspace_repo" in s
 

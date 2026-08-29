@@ -207,32 +207,29 @@ CLI 自动检测项目根目录存在哪些 IDE 配置目录（`.codebuddy/` / `
 
 
 def _prompt_init_workspace(args: dict[str, str]) -> str:
-    workspace_path = _resolve_path(args.get("workspace_path", ""))
-    return f"""请把指定目录初始化为多仓 harness 工作区。按以下步骤执行：
+    return """请把当前工作目录初始化（或重新同步）为多仓 harness 工作区。按以下步骤执行：
 
-## 步骤 1: 确认工作区根目录
-- **workspace_path**：{workspace_path}
-- 若用户未指定目录，则使用当前工作目录（init_workspace 的默认值），不要额外询问。
+## 步骤 1: 判断目录现状
+- init_workspace 现在零参数运行，作用于当前工作目录；若用户提到的工作区不是当前目录，先与用户确认
+- **已是工作区**（存在 `bootstrap.sh` / `repowiki/`）：重跑即"同步修复"——自动沿用已保存的布局、补齐缺失产物、强制刷新约定块、**自动克隆登记表中尚未克隆的业务仓**。无需向用户询问任何参数，直接执行
+- **全新目录**：先询问用户选择知识布局——`colocated`（各业务仓自带 repowiki，两跳检索，默认）还是 `centralized`（知识全部集中在工作区 repowiki，一跳检索）
 
 ## 步骤 2: 初始化
-调用 init_workspace(workspace_path="{workspace_path}")
-- 生成 `bootstrap.sh` / `bootstrap.ps1`（空登记表：目录名 -> 仓库 URL）
-- 生成/更新 `.gitignore`（业务仓目录 + 通用忽略；产品级 repowiki 与跨仓分析产物入库，不忽略）
-- 生成 `repowiki/wiki/repo-map.md` 导航骨架与 README.md 骨架
-- 向 AGENTS.md 写入工作区约定块（两跳检索路由、提交纪律、知识写入路由、新仓接入清单）
-- 复用 init_wiki 建产品级 repowiki 目录结构与 schema.yaml
+- 重跑/默认：调用 init_workspace()
+- 全新目录且用户选择集中式：调用 init_workspace(layout="centralized")
+- 产物：`bootstrap.sh` / `bootstrap.ps1`（登记表：目录名 -> 仓库 URL）、`.gitignore`、`repowiki/wiki/repo-map.md`、AGENTS.md 约定块、产品级 repowiki
 
-## 步骤 3: 校验产物
-- `bootstrap.sh` / `bootstrap.ps1` 存在且登记表结构完好（`declare -A repos=(` / `$repos = [ordered]@{{`）
+## 步骤 3: 校验产物与克隆结果
+- `bootstrap.sh` / `bootstrap.ps1` 存在且登记表结构完好（`declare -A repos=(` / `$repos = [ordered]@{`）
 - `AGENTS.md` 同时含 `<!-- CodeWiki Workspace Conventions -->` 与 `<!-- CodeWiki LLM Wiki -->` 两个标记块
-- `repowiki/wiki/repo-map.md` 已生成
+- 检查返回的 `clones` 字段：status=ok/skipped 表示已就位；error/warn 时把原因告知用户，并提示修好网络/凭据后重跑 init_workspace 或执行 `./bootstrap.sh` 补克隆
 
-## 步骤 4: 登记业务仓并建仓库级 Wiki
+## 步骤 4: 登记业务仓（仅新工作区需要）
 - 对用户提到的每个业务仓，用 add_workspace_repo(url=<克隆URL>) 逐个登记（目录名自动取仓库名）；用户没给 URL 就先询问，不要凭记忆猜测
-- 对每个业务仓调用 init_wiki / analyze_repo（output_dir=<workspace>/<name>/repowiki），再在工作区根跑 analyze_workspace(workspace_path="{workspace_path}") 生成跨服务总览
+- 登记完成后**不要自动生成 wiki**：不调用 init_wiki / analyze_repo / analyze_workspace，等用户显式要求时再生成
 
 ## 注意事项
-- init_workspace 幂等：重跑不覆盖 bootstrap 脚本、repo-map、README、schema.yaml；约定块默认保留（refresh_conventions=true 才强制刷新）
+- init_workspace 幂等：重跑自动沿用布局、强制刷新约定块、补齐缺失克隆；bootstrap 脚本、repo-map、README、schema.yaml 不覆盖（自定义内容写在标记块外）
 - 后续新增/移除业务仓分别用 `add_workspace_repo` / `remove_workspace_repo` prompt 或工具，不要手工改四个文件"""
 
 
@@ -257,8 +254,8 @@ def _prompt_add_workspace_repo(args: dict[str, str]) -> str:
 - `repo-map.md` 有该仓的导航行与 `## <name>` 小节
 - `clone.status` 为 ok；若为 error，登记已保留，提示用户稍后跑 `./bootstrap.sh` 或用 clone=true 重试
 
-## 步骤 4: 后续（可选但推荐）
-- 为该业务仓建仓库级 Wiki：init_wiki / analyze_repo（output_dir=<workspace>/<name>/repowiki）
+## 步骤 4: 后续
+- 登记完成后**不要自动生成 wiki**：不调用 init_wiki / analyze_repo，等用户显式要求时再建仓库级 Wiki
 - 在 repo-map.md 该仓小节填写"业务概述"（替换 <!-- TODO --> 占位）
 
 ## 注意事项
@@ -278,21 +275,19 @@ def _prompt_remove_workspace_repo(args: dict[str, str]) -> str:
 - **name**：业务仓在 workspace 下的子目录名（登记时的目录名，不是完整 URL）
 - 若用户没指定 name，先查看 bootstrap.sh 登记表或询问用户，不要猜。
 
-## 步骤 2: 确认删除范围（重要）
-- 向用户确认是否同时删除该仓的本地 clone 目录 `<workspace>/<name>/`：
-  - 默认只移除登记（bootstrap 表、.gitignore、repo-map.md），保留本地目录
-  - 只有用户明确要求删除本地代码时，才传 delete_dir=true（删除不可恢复）
-
-## 步骤 3: 移除登记
-调用 remove_workspace_repo(workspace_path="{workspace_path}", name="<目录名>", delete_dir=<true|false>)
+## 步骤 2: 移除登记与本地目录
+调用 remove_workspace_repo(workspace_path="{workspace_path}", name="<目录名>")
 - 事务式移除四处：bootstrap.sh 登记行、bootstrap.ps1 登记行、.gitignore 的 `/<name>/`、repo-map.md 的导航行与小节
+- 同步清理 analyze_workspace 产物：repowiki/.meta/ 下的 workspace_routes.json / cross_service_links.json / infra_services.json 按仓归属过滤，生成的 overview.md 删除该仓服务行与链接
+- 本地 clone 目录 `<workspace>/<name>/` 会一并删除（不可恢复），无需再向用户确认——用户要求移除该仓即已表达删除意图
 - 若该仓未登记会直接报错（安全无操作）
 
-## 步骤 4: 校验结果
+## 步骤 3: 校验结果
 - 两个 bootstrap 脚本的登记表已无该仓
 - `.gitignore` 无 `/<name>/`
 - `repo-map.md` 无该仓导航行与小节
-- 若保留目录：确认 `<workspace>/<name>/` 仍在，并提醒用户该目录现在**不再被 .gitignore 排除**——harness 仓 `git status` 会看到它，切勿 `git add .` 把业务代码提交进 harness（必要时手动删除或重新加回 .gitignore）
+- `<workspace>/<name>/` 目录已不存在
+- 查看返回的 `analysis_cleanup`：routes/links/infra 过滤数与 overview 行清理状态符合预期（无产物时为 0 / skipped）
 
 ## 注意事项
 - 移除登记不影响其他业务仓
@@ -1361,30 +1356,15 @@ def register(server):
                 name="init-workspace",
                 title="初始化多仓 harness 工作区",
                 description=(
-                    "把当前目录（或 workspace_path）初始化为多仓工作区：生成 bootstrap 克隆脚本"
-                    "（空登记表）、.gitignore、repo-map 导航骨架、AGENTS.md 工作区约定"
-                    "（两跳检索路由、提交纪律）与产品级 repowiki。幂等，重跑不冲刷用户内容；"
-                    "业务仓登记走 add_workspace_repo。"
+                    "把当前工作目录初始化（或重新同步）为多仓工作区：生成 bootstrap 克隆脚本、"
+                    ".gitignore、repo-map 导航骨架、AGENTS.md 工作区约定与产品级 repowiki。"
+                    "零配置幂等——重跑自动沿用布局、强制刷新约定块、自动克隆登记表中未克隆的"
+                    "业务仓；全新目录才需询问布局。业务仓登记走 add_workspace_repo。"
                 ),
                 arguments=[
                     PromptArgument(
-                        name="workspace_path",
-                        description="工作区根目录（必须已存在；相对路径基于当前工作目录；默认当前目录）",
-                        required=False,
-                    ),
-                    PromptArgument(
                         name="output_dir",
                         description="产品级 repowiki 目录（默认: <workspace>/repowiki）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="refresh_conventions",
-                        description="强制刷新 AGENTS.md 工作区约定块（默认 false，保留已有块）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="with_readme",
-                        description="无 README.md 时生成骨架（默认 true）",
                         required=False,
                     ),
                 ],
@@ -1420,8 +1400,7 @@ def register(server):
                 title="移除业务仓",
                 description=(
                     "按子目录名把业务代码仓库从 harness 工作区移除：事务式清理 bootstrap.sh/ps1 "
-                    "登记表、.gitignore、repo-map.md。默认保留本地 clone 目录，"
-                    "delete_dir=true 才删除（不可恢复）。"
+                    "登记表、.gitignore、repo-map.md，并删除本地 clone 目录（不可恢复）。"
                 ),
                 arguments=[
                     PromptArgument(
@@ -1433,11 +1412,6 @@ def register(server):
                         name="name",
                         description="业务仓子目录名（登记时的目录名，必填）",
                         required=True,
-                    ),
-                    PromptArgument(
-                        name="delete_dir",
-                        description="同时删除本地 clone 目录（默认 false，删除不可恢复）",
-                        required=False,
                     ),
                 ],
             ),

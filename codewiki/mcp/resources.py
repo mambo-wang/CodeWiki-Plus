@@ -335,12 +335,9 @@ def register(server):
                         {
                             "name": "init-workspace",
                             "title": "初始化多仓 harness 工作区",
-                            "description": "把当前目录（或 workspace_path）初始化为多仓工作区：bootstrap 脚本、.gitignore、repo-map 导航、AGENTS.md 工作区约定与产品级 repowiki；业务仓登记走 add_workspace_repo",
+                            "description": "把当前工作目录初始化（或重新同步）为多仓工作区：bootstrap 脚本、.gitignore、repo-map 导航、AGENTS.md 工作区约定与产品级 repowiki；零配置幂等——重跑自动沿用布局、强制刷新约定块、自动克隆登记表中未克隆的业务仓；业务仓登记走 add_workspace_repo",
                             "arguments": [
-                                "workspace_path (optional, 默认当前目录)",
                                 "output_dir (optional)",
-                                "refresh_conventions (optional)",
-                                "with_readme (optional)",
                             ],
                         },
                         {
@@ -356,11 +353,10 @@ def register(server):
                         {
                             "name": "remove-workspace-repo",
                             "title": "移除业务仓",
-                            "description": "按子目录名移除业务仓登记（bootstrap 表、.gitignore、repo-map.md）；默认保留本地目录，delete_dir=true 才删除",
+                            "description": "按子目录名移除业务仓登记（bootstrap 表、.gitignore、repo-map.md），并删除本地 clone 目录（不可恢复）",
                             "arguments": [
                                 "workspace_path (optional, 默认当前目录)",
                                 "name (required)",
-                                "delete_dir (optional)",
                             ],
                         },
                     ],

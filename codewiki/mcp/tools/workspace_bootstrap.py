@@ -27,6 +27,7 @@ import logging
 import os
 import re
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -56,6 +57,10 @@ _PS_ENTRY_LINE_RE = re.compile(r'^\s*"([^"]+)"\s*=\s*"([^"]*)"')
 _NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 _REPO_MAP_NEW_REPO_COMMENT = "<!-- 新增业务仓模板："
+
+# Per-repo git clone timeout (seconds) for the init_workspace auto-clone —
+# same default as add_workspace_repo's clone_timeout.
+_INIT_CLONE_TIMEOUT = 600
 
 
 # ---------------------------------------------------------------------------
@@ -367,22 +372,29 @@ def _clone_repo(workspace_p: Path, name: str, url: str, timeout: int) -> dict:
 
 
 def handle_init_workspace(arguments: dict) -> str:
-    """Initialize a multi-repo harness workspace.
+    """Initialize (or re-sync) a multi-repo harness workspace.
 
-    Parameters (from arguments dict):
-        workspace_path: Existing directory to become the workspace root
-            (default: current working directory).
-        output_dir: Product-level repowiki directory (default: <workspace>/repowiki).
-        layout: Knowledge layout mode — ``colocated`` (default; every
-            business repo keeps its own repowiki, identical to v5.5.0
-            output) or ``centralized`` (all knowledge lives in the
-            workspace repowiki; business repos carry no repowiki).
-        refresh_conventions: Force-refresh the AGENTS.md conventions block
-            (default: false — existing block is kept).
-        with_readme: Create a README.md skeleton when missing (default: true).
+    Designed as a zero-config, idempotent operation: re-running it on an
+    existing workspace adopts the persisted layout, keeps every artifact,
+    force-refreshes the AGENTS.md conventions block and git-clones any
+    registered business repo that is not yet cloned (a failed clone only
+    warns — ``bootstrap.sh`` retries later).
 
-    Repo registration and cloning are handled by add_workspace_repo; this tool
-    only scaffolds the workspace skeleton with empty registration tables.
+    Advertised parameter (from arguments dict):
+        output_dir: Product-level repowiki directory
+            (default: <workspace>/repowiki).
+
+    Tolerated but unadvertised (MCP schema exposes only ``output_dir``;
+    kept for direct callers and first-init decisions):
+        workspace_path: Workspace root (default: current working directory).
+        layout: ``colocated`` | ``centralized`` — honored on FIRST init only
+            (default: colocated); on re-runs the persisted layout wins and a
+            conflicting value is an error.
+        with_readme: Ignored — the README skeleton is always created when
+            missing.
+
+    Repo registration stays with add_workspace_repo; repos already present
+    in the bootstrap registration table are cloned automatically.
     """
     workspace_path = (arguments.get("workspace_path") or "").strip()
     if not workspace_path:
@@ -393,9 +405,9 @@ def handle_init_workspace(arguments: dict) -> str:
     if not workspace_p.is_dir():
         return _err(f"workspace_path is not a directory: {workspace_p}")
 
-    layout = (arguments.get("layout") or "").strip() or LAYOUT_COLOCATED
-    if layout not in VALID_LAYOUTS:
-        return _err(f"invalid layout {layout!r}: expected one of {list(VALID_LAYOUTS)}")
+    layout_arg = (arguments.get("layout") or "").strip()
+    if layout_arg and layout_arg not in VALID_LAYOUTS:
+        return _err(f"invalid layout {layout_arg!r}: expected one of {list(VALID_LAYOUTS)}")
 
     name = workspace_p.name
     output_dir = (arguments.get("output_dir") or "").strip()
@@ -406,47 +418,50 @@ def handle_init_workspace(arguments: dict) -> str:
     else:
         output_dir_p = (workspace_p / output_dir).resolve()
 
-    refresh_conventions = bool(arguments.get("refresh_conventions", False))
-    with_readme = bool(arguments.get("with_readme", True))
-
     results: dict = {
         "workspace_path": str(workspace_p),
         "name": name,
-        "layout": layout,
         "output_dir": str(output_dir_p),
     }
     warnings: list[str] = []
 
-    # ── Layout config (centralized only; absent config means colocated) ──
+    # ── Layout: adopt the persisted value on re-runs ───────────────────
+    # First init honors the layout argument (default colocated); re-runs
+    # read it back from .meta/workspace.json so a no-arg re-run never
+    # fights the original decision. Switching layouts stays a hard error.
     config_path = output_dir_p / ".meta" / "workspace.json"
-    if layout == LAYOUT_CENTRALIZED and output_dir_p != workspace_p / "repowiki":
-        return _err(
-            "centralized layout requires the default output_dir <workspace>/repowiki: "
-            "workspace discovery is anchored at <workspace>/repowiki/.meta/workspace.json, "
-            "so a custom output_dir would make the layout config invisible to routing."
-        )
     if config_path.exists():
-        existing_layout = read_layout_value(config_path)
-        if existing_layout != layout:
+        layout = read_layout_value(config_path)
+        if layout_arg and layout_arg != layout:
             return _err(
-                f"workspace config already exists with layout {existing_layout!r} "
+                f"workspace config already exists with layout {layout!r} "
                 f"({config_path}); refusing to change the layout in place — "
                 "switching layouts is a manual migration (design doc §13)."
             )
+        results["layout"] = layout
         results["workspace_config"] = f"kept (already {layout}): {config_path}"
-    elif layout == LAYOUT_CENTRALIZED:
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_text(
-            config_path,
-            json.dumps({"wiki_layout": LAYOUT_CENTRALIZED}, ensure_ascii=False) + "\n",
-        )
-        results["workspace_config"] = str(config_path)
     else:
-        results["workspace_config"] = (
-            "not written (colocated is the default; an absent config means colocated)"
-        )
+        layout = layout_arg or LAYOUT_COLOCATED
+        results["layout"] = layout
+        if layout == LAYOUT_CENTRALIZED:
+            if output_dir_p != workspace_p / "repowiki":
+                return _err(
+                    "centralized layout requires the default output_dir <workspace>/repowiki: "
+                    "workspace discovery is anchored at <workspace>/repowiki/.meta/workspace.json, "
+                    "so a custom output_dir would make the layout config invisible to routing."
+                )
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            _write_text(
+                config_path,
+                json.dumps({"wiki_layout": LAYOUT_CENTRALIZED}, ensure_ascii=False) + "\n",
+            )
+            results["workspace_config"] = str(config_path)
+        else:
+            results["workspace_config"] = (
+                "not written (colocated is the default; an absent config means colocated)"
+            )
 
-    # ── Bootstrap scripts (empty registration table; add via add_workspace_repo) ──
+    # ── Bootstrap scripts (registration table; add via add_workspace_repo) ──
     sh_path = workspace_p / "bootstrap.sh"
     ps_path = workspace_p / "bootstrap.ps1"
     sh_exists, ps_exists = sh_path.exists(), ps_path.exists()
@@ -460,10 +475,10 @@ def handle_init_workspace(arguments: dict) -> str:
         _write_text(ps_path, _render_template("bootstrap.ps1.tpl", REPO_TABLE_PS=""))
         results["bootstrap_scripts"] = "created"
     else:
-        info, err = _load_tables(workspace_p)
-        if err:
-            return _err(err)
         results["bootstrap_scripts"] = "kept (already present)"
+    info, err = _load_tables(workspace_p)
+    if err:
+        return _err(err)
 
     # ── .gitignore ───────────────────────────────────────────────────────
     results["gitignore"] = _ensure_gitignore(workspace_p, [])
@@ -487,11 +502,11 @@ def handle_init_workspace(arguments: dict) -> str:
 
     # ── README skeleton ──────────────────────────────────────────────────
     readme_path = workspace_p / "README.md"
-    if with_readme and not readme_path.exists():
+    if not readme_path.exists():
         _write_text(readme_path, _render_template("readme.md.tpl", WORKSPACE_NAME=name))
         results["readme"] = str(readme_path)
     else:
-        results["readme"] = "kept" if readme_path.exists() else "skipped"
+        results["readme"] = "kept"
 
     # ── Product-level repowiki + AGENTS.md ───────────────────────────────
     from codewiki.mcp.tools.init_wiki import initialize_wiki_tree
@@ -499,13 +514,18 @@ def handle_init_workspace(arguments: dict) -> str:
     tree = initialize_wiki_tree(workspace_p, output_dir_p, overwrite_schema=False)
     results["repowiki_tree"] = tree
 
-    from codewiki.mcp.tools.agents_md import write_agents_md, write_workspace_conventions
+    from codewiki.mcp.tools.agents_md import (
+        remove_codewiki_block,
+        write_agents_md,
+        write_workspace_conventions,
+    )
 
     # Conventions block first so it reads before the CodeWiki usage block.
+    # Always force-refreshed: the block is tool-maintained, customizations
+    # belong outside the markers.
     results["agents_md_conventions"] = write_workspace_conventions(
         workspace_path=str(workspace_p),
         workspace_name=name,
-        refresh=refresh_conventions,
         layout=layout,
     )
     try:
@@ -515,10 +535,29 @@ def handle_init_workspace(arguments: dict) -> str:
         results["agents_md_codewiki_block"] = f"WARNING: {e}"
         logger.warning("Failed to write CodeWiki block in workspace AGENTS.md: %s", e)
 
+    # ── Auto-clone registered repos (a re-run syncs missing clones) ──────
+    clones: dict = {}
+    for repo_name, url in info["sh_entries"].items():
+        clone_res = _clone_repo(workspace_p, repo_name, url, _INIT_CLONE_TIMEOUT)
+        if layout == LAYOUT_CENTRALIZED and clone_res["status"] == "ok":
+            # Business repos are pure code under centralized — strip any
+            # in-repo CodeWiki block pointing at a repowiki that must not
+            # exist there (same policy as add_workspace_repo).
+            clone_res["agents_md_codewiki_block"] = remove_codewiki_block(
+                str(workspace_p / repo_name)
+            )
+        clones[repo_name] = clone_res
+        if clone_res["status"] == "error":
+            warnings.append(
+                f"clone failed for {repo_name!r} — fix network/credentials, "
+                "then re-run init_workspace or ./bootstrap.sh"
+            )
+    results["clones"] = clones
+
     results["warnings"] = warnings
     results["status"] = "ok"
     if layout == LAYOUT_CENTRALIZED:
-        results["next_steps"] = (
+        next_steps = (
             "Workspace initialized (centralized layout). Next: "
             "1) Register business repos with add_workspace_repo(url=<clone URL>); "
             "2) Run analyze_workspace(workspace_path=<workspace root>) for cross-repo "
@@ -528,7 +567,7 @@ def handle_init_workspace(arguments: dict) -> str:
             ".scratch/centralized-wiki-layout/issues/."
         )
     else:
-        results["next_steps"] = (
+        next_steps = (
             "Workspace initialized. Next: "
             "1) Register business repos with add_workspace_repo(url=<clone URL>); "
             "2) For each business repo run init_wiki / analyze_repo with "
@@ -536,6 +575,13 @@ def handle_init_workspace(arguments: dict) -> str:
             "3) Run analyze_workspace(workspace_path=<workspace root>) for cross-repo analysis; "
             "4) On POSIX run: chmod +x bootstrap.sh"
         )
+    if clones:
+        done = [n for n, r in clones.items() if r["status"] in ("ok", "skipped")]
+        pending = [n for n, r in clones.items() if r["status"] in ("error", "warn")]
+        next_steps += f" Registered repos ready: {', '.join(done) or 'none'}."
+        if pending:
+            next_steps += f" Needs attention: {', '.join(pending)} (see warnings)."
+    results["next_steps"] = next_steps
     return json.dumps(results, ensure_ascii=False, indent=2)
 
 
@@ -674,6 +720,17 @@ def handle_add_workspace_repo(arguments: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _rmtree_clear_readonly(func, path, exc):
+    """``shutil.rmtree(onexc=...)`` handler: clear the read-only bit, retry.
+
+    Git marks pack files read-only on Windows, which a plain ``rmtree``
+    cannot remove.  If the retry still fails, rmtree propagates the error —
+    a half-deleted clone must surface, never be reported as "deleted".
+    """
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
 def _remove_entry_from_table(
     text: str, table_re: re.Pattern, line_re: re.Pattern
 ) -> tuple[str, bool]:
@@ -798,21 +855,147 @@ def _cleanup_centralized_knowledge(workspace_p: Path, name: str) -> dict:
     return result
 
 
+def _read_json(path: Path):
+    try:
+        return json.loads(_read_text(path))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _cleanup_analysis_artifacts(workspace_p: Path, name: str) -> dict:
+    """Scrub a deregistered repo from ``analyze_workspace`` artifacts.
+
+    ``analyze_workspace`` persists cross-service topology under
+    ``<workspace>/repowiki/.meta/`` (legacy: ``workspace-wiki/.meta/``) and
+    renders a generated ``repowiki/overview.md``.  These are re-derivable
+    caches, not knowledge — removal filters the repo out deterministically
+    instead of waiting for a re-analysis (``query_cross_service`` reads the
+    .meta files directly and would keep returning ghost routes):
+
+    - ``workspace_routes.json``: drop routes whose ``repo_name`` is the repo.
+    - ``cross_service_links.json``: drop links touching the repo on either
+      side (``client_repo`` / ``server_repo``).
+    - ``infra_services.json``: drop services whose ``source_path`` lives
+      inside the repo.  Entries without ``source_path`` (pre-attribution
+      caches) are kept — attribution is unknown, so they stay.
+    - ``overview.md``: drop the repo's Services row, its Service Overviews
+      bullet, and Infrastructure rows for the dropped services.
+
+    Missing files or unparseable JSON are skipped, never fatal.
+    """
+    result: dict = {"routes_removed": 0, "links_removed": 0, "infra_removed": []}
+
+    meta_dirs = [workspace_p / "repowiki" / ".meta"]
+    legacy_meta = workspace_p / "workspace-wiki" / ".meta"
+    if legacy_meta.is_dir():
+        meta_dirs.append(legacy_meta)
+
+    for meta_dir in meta_dirs:
+        routes_path = meta_dir / "workspace_routes.json"
+        routes = _read_json(routes_path) if routes_path.exists() else None
+        if isinstance(routes, list):
+            kept = [
+                r
+                for r in routes
+                if not (isinstance(r, dict) and r.get("repo_name") == name)
+            ]
+            dropped = len(routes) - len(kept)
+            if dropped:
+                _write_text(routes_path, json.dumps(kept, ensure_ascii=False, indent=2))
+            result["routes_removed"] += dropped
+
+        links_path = meta_dir / "cross_service_links.json"
+        links = _read_json(links_path) if links_path.exists() else None
+        if isinstance(links, list):
+            kept = [
+                link
+                for link in links
+                if not (
+                    isinstance(link, dict)
+                    and (link.get("client_repo") == name or link.get("server_repo") == name)
+                )
+            ]
+            dropped = len(links) - len(kept)
+            if dropped:
+                _write_text(links_path, json.dumps(kept, ensure_ascii=False, indent=2))
+            result["links_removed"] += dropped
+
+        infra_path = meta_dir / "infra_services.json"
+        infra = _read_json(infra_path) if infra_path.exists() else None
+        if isinstance(infra, dict):
+            prefix = name + "/"
+            dropped_names = [
+                svc_name
+                for svc_name, svc in infra.items()
+                if isinstance(svc, dict)
+                and svc.get("source_path", "").replace("\\", "/").startswith(prefix)
+            ]
+            if dropped_names:
+                kept_infra = {k: v for k, v in infra.items() if k not in dropped_names}
+                _write_text(infra_path, json.dumps(kept_infra, ensure_ascii=False, indent=2))
+                result["infra_removed"].extend(dropped_names)
+
+    result["overview"] = _remove_repo_from_overview(
+        workspace_p / "repowiki" / "overview.md", name, result["infra_removed"]
+    )
+    return result
+
+
+def _remove_repo_from_overview(overview_path: Path, name: str, infra_removed: list) -> dict:
+    """Strip one repo's rows from the generated workspace overview.md.
+
+    Patterns mirror the generator in ``workspace_analyzer._generate_overview``:
+    ``| <name> |`` Services row, ``- [<name>](...)`` / ``- <name> —`` Service
+    Overviews bullet, and ``| <svc> |`` Infrastructure rows for services that
+    were attributed to the repo.
+    """
+    if not overview_path.exists():
+        return "skipped (overview.md not found)"
+    status = {"services_row": "not_found", "overviews_bullet": "not_found", "infra_rows": 0}
+    text = _read_text(overview_path)
+    lines = text.split("\n")
+
+    kept = [ln for ln in lines if not ln.startswith(f"| {name} |")]
+    status["services_row"] = "removed" if len(kept) != len(lines) else "not_found"
+    lines = kept
+
+    kept = [
+        ln
+        for ln in lines
+        if not (ln.startswith(f"- [{name}](") or ln.startswith(f"- {name} — "))
+    ]
+    status["overviews_bullet"] = "removed" if len(kept) != len(lines) else "not_found"
+    lines = kept
+
+    if infra_removed:
+        before = len(lines)
+        lines = [
+            ln
+            for ln in lines
+            if not any(ln.startswith(f"| {svc} |") for svc in infra_removed)
+        ]
+        status["infra_rows"] = before - len(lines)
+
+    new_text = "\n".join(lines)
+    if new_text != text:
+        _write_text(overview_path, new_text)
+    return status
+
+
 def handle_remove_workspace_repo(arguments: dict) -> str:
     """Deregister a business repo from an initialized workspace.
 
     Removes the entry from bootstrap.sh / bootstrap.ps1, the ``/<name>/``
-    line from .gitignore and the nav row + section from repo-map.md.
-    The cloned directory is kept unless ``delete_dir=true`` (irreversible).
+    line from .gitignore and the nav row + section from repo-map.md, scrubs
+    the repo from analyze_workspace's persisted artifacts (.meta topology +
+    generated overview.md), then deletes the cloned directory (irreversible).
 
     Parameters (from arguments dict):
         workspace_path: Workspace root (default: cwd).
         name: Registered subdirectory name of the business repo (required).
-        delete_dir: Also delete the cloned directory (default: false).
     """
     workspace_path = (arguments.get("workspace_path") or "").strip()
     name = (arguments.get("name") or "").strip()
-    delete_dir = bool(arguments.get("delete_dir", False))
 
     if not workspace_path:
         workspace_path = os.getcwd()
@@ -865,31 +1048,26 @@ def handle_remove_workspace_repo(arguments: dict) -> str:
     if read_layout(workspace_p) == LAYOUT_CENTRALIZED:
         results["knowledge_cleanup"] = _cleanup_centralized_knowledge(workspace_p, name)
 
+    # analyze_workspace artifacts (.meta topology + generated overview) are
+    # workspace-level, re-derivable caches under either layout — filter the
+    # repo out so query_cross_service stops returning ghost routes for it.
+    results["analysis_cleanup"] = _cleanup_analysis_artifacts(workspace_p, name)
+
     # Directory deletion happens after the registration is safely gone.
     dest = workspace_p / name
-    if delete_dir:
-        if dest.exists():
-            if dest.is_dir() and not dest.is_symlink():
-                shutil.rmtree(dest)
-                results["directory"] = "deleted"
-            else:
-                results["directory"] = "skipped (not a plain directory)"
+    if dest.exists():
+        if dest.is_dir() and not dest.is_symlink():
+            shutil.rmtree(dest, onexc=_rmtree_clear_readonly)
+            results["directory"] = "deleted"
         else:
-            results["directory"] = "not present"
+            results["directory"] = "skipped (not a plain directory)"
     else:
-        results["directory"] = (
-            "kept (delete_dir=false; the directory is no longer gitignored — "
-            "remove it manually or keep it out of the harness git)"
-            if dest.exists()
-            else "not present"
-        )
+        results["directory"] = "not present"
 
     dir_action = {
         "deleted": "deleted.",
         "skipped (not a plain directory)": "not deleted (not a plain directory).",
         "not present": "was not present.",
-        "kept (delete_dir=false; the directory is no longer gitignored — "
-        "remove it manually or keep it out of the harness git)": "kept — delete manually if no longer needed.",
     }[results["directory"]]
 
     results["status"] = "ok"

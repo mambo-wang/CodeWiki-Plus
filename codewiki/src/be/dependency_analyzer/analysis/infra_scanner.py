@@ -24,12 +24,17 @@ class InfraServiceInfo:
         depends_on: List[str] = None,
         env_vars: Dict[str, str] = None,
         source: str = "",
+        source_path: str = "",
     ):
         self.name = name
         self.ports = ports or []
         self.depends_on = depends_on or []
         self.env_vars = env_vars or {}
         self.source = source  # "docker-compose", "k8s", "env"
+        # Workspace-relative path of the config file this service came from
+        # (POSIX separators). Relative so attribution survives workspace
+        # moves; lets remove_workspace_repo filter services per owning repo.
+        self.source_path = source_path
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -38,6 +43,7 @@ class InfraServiceInfo:
             "depends_on": self.depends_on,
             "env_vars": self.env_vars,
             "source": self.source,
+            "source_path": self.source_path,
         }
 
 
@@ -130,6 +136,7 @@ class InfraScanner:
                 depends_on=depends_on,
                 env_vars=env_vars,
                 source="docker-compose",
+                source_path=path.relative_to(self.workspace_path).as_posix(),
             )
             self.services[svc_name] = info
 
