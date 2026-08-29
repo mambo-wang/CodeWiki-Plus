@@ -11,6 +11,18 @@
       "status": "open",
       "occurrences": 1,
       "updates": []
+    },
+    "73728572": {
+      "id": "73728572",
+      "issue_type": "custom",
+      "page_path": "",
+      "description": "MCP 回归测试标记的问题",
+      "severity": "info",
+      "created_at": "2026-08-30T06:40:09.990018",
+      "updated_at": "2026-08-30T06:40:09.990018",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
     }
   },
   "version": 1

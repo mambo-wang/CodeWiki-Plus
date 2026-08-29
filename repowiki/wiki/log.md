@@ -2,6 +2,25 @@
 
 > 本文件为追加写入的操作记录，由系统自动维护
 
+## 2026-08-30
+* **lint_wiki**: 检查完成: 0 个问题
+* **ingest_note**: 添加笔记: MCP 回归测试 - 临时笔记
+* **flag_issue**: 新增问题: [custom] 
+* **ingest_source**: 导入外部文档: README (md)
+* **write_doc_file**: 创建 test-verify.md
+* **edit_doc_file**: 更新 test-verify.md (str_replace)
+* **close_session**: 会话关闭
+* **analyze_repo**: 分析仓库 CodeWiki-CN，1649 个组件
+* **ingest_note**: 添加笔记: batch_ingest-修复验证-1
+* **ingest_note**: 添加笔记: batch_ingest-修复验证-2
+* **batch_ingest**: 批量导入完成: 2 成功, 0 失败
+* **analyze_repo**: 分析仓库 CodeWiki-CN，1649 个组件
+* **edit_doc_file**: 更新 MCP_Tools_Knowledge.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Tools_Knowledge.md (str_replace)
+* **edit_doc_file**: 更新 MCP_Tools_Knowledge.md (str_replace)
+* **lint_wiki**: 检查完成: 0 个问题
+* **close_session**: 会话关闭
+
 ## 2026-08-29
 * **ingest_note**: 添加笔记: 生成的 .ps1 必须带 UTF-8 BOM，否则 PowerShell 5.1 按 GBK 误读
 * **analyze_repo**: 分析仓库 CodeWiki-Plus，1642 个组件
