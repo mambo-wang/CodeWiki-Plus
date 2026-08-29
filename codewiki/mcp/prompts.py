@@ -211,27 +211,27 @@ def _prompt_init_workspace(args: dict[str, str]) -> str:
 
 ## 步骤 1: 判断目录现状
 - init_workspace 现在零参数运行，作用于当前工作目录；若用户提到的工作区不是当前目录，先与用户确认
-- **已是工作区**（`bootstrap.sh` / `bootstrap.ps1` + `.gitignore` + `repowiki/` 骨架齐备）：重跑进入 **clone-only 接管模式**——只克隆登记表中尚未克隆的业务仓，不触碰任何骨架文件与 AGENTS.md。无需向用户询问任何参数，直接执行
-- **骨架有缺失**（如缺 `repowiki/` 或 `.gitignore`）：重跑走完整同步修复流程——自动沿用已保存的布局、补齐缺失产物、强制刷新约定块、补克隆
+- **已是工作区且骨架齐备**（`bootstrap.sh` / `bootstrap.ps1` + `.gitignore` + `repowiki/` 骨架齐备）：**不要调用 init_workspace**——缺的只是业务仓克隆，直接补克隆即可：执行 bootstrap 脚本（Windows：`powershell -ExecutionPolicy Bypass -File .\\bootstrap.ps1`；POSIX：`bash bootstrap.sh`），脚本按登记表克隆缺失业务仓、跳过已克隆的。误调 init_workspace 也安全（clone-only 接管，只补克隆、不触碰骨架与 AGENTS.md），但该场景没必要经过它
+- **骨架有缺失**（如缺 `repowiki/` 或 `.gitignore`）：调用 init_workspace() 走完整同步修复流程——自动沿用已保存的布局、补齐缺失产物、强制刷新约定块、补克隆
 - **全新目录**：先询问用户选择知识布局——`colocated`（各业务仓自带 repowiki，两跳检索，默认）还是 `centralized`（知识全部集中在工作区 repowiki，一跳检索）
 
-## 步骤 2: 初始化
-- 重跑/默认：调用 init_workspace()
+## 步骤 2: 初始化（仅骨架缺失 / 全新目录）
+- 默认：调用 init_workspace()
 - 全新目录且用户选择集中式：调用 init_workspace(layout="centralized")
 - 产物：`bootstrap.sh` / `bootstrap.ps1`（登记表：目录名 -> 仓库 URL）、`.gitignore`、`repowiki/wiki/repo-map.md`、AGENTS.md 约定块、产品级 repowiki
 
 ## 步骤 3: 校验产物与克隆结果
-- 先看返回的 `mode` 字段：`clone-only`（接管）说明骨架已就位且未被触碰，只需校验 `clones`；`full`（完整流程）才需要校验下列产物
+- 直接补克隆的场景：确认每个登记目录含 `.git`，且 harness 仓 `git status` 保持干净（.gitignore 生效）；克隆失败时把原因告知用户，修好网络/凭据后重跑 bootstrap 脚本
+- 调用了 init_workspace 的场景：先看返回的 `mode` 字段——`clone-only`（接管）说明骨架已就位且未被触碰，只需校验 `clones`；`full`（完整流程）才需要校验下列产物
 - `bootstrap.sh` / `bootstrap.ps1` 存在且登记表结构完好（`declare -A repos=(` / `$repos = [ordered]@{`）
 - `AGENTS.md` 同时含 `<!-- CodeWiki Workspace Conventions -->` 与 `<!-- CodeWiki LLM Wiki -->` 两个标记块
-- 检查返回的 `clones` 字段：status=ok/skipped 表示已就位；error/warn 时把原因告知用户，并提示修好网络/凭据后重跑 init_workspace 或执行 `./bootstrap.sh` 补克隆
 
 ## 步骤 4: 登记业务仓（仅新工作区需要）
 - 对用户提到的每个业务仓，用 add_workspace_repo(url=<克隆URL>) 逐个登记（目录名自动取仓库名）；用户没给 URL 就先询问，不要凭记忆猜测
 - 登记完成后**不要自动生成 wiki**：不调用 init_wiki / analyze_repo / analyze_workspace，等用户显式要求时再生成
 
 ## 注意事项
-- init_workspace 幂等：痕迹齐备时重跑为 clone-only 接管（只补缺克隆，不触碰骨架与 AGENTS.md）；骨架有缺失时补齐产物并强制刷新约定块；两种模式都自动沿用已保存布局（显式传冲突值才报错）
+- init_workspace 幂等：痕迹齐备时重跑为 clone-only 接管（只补缺克隆，不触碰骨架与 AGENTS.md）——因此该场景优先直接跑 bootstrap 脚本补克隆，无需经过 MCP；骨架有缺失时才调用 init_workspace 补齐产物并强制刷新约定块；两种模式都自动沿用已保存布局（显式传冲突值才报错）
 - 后续新增/移除业务仓分别用 `add_workspace_repo` / `remove_workspace_repo` prompt 或工具，不要手工改四个文件"""
 
 
