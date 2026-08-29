@@ -36,6 +36,10 @@ HOOK_SOURCES = {
     "task_session_start.py": "import os\n\nprint('ok')\n",
 }
 AGENT_SOURCE = "---\nname: distill-worker\ntoolsMCP: codewiki\n---\nworker\n"
+AGENT_SOURCE_CLAUDE = (
+    "---\nname: distill-worker\n"
+    "tools: Read, Write, mcp__codewiki__distill_conversation\n---\nworker\n"
+)
 
 
 @pytest.fixture
@@ -47,6 +51,9 @@ def fake_pkg(tmp_path, monkeypatch):
     for name, content in HOOK_SOURCES.items():
         (pkg / "hooks" / name).write_text(content, encoding="utf-8")
     (pkg / "agents" / AGENT_FILE).write_text(AGENT_SOURCE, encoding="utf-8")
+    (pkg / "agents" / "distill-worker.claude.md").write_text(
+        AGENT_SOURCE_CLAUDE, encoding="utf-8"
+    )
     monkeypatch.setattr("codewiki.cli.utils.ide_config._resolve_pkg_sources", lambda: pkg)
     return pkg
 
@@ -310,6 +317,39 @@ def test_unknown_ide_raises(tmp_path):
     with pytest.raises(Exception) as exc:
         install_for_ide(str(tmp_path), "cursor")
     assert "Unknown IDE" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# distill-worker 变体：宿主 subagent frontmatter schema 不同，claude 家族
+# 拿到 CodeBuddy 专属格式会解析出空工具集、subagent 不可用——必须按 IDE 发变体。
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("ide", ["qoder", "claude-code", "gemini-cli"])
+def test_install_claude_family_gets_claude_agent_variant(tmp_path, fake_pkg, ide):
+    install_for_ide(str(tmp_path), ide)
+    spec_dir = {
+        "qoder": ".qoder",
+        "claude-code": ".claude",
+        "gemini-cli": ".gemini",
+    }[ide]
+    installed = (tmp_path / spec_dir / "agents" / AGENT_FILE).read_text(encoding="utf-8")
+    assert installed == AGENT_SOURCE_CLAUDE
+    assert "toolsMCP" not in installed  # CodeBuddy-only field must not leak
+
+
+def test_install_codebuddy_keeps_default_agent_variant(tmp_path, fake_pkg):
+    install_for_ide(str(tmp_path), "codebuddy")
+    installed = (tmp_path / ".codebuddy" / "agents" / AGENT_FILE).read_text(encoding="utf-8")
+    assert installed == AGENT_SOURCE
+    assert "toolsMCP: codewiki" in installed
+
+
+def test_install_agent_variant_missing_falls_back_to_default(tmp_path, fake_pkg):
+    (fake_pkg / "agents" / "distill-worker.claude.md").unlink()
+    install_for_ide(str(tmp_path), "qoder")
+    installed = (tmp_path / ".qoder" / "agents" / AGENT_FILE).read_text(encoding="utf-8")
+    assert installed == AGENT_SOURCE  # degraded but still wired
 
 
 # ---------------------------------------------------------------------------
