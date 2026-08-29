@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -107,7 +108,24 @@ class TestFreshInit:
 # 2/3. Idempotency and refresh semantics
 # ---------------------------------------------------------------------------
 class TestIdempotency:
-    def test_rerun_refreshes_conventions_block(self, tmp_path):
+    def test_rerun_with_traces_is_clone_only(self, tmp_path):
+        _init(tmp_path)
+        agents_path = tmp_path / "AGENTS.md"
+        customized = _read(agents_path).replace(
+            "## 分支策略", "## 分支策略（团队定制版）"
+        )
+        agents_path.write_text(customized, encoding="utf-8")
+        sh_before = (tmp_path / "bootstrap.sh").read_bytes()
+
+        res = _init(tmp_path)
+        assert res["status"] == "ok"
+        assert res["mode"] == "clone-only"
+        # skeleton untouched — even in-block customizations survive (no refresh)
+        assert "团队定制版" in _read(agents_path)
+        assert (tmp_path / "bootstrap.sh").read_bytes() == sh_before
+        assert "agents_md_conventions" not in res
+
+    def test_full_flow_rerun_refreshes_conventions_block(self, tmp_path):
         _init(tmp_path)
         agents_path = tmp_path / "AGENTS.md"
         customized = (
@@ -115,13 +133,16 @@ class TestIdempotency:
             + "\n用户自己追加的尾部内容\n"
         )
         agents_path.write_text(customized, encoding="utf-8")
+        shutil.rmtree(tmp_path / "repowiki")  # break the skeleton trace -> full flow
 
         res = _init(tmp_path)
         assert res["status"] == "ok"
+        assert res["mode"] == "full"
         assert res["agents_md_conventions"] == "refreshed"
         new_text = _read(agents_path)
         assert "团队定制版" not in new_text  # in-block edits clobbered
         assert "用户自己追加的尾部内容" in new_text  # outside block kept
+        assert (tmp_path / "repowiki" / "schema.yaml").exists()  # skeleton repaired
 
     def test_rerun_preserves_other_artifacts(self, tmp_path):
         _init(tmp_path)
@@ -132,6 +153,7 @@ class TestIdempotency:
 
         res = _init(tmp_path)
         assert res["status"] == "ok"
+        assert res["mode"] == "clone-only"
         assert _read(schema_path) == "purpose: customized\n"
         assert (tmp_path / "bootstrap.sh").read_bytes() == sh_before
 
@@ -409,6 +431,7 @@ class TestInitAutoClone:
         )
         res = _init(tmp_path)  # re-run must auto-clone
         assert res["status"] == "ok"
+        assert res["mode"] == "clone-only"
         assert res["clones"]["repo-c"]["status"] == "ok"
         assert calls and calls[0][:2] == ["git", "clone"]
         assert calls[0][3] == str(tmp_path / "repo-c")
@@ -457,6 +480,81 @@ class TestInitAutoClone:
         cloned_agents = _read(tmp_path / "repo-c" / "AGENTS.md")
         assert _BEGIN_MARKER not in cloned_agents  # block stripped
         assert "own content" in cloned_agents
+
+
+# ---------------------------------------------------------------------------
+# 10b. Clone-only adoption (init traces present -> no full-flow re-run)
+# ---------------------------------------------------------------------------
+class TestAdoptShortCircuit:
+    def test_clone_only_fetches_missing_clones(self, tmp_path, monkeypatch):
+        _init(tmp_path)
+        _add(tmp_path, URL_C, clone=False)
+        agents_before = (tmp_path / "AGENTS.md").read_bytes()
+        repo_map_before = (tmp_path / "repowiki" / "wiki" / "repo-map.md").read_bytes()
+        calls = []
+        monkeypatch.setattr(
+            wb.subprocess,
+            "run",
+            lambda cmd, **kw: (calls.append(cmd), _FakeProc(0))[1],
+        )
+
+        res = _init(tmp_path)
+        assert res["status"] == "ok"
+        assert res["mode"] == "clone-only"
+        assert res["clones"]["repo-c"]["status"] == "ok"
+        assert calls and calls[0][:2] == ["git", "clone"]
+        # skeleton untouched
+        assert (tmp_path / "AGENTS.md").read_bytes() == agents_before
+        assert (
+            tmp_path / "repowiki" / "wiki" / "repo-map.md"
+        ).read_bytes() == repo_map_before
+
+    def test_missing_gitignore_line_repaired(self, tmp_path):
+        _init(tmp_path)
+        _add(tmp_path, URL_C, clone=False)
+        gi_path = tmp_path / ".gitignore"
+        gi_path.write_text(
+            "\n".join(
+                line for line in _read(gi_path).splitlines() if line != "/repo-c/"
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        res = _init(tmp_path)
+        assert res["mode"] == "clone-only"
+        assert res["gitignore"]["added"] == ["/repo-c/"]
+        assert "/repo-c/" in _read(gi_path)
+
+    def test_missing_skeleton_falls_back_to_full(self, tmp_path):
+        _init(tmp_path)
+        shutil.rmtree(tmp_path / "repowiki")
+
+        res = _init(tmp_path)
+        assert res["mode"] == "full"
+        assert (tmp_path / "repowiki" / "wiki").is_dir()
+        assert (tmp_path / "repowiki" / "schema.yaml").exists()
+
+    def test_missing_gitignore_falls_back_to_full(self, tmp_path):
+        _init(tmp_path)
+        (tmp_path / ".gitignore").unlink()
+
+        res = _init(tmp_path)
+        assert res["mode"] == "full"
+        assert (tmp_path / ".gitignore").exists()
+
+    def test_layout_conflict_refused_with_persisted_config(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        res = _init(tmp_path, layout="colocated")
+        assert "error" in res
+        assert "layout" in res["error"]
+
+    def test_adopted_colocated_refuses_centralized_arg(self, tmp_path):
+        _init(tmp_path)  # colocated -> no workspace.json written
+        assert not (tmp_path / "repowiki" / ".meta" / "workspace.json").exists()
+        res = _init(tmp_path, layout="centralized")
+        assert "error" in res
+        assert "layout" in res["error"]
 
 
 # ---------------------------------------------------------------------------

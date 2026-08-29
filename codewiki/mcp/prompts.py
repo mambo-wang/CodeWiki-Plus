@@ -211,7 +211,8 @@ def _prompt_init_workspace(args: dict[str, str]) -> str:
 
 ## 步骤 1: 判断目录现状
 - init_workspace 现在零参数运行，作用于当前工作目录；若用户提到的工作区不是当前目录，先与用户确认
-- **已是工作区**（存在 `bootstrap.sh` / `repowiki/`）：重跑即"同步修复"——自动沿用已保存的布局、补齐缺失产物、强制刷新约定块、**自动克隆登记表中尚未克隆的业务仓**。无需向用户询问任何参数，直接执行
+- **已是工作区**（`bootstrap.sh` / `bootstrap.ps1` + `.gitignore` + `repowiki/` 骨架齐备）：重跑进入 **clone-only 接管模式**——只克隆登记表中尚未克隆的业务仓，不触碰任何骨架文件与 AGENTS.md。无需向用户询问任何参数，直接执行
+- **骨架有缺失**（如缺 `repowiki/` 或 `.gitignore`）：重跑走完整同步修复流程——自动沿用已保存的布局、补齐缺失产物、强制刷新约定块、补克隆
 - **全新目录**：先询问用户选择知识布局——`colocated`（各业务仓自带 repowiki，两跳检索，默认）还是 `centralized`（知识全部集中在工作区 repowiki，一跳检索）
 
 ## 步骤 2: 初始化
@@ -220,6 +221,7 @@ def _prompt_init_workspace(args: dict[str, str]) -> str:
 - 产物：`bootstrap.sh` / `bootstrap.ps1`（登记表：目录名 -> 仓库 URL）、`.gitignore`、`repowiki/wiki/repo-map.md`、AGENTS.md 约定块、产品级 repowiki
 
 ## 步骤 3: 校验产物与克隆结果
+- 先看返回的 `mode` 字段：`clone-only`（接管）说明骨架已就位且未被触碰，只需校验 `clones`；`full`（完整流程）才需要校验下列产物
 - `bootstrap.sh` / `bootstrap.ps1` 存在且登记表结构完好（`declare -A repos=(` / `$repos = [ordered]@{`）
 - `AGENTS.md` 同时含 `<!-- CodeWiki Workspace Conventions -->` 与 `<!-- CodeWiki LLM Wiki -->` 两个标记块
 - 检查返回的 `clones` 字段：status=ok/skipped 表示已就位；error/warn 时把原因告知用户，并提示修好网络/凭据后重跑 init_workspace 或执行 `./bootstrap.sh` 补克隆
@@ -229,7 +231,7 @@ def _prompt_init_workspace(args: dict[str, str]) -> str:
 - 登记完成后**不要自动生成 wiki**：不调用 init_wiki / analyze_repo / analyze_workspace，等用户显式要求时再生成
 
 ## 注意事项
-- init_workspace 幂等：重跑自动沿用布局、强制刷新约定块、补齐缺失克隆；bootstrap 脚本、repo-map、README、schema.yaml 不覆盖（自定义内容写在标记块外）
+- init_workspace 幂等：痕迹齐备时重跑为 clone-only 接管（只补缺克隆，不触碰骨架与 AGENTS.md）；骨架有缺失时补齐产物并强制刷新约定块；两种模式都自动沿用已保存布局（显式传冲突值才报错）
 - 后续新增/移除业务仓分别用 `add_workspace_repo` / `remove_workspace_repo` prompt 或工具，不要手工改四个文件"""
 
 
@@ -1358,8 +1360,9 @@ def register(server):
                 description=(
                     "把当前工作目录初始化（或重新同步）为多仓工作区：生成 bootstrap 克隆脚本、"
                     ".gitignore、repo-map 导航骨架、AGENTS.md 工作区约定与产品级 repowiki。"
-                    "零配置幂等——重跑自动沿用布局、强制刷新约定块、自动克隆登记表中未克隆的"
-                    "业务仓；全新目录才需询问布局。业务仓登记走 add_workspace_repo。"
+                    "零配置幂等——痕迹齐备时重跑为 clone-only 接管（只补缺业务仓克隆，不触碰"
+                    "骨架与 AGENTS.md）；骨架有缺失才补齐产物并强制刷新约定块；全新目录才需"
+                    "询问布局。业务仓登记走 add_workspace_repo。"
                 ),
                 arguments=[
                     PromptArgument(

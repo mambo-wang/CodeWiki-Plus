@@ -101,7 +101,10 @@ CodeWiki v5.5.0 为这个模型提供了三个开箱即用的 MCP 工具与配�
 
 ### 4.1 `init_workspace` — 初始化（或重新同步）工作区
 
-把**当前目录**初始化（或重新同步）为多仓 harness 工作区。**零配置幂等**：重跑时自动沿用已保存的布局、补齐缺失产物、强制刷新约定块，并**自动克隆登记表中尚未克隆的业务仓**（克隆失败只警告，可稍后 `./bootstrap.sh` 或再次重跑补克隆）。
+把**当前目录**初始化（或重新同步）为多仓 harness 工作区。**零配置幂等**，重跑按初始化痕迹分两种模式（返回的 `mode` / `mode_reason` / `traces` 字段标明走了哪条）：
+
+- **痕迹齐备 → clone-only 接管**：`bootstrap.sh` / `bootstrap.ps1`（登记表可解析）+ `.gitignore` + `repowiki/` 骨架（`wiki/` + `schema.yaml`）都在，就视为工作区已初始化——重跑**只克隆登记表中尚未克隆的业务仓**（顺带补齐缺失的 `.gitignore` 排除行），不重新生成骨架、不改写 AGENTS.md。典型场景：harness 仓在新机器上克隆后直接重跑，只需把业务仓拉下来。
+- **骨架有缺失 → 完整同步修复**：自动沿用已保存的布局、补齐缺失产物、强制刷新约定块，并补克隆（克隆失败只警告，可稍后 `./bootstrap.sh` 或再次重跑补克隆）。
 
 | 参数 | 必填 | 默认 | 说明 |
 |------|------|------|------|
@@ -117,9 +120,9 @@ CodeWiki v5.5.0 为这个模型提供了三个开箱即用的 MCP 工具与配�
 
 **幂等语义**：
 
-- 知识布局（`colocated`/`centralized`）首次初始化时确定并持久化到 `repowiki/.meta/workspace.json`；重跑自动沿用，显式传入冲突值才报错（布局切换是手工迁移）。集中式需在**首次**初始化时显式传 `layout="centralized"`。
-- bootstrap 脚本、repo-map、README、schema.yaml 重跑不覆盖；约定块每次重跑**强制刷新**（该块由工具维护，自定义内容请写在标记块外）。
-- 登记表中已登记但未克隆的业务仓会被自动 `git clone`（逐个执行，单仓超时 600s；失败仅警告不中断）。
+- 知识布局（`colocated`/`centralized`）首次初始化时确定并持久化到 `repowiki/.meta/workspace.json`；两种重跑模式都自动沿用（无配置文件即视为 `colocated`），显式传入冲突值才报错（布局切换是手工迁移）。集中式需在**首次**初始化时显式传 `layout="centralized"`。
+- clone-only 接管模式不触碰任何骨架文件与 AGENTS.md；完整同步修复模式下，bootstrap 脚本、repo-map、README、schema.yaml 也只补缺不覆盖，唯约定块**强制刷新**（该块由工具维护，自定义内容请写在标记块外）。
+- 登记表中已登记但未克隆的业务仓会被自动 `git clone`（两种模式均执行；逐个执行，单仓超时 600s；失败仅警告不中断）。
 
 ### 4.2 `add_workspace_repo` — 登记并克隆业务仓
 
@@ -163,7 +166,7 @@ MCP Server 内置三个 Prompt（IDE Prompt 面板可直接触发）：
 
 | Prompt | 场景 |
 |--------|------|
-| `init-workspace` | 初始化（或重跑同步：沿用布局 + 自动补克隆）→ 逐个登记业务仓 → 逐仓建 Wiki → 跨仓分析 |
+| `init-workspace` | 初始化（或重跑同步：痕迹齐备时 clone-only 接管补克隆 / 骨架缺失时补齐产物）→ 逐个登记业务仓 → 逐仓建 Wiki → 跨仓分析 |
 | `add-workspace-repo` | 按 URL 登记 + 克隆业务仓 → 校验四处同步 → 建该仓 Wiki |
 | `remove-workspace-repo` | 移除登记并删除本地目录 → 校验清理结果 |
 
