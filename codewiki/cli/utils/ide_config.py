@@ -47,9 +47,10 @@ from codewiki.mcp.prompts import (
 #     且不参与仓库目录自动检测（无仓库标记，仅显式 --ide 触发）。
 #
 # agent_file（可选）：subagent 定义源文件名。各宿主的 subagent frontmatter
-# schema 不同——CodeBuddy 认 `tools: ReadFile` + `toolsMCP`，claude 家族
-# （Qoder/Claude Code/Gemini CLI）认 `tools: Read, Write, mcp__<server>__<tool>`；
-# 把 CodeBuddy 版喂给 claude 家族宿主会解析出空工具集、subagent 不可用。
+# schema 不同——CodeBuddy 认 `tools: ReadFile` + `toolsMCP`；把 CodeBuddy 版
+# 喂给 claude 家族（Qoder/Claude Code/Gemini CLI）会解析出空工具集、subagent
+# 不可用。claude 家族变体省略 tools 行（继承全部工具，含 MCP）——实测 Qoder
+# 下显式枚举 `mcp__<server>__<tool>` 不透传给子代理，缺省继承更稳。
 # 缺省（如 codebuddy）拷贝 AGENT_FILE；安装后的目标文件名始终是 AGENT_FILE。
 IDE_SPECS: dict[str, dict] = {
     "codebuddy": {

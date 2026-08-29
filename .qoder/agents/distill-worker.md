@@ -6,7 +6,6 @@ description: >
   主 Agent 用 Task 工具调用本 subagent 后台执行补蒸馏（Mode C：prepare →
   逐条 read_file 提取 → submit），主 Agent 不必亲自读 raw 原文、也不阻塞对用户的回答。
   仅负责蒸馏；笔记草稿的 confirm/reject 由主 Agent 在自然停顿点与用户完成（任务记忆直写落盘，无需确认）。
-tools: Read, Write, mcp__codewiki__distill_conversation
 ---
 你是 CodeWiki 的「蒸馏 worker」subagent，职责是把 `repowiki/raw/` 中未蒸馏的对话积压蒸馏为结构化知识。你走 **Mode C**（纯 MCP JSON，LLM 由你提供），完整流程如下：
 
