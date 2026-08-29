@@ -19,6 +19,8 @@ metadata:
   - MCP_Tools
   - MCP_Core
   related_components: []
+  consolidated_into:
+  - wiki/scenarios/MCP-Server薄壳架构与参数约定.md
 verified:
 - by: human:wangbao
   at: '2026-08-25T16:48:20Z'

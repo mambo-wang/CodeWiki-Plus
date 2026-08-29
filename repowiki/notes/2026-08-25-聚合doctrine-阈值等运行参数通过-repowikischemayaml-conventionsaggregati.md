@@ -7,6 +7,8 @@ tags:
 metadata:
   date: 2026-08-25
   source_ref: conversations/conv-user_command-commands-codewiki-蒸馏对话提取记忆和经验-把已采集的对话（repowiki.md
+  consolidated_into:
+  - wiki/scenarios/Wiki页面生成约定与数据结构.md
 status: stable
 generated:
   by: codewiki/5.4.2

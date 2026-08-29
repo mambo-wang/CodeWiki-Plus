@@ -6,7 +6,7 @@ aliases:
 - 知识笔记索引
 ---
 
-<!-- 自动生成于 2026-08-29T17:15:14+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-29T23:32:25+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -66,16 +66,25 @@ aliases:
 
 ## 场景方法
 
-* [IDE-Hook采集链路方法](scenarios/IDE-Hook采集链路方法.md) - CodeBuddy IDE hook 对话采集链路的 SOP 与禁忌：transcript 索引分片读取、同步采集异步蒸馏、双副本同步、注入可靠性
-* [MCP-Server薄壳架构与参数约定](scenarios/MCP-Server薄壳架构与参数约定.md) - MCP 薄壳分层、新增工具两处落点、output_dir 解析单点收敛、工具参数先读描述纪律
-* [Wiki页面生成约定与数据结构](scenarios/Wiki页面生成约定与数据结构.md) - status 语义分层、OKF actor 约定、module_tree 字符串引用、实体概念提取识别与举证分离四步流程
-* [任务记忆系统设计方法](scenarios/任务记忆系统设计方法.md) - 任务归属采集阶段决定、source_session_id 维度绑定、pending 确认闸门、memories 追加式原子写
-* [发布与依赖治理方法](scenarios/发布与依赖治理方法.md) - Windows 下发布/CI/依赖升级的工作方法：编码坑规避、网络栈 fallback、密钥扫描、ruff 钉版本、review 工具选型、验证纪律
-* [对话蒸馏管线与raw暂存区](scenarios/对话蒸馏管线与raw暂存区.md) - 蒸馏三模式共同落盘路径、raw 暂存区生命周期、Mode C 多文件蒸馏操作纪律
+* [IDE-Hook采集链路方法](scenarios/IDE-Hook采集链路方法.md) - Hook 采集链路 SOP、仅接线支持边界、distill-worker 随包发布与自动部署、多 IDE 家族归并
+* [MCP-Server薄壳架构与参数约定](scenarios/MCP-Server薄壳架构与参数约定.md) - MCP 薄壳分层、session_id 隐式约定、output_dir 解析单点、索引重建陷阱、doctrine 注入通道
+* [Wiki页面生成约定与数据结构](scenarios/Wiki页面生成约定与数据结构.md) - status 语义分层、OKF actor 约定、frontmatter 约定、doctrine/聚合配置参数化、知识摄入链路
+* [代码评审与分析工具方法](scenarios/代码评审与分析工具方法.md) - review_changes/analyze_* 工具的使用陷阱、行级 diff 近似性、untracked 文件处理、并行竞态、telemetry 聚合修复
+* [任务记忆系统设计方法](scenarios/任务记忆系统设计方法.md) - 任务归属采集阶段决定、绑定一次性消费凭证、subagent 委托补蒸馏、memories 追加式原子写
+* [发布与依赖治理方法](scenarios/发布与依赖治理方法.md) - Windows 编码坑、build 后端迁移验证、uv/ruff 工具链陷阱、fork PR 合入流程、PS1 BOM 编码
+* [多仓工作区初始化与增量分析](scenarios/多仓工作区初始化与增量分析.md) - workspace 初始化短路优化、增量分析锚点设计、clone-only 产物完整性、Wiki 生成显式触发
+* [对话蒸馏管线与raw暂存区](scenarios/对话蒸馏管线与raw暂存区.md) - 蒸馏三模式共同落盘、distilled_file 侧通道、L0 归档零索引、空结果提交纪律、超时不幂等陷阱
 
 ## 知识笔记
 
+* [analyze_workspace 增量模式：内部自动判断做主路径，锚点复用 metadata.json](../notes/2026-08-29-analyze-workspace-增量模式内部自动判断做主路径锚点复用-metadatajson.md) - decision (decision, 2026-08-29)
+* [clone-only 短路路径必须仍写 workspace.json 并询问用户模式](../notes/2026-08-29-clone-only-短路路径必须仍写-workspacejson-并询问用户模式.md) - pitfall (pitfall, 2026-08-29)
+* [subagent 定义的 frontmatter 按宿主家族分发，同名文件不同 schema](../notes/2026-08-29-subagent-定义的-frontmatter-按宿主家族分发同名文件不同-schema.md) - pitfall (pitfall, 2026-08-29)
+* [工作区痕迹齐备时跳过 init_workspace，直接跑 bootstrap 脚本补 clone](../notes/2026-08-29-工作区痕迹齐备时跳过-init-workspace直接跑-bootstrap-脚本补-clone.md) - decision (decision, 2026-08-29)
+* [引用已有笔记前须检查其 status，deprecated 笔记不应被采纳](../notes/2026-08-29-引用已有笔记前须检查其-statusdeprecated-笔记不应被采纳.md) - pitfall (pitfall, 2026-08-29)
+* [生成文章后应 spawn 子代理对源文档做交叉事实核查](../notes/2026-08-29-生成文章后应-spawn-子代理对源文档做交叉事实核查.md) - lesson (lesson, 2026-08-29)
 * [生成的 .ps1 必须带 UTF-8 BOM，否则 PowerShell 5.1 按 GBK 误读](../notes/2026-08-29-生成的-ps1-必须带-utf-8-bom否则-powershell-51-按-gbk-误读.md) - pitfall (pitfall, 2026-08-29)
+* [登记业务仓后不自动生成 Wiki，必须等用户显式要求](../notes/2026-08-29-登记业务仓后不自动生成-wiki必须等用户显式要求.md) - decision (decision, 2026-08-29)
 * [analyze_changes 的 changed_components 行区间定位是近似，跨函数边界会误报组件](../notes/2026-08-26-analyze-changes-的-changed-components-行区间定位是近似跨函数边界会误报组件.md) - pitfall (pitfall, 2026-08-26)
 * [analyze_repo 增量与依赖图谱的测试并行执行存在时序竞态](../notes/2026-08-26-analyze-repo-增量与依赖图谱的测试并行执行存在时序竞态.md) - lesson (lesson, 2026-08-26)
 * [build 后端 setuptools→hatchling 迁移后 wheel 内容会变化，需对比文件清单而非只看能否安装](../notes/2026-08-26-build-后端-setuptoolshatchling-迁移后-wheel-内容会变化需对比文件清单而非只看能否安装.md) - pitfall (pitfall, 2026-08-26)

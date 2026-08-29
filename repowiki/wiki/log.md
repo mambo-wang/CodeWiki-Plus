@@ -5,6 +5,14 @@
 ## 2026-08-29
 * **ingest_note**: 添加笔记: 生成的 .ps1 必须带 UTF-8 BOM，否则 PowerShell 5.1 按 GBK 误读
 * **analyze_repo**: 分析仓库 CodeWiki-Plus，1642 个组件
+* **ingest_note**: 添加笔记: 工作区痕迹齐备时跳过 init_workspace，直接跑 bootstrap 脚本补 clone
+* **ingest_note**: 添加笔记: analyze_workspace 增量模式：内部自动判断做主路径，锚点复用 metadata.json
+* **ingest_note**: 添加笔记: clone-only 短路路径必须仍写 workspace.json 并询问用户模式
+* **ingest_note**: 添加笔记: 登记业务仓后不自动生成 Wiki，必须等用户显式要求
+* **ingest_note**: 添加笔记: 生成文章后应 spawn 子代理对源文档做交叉事实核查
+* **ingest_note**: 添加笔记: 引用已有笔记前须检查其 status，deprecated 笔记不应被采纳
+* **lint_wiki**: 检查完成: 95 个问题
+* **ingest_note**: 添加笔记: subagent 定义的 frontmatter 按宿主家族分发，同名文件不同 schema
 
 ## 2026-08-28
 * **analyze_repo**: 分析仓库 codewiki-plus，1607 个组件

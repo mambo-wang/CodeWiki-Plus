@@ -1,13 +1,21 @@
 ---
 type: pitfall
-title: "uv 工具链两坑：--no-dev 已移除须用 --no-group dev；.python-version 补丁固定与 uv Docker 镜像内置 Python 漂移"
-tags: ["16", "pitfall"]
+title: uv 工具链两坑：--no-dev 已移除须用 --no-group dev；.python-version 补丁固定与 uv Docker 镜像内置
+  Python 漂移
+tags:
+- '16'
+- pitfall
 metadata:
   date: 2026-08-26
-  related_modules: ["docker"]
+  related_modules:
+  - docker
   severity: medium
+  consolidated_into:
+  - wiki/scenarios/发布与依赖治理方法.md
 status: stable
-generated: { by: codewiki/5.4.3, at: 2026-08-25T16:38:46Z }
+generated:
+  by: codewiki/5.4.3
+  at: 2026-08-25 16:38:46+00:00
 stale_after: 2027-02-22
 ---
 
