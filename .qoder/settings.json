@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".venv\\Scripts\\python.exe \"D:\\PersonalData\\wangbao\\CodeWiki-Plus\\.qoder\\hooks\\task_session_start.py\"",
+            "command": "python \".qoder/hooks/task_session_start.py\"",
             "timeout": 15
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".venv\\Scripts\\python.exe \"D:\\PersonalData\\wangbao\\CodeWiki-Plus\\.qoder\\hooks\\capture_session_end.py\"",
+            "command": "python \".qoder/hooks/capture_session_end.py\"",
             "timeout": 30
           }
         ]

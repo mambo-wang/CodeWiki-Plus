@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/task_session_start.py\"",
+            "command": "python \".codebuddy/hooks/task_session_start.py\"",
             "timeout": 15
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py\"",
+            "command": "python \".codebuddy/hooks/capture_session_end.py\"",
             "timeout": 30
           }
         ]

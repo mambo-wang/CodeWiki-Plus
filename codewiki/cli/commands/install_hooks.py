@@ -2,7 +2,7 @@
 Install-hooks command for CodeWiki CLI.
 
 用户触发创建/启用 hook 时自动检测项目根目录存在的智能体配置目录
-（.codebuddy/.qoder/.claude），检测到哪些就为哪些智能体接线——
+（.codebuddy/.qoder/.claude/.gemini），检测到哪些就为哪些智能体接线——
 拷贝 hook 脚本与 distill-worker subagent、合并 settings.json hook 注册、
 写入 AGENTS.md 任务记忆引导段。千问办公（QwenWork）无 shell hook 机制，
 走 prompt 接线（AGENTS.md 协议段，Agent 中介捕获），仅显式 --ide qwenwork
@@ -132,7 +132,7 @@ def install_hooks(ide: str, create_dir: bool, repo_path: str) -> None:
                 "No supported IDE config dir detected in the project root.",
                 fg="yellow",
             )
-            click.echo("Detected dirs: .codebuddy / .qoder / .claude")
+            click.echo("Detected dirs: .codebuddy / .qoder / .claude / .gemini")
             click.echo(
                 "QwenWork (prompt wiring) has no repo marker and is never"
                 " auto-detected - wire it explicitly with --ide qwenwork"
