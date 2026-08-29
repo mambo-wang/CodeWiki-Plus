@@ -27,8 +27,11 @@ def _clear_layout_cache():
     wl.clear_cache()
 
 
-def _init(tmp_path, **extra):
+def _init(tmp_path, layout="colocated", **extra):
+    # layout=None omits the argument entirely (decision-gate / adopt paths).
     args = {"workspace_path": str(tmp_path)}
+    if layout is not None:
+        args["layout"] = layout
     args.update(extra)
     return json.loads(wb.handle_init_workspace(args))
 
@@ -80,12 +83,7 @@ class TestResolutionGuardrails:
         assert res.centralized is False
 
     def test_colocated_config_no_central_routing(self, tmp_path):
-        _init(tmp_path)  # default colocated
-        # Hand-written colocated config must not enable central routing.
-        _config_path(tmp_path).parent.mkdir(parents=True, exist_ok=True)
-        _config_path(tmp_path).write_text(
-            json.dumps({"wiki_layout": "colocated"}), encoding="utf-8"
-        )
+        _init(tmp_path)  # colocated config persisted by init
         _register(tmp_path)
         repo = tmp_path / "a"
         repo.mkdir(exist_ok=True)
@@ -115,10 +113,11 @@ class TestResolutionGuardrails:
 
     def test_registration_table_alone_is_not_a_workspace(self, tmp_path):
         """Guardrail 1: the bootstrap table is NOT a discovery signal."""
-        # init (colocated) creates the table but writes no workspace.json.
+        # Simulate a legacy workspace: registration table present but the
+        # layout config absent — discovery must not fire on the table.
         _init(tmp_path)
+        _config_path(tmp_path).unlink()
         _register(tmp_path)
-        assert not _config_path(tmp_path).exists()
         repo = tmp_path / "a"
         repo.mkdir(exist_ok=True)
         res = wl.resolve_workspace(repo)
@@ -170,17 +169,18 @@ class TestInitLayout:
         assert second["workspace_config"].startswith("kept")
         assert _config_path(tmp_path).read_text(encoding="utf-8") == config_text
 
-    def test_default_layout_writes_no_config(self, tmp_path):
-        """Default = colocated = v5.5.0 output: no workspace.json appears."""
+    def test_colocated_init_writes_config(self, tmp_path):
+        """Both layouts persist their decision to workspace.json."""
         res = _init(tmp_path)
         assert res["status"] == "ok"
         assert res["layout"] == wl.LAYOUT_COLOCATED
-        assert not _config_path(tmp_path).exists()
-        assert res["workspace_config"].startswith("not written")
+        config = _config_path(tmp_path)
+        assert json.loads(config.read_text(encoding="utf-8")) == {"wiki_layout": "colocated"}
+        assert res["workspace_config"].endswith("workspace.json")
 
     def test_rerun_adopts_persisted_layout(self, tmp_path):
         _init(tmp_path, layout="centralized")
-        res = _init(tmp_path)  # zero-arg re-run: adopt, never fight
+        res = _init(tmp_path, layout=None)  # no-layout re-run: adopt, never fight
         assert res["status"] == "ok"
         assert res["layout"] == "centralized"
         assert res["workspace_config"].startswith("kept")

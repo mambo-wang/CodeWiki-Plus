@@ -101,26 +101,28 @@ CodeWiki v5.5.0 为这个模型提供了三个开箱即用的 MCP 工具与配�
 
 ### 4.1 `init_workspace` — 初始化（或重新同步）工作区
 
-把**当前目录**初始化（或重新同步）为多仓 harness 工作区。**零配置幂等**，重跑按初始化痕迹分两种模式（返回的 `mode` / `mode_reason` / `traces` 字段标明走了哪条）：
+把**当前目录**初始化（或重新同步）为多仓 harness 工作区。**首次初始化必须先显式选择知识布局**：不传 `layout` 且尚无已持久化的布局配置时，工具**不写任何产物**，返回 `status="needs_layout_decision"` 与两个选项（`colocated`/`centralized`）——调用方 Agent 应把差异讲给用户、征询后带 `layout` 重新调用。**重跑零配置幂等**，按初始化痕迹分两种模式（返回的 `mode` / `mode_reason` / `traces` 字段标明走了哪条）：
 
-- **痕迹齐备 → clone-only 接管**：`bootstrap.sh` / `bootstrap.ps1`（登记表可解析）+ `.gitignore` + `repowiki/` 骨架（`wiki/` + `schema.yaml`）都在，就视为工作区已初始化——重跑**只克隆登记表中尚未克隆的业务仓**（顺带补齐缺失的 `.gitignore` 排除行），不重新生成骨架、不改写 AGENTS.md。典型场景：harness 仓在新机器上克隆后直接重跑，只需把业务仓拉下来。该场景也可直接执行 bootstrap 脚本补克隆（脚本与工具读同一张登记表），无需经过本工具；clone-only 是误调用的兜底。
+- **痕迹齐备 → clone-only 接管**：`bootstrap.sh` / `bootstrap.ps1`（登记表可解析）+ `.gitignore` + `repowiki/` 骨架（`wiki/` + `schema.yaml`）都在，就视为工作区已初始化——重跑**只克隆登记表中尚未克隆的业务仓**（顺带补齐缺失的 `.gitignore` 排除行、为无布局配置的存量工作区补写配置），不重新生成骨架、不改写 AGENTS.md。典型场景：harness 仓在新机器上克隆后直接重跑，只需把业务仓拉下来。该场景也可直接执行 bootstrap 脚本补克隆（脚本与工具读同一张登记表），无需经过本工具；clone-only 是误调用的兜底。
 - **骨架有缺失 → 完整同步修复**：自动沿用已保存的布局、补齐缺失产物、强制刷新约定块，并补克隆（克隆失败只警告，可稍后 `./bootstrap.sh` 或再次重跑补克隆）。
 
 | 参数 | 必填 | 默认 | 说明 |
 |------|------|------|------|
 | `output_dir` | 否 | `<workspace>/repowiki` | 产品级 repowiki 目录 |
+| `layout` | 首次初始化必传 | — | `colocated`（各业务仓自带 repowiki，两跳检索）或 `centralized`（知识集中于工作区 repowiki，一跳检索）。首次初始化前须征询用户；重跑可省略（自动沿用持久化布局），传冲突值报错 |
 
 **产物**：
 
 - `bootstrap.sh` / `bootstrap.ps1`：幂等克隆脚本（登记表，登记走 `add_workspace_repo`）
 - `.gitignore`：业务仓目录 + 通用忽略（**不忽略** `repowiki/`——产品级知识与跨仓分析产物入库）
+- `repowiki/.meta/workspace.json`：知识布局记录（**两种布局都写入**，布局决策显式可审计，也是集中式路由的探测锚点）
 - `repowiki/wiki/repo-map.md`：仓库导航骨架
 - `AGENTS.md`：工作区约定块（两跳检索路由、提交纪律、分支策略、知识写入路由、新仓接入清单）
 - 产品级 repowiki 目录结构与 `schema.yaml` 等模板（复用 `init_wiki` 能力）
 
 **幂等语义**：
 
-- 知识布局（`colocated`/`centralized`）首次初始化时确定并持久化到 `repowiki/.meta/workspace.json`；两种重跑模式都自动沿用（无配置文件即视为 `colocated`），显式传入冲突值才报错（布局切换是手工迁移）。集中式需在**首次**初始化时显式传 `layout="centralized"`。
+- 知识布局（`colocated`/`centralized`）首次初始化时由用户显式选择并持久化到 `repowiki/.meta/workspace.json`（两种布局都写）；两种重跑模式都自动沿用，显式传入冲突值才报错（布局切换是手工迁移）。存量工作区（v5.6 之前初始化、无配置文件）按约定视为 `colocated`，重跑接管时补写配置。
 - clone-only 接管模式不触碰任何骨架文件与 AGENTS.md；完整同步修复模式下，bootstrap 脚本、repo-map、README、schema.yaml 也只补缺不覆盖，唯约定块**强制刷新**（该块由工具维护，自定义内容请写在标记块外）。
 - 登记表中已登记但未克隆的业务仓会被自动 `git clone`（两种模式均执行；逐个执行，单仓超时 600s；失败仅警告不中断）。
 
@@ -174,7 +176,7 @@ MCP Server 内置三个 Prompt（IDE Prompt 面板可直接触发）：
 
 ```text
 1. 新建一个空目录（或空 git 仓库）作为 harness 仓
-2. 调用 init_workspace                          # 建骨架
+2. 调用 init_workspace(layout=<colocated|centralized>)  # 先征询用户选布局，再建骨架
 3. 对每个业务仓调用 add_workspace_repo(url=...) # 登记 + 克隆
 4. 对每个业务仓调用 init_wiki / analyze_repo    # 建仓库级 Wiki
 5. 调用 analyze_workspace(workspace_path=...)   # 跨仓分析 → repowiki/overview.md

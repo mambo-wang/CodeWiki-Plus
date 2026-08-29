@@ -210,15 +210,16 @@ def _prompt_init_workspace(args: dict[str, str]) -> str:
     return """请把当前工作目录初始化（或重新同步）为多仓 harness 工作区。按以下步骤执行：
 
 ## 步骤 1: 判断目录现状
-- init_workspace 现在零参数运行，作用于当前工作目录；若用户提到的工作区不是当前目录，先与用户确认
+- init_workspace 作用于当前工作目录；若用户提到的工作区不是当前目录，先与用户确认
+- **全新目录**（无 `bootstrap.sh` / `bootstrap.ps1`、无 `repowiki/`）：**先询问用户选择知识布局**——`colocated`（各业务仓自带 repowiki，wiki 与代码同仓演进，两跳检索）还是 `centralized`（知识全部集中在工作区 repowiki，业务仓为纯代码目录，一跳检索）；向用户说明两者差异，拿到答复后才进入步骤 2，不要替用户默认
 - **已是工作区且骨架齐备**（`bootstrap.sh` / `bootstrap.ps1` + `.gitignore` + `repowiki/` 骨架齐备）：**不要调用 init_workspace**——缺的只是业务仓克隆，直接补克隆即可：执行 bootstrap 脚本（Windows：`powershell -ExecutionPolicy Bypass -File .\\bootstrap.ps1`；POSIX：`bash bootstrap.sh`），脚本按登记表克隆缺失业务仓、跳过已克隆的。误调 init_workspace 也安全（clone-only 接管，只补克隆、不触碰骨架与 AGENTS.md），但该场景没必要经过它
-- **骨架有缺失**（如缺 `repowiki/` 或 `.gitignore`）：调用 init_workspace() 走完整同步修复流程——自动沿用已保存的布局、补齐缺失产物、强制刷新约定块、补克隆
-- **全新目录**：先询问用户选择知识布局——`colocated`（各业务仓自带 repowiki，两跳检索，默认）还是 `centralized`（知识全部集中在工作区 repowiki，一跳检索）
+- **骨架痕迹部分存在但不齐备**（如有 bootstrap 脚本但缺 `repowiki/`，或反之）：调用 init_workspace() 走完整同步修复流程——自动沿用已保存的布局、补齐缺失产物、强制刷新约定块、补克隆
 
-## 步骤 2: 初始化（仅骨架缺失 / 全新目录）
-- 默认：调用 init_workspace()
-- 全新目录且用户选择集中式：调用 init_workspace(layout="centralized")
-- 产物：`bootstrap.sh` / `bootstrap.ps1`（登记表：目录名 -> 仓库 URL）、`.gitignore`、`repowiki/wiki/repo-map.md`、AGENTS.md 约定块、产品级 repowiki
+## 步骤 2: 初始化（仅全新目录 / 骨架部分缺失）
+- 全新目录：按用户选择调用 init_workspace(layout="colocated") 或 init_workspace(layout="centralized")
+- 骨架部分缺失：调用 init_workspace()（自动沿用已保存布局）
+- 若工具返回 `status="needs_layout_decision"`：说明是首次初始化且尚未选择布局，未写入任何产物——回到步骤 1 询问用户后，带 layout 参数重新调用
+- 产物：`bootstrap.sh` / `bootstrap.ps1`（登记表：目录名 -> 仓库 URL）、`.gitignore`、`repowiki/wiki/repo-map.md`、`repowiki/.meta/workspace.json`（布局记录，两种布局都会写入）、AGENTS.md 约定块、产品级 repowiki
 
 ## 步骤 3: 校验产物与克隆结果
 - 直接补克隆的场景：确认每个登记目录含 `.git`，且 harness 仓 `git status` 保持干净（.gitignore 生效）；克隆失败时把原因告知用户，修好网络/凭据后重跑 bootstrap 脚本
@@ -231,7 +232,8 @@ def _prompt_init_workspace(args: dict[str, str]) -> str:
 - 登记完成后**不要自动生成 wiki**：不调用 init_wiki / analyze_repo / analyze_workspace，等用户显式要求时再生成
 
 ## 注意事项
-- init_workspace 幂等：痕迹齐备时重跑为 clone-only 接管（只补缺克隆，不触碰骨架与 AGENTS.md）——因此该场景优先直接跑 bootstrap 脚本补克隆，无需经过 MCP；骨架有缺失时才调用 init_workspace 补齐产物并强制刷新约定块；两种模式都自动沿用已保存布局（显式传冲突值才报错）
+- 首次初始化必须显式选择布局：不传 layout 时工具返回 needs_layout_decision 且不写任何产物；重跑自动沿用 `repowiki/.meta/workspace.json` 中持久化的布局（显式传冲突值才报错）
+- init_workspace 幂等：痕迹齐备时重跑为 clone-only 接管（只补缺克隆、不触碰骨架与 AGENTS.md，布局配置缺失会补写）——因此该场景优先直接跑 bootstrap 脚本补克隆，无需经过 MCP；骨架有缺失时才调用 init_workspace 补齐产物并强制刷新约定块
 - 后续新增/移除业务仓分别用 `add_workspace_repo` / `remove_workspace_repo` prompt 或工具，不要手工改四个文件"""
 
 
@@ -1360,9 +1362,10 @@ def register(server):
                 description=(
                     "把当前工作目录初始化（或重新同步）为多仓工作区：生成 bootstrap 克隆脚本、"
                     ".gitignore、repo-map 导航骨架、AGENTS.md 工作区约定与产品级 repowiki。"
-                    "零配置幂等——痕迹齐备时重跑为 clone-only 接管（只补缺业务仓克隆，不触碰"
-                    "骨架与 AGENTS.md）；骨架有缺失才补齐产物并强制刷新约定块；全新目录才需"
-                    "询问布局。业务仓登记走 add_workspace_repo。"
+                    "首次初始化必须先询问用户知识布局（colocated/centralized）再带 layout 调用，"
+                    "布局记录写入 repowiki/.meta/workspace.json；重跑零配置幂等——痕迹齐备时"
+                    "为 clone-only 接管（只补缺业务仓克隆，不触碰骨架与 AGENTS.md），骨架有"
+                    "缺失才补齐产物并强制刷新约定块。业务仓登记走 add_workspace_repo。"
                 ),
                 arguments=[
                     PromptArgument(

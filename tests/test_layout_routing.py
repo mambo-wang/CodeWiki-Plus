@@ -84,7 +84,9 @@ class TestWriteRoutingSeam:
         assert wl.routing_for_write(custom, tmp_path / "a") is None
 
     def test_routing_for_write_colocated_is_none(self, tmp_path):
-        json.loads(wb.handle_init_workspace({"workspace_path": str(tmp_path)}))
+        json.loads(
+            wb.handle_init_workspace({"workspace_path": str(tmp_path), "layout": "colocated"})
+        )
         repo = tmp_path / "a"
         repo.mkdir()
         assert wl.routing_for_write(repo / "repowiki", repo) is None

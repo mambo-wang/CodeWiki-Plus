@@ -25,8 +25,11 @@ URL_B = "https://example.com/b.git"  # derived name: b
 URL_C = "https://example.com/repo-c.git"  # derived name: repo-c
 
 
-def _init(tmp_path, **extra):
+def _init(tmp_path, layout="colocated", **extra):
+    # layout=None omits the argument entirely (decision-gate / adopt paths).
     args = {"workspace_path": str(tmp_path)}
+    if layout is not None:
+        args["layout"] = layout
     args.update(extra)
     return json.loads(wb.handle_init_workspace(args))
 
@@ -201,7 +204,7 @@ class TestInvalidWorkspace:
 
     def test_workspace_path_defaults_to_cwd(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        res = json.loads(wb.handle_init_workspace({}))
+        res = json.loads(wb.handle_init_workspace({"layout": "colocated"}))
         assert res["status"] == "ok"
         assert res["workspace_path"] == str(tmp_path)
         assert (tmp_path / "bootstrap.sh").exists()
@@ -499,7 +502,7 @@ class TestInitAutoClone:
             return _FakeProc(0)
 
         monkeypatch.setattr(wb.subprocess, "run", fake_clone)
-        res = _init(tmp_path)
+        res = _init(tmp_path, layout=None)
         assert res["clones"]["repo-c"]["status"] == "ok"
         cloned_agents = _read(tmp_path / "repo-c" / "AGENTS.md")
         assert _BEGIN_MARKER not in cloned_agents  # block stripped
@@ -569,11 +572,56 @@ class TestAdoptShortCircuit:
         assert "layout" in res["error"]
 
     def test_adopted_colocated_refuses_centralized_arg(self, tmp_path):
-        _init(tmp_path)  # colocated -> no workspace.json written
-        assert not (tmp_path / "repowiki" / ".meta" / "workspace.json").exists()
+        _init(tmp_path)  # colocated -> workspace.json persisted with colocated
+        config = tmp_path / "repowiki" / ".meta" / "workspace.json"
+        assert json.loads(_read(config)) == {"wiki_layout": "colocated"}
         res = _init(tmp_path, layout="centralized")
         assert "error" in res
         assert "layout" in res["error"]
+
+
+# ---------------------------------------------------------------------------
+# 10c. Layout decision gate + unconditional layout config
+# ---------------------------------------------------------------------------
+class TestLayoutDecisionGate:
+    def test_first_init_without_layout_writes_nothing(self, tmp_path):
+        res = _init(tmp_path, layout=None)
+        assert res["status"] == "needs_layout_decision"
+        assert set(res["options"]) == {"colocated", "centralized"}
+        assert "layout" in res["question"]
+        # Nothing was written — the decision belongs to the user.
+        assert not (tmp_path / "bootstrap.sh").exists()
+        assert not (tmp_path / ".gitignore").exists()
+        assert not (tmp_path / "repowiki").exists()
+        assert not (tmp_path / "AGENTS.md").exists()
+
+    def test_first_init_with_layout_proceeds(self, tmp_path):
+        res = _init(tmp_path, layout="colocated")
+        assert res["status"] == "ok"
+        assert (tmp_path / "bootstrap.sh").exists()
+
+    def test_rerun_without_layout_is_exempt(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        res = _init(tmp_path, layout=None)  # persisted layout wins, no gate
+        assert res["status"] == "ok"
+        assert res["layout"] == "centralized"
+
+    def test_colocated_init_persists_config(self, tmp_path):
+        res = _init(tmp_path)  # helper default: colocated
+        assert res["status"] == "ok"
+        config = tmp_path / "repowiki" / ".meta" / "workspace.json"
+        assert json.loads(_read(config)) == {"wiki_layout": "colocated"}
+
+    def test_adoption_backfills_missing_config(self, tmp_path):
+        _init(tmp_path)  # colocated
+        config = tmp_path / "repowiki" / ".meta" / "workspace.json"
+        config.unlink()  # simulate a legacy pre-config workspace
+
+        res = _init(tmp_path, layout=None)
+        assert res["status"] == "ok"
+        assert res["mode"] == "clone-only"
+        assert res["workspace_config"].startswith("backfilled")
+        assert json.loads(_read(config)) == {"wiki_layout": "colocated"}
 
 
 # ---------------------------------------------------------------------------
@@ -638,9 +686,9 @@ class TestRegistryWiring:
         tool_def = registry.REGISTRY["init_workspace"]
         props = tool_def.schema.inputSchema["properties"]
         assert tool_def.schema.inputSchema["required"] == []
-        assert set(props) == {"output_dir"}
+        assert set(props) == {"output_dir", "layout"}
+        assert props["layout"]["enum"] == ["colocated", "centralized"]
         assert "workspace_path" not in props
-        assert "layout" not in props
         assert "with_readme" not in props
         assert "repos" not in props
         assert "name" not in props
