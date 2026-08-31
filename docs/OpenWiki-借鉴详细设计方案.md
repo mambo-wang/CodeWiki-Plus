@@ -13,7 +13,7 @@ openwiki（langchain-ai，15.9k stars）是 LangChain 基于 DeepAgents 的"自�
 | 编号 | 借鉴项 | 优先级 | 对标 openwiki 机制 | CodeWiki 现状差距 |
 |---|---|---|---|---|
 | D1 | 证据锚定的新鲜度判定 | **P0** | Grounded Claims（内容哈希证据 + 行区间重定位 + stale 检测） | 只有时间维度 `stale_after`；`_check_unsupported_claims` 的正文级 `> Evidence:` 无代码绑定、无版本 |
-| D2 | 页面级基线 manifest | P1 | `.page-manifest.json` + per-page 基线 diff | `analyze_changes` 行区间近似定位（已知误报） |
+| D2 | 页面级基线 manifest | P1 | `.page-manifest.json` + per-page 基线 diff | 模块页只有整仓 commit_id；共享池页无变更检测（靠时间窗口） |
 | D3 | Mermaid 降级-修复闭环 | P1 | degrade 到 text 围栏 + 注释锚点 + 下次自愈 | 已有 `_auto_fix_mermaid` + `_validate_mermaid` + strict 阻断，缺降级 |
 | D4 | no-op 防扰流 | P1 | 多条件 no-op 判定 | watch_repo / doc_update_notify 可能空转 |
 | D5 | 文档事实性评测（LEDGER 式） | P2 | Longitudinal 评测 + LLM judge | 完全空白（仅 lint 结构检查） |
@@ -26,6 +26,28 @@ openwiki（langchain-ai，15.9k stars）是 LangChain 基于 DeepAgents 的"自�
 - `codewiki/mcp/tools/change_analysis.py` — git diff 行级解析 → 组件跨度定位（`locate_changed_components`）→ `transitive_impact` 传递影响。
 - `codewiki/mcp/tools/doc_writer.py` — `_build_okf_frontmatter` / `_okf_sources_block` / `_auto_fix_mermaid` / `_validate_mermaid`。
 - `codewiki/mcp/cache.py` — `_doc_authority`（0.7-1.3 clamp）、BM25×authority×heat 排序。
+
+---
+
+## 0.5 设计规范（新增）：单仓 / colocated / centralized 三态适用性
+
+> **通用设计约束**，适用于本项目所有需求设计，非仅本文 D1-D5。凡新增机制、字段、存储落点或工具，必须先通过本规范，再进入具体设计。本文 §6 是其在本方案上的实例化。
+
+### 0.5.1 三态定义
+
+| 状态 | 判定 | Wiki 落点 | 运行时数据落点 |
+|---|---|---|---|
+| **单仓** | 未走 `init_workspace`；向上探测找不到 `.meta/workspace.json` | `repo_path/repowiki` | `repo_path/repowiki` 内 |
+| **colocated** | `init_workspace()` 默认布局 | 各业务仓自带 `repowiki/`，两跳检索 | 按仓（`<仓>/repowiki/` 内） |
+| **centralized** | `init_workspace(layout="centralized")` | 唯一 `repowiki/`，仅 `modules` 按仓分区，其余进共享池（`repo:`/`repos:` 标） | 工作区根共享，不按仓分片 |
+
+### 0.5.2 五条设计规范
+
+1. **状态收敛**：任何机制不得引入第四种布局状态判断，一律挂现有 `output_dir` 解析 + `workspace.json` 探测回退链（探测只认 `workspace.json`；未命中/非成员/`colocated` 一律现状路径）。
+2. **三态矩阵必填**：每个机制必须给出「落点 / 锚点 / 触发者」三态行为矩阵；无法在三态下给出无歧义行为的机制，要么显式限定适用范围并声明回退，要么退回重设计。
+3. **共享池来源标**：centralized 下落入共享池的产物必须用 frontmatter `repo:`/`repos:` 标来源，机制不得隐含「一页对应一仓」假设。
+4. **元数据落点收敛**：确定性元数据落「与产物同生命周期」的位置，且复用 `cache.py::analysis_meta_dir` / `resolve_analysis_meta_file` 收敛缝，不另造状态判断（仓级锚点 centralized 下按仓命名空间；页面级按 §6.2 定位评审）。
+5. **单仓零影响硬约束**：任何改动保证单仓场景行为不变（探测回退链兜底），colocated 与 centralized 的新行为显式声明。
 
 ---
 
@@ -113,7 +135,9 @@ Phase 5 T1 已规划 `handle_confirm_note` 新增 `evidence` 参数（`{test_ref
 
 ### 2.1 现状
 
-`analyze_changes` 把 diff 行号映射到组件跨度（`start_line..end_line`），删除行锚定到"最近的 new-file 行"——**这是已知的近似**（已有笔记 `analyze-changes-的-changed-components-行区间定位是近似` 记录误报）。且没有"某篇文档上次是根据哪些组件生成的"这种页面级基线。
+wiki 增量真正的缝是 `analysis.py::_detect_doc_changes`（`git diff` → 改文件 → `affected_modules` / `cascade_modules` / `overview_stale`），`analyze_repo` 据此限定改写范围——模块页已具备**模块级**基线（整仓 `generation_info.commit_id` 锚点 + 文件→模块映射）。`analyze_changes` 是 post-change 爆炸半径分析（review/回归测试建议用），它的行区间近似定位是已知限制，但**与本方案无关**（《多仓Harness工作区-Wiki增量更新设计方案》§2 已澄清二者分工）。
+
+真正的缺口有两处：① 模块页缺**内容指纹**维度——只有整仓 commit_id，编辑导致语义漂移但模块归属不变时无感；② 共享池页（entities/concepts/notes）**完全没有**变更驱动的过期检测，只能靠时间窗口（freshness）。
 
 ### 2.2 设计：`.meta/page_manifest.json`
 
@@ -126,6 +150,8 @@ Phase 5 T1 已规划 `handle_confirm_note` 新增 `evidence` 参数（`{test_ref
     "wiki/modules/XService.md": {
       "git_head": "9f3a21c7...",
       "components": ["cid_XService_serve", "cid_XService_auth"],
+      "source_fingerprint": "sha256:<该页 code-evidence 指纹的确定性聚合>",
+      "repo": "codewiki-plus",
       "producer": "codewiki/5.6.0",
       "written_at": "2026-08-31T08:00:00Z"
     }
@@ -133,9 +159,9 @@ Phase 5 T1 已规划 `handle_confirm_note` 新增 `evidence` 参数（`{test_ref
 }
 ```
 
-- **写入**：`handle_write_doc_file` / `handle_edit_doc_file` 成功后 upsert 条目（组件集取该页涉及的 `related_components` / 分析图谱命中的组件）。
-- **消费**：`handle_analyze_changes` 结果新增 `pages_touched` 字段——`changed_component_ids ∩ manifest[page].components` 非空的页面即受影响页面。
-- **衔接 update_policy**：`update_affected` 策略下，`pages_touched` 就是"需要重新生成的模块文档"的精确清单，取代行区间近似。
+- **写入**：`handle_write_doc_file` / `handle_edit_doc_file` 成功后 upsert 条目（组件集取该页涉及的 `related_components` / 分析图谱命中的组件；`source_fingerprint` 取该页 `metadata.evidence` 指纹的确定性聚合——与 D1 共用指纹基元）。
+- **消费**：`_detect_doc_changes` 输出新增 `stale_pages` 字段——`changed_files ∩ manifest[page].components` 非空、或 `source_fingerprint` 漂移的页面即受影响页（**覆盖共享池页**，这是 D2 对 `affected_modules` 的唯一增量）。
+- **衔接 update_policy**：`update_affected` 策略下，`affected_modules`（模块页）∪ `stale_pages`（共享池页）即"需要复核/重写"的精确清单。
 
 **不引入 per-page 内容快照**（openwiki 存了 `sourceFingerprint` + 回滚快照用于失败回滚）：CodeWiki 的正文在 git 里，回滚有 git 本身，无需侧车快照。只存基线指纹即可。
 
@@ -144,9 +170,9 @@ Phase 5 T1 已规划 `handle_confirm_note` 新增 `evidence` 参数（`{test_ref
 | 子任务 | 内容 | 改动文件 | 依赖 |
 |---|---|---|---|
 | D2a | manifest 读写 helper（原子写、schema 校验） | 新 `codewiki/mcp/tools/page_manifest.py` 或并入 `doc_writer.py` | — |
-| D2b | 写入点接入 write/edit + 组件集采集 | `doc_writer.py` | D2a |
-| D2c | `analyze_changes` 输出 `pages_touched` | `change_analysis.py` | D2a |
-| D2d | 测试（manifest 生命周期 + 命中交叉） | `tests/test_page_manifest.py` | 各子项 |
+| D2b | 写入点接入 write/edit + 组件集采集 + `source_fingerprint` | `doc_writer.py` | D2a、D1a |
+| D2c | `_detect_doc_changes` 输出 `stale_pages`（覆盖共享池页） | `analysis.py` | D2a、D1a |
+| D2d | 测试（manifest 生命周期 + 命中交叉 + 三态落点） | `tests/test_page_manifest.py` | 各子项 |
 
 工作量约 1 人日。
 
@@ -238,7 +264,63 @@ CodeWiki 有 40+ 测试文件，但全部是单元/集成测试，**没有任何
 
 ---
 
-## 6. 落地排期与依赖
+## 6. 三态适用性实例化：D1-D5 行为矩阵
+
+> 本节是 §0.5 设计规范在本方案上的落地。核心规则一条：**只有 centralized 需要 repo 归属，其余两态天然无歧义、零变化。** D1（证据）与 D2（页面基线）涉及"证据/指纹落哪里、归属谁"，必须布局感知；D3-D5 见 §6.4-§6.6。
+
+### 6.1 D1 证据归属（三态）
+
+| 形态 | `metadata.evidence.repo` | 说明 |
+|---|---|---|
+| 单仓 / colocated | 省略 | 页与代码同仓，`resource` 无 repo 前缀，行为与现状一致 |
+| centralized | 必带 | `wiki/modules/<仓名>/` 页证据指向本仓组件；共享池页证据 `repo` 随 `repos:` 累积 |
+
+- **共享池证据累积**：复用《集中式布局》§9 的 `repos:` 累积策略 + `_merge_okf_sources_entry`（`source_ingest.py:77`）的按 id 幂等合并——多仓并行写同一共享池页时，同一 evidence id 不重复、不覆盖外部 doc source，无需额外锁语义。
+- **同名文件消歧**：centralized 下不同仓同名 `src/config.py` 靠 `resource` 的 repo 前缀消歧（对齐《集中式布局》§3.1 的 sources 同名冲突处理）。
+- **跨仓证据（v1 不做）**：`query_cross_service` 读 `.meta/` 的 `workspace_routes` / `cross_service_links`，其匹配产物不锚 evidence；跨仓事实的过期判定 v1 交给 `lint` + freshness，v2 再议（跨仓调用链的证据锚定成本高、收益未验证）。
+
+### 6.2 D2 page-manifest 归属（三态）
+
+| 形态 | manifest 落点 | 说明 |
+|---|---|---|
+| 单仓 / colocated | `repowiki/.meta/page_manifest.json` | 随 wiki 提交、可审阅（与 `module_tree.json` / `metadata.json` 并列） |
+| centralized | **决策点待评审**：工作区根 `repowiki/.meta/`（提交）或 `.codewiki/<仓名>/`（缓存） | 见下 |
+
+- **推荐 centralized 落工作区根 `repowiki/.meta/page_manifest.json`（单一文件）**：manifest 是**页面级**记录、天然按页分区，共享池页单条即可，不重蹈《增量更新》§4 里 `metadata.json`"单数存放被最后分析的仓覆盖"的覆辙——那个痛点是"整仓级单文件"所致，manifest 不存在。
+- **定位决定落点**：若 manifest 定位为"可审阅资产"（随 wiki 提交），落 `.meta/`；若定位为"纯缓存"（不提交、可重建），centralized 下按 `.codewiki/<仓名>/` 命名空间（对齐 b792349 的缓存命名空间）。此定位在 D1/D2 落地前评审一并定。
+- **单仓/colocated 零变化**：`_detect_doc_changes` 消费 `stale_pages` 时，manifest 缺失（存量项目）→ 安全退化，只回退到现有 `affected_modules`，绝不拿脏清单做增量（对齐《增量更新》§3 降级 posture）。
+
+### 6.3 D1 证据过期判定的两个表面（与 D2 的缝对齐）
+
+D1 的"证据是否 stale"有两个确定性表面，都**不依赖 `analyze_changes`**：
+
+1. **全量表面**：lint `stale_evidence` 检查（D1d）——逐页重解析 `metadata.evidence`，覆盖全部资产，确定性、无 git 依赖；
+2. **增量表面**：`_detect_doc_changes` 输出的 `stale_pages`（D2c）——只对本次变更命中的页做证据比对，是 lint 的快速路径。
+
+`analyze_changes` 仅保留其爆炸半径职责（D1e 的"changed components → 命中证据的页面清单"是 review 时的交叉提示，与 wiki 增量缝无关）。
+
+### 6.4 D3 Mermaid 降级（三态）
+
+**布局无关**——纯页面内容处理（fence 降级 + 注释锚点），不读写任何按仓/按工作区分区的状态，三态行为完全一致。作为 §0.5 规范 2 的「状态无关」范例。
+
+### 6.5 D4 no-op 防扰流（三态）
+
+`is_noop` 的锚点是「上次成功分析的 `git_head` + source fingerprint」，落点必须三态感知：
+
+| 形态 | 锚点落点 |
+|---|---|
+| 单仓 / colocated | `<output_dir>/.meta/project.json`（或复用 manifest，见 §6.2 定位） |
+| centralized | 按 §0.5 规范 4 收敛：仓级锚点走 `.codewiki/<仓名>/` 命名空间（对齐《增量更新》§4），避免共享 `.meta/` 单数覆盖 |
+
+判定逻辑（HEAD 比对 / 工作区脏检测 / diff 范围 / 指纹稳定）本身与布局无关，仅锚点读取走统一收敛缝。
+
+### 6.6 D5 评测（三态）
+
+评测跑在**单仓基准仓库**上（单仓态）；评测对象是「文档事实性机制」本身，与布局无关。v1 不设 centralized 基准（跨仓事实判定属 v2 议题，见 §6.1「跨仓证据」）。
+
+---
+
+## 7. 落地排期与依赖
 
 ```
 第一批（P0，核心）：
@@ -261,7 +343,7 @@ CodeWiki 有 40+ 测试文件，但全部是单元/集成测试，**没有任何
 
 ---
 
-## 7. 不借鉴项（重申）
+## 8. 不借鉴项（重申）
 
 | 项 | 理由 |
 |---|---|
@@ -271,7 +353,7 @@ CodeWiki 有 40+ 测试文件，但全部是单元/集成测试，**没有任何
 
 ---
 
-## 8. 风险与兼容
+## 9. 风险与兼容
 
 1. **零新增顶层字段**：所有新字段都在 `metadata:` 下（`metadata.evidence`），不触碰 OKF 标准顶层，规避 frontmatter 漂移与 5-writer 同步风险。
 2. **lint 枚举同步坑**：`stale_evidence` 进 `_ALL_CHECKS` 必须同步 `registry.py` 的 checks 枚举（回归测试兜底）。
