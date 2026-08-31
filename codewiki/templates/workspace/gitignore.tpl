@@ -8,6 +8,8 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+# 本机分析缓存（centralized 布局下落在工作区根，可重建，不入库）
+.codewiki/
 repowiki/.meta/search_index.json
 repowiki/.meta/retrieval_stats.db
 repowiki/.meta/telemetry-local/
