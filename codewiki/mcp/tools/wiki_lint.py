@@ -37,6 +37,8 @@ _ALL_CHECKS = {
     "unsupported_claims",
     "isolated_components",
     "stale_notes",
+    # P0 (openwiki 借鉴): content-hashed repo:// code evidence drift detection
+    "stale_evidence",
     "note_clusters",
     "okf_conformance",
     # P2 (team-memory fusion): L2 scene block hygiene
@@ -990,6 +992,84 @@ def _check_unsupported_claims(
                         ),
                     }
                 )
+
+    return issues
+
+
+def _check_stale_evidence(output_dir: Path) -> List[Dict[str, Any]]:
+    """Flag pages whose ``repo://`` code evidence no longer matches source.
+
+    Reads each page's ``sources`` list for entries carrying a ``content_hash``
+    (stamped by ``stamp_evidence``), re-reads the referenced region, and reports
+    ``stale`` (code drifted) or ``missing`` (file gone) entries.  Evidence
+    drives review only — this check never rewrites content.
+    """
+    from codewiki.src.evidence import verify_entry
+
+    repo_root = output_dir.parent
+    issues: List[Dict[str, Any]] = []
+
+    for md_file in output_dir.rglob("*.md"):
+        if not md_file.is_file():
+            continue
+        parts = set(md_file.relative_to(output_dir).parts)
+        if parts & _SCRATCH_DIR_NAMES or "raw" in parts:
+            continue
+        try:
+            content = md_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if not content.startswith("---"):
+            continue
+        end = content.find("---", 3)
+        if end < 0:
+            continue
+        try:
+            import yaml
+
+            data = yaml.safe_load(content[3:end]) or {}
+        except Exception:  # noqa: BLE001 - malformed FM is other checks' concern
+            continue
+        if not isinstance(data, dict):
+            continue
+        sources = data.get("sources")
+        if isinstance(sources, dict):
+            sources = [sources]
+        if not isinstance(sources, list):
+            continue
+
+        rel_path = str(md_file.relative_to(output_dir)).replace("\\", "/")
+        for entry in sources:
+            if not isinstance(entry, dict) or "content_hash" not in entry:
+                continue
+            status = verify_entry(entry, repo_root)
+            if status == "ok":
+                continue
+            resource = str(entry.get("resource", "<unknown>"))
+            if status == "stale":
+                message = f"code evidence drifted: {resource}"
+                suggestion = (
+                    "Source changed since this page was grounded. Re-verify the "
+                    "claim, then re-stamp via stamp_evidence or edit_doc_file."
+                )
+            elif status == "missing":
+                message = f"evidence file disappeared: {resource}"
+                suggestion = (
+                    "Referenced source no longer exists under the repo root. "
+                    "Re-check the page and re-stamp or remove the entry."
+                )
+            else:
+                message = f"unresolvable evidence resource: {resource}"
+                suggestion = "Malformed repo:// resource; re-stamp with a valid URI."
+            issues.append(
+                {
+                    "check": "stale_evidence",
+                    "severity": "warning",
+                    "message": message,
+                    "file": rel_path,
+                    "suggestion": suggestion,
+                }
+            )
 
     return issues
 
@@ -1990,6 +2070,9 @@ def handle_lint_wiki(
 
     if "unsupported_claims" in checks and output_dir:
         all_issues.extend(_check_unsupported_claims(output_dir))
+
+    if "stale_evidence" in checks and output_dir:
+        all_issues.extend(_check_stale_evidence(output_dir))
 
     if "stale_notes" in checks and output_dir:
         # Config (type-aware windows + retrieval-defer) is read from
