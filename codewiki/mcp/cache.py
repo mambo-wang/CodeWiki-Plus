@@ -906,6 +906,29 @@ class AnalysisCache:
             self._conn.close()
             self._conn = None
 
+    def _abs_path(self, rel: str) -> str:
+        """Resolve a DB-stored path to an absolute path on this machine.
+
+        Absolute values (legacy rows) pass through unchanged; relative values
+        are joined onto the repo root.
+        """
+        if not rel:
+            return ""
+        p = Path(rel)
+        return str(p) if p.is_absolute() else str(self.repo_path / p)
+
+    def _rel_path(self, abs_path: str) -> str:
+        """Store a path relative to the repo root so the DB stays portable.
+
+        Paths outside the repo (custom output_dir, cross-drive) are kept as-is.
+        """
+        if not abs_path:
+            return ""
+        try:
+            return Path(abs_path).resolve().relative_to(self.repo_path).as_posix()
+        except ValueError:
+            return abs_path
+
     def _create_tables(self):
         self.conn.executescript("""
             CREATE TABLE IF NOT EXISTS repo_meta (key TEXT PRIMARY KEY, value TEXT);
@@ -997,10 +1020,10 @@ class AnalysisCache:
     def get_output_dir(self) -> Optional[str]:
         """Return the output_dir recorded by the last analyze_repo, if any."""
         od = self._mget("output_dir")
-        return od if od else None
+        return self._abs_path(od) if od else None
 
     def set_output_dir(self, od: str):
-        self._mset("output_dir", od)
+        self._mset("output_dir", self._rel_path(od))
 
     def get_component_count(self) -> int:
         r = self.conn.execute("SELECT COUNT(*) as c FROM components").fetchone()
@@ -1052,7 +1075,7 @@ class AnalysisCache:
                 r.get("role", "server"),
                 r.get("component_id", ""),
                 r.get("repo_name", ""),
-                r.get("file_path", ""),
+                self._rel_path(r.get("file_path", "")),
                 r.get("line_number", 0),
                 r.get("framework"),
                 json.dumps(r.get("extra", {})),
@@ -1088,7 +1111,7 @@ class AnalysisCache:
                     "role": r["role"],
                     "component_id": r["component_id"],
                     "repo_name": r["repo_name"],
-                    "file_path": r["file_path"],
+                    "file_path": self._abs_path(r["file_path"]),
                     "line_number": r["line_number"],
                     "framework": r["framework"],
                     "extra": extra,
@@ -1120,7 +1143,7 @@ class AnalysisCache:
                     "role": r["role"],
                     "component_id": r["component_id"],
                     "repo_name": r["repo_name"],
-                    "file_path": r["file_path"],
+                    "file_path": self._abs_path(r["file_path"]),
                     "line_number": r["line_number"],
                     "framework": r["framework"],
                     "extra": extra,
@@ -1156,7 +1179,7 @@ class AnalysisCache:
             id=r["id"],
             name=r["name"],
             component_type=r["component_type"],
-            file_path=r["file_path"],
+            file_path=self._abs_path(r["relative_path"] or r["file_path"]),
             relative_path=r["relative_path"],
             start_line=r["start_line"],
             end_line=r["end_line"],
@@ -1217,7 +1240,7 @@ class AnalysisCache:
                 n.id,
                 n.name,
                 n.component_type,
-                n.file_path,
+                n.relative_path,
                 n.relative_path,
                 n.start_line,
                 n.end_line,
@@ -1347,7 +1370,7 @@ class AnalysisCache:
                 id=r["id"],
                 name=r["name"],
                 component_type=r["component_type"],
-                file_path=r["file_path"],
+                file_path=self._abs_path(r["relative_path"] or r["file_path"]),
                 relative_path=r["relative_path"],
                 start_line=r["start_line"],
                 end_line=r["end_line"],
@@ -1527,7 +1550,7 @@ class AnalysisCache:
                 id=r["id"],
                 name=r["name"],
                 component_type=r["component_type"],
-                file_path=r["file_path"],
+                file_path=self._abs_path(r["relative_path"] or r["file_path"]),
                 relative_path=r["relative_path"],
                 start_line=r["start_line"],
                 end_line=r["end_line"],
