@@ -23,6 +23,18 @@
       "title": "多仓工作区",
       "status": "active",
       "created_at": "2026-08-28T22:16:29.139312+00:00"
+    },
+    {
+      "id": "OpenWiki-竞品调研",
+      "title": "OpenWiki 竞品调研",
+      "status": "active",
+      "created_at": "2026-08-30T23:08:09.111533+00:00"
+    },
+    {
+      "id": "统一知识存储层（KnowledgeStore-动词式门面）",
+      "title": "统一知识存储层（KnowledgeStore 动词式门面）",
+      "status": "active",
+      "created_at": "2026-08-30T23:51:07.260584+00:00"
     }
   ]
 }
