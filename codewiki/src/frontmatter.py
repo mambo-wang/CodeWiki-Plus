@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -214,3 +215,197 @@ def fold_private_metadata(frontmatter: Dict[str, Any]) -> Dict[str, Any]:
     if extra:
         normalized["metadata"] = extra
     return normalized
+
+
+# ---------------------------------------------------------------------------
+# Read side — single parse entry point
+# ---------------------------------------------------------------------------
+# Before this existed, 13+ hand-rolled parsers (capture/_peek_frontmatter,
+# task_manager/_extract_fm, knowledge_loop/_extract_frontmatter, ...) drifted
+# on quote handling and metadata depth, producing real bugs (index entries
+# with literal quotes slipping past task_id filters). The write side emits
+# ``key: <json scalar>`` lines plus a two-space ``metadata:`` block, so a
+# line-based parser that json-decodes values round-trips it exactly and stays
+# tolerant of hand-edited plain values.
+
+_FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
+
+
+def _decode_scalar(raw: str) -> Any:
+    """Decode a frontmatter scalar: JSON forms become typed values, plain
+    text stays a string. Surrounding quotes always end up stripped."""
+    v = raw.strip()
+    if not v:
+        return ""
+    try:
+        return json.loads(v)
+    except (ValueError, TypeError):
+        pass
+    # Quoted scalars that are not valid JSON (YAML single quotes, or
+    # hand-written double-quoted text with unescaped content).
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        inner = v[1:-1]
+        return inner.replace("''", "'") if v[0] == "'" else inner
+    return v
+
+
+def _block_lines(block: str) -> List[Tuple[int, str]]:
+    """(indent, stripped_text) pairs for the significant lines of a block."""
+    out: List[Tuple[int, str]] = []
+    for raw_line in block.splitlines():
+        line = raw_line.rstrip()
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        out.append((indent, line.strip()))
+    return out
+
+
+def _is_item(s: str) -> bool:
+    return s == "-" or s.startswith("- ")
+
+
+def _item_text(s: str) -> str:
+    return s[2:] if s.startswith("- ") else ""
+
+
+def _parse_block(lines: List[Tuple[int, str]]) -> Any:
+    """Parse the indented block following an empty-value key.
+
+    Returns a list when the block opens with ``- item`` entries, a dict when
+    it opens with ``key: value`` lines (nested ``- item`` lists one more
+    level deep are folded into their key), or "" for an empty block. This
+    covers every shape the write side emits plus the hand-edited YAML block
+    forms found in real notes (``tags:`` block lists, ``metadata:`` nested
+    dicts, ``verified:`` mapping lists). Unrecognized continuation lines are
+    folded into the current item/key as text rather than lost or promoted to
+    bogus keys.
+    """
+    if not lines:
+        return ""
+
+    if _is_item(lines[0][1]):
+        items: List[Any] = []
+        for _, s in lines:
+            if _is_item(s):
+                items.append(_decode_scalar(_item_text(s)))
+            elif items:
+                prev = items[-1]
+                items[-1] = f"{prev} {s}" if str(prev) else s
+        return items
+
+    result: Dict[str, Any] = {}
+    pending: Optional[str] = None  # key whose block has not materialized yet
+    list_key: Optional[str] = None  # key currently collecting "- " items
+    for _, s in lines:
+        if _is_item(s):
+            item = _decode_scalar(_item_text(s))
+            if list_key is not None:
+                result[list_key].append(item)
+            elif pending is not None:
+                result[pending] = [item]
+                list_key, pending = pending, None
+            continue
+        if pending is not None:
+            result[pending] = ""  # no items came for the empty-value key
+            pending = None
+        list_key = None
+        key, sep, val = s.partition(":")
+        if not sep or not key.strip():
+            continue
+        key = key.strip()
+        val = val.strip()
+        if val:
+            result[key] = _decode_scalar(val)
+        else:
+            pending = key
+    if pending is not None:
+        result[pending] = ""
+    return result
+
+
+def parse_frontmatter(text: str) -> Tuple[Dict[str, Any], str]:
+    """Split a document into ``(frontmatter_dict, body)``.
+
+    The single read-side counterpart of :func:`inject_okf_frontmatter`.
+    Handles the OKF shapes written across the codebase: top-level
+    ``key: value`` scalars (json-encoded or plain), empty-value keys followed
+    by ``- item`` block lists (including YAML's same-indent item form) or a
+    nested block such as ``metadata:``. Documents without a leading fence
+    return ``({}, text)``; unreadable values are skipped, never raised.
+    """
+    if not text:
+        return {}, ""
+    m = _FRONTMATTER_RE.match(text)
+    if not m:
+        return {}, text
+    block, body = m.group(1), text[m.end() :]
+
+    lines = _block_lines(block)
+    data: Dict[str, Any] = {}
+    i, n = 0, len(lines)
+    while i < n:
+        indent, s = lines[i]
+        if indent > 0 or _is_item(s):
+            i += 1  # stray: indented or item line with no owning key
+            continue
+        key, sep, val = s.partition(":")
+        if not sep or not key.strip():
+            i += 1
+            continue
+        key = key.strip()
+        val = val.strip()
+        if val:
+            data[key] = _decode_scalar(val)
+            i += 1
+            continue
+        # Empty value: gather its block — indented lines, plus same-indent
+        # "- " items (YAML allows list items at their key's indent).
+        j = i + 1
+        sub: List[Tuple[int, str]] = []
+        while j < n:
+            ind2, s2 = lines[j]
+            if ind2 > 0 or _is_item(s2):
+                sub.append((ind2, s2))
+                j += 1
+            else:
+                break
+        data[key] = _parse_block(sub)
+        i = j
+    return data, body
+
+
+_PLAIN_UNSAFE_FIRST = set("-[{>\"'|&*!?")
+# YAML 1.1 reserved literals: PyYAML (yaml.safe_load) still reads frontmatter
+# in knowledge_loop / note_consolidation / doctrine, and it parses a bare
+# "on" / "Yes" / "no" as a boolean. Keep such strings quoted.
+_YAML_RESERVED = {"y", "n", "yes", "no", "on", "off", "true", "false", "null", "~"}
+
+
+def format_frontmatter_value(value: Any) -> str:
+    """Render *value* as a frontmatter scalar.
+
+    Unambiguous strings are emitted plain (``status: confirmed`` — the
+    corpus-wide convention, matching how :func:`inject_okf_frontmatter`
+    writes status/type). JSON encoding is reserved for strings that carry
+    special characters and for non-string values. A string that would parse
+    back as a JSON literal (``true``, ``42``, ``null``...) — or that PyYAML
+    would read as a YAML 1.1 boolean/null — stays quoted so every read side
+    returns the original string.
+    """
+    if isinstance(value, str):
+        v = value
+        plain_ok = (
+            bool(v)
+            and v == v.strip()
+            and v.lower() not in _YAML_RESERVED
+            and v[0] not in _PLAIN_UNSAFE_FIRST
+            and not any(c in v for c in ":#\n\r\t\"'\\")
+        )
+        if plain_ok:
+            try:
+                json.loads(v)
+            except (ValueError, TypeError):
+                return v
+        return json.dumps(v, ensure_ascii=False)
+    return json.dumps(value, ensure_ascii=False)

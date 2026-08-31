@@ -81,6 +81,8 @@ Thumbs.db
 *.tmp
 *.log
 *.bak
+# KnowledgeStore sidecar lock files (created next to atomic-write targets)
+*.lck
 .trash/
 .codewiki/
 .workbuddy/

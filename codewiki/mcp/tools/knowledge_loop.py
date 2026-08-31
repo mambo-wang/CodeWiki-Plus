@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.cache import _STOPWORDS
+from codewiki.src.frontmatter import parse_frontmatter
 
 logger = logging.getLogger(__name__)
 
@@ -2550,36 +2551,20 @@ def _legacy_keyword_search(
 
 
 def _extract_frontmatter(content: str, key: str) -> Optional[str]:
-    """Extract a value from YAML frontmatter.
+    """Extract a value from YAML frontmatter (top-level first, then metadata).
 
-    Matches the top level first, then falls back to a value folded under the
-    ``metadata:`` node (OKF v0.2 producer-private fields are emitted there as
-    two-space-indented ``key: value`` rows, e.g. ``origin``/``date``).
+    Delegates to the shared store parser — json-decoded values, so no quote
+    drift. Returns None when the document has no fence or the key is absent.
     """
-    if not content.startswith("---"):
+    if not content or not content.startswith("---"):
         return None
-    try:
-        end = content.index("---", 3)
-        fm = content[3:end]
-        in_metadata = False
-        for line in fm.splitlines():
-            if line.rstrip() == "metadata:":
-                in_metadata = True
-                continue
-            if in_metadata:
-                if line.startswith(("  ", "\t")):
-                    stripped = line.lstrip()
-                    if stripped.startswith(f"{key}:"):
-                        val = stripped[len(key) + 1 :].strip().strip('"').strip("'")
-                        return val
-                    continue
-                in_metadata = False  # left the metadata block
-            if line.startswith(f"{key}:"):
-                val = line[len(key) + 1 :].strip().strip('"').strip("'")
-                return val
-    except (ValueError, IndexError):
-        pass
-    return None
+    fm, _ = parse_frontmatter(content)
+    v = fm.get(key)
+    if v is None and isinstance(fm.get("metadata"), dict):
+        v = fm["metadata"].get(key)
+    if v is None or v == "":
+        return None
+    return v if isinstance(v, str) else str(v)
 
 
 def _get_module_components(

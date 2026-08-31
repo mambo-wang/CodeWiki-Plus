@@ -9,7 +9,6 @@ block the primary operation.
 from __future__ import annotations
 
 import logging
-import os
 import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -450,19 +449,17 @@ def _render_index(
 
 
 def _atomic_write(path: Path, content: str) -> None:
-    """Write *content* to *path* via a temp file + atomic rename."""
-    tmp = path.with_suffix(".tmp")
+    """Write *content* to *path* via a temp file + atomic rename.
+
+    Delegates to the shared store implementation (adds Windows retry); failure
+    is logged and swallowed, matching this module's best-effort contract.
+    """
+    from codewiki.src.store import atomic_write
+
     try:
-        tmp.write_text(content, encoding="utf-8")
-        os.replace(str(tmp), str(path))
-    except Exception as e:
+        atomic_write(path, content)
+    except OSError as e:
         logger.warning("Atomic write failed for %s: %s", path, e)
-        # Clean up temp file if it was created
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
 
 
 def _append_with_lock(filepath: Path, line: str) -> None:
