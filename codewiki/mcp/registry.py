@@ -784,7 +784,7 @@ _register(
         name="lint_wiki",
         description=(
             "Check documentation-code consistency. Works with or without an active session. "
-            "Runs 18 available checks: stale_refs (docs reference deleted components), "
+            "Runs 21 available checks: stale_refs (docs reference deleted components), "
             "broken_links (markdown links to non-existent pages), "
             "undocumented (high-impact components without docs), "
             "cycles (circular module dependencies), coverage (documentation coverage gaps), "
@@ -794,6 +794,8 @@ _register(
             "isolated_components (components with zero dependencies and zero dependents), "
             "overview_stale (overview.md references modules that have changed), "
             "unsupported_claims (business assertions lacking code evidence), "
+            "stale_evidence (repo:// code evidence whose content hash drifted or whose "
+            "file disappeared — re-verify the fact and re-stamp via stamp_evidence), "
             "stale_notes (stable/confirmed notes whose type-aware stale_after review "
             "deadline has passed without a recent retrieval; confirm_note renews), "
             "note_clusters (modules with 3+ same-type notes suggesting consolidation), "
@@ -842,6 +844,7 @@ _register(
                             "isolated_components",
                             "overview_stale",
                             "unsupported_claims",
+                            "stale_evidence",
                             "stale_notes",
                             "note_clusters",
                             "low_adoption",
@@ -872,6 +875,55 @@ _register(
         },
     ),
     handler_path="codewiki.mcp.tools.wiki_lint:handle_lint_wiki",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="stamp_evidence",
+        description=(
+            "Attach content-hashed code evidence to a wiki page's OKF sources list. "
+            "Each evidence item names a repo:// code region (e.g. repo://src/x.py#L10-L40, "
+            "or a whole file with no #L range); the tool records the region's current "
+            "content hash so lint_wiki's stale_evidence check can later flag drifted "
+            "facts. Evidence only drives review reminders — it never rewrites content. "
+            "Call this after write_doc_file/edit_doc_file when a page asserts facts about "
+            "specific code locations."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "page": {
+                    "type": "string",
+                    "description": "Page path relative to output_dir (e.g. 'wiki/modules/auth.md').",
+                },
+                "evidence": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "resource": {
+                                "type": "string",
+                                "description": "repo:// resource URI: 'repo://<rel-path>' (whole file) or 'repo://<rel-path>#L<start>-L<end>' (line range).",
+                            }
+                        },
+                        "required": ["resource"],
+                    },
+                    "description": "Code regions this page's facts are grounded in.",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Output directory for wiki pages.",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path; evidence resources resolve against this root.",
+                },
+            },
+            "required": ["page", "evidence"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.evidence:handle_stamp_evidence",
     mode="thread",
 )
 

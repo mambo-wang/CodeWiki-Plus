@@ -877,6 +877,85 @@ def _inject_crosslinks(
     }
 
 
+_MAX_AUTO_EVIDENCE = 8
+
+
+def _inject_evidence(session: SessionState, filename: str, doc_path: Path) -> dict | None:
+    """Auto-stamp code evidence for a module page's components (P0 Option B).
+
+    Opt-in via schema.yaml ``conventions.auto_evidence``.  Resolves the page's
+    module in module_tree, hashes each component's code region (content hash,
+    not git SHA), and appends a ``sources`` block to the page's frontmatter.
+    Evidence drives review only — it never rewrites content.  Returns a summary
+    dict when evidence was stamped, None otherwise.
+    """
+    schema = load_schema(session.output_dir)
+    if not schema.get("conventions", {}).get("auto_evidence", False):
+        return None
+
+    module_tree = session.module_tree or {}
+    if not module_tree or not session.components:
+        return None
+
+    mod_name = filename.replace(".md", "")
+
+    def _find_components(tree: dict, target: str) -> list:
+        for name, info in tree.items():
+            if name.lower().replace(" ", "_") == target.lower().replace(" ", "_"):
+                return list(info.get("components", []) or [])
+            children = info.get("children", {})
+            if isinstance(children, dict):
+                found = _find_components(children, target)
+                if found:
+                    return found
+        return []
+
+    module_components = _find_components(module_tree, mod_name)
+    if not module_components:
+        return None
+
+    from codewiki.mcp.tools.evidence import append_evidence_block
+    from codewiki.src.evidence import compute_file_hash, compute_region_hash, make_entry
+
+    repo_root = Path(session.repo_path).expanduser().resolve()
+    entries = []
+    for comp_id in sorted(module_components)[:_MAX_AUTO_EVIDENCE]:
+        node = session.components.get(comp_id)
+        if node is None:
+            continue
+        rel = (getattr(node, "relative_path", "") or "").replace("\\", "/")
+        if not rel and "::" in comp_id:
+            rel = comp_id.split("::", 1)[0].replace("\\", "/")
+        if not rel:
+            continue
+        target = repo_root / rel
+        if not target.is_file():
+            continue
+        start = int(getattr(node, "start_line", 0) or 0)
+        end = int(getattr(node, "end_line", 0) or 0)
+        try:
+            if start > 0 and end >= start:
+                content_hash = compute_region_hash(target, start, end)
+            else:
+                content_hash = compute_file_hash(target)
+        except OSError:
+            continue
+        entries.append(make_entry(rel, start if start > 0 else 0, end, content_hash))
+
+    if not entries:
+        return None
+
+    try:
+        content = doc_path.read_text(encoding="utf-8")
+        new_content = append_evidence_block(content, entries)
+    except OSError:
+        return None
+    if new_content == content:
+        return None
+    doc_path.write_text(new_content, encoding="utf-8")
+    return {"evidence_stamped": len(entries), "components": len(module_components)}
+
+
 def _collect_wiki_terms(output_dir: Path, exclude: Path | None = None) -> dict[str, str]:
     """Build a {term_lower: slug} map from existing wiki pages.
 
@@ -1283,6 +1362,14 @@ async def handle_write_doc_file(
     if session:
         crosslink_info = _inject_crosslinks(session, filename, doc_path)
 
+    # P0 Option B: auto-stamp code evidence (opt-in via schema.yaml auto_evidence)
+    evidence_info = None
+    if session and repo_path:
+        try:
+            evidence_info = _inject_evidence(session, filename, doc_path)
+        except Exception:
+            logger.warning("evidence auto-stamp failed (non-fatal)", exc_info=True)
+
     # LLM Wiki: inject source-file links for CamelCase symbols (only with session)
     if session and repo_path:
         try:
@@ -1314,6 +1401,8 @@ async def handle_write_doc_file(
         result["mermaid_warnings"] = mermaid_result
     if crosslink_info:
         result["crosslinks"] = crosslink_info
+    if evidence_info:
+        result["evidence"] = evidence_info
 
     # LLM Wiki: update index.md and log.md
     try:
