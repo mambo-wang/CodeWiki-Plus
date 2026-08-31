@@ -50,3 +50,17 @@
 {"t": "hit", "doc": "notes/2026-08-26-fork-来源的-pr-与目标分支冲突时的维护者合入流程merge-tree-探测-worktree-push-fork.md", "at": "2026-08-26", "n": 2}
 {"t": "hit", "doc": "notes/2026-08-25-mcp-参数长度受限时蒸馏-submit-走文件侧通道python-脚本直接调-handle-distill-conve.md", "at": "2026-08-26", "n": 5}
 {"t": "hit", "doc": "wiki/doctrine.md", "at": "2026-08-26", "n": 2}
+{"t": "hit", "doc": "notes/2026-08-23-distill-worker-subagent-定义随包发布hook-启用时自动拷贝到项目-codebuddyagent.md", "at": "2026-08-29", "n": 1}
+{"t": "hit", "doc": "wiki/scenarios/对话蒸馏管线与raw暂存区.md", "at": "2026-08-29", "n": 1}
+{"t": "hit", "doc": "wiki/scenarios/IDE-Hook采集链路方法.md", "at": "2026-08-29", "n": 1}
+{"t": "hit", "doc": "wiki/scenarios/任务记忆系统设计方法.md", "at": "2026-08-29", "n": 1}
+{"t": "hit", "doc": "wiki/doctrine.md", "at": "2026-08-29", "n": 1}
+{"t": "hit", "doc": "notes/2026-08-23-会话启动时的-query-wiki蒸馏等重操作委托-subagent-执行避免阻塞用户正常使用.md", "at": "2026-08-29", "n": 1}
+{"t": "hit", "doc": "wiki/scenarios/Wiki页面生成约定与数据结构.md", "at": "2026-08-29", "n": 1}
+{"t": "hit", "doc": "notes/2026-08-23-distill-worker-subagent-定义随包发布hook-启用时自动拷贝到项目-codebuddyagent.md", "at": "2026-08-30", "n": 1}
+{"t": "hit", "doc": "wiki/scenarios/IDE-Hook采集链路方法.md", "at": "2026-08-30", "n": 1}
+{"t": "hit", "doc": "notes/2026-08-29-subagent-定义的-frontmatter-按宿主家族分发同名文件不同-schema.md", "at": "2026-08-30", "n": 1}
+{"t": "hit", "doc": "wiki/scenarios/任务记忆系统设计方法.md", "at": "2026-08-30", "n": 1}
+{"t": "hit", "doc": "notes/2026-08-23-会话启动时的-query-wiki蒸馏等重操作委托-subagent-执行避免阻塞用户正常使用.md", "at": "2026-08-30", "n": 1}
+{"t": "hit", "doc": "notes/2026-08-25-mcp-参数长度受限时蒸馏-submit-走文件侧通道python-脚本直接调-handle-distill-conve.md", "at": "2026-08-30", "n": 1}
+{"t": "hit", "doc": "notes/2026-08-26-distill-conversation-submit-mcp-超时后仍会执行且不幂等超时重试导致任务记忆重复写入与字节.md", "at": "2026-08-30", "n": 1}

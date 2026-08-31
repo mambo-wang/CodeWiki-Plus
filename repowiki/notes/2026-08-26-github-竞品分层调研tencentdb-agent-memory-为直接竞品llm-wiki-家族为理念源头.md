@@ -15,6 +15,8 @@ aliases:
 metadata:
   date: 2026-08-26
   task_id: 产品维护
+  consolidated_into:
+  - wiki/scenarios/对话蒸馏管线与raw暂存区.md
 status: stable
 generated:
   by: codewiki/5.4.4

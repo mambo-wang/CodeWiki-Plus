@@ -34,7 +34,7 @@ wrapper 通过 `python -m codewiki.mcp._ide_hook` 调起采集脚本，因此要
       {
         "matcher": "startup",
         "hooks": [
-          { "type": "command", "command": "python \"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/task_session_start.py\"", "timeout": 15 }
+          { "type": "command", "command": "python \".codebuddy/hooks/task_session_start.py\"", "timeout": 15 }
         ]
       }
     ],
@@ -42,7 +42,7 @@ wrapper 通过 `python -m codewiki.mcp._ide_hook` 调起采集脚本，因此要
       {
         "matcher": "other",
         "hooks": [
-          { "type": "command", "command": "python \"$CODEBUDDY_PROJECT_DIR/.codebuddy/hooks/capture_session_end.py\"", "timeout": 30 }
+          { "type": "command", "command": "python \".codebuddy/hooks/capture_session_end.py\"", "timeout": 30 }
         ]
       }
     ]
@@ -57,7 +57,7 @@ wrapper 通过 `python -m codewiki.mcp._ide_hook` 调起采集脚本，因此要
 | `SessionStart` | 新会话开始 | `startup` | 同步返回 `hookSpecificOutput.additionalContext`，注入任务关联引导（脚本 `task_session_start.py`，纯 stdlib，不 import codewiki） |
 | `SessionEnd` | 会话终止（切换/删除/清空） | `other`（目前唯一支持的 reason 值） | 唯一可靠携带 `transcript_path` 的事件；采集脚本经 wrapper 转发落盘 |
 
-**命令路径用可移植形式，不写机器相关绝对路径**——`.codebuddy/settings.json` 随仓库共享，绝对路径（如 `d:/repos/CodeWiki-CN/...`）提交后队友克隆到其他目录即失效。各 IDE 的路径形式由 `codewiki install-hooks` 按注册表模板生成：CodeBuddy 用 `$CODEBUDDY_PROJECT_DIR/...`（官方文档称 command 中可用该环境变量），Qoder 用仓库相对路径（官方示例形态），Claude Code 用 `${CLAUDE_PROJECT_DIR}/...` 官方占位符（宿主执行前纯字符串替换，跨平台）。历史沿革：2026-08 曾实测旧版 CodeBuddy 不展开 `$CODEBUDDY_PROJECT_DIR` 而回退绝对路径；现行官方 IDE 文档明确支持环境变量形式，接线后建议开一个新会话验证 hook 触发。
+**命令路径用项目相对形式（如 `python ".codebuddy/hooks/capture_session_end.py"`），不写机器相关绝对路径**——`.<ide>/settings.json` 随仓库共享，绝对路径（如 `d:/repos/CodeWiki-CN/...`）提交后队友克隆到其他目录即失效。相对路径可行的前提是宿主以项目根为工作目录执行 hook 命令（已实测）；各宿主的 `$*_PROJECT_DIR` 环境变量展开曾尝试（CodeBuddy `$CODEBUDDY_PROJECT_DIR`、Qoder `$QODER_PROJECT_DIR`、Claude Code `$CLAUDE_PROJECT_DIR`、Gemini CLI `$GEMINI_PROJECT_DIR`），实测不可靠故弃用。重跑 `codewiki install-hooks` 会把旧格式条目（绝对路径/环境变量占位符）原地迁移为相对形式，不产生重复注册。接线后建议开一个新会话验证 hook 触发。
 
 事件触发时，CodeBuddy 通过 **stdin** 向 wrapper 传入事件 JSON（以 SessionEnd 为例）：
 

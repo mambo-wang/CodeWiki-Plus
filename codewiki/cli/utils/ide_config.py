@@ -3,7 +3,7 @@ IDE wiring utilities for CodeWiki hooks/subagents.
 
 将任务记忆 hook/subagent 接线从「仅支持 CodeBuddy」扩展为支持市面上常见的
 智能体（Qoder、Claude Code）。用户触发创建/启用 hook 时，自动检测项目根目录
-存在哪些智能体配置目录（.codebuddy/.qoder/.claude），检测到哪些就为哪些生成
+存在哪些智能体配置目录（.codebuddy/.qoder/.claude/.gemini），检测到哪些就为哪些生成
 对应 hook 注册与 subagent 定义。
 
 核心设计：IDE 注册表（IDE_SPECS）驱动。IDE 差异（配置目录、settings.json、
@@ -16,6 +16,7 @@ import ast
 import copy
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -44,6 +45,13 @@ from codewiki.mcp.prompts import (
 #     （如千问办公：AGENTS.md 自动加载等价 SessionStart；会话捕获由 Agent 按协议
 #     调 MCP 工具完成）——只 upsert AGENTS.md 协议段，无 dir/settings/拷贝，
 #     且不参与仓库目录自动检测（无仓库标记，仅显式 --ide 触发）。
+#
+# agent_file（可选）：subagent 定义源文件名。各宿主的 subagent frontmatter
+# schema 不同——CodeBuddy 认 `tools: ReadFile` + `toolsMCP`；把 CodeBuddy 版
+# 喂给 claude 家族（Qoder/Claude Code/Gemini CLI）会解析出空工具集、subagent
+# 不可用。claude 家族变体省略 tools 行（继承全部工具，含 MCP）——实测 Qoder
+# 下显式枚举 `mcp__<server>__<tool>` 不透传给子代理，缺省继承更稳。
+# 缺省（如 codebuddy）拷贝 AGENT_FILE；安装后的目标文件名始终是 AGENT_FILE。
 IDE_SPECS: dict[str, dict] = {
     "codebuddy": {
         "dir": ".codebuddy",
@@ -56,12 +64,21 @@ IDE_SPECS: dict[str, dict] = {
         "settings": "settings.json",
         "agents_dir": "agents",
         "copy_agent": True,
+        "agent_file": "distill-worker.claude.md",
     },
     "claude-code": {
         "dir": ".claude",
         "settings": "settings.json",
         "agents_dir": "agents",
         "copy_agent": True,
+        "agent_file": "distill-worker.claude.md",
+    },
+    "gemini-cli": {
+        "dir": ".gemini",
+        "settings": "settings.json",
+        "agents_dir": "agents",
+        "copy_agent": True,
+        "agent_file": "distill-worker.claude.md",
     },
     "qwenwork": {
         "wiring": "prompt",
@@ -71,10 +88,17 @@ IDE_SPECS: dict[str, dict] = {
 
 # 需要物理拷贝的 hook 脚本（IDE 不会自动创建，必须就位于目标项目）
 HOOK_FILES = ("capture_session_end.py", "task_session_start.py")
-# distill-worker subagent 定义文件
+# distill-worker subagent 定义文件（安装后的目标文件名；源变体见 IDE_SPECS.agent_file）
 AGENT_FILE = "distill-worker.md"
 
-# hook 事件注册骨架，command 运行时补全为绝对路径
+# command 用项目相对路径（宿主以项目根为工作目录执行 hook 命令），不写机器
+# 相关绝对路径——settings.json 随仓库共享，绝对路径提交后队友克隆到其他目录
+# 即失效；各宿主的 $*_PROJECT_DIR 变量展开经实测不可靠，故不用占位符。
+# 脚本本体经 __file__ 定位仓库，不依赖工作目录。
+START_HOOK_CMD = 'python "{ide_dir}/hooks/task_session_start.py"'
+END_HOOK_CMD = 'python "{ide_dir}/hooks/capture_session_end.py"'
+
+# hook 事件注册骨架，command 运行时补全为相对路径命令
 HOOKS_REGISTRATION = {
     "SessionStart": [
         {"matcher": "startup", "hooks": [{"type": "command", "command": "<cmd>", "timeout": 15}]}
@@ -116,7 +140,7 @@ def _resolve_pkg_sources() -> Path:
 def detect_ide_dirs(repo: str) -> list[str]:
     """扫描项目根目录，返回已存在的 IDE 配置目录对应的 IDE 名称列表。
 
-    存在 `.codebuddy/.qoder/.claude` 中哪些目录就检测到哪些 IDE——
+    存在 `.codebuddy/.qoder/.claude/.gemini` 中哪些目录就检测到哪些 IDE——
     即「用户用了哪些智能体就为哪些接线」。prompt 模式（千问办公）在仓库
     无标记目录，不参与自动检测，仅显式 ``--ide qwenwork`` 触发。
     """
@@ -132,7 +156,10 @@ def merge_settings_json(existing: Optional[dict], start_cmd: str, end_cmd: str) 
     """幂等合并 CodeWiki 的 hook 注册到现有 settings.json 配置。
 
     保留 existing 中全部既有键；对 hooks.SessionStart/SessionEnd 数组按 command
-    去重后合并 CodeWiki 注册项，避免重复注册。返回合并结果，由调用方原子写回。
+    去重后合并 CodeWiki 注册项，避免重复注册。历史旧格式条目（绝对路径、
+    反斜杠路径或 ``$*_PROJECT_DIR`` 占位符形式）指向同一相对脚本路径时，
+    原地迁移为相对路径命令（保留原 timeout），重跑接线不产生重复条目。
+    返回合并结果，由调用方原子写回。
     """
     merged = copy.deepcopy(existing) if existing else {}
     hooks = merged.get("hooks")
@@ -168,9 +195,35 @@ def merge_settings_json(existing: Optional[dict], start_cmd: str, end_cmd: str) 
         def norm(cmd: Optional[str]) -> str:
             return (cmd or "").replace("\\", "/")
 
+        # 迁移旧格式：既有命令以同一相对脚本路径结尾（含 IDE 配置目录，足够
+        # 特异）即视为 CodeWiki 历史注册，原地替换为相对路径命令、保留原
+        # timeout；随后去重检查会跳过追加。
+        suffix = _relative_hook_suffix(command)
+        if suffix:
+            for h in inner:
+                if not isinstance(h, dict):
+                    continue
+                old = norm(h.get("command"))
+                if old and old != norm(command) and old.endswith(suffix):
+                    h["command"] = command
+
         if not any(isinstance(h, dict) and norm(h.get("command")) == norm(command) for h in inner):
             inner.append({"type": "command", "command": command, "timeout": timeout})
     return merged
+
+
+def _relative_hook_suffix(command: str) -> str:
+    """提取 hook 命令结尾带引号的相对脚本路径（含结尾引号）。
+
+    如 ``python ".qoder/hooks/task_session_start.py"`` →
+    ``.qoder/hooks/task_session_start.py"``。旧格式条目（绝对路径或
+    ``$*_PROJECT_DIR`` 占位符）归一化分隔符后也以同一相对后缀结尾，
+    可据此原地迁移。命令无引号脚本路径时返回空串（不迁移）。
+    """
+    m = re.search(r'"(\.[^"]+/[^"]+\.py)"\s*$', command)
+    if not m:
+        return ""
+    return command[m.start(1) :]
 
 
 def upsert_agents_section(agents_path: Path) -> bool:
@@ -276,9 +329,13 @@ def install_for_ide(repo: str, ide: str) -> dict:
             raise IdeWiringError(f"Copied hook script is not valid Python: {dst}: {e}")
         copied.append(str(dst.relative_to(repo_path)))
 
-    # 1b. 拷贝 distill-worker subagent 定义（best-effort，缺源文件不阻塞主流程）
+    # 1b. 拷贝 distill-worker subagent 定义（best-effort，缺源文件不阻塞主流程）。
+    # 源变体由 IDE_SPECS.agent_file 决定（宿主 frontmatter schema 不同）；
+    # 变体缺失时回退默认源。目标文件名始终是 AGENT_FILE。
     if spec.get("copy_agent"):
-        src = pkg / "agents" / AGENT_FILE
+        src = pkg / "agents" / spec.get("agent_file", AGENT_FILE)
+        if not src.is_file():
+            src = pkg / "agents" / AGENT_FILE
         dst = agents_dir / AGENT_FILE
         if src.is_file():
             shutil.copy2(src, dst)
@@ -292,10 +349,10 @@ def install_for_ide(repo: str, ide: str) -> dict:
             existing = json.loads(settings_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
             raise IdeWiringError(f"Cannot parse {settings_path}: {e}")
-    # 统一用正斜杠路径生成命令（as_posix），与项目内既有手动配置格式一致；
-    # merge_settings_json 内部再做分隔符归一化比较，反斜杠历史条目不会重复。
-    start_cmd = f'python "{(ide_dir / "hooks" / "task_session_start.py").as_posix()}"'
-    end_cmd = f'python "{(ide_dir / "hooks" / "capture_session_end.py").as_posix()}"'
+    # command 用项目相对路径，不写机器相关绝对路径
+    # （见 START_HOOK_CMD / END_HOOK_CMD 注释）
+    start_cmd = START_HOOK_CMD.format(ide_dir=spec["dir"])
+    end_cmd = END_HOOK_CMD.format(ide_dir=spec["dir"])
     merged = merge_settings_json(existing, start_cmd, end_cmd)
     settings_changed = merged != existing
     try:

@@ -36,6 +36,10 @@ HOOK_SOURCES = {
     "task_session_start.py": "import os\n\nprint('ok')\n",
 }
 AGENT_SOURCE = "---\nname: distill-worker\ntoolsMCP: codewiki\n---\nworker\n"
+AGENT_SOURCE_CLAUDE = (
+    "---\nname: distill-worker\n"
+    "tools: Read, Write, mcp__codewiki__distill_conversation\n---\nworker\n"
+)
 
 
 @pytest.fixture
@@ -47,6 +51,9 @@ def fake_pkg(tmp_path, monkeypatch):
     for name, content in HOOK_SOURCES.items():
         (pkg / "hooks" / name).write_text(content, encoding="utf-8")
     (pkg / "agents" / AGENT_FILE).write_text(AGENT_SOURCE, encoding="utf-8")
+    (pkg / "agents" / "distill-worker.claude.md").write_text(
+        AGENT_SOURCE_CLAUDE, encoding="utf-8"
+    )
     monkeypatch.setattr("codewiki.cli.utils.ide_config._resolve_pkg_sources", lambda: pkg)
     return pkg
 
@@ -72,6 +79,11 @@ def test_detect_finds_multiple_dirs(tmp_path):
     (tmp_path / ".codebuddy").mkdir()
     (tmp_path / ".claude").mkdir()
     assert detect_ide_dirs(str(tmp_path)) == ["codebuddy", "claude-code"]
+
+
+def test_detect_finds_gemini_dir(tmp_path):
+    (tmp_path / ".gemini").mkdir()
+    assert detect_ide_dirs(str(tmp_path)) == ["gemini-cli"]
 
 
 def test_detect_none(tmp_path):
@@ -132,6 +144,101 @@ def test_merge_dedups_same_command_with_different_timeout():
     assert merged["hooks"]["SessionStart"][0]["hooks"][0]["timeout"] == 99
 
 
+# Legacy entries (absolute / backslash paths, or $*_PROJECT_DIR placeholders)
+# must be migrated in place to the project-relative form instead of being
+# duplicated when install-hooks is re-run after a path-format change.
+
+NEW_START = 'python ".qoder/hooks/task_session_start.py"'
+NEW_END = 'python ".qoder/hooks/capture_session_end.py"'
+
+
+@pytest.mark.parametrize(
+    "legacy_start",
+    [
+        'python "D:/repos/proj/.qoder/hooks/task_session_start.py"',
+        'python "D:\\repos\\proj\\.qoder\\hooks\\task_session_start.py"',
+        'python "$CODEBUDDY_PROJECT_DIR/.qoder/hooks/task_session_start.py"',
+        'python "$CLAUDE_PROJECT_DIR/.qoder/hooks/task_session_start.py"',
+    ],
+)
+def test_merge_migrates_legacy_start_command_in_place(legacy_start):
+    existing = {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "matcher": "startup",
+                    "hooks": [{"type": "command", "command": legacy_start, "timeout": 42}],
+                }
+            ]
+        }
+    }
+    merged = merge_settings_json(existing, NEW_START, NEW_END)
+    start = merged["hooks"]["SessionStart"]
+    assert len(start) == 1
+    assert len(start[0]["hooks"]) == 1
+    assert start[0]["hooks"][0]["command"] == NEW_START
+    assert start[0]["hooks"][0]["timeout"] == 42  # original timeout preserved
+
+
+def test_merge_keeps_unrelated_commands_while_migrating():
+    existing = {
+        "hooks": {
+            "SessionEnd": [
+                {
+                    "matcher": "other",
+                    "hooks": [
+                        {"type": "command", "command": "my-other-tool --on-exit", "timeout": 5},
+                        {
+                            "type": "command",
+                            "command": 'python "D:/repos/proj/.qoder/hooks/capture_session_end.py"',
+                            "timeout": 30,
+                        },
+                    ],
+                }
+            ]
+        }
+    }
+    merged = merge_settings_json(existing, NEW_START, NEW_END)
+    inner = merged["hooks"]["SessionEnd"][0]["hooks"]
+    assert len(inner) == 2  # no duplicate appended
+    commands = [h["command"] for h in inner]
+    assert "my-other-tool --on-exit" in commands  # unrelated entry untouched
+    assert NEW_END in commands
+
+
+def test_install_migrates_existing_absolute_path_entries(tmp_path, fake_pkg):
+    (tmp_path / ".qoder").mkdir()
+    _write_settings(
+        tmp_path,
+        ".qoder",
+        {
+            "hooks": {
+                "SessionStart": [
+                    {
+                        "matcher": "startup",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": 'python "D:/repos/proj/.qoder/hooks/task_session_start.py"',
+                                "timeout": 15,
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+    )
+    result = install_for_ide(str(tmp_path), "qoder")
+    assert result["settings_changed"] is True
+    settings = json.loads((tmp_path / ".qoder" / "settings.json").read_text(encoding="utf-8"))
+    start = settings["hooks"]["SessionStart"][0]["hooks"]
+    assert len(start) == 1
+    assert start[0]["command"] == NEW_START
+    # Re-running is idempotent on the migrated form.
+    second = install_for_ide(str(tmp_path), "qoder")
+    assert second["settings_changed"] is False
+
+
 # ---------------------------------------------------------------------------
 # install_for_ide (end-to-end)
 # ---------------------------------------------------------------------------
@@ -149,9 +256,8 @@ def test_install_for_ide_copies_and_wires(tmp_path, fake_pkg):
     settings = json.loads((tmp_path / ".qoder" / "settings.json").read_text(encoding="utf-8"))
     start = settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     end = settings["hooks"]["SessionEnd"][0]["hooks"][0]["command"]
-    assert "task_session_start.py" in start
-    assert "capture_session_end.py" in end
-    assert "qoder" in start
+    assert start == 'python ".qoder/hooks/task_session_start.py"'
+    assert end == 'python ".qoder/hooks/capture_session_end.py"'
 
     agents_md = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     assert _TASK_MEMORY_AGENTS_START in agents_md
@@ -211,6 +317,39 @@ def test_unknown_ide_raises(tmp_path):
     with pytest.raises(Exception) as exc:
         install_for_ide(str(tmp_path), "cursor")
     assert "Unknown IDE" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# distill-worker 变体：宿主 subagent frontmatter schema 不同，claude 家族
+# 拿到 CodeBuddy 专属格式会解析出空工具集、subagent 不可用——必须按 IDE 发变体。
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("ide", ["qoder", "claude-code", "gemini-cli"])
+def test_install_claude_family_gets_claude_agent_variant(tmp_path, fake_pkg, ide):
+    install_for_ide(str(tmp_path), ide)
+    spec_dir = {
+        "qoder": ".qoder",
+        "claude-code": ".claude",
+        "gemini-cli": ".gemini",
+    }[ide]
+    installed = (tmp_path / spec_dir / "agents" / AGENT_FILE).read_text(encoding="utf-8")
+    assert installed == AGENT_SOURCE_CLAUDE
+    assert "toolsMCP" not in installed  # CodeBuddy-only field must not leak
+
+
+def test_install_codebuddy_keeps_default_agent_variant(tmp_path, fake_pkg):
+    install_for_ide(str(tmp_path), "codebuddy")
+    installed = (tmp_path / ".codebuddy" / "agents" / AGENT_FILE).read_text(encoding="utf-8")
+    assert installed == AGENT_SOURCE
+    assert "toolsMCP: codewiki" in installed
+
+
+def test_install_agent_variant_missing_falls_back_to_default(tmp_path, fake_pkg):
+    (fake_pkg / "agents" / "distill-worker.claude.md").unlink()
+    install_for_ide(str(tmp_path), "qoder")
+    installed = (tmp_path / ".qoder" / "agents" / AGENT_FILE).read_text(encoding="utf-8")
+    assert installed == AGENT_SOURCE  # degraded but still wired
 
 
 # ---------------------------------------------------------------------------

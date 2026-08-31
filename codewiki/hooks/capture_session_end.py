@@ -127,12 +127,16 @@ def _read_event() -> dict:
 def _resolve_repo_path(event: dict) -> str:
     """Resolve the repo root, preferring authoritative sources.
 
-    Priority: CODEBUDDY_PROJECT_DIR env var (CodeBuddy-specific) >
-    CLAUDE_PROJECT_DIR (compat) > event's cwd > this script's repo location.
-    Candidates that don't exist on disk are skipped.
+    Priority: the host's *_PROJECT_DIR env var (each host injects its own:
+    CODEBUDDY/QODER/GEMINI/TRAE, plus CLAUDE_PROJECT_DIR compat) > event's
+    cwd > this script's repo location. Candidates that don't exist on disk
+    are skipped.
     """
     candidates = [
         os.environ.get("CODEBUDDY_PROJECT_DIR"),
+        os.environ.get("QODER_PROJECT_DIR"),
+        os.environ.get("GEMINI_PROJECT_DIR"),
+        os.environ.get("TRAE_PROJECT_DIR"),
         os.environ.get("CLAUDE_PROJECT_DIR"),
         event.get("cwd"),
         str(REPO),

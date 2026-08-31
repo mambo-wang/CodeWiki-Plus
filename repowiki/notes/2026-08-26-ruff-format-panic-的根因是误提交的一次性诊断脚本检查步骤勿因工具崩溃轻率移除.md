@@ -17,6 +17,8 @@ metadata:
   severity: medium
   root_cause: 'ruff 0.16.3 formatter 对特定文件 scripts/_tmp2.py（99e4c44 误提交的一次性诊断脚本）panic；叠加全仓
     206 文件 format 存量漂移，迫使 PR #17 移除 CI format 检查步骤'
+  consolidated_into:
+  - wiki/scenarios/发布与依赖治理方法.md
 status: stable
 generated:
   by: codewiki/5.4.4

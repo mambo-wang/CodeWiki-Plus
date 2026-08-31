@@ -54,6 +54,9 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]  # <repo>/.codebuddy/hooks/ -> <repo>
+# 本副本安装所在的 IDE 配置目录名（".codebuddy"/".qoder"/…）；
+# 包内源副本位于 codewiki/hooks/，取值为 "codewiki"。
+IDE_DIR_NAME = Path(__file__).resolve().parents[1].name
 
 
 def _read_event() -> dict:
@@ -79,12 +82,16 @@ def _read_event() -> dict:
 def _resolve_repo_path(event: dict) -> str:
     """Resolve the repo root, preferring authoritative sources.
 
-    Priority: CODEBUDDY_PROJECT_DIR env var (CodeBuddy-specific) >
-    CLAUDE_PROJECT_DIR (compat) > event's cwd > this script's repo location.
-    Candidates that don't exist on disk are skipped.
+    Priority: the host's *_PROJECT_DIR env var (each host injects its own:
+    CODEBUDDY/QODER/GEMINI/TRAE, plus CLAUDE_PROJECT_DIR compat) > event's
+    cwd > this script's repo location. Candidates that don't exist on disk
+    are skipped.
     """
     candidates = [
         os.environ.get("CODEBUDDY_PROJECT_DIR"),
+        os.environ.get("QODER_PROJECT_DIR"),
+        os.environ.get("GEMINI_PROJECT_DIR"),
+        os.environ.get("TRAE_PROJECT_DIR"),
         os.environ.get("CLAUDE_PROJECT_DIR"),
         event.get("cwd"),
         str(REPO),
@@ -318,12 +325,23 @@ def _build_message(event: dict, repo_path: str) -> str:
         for tid, n in sorted(pending_counts.items()):
             label = f"任务 {tid}" if tid else "未关联任务"
             lines.append(f"  - {label}: {n} 条")
-        lines.append(
-            "绑定任务之后，立即用 Task 工具 spawn「蒸馏 worker」subagent "
-            "（.codebuddy/agents/distill-worker.md，已授权 codewiki MCP）后台执行补蒸馏；"
-            "主 Agent 不要亲自 read_file raw 原文、也不等蒸馏完成，直接开始回答用户提问。"
-            "蒸馏 worker 走 Mode C（纯 MCP JSON）流程："
-        )
+        if IDE_DIR_NAME == ".codebuddy":
+            lines.append(
+                "绑定任务之后，立即用 Task 工具 spawn「蒸馏 worker」subagent "
+                "（.codebuddy/agents/distill-worker.md，已授权 codewiki MCP）后台执行补蒸馏；"
+                "主 Agent 不要亲自 read_file raw 原文、也不等蒸馏完成，直接开始回答用户提问。"
+            )
+        else:
+            # claude 家族（Qoder/Claude Code/Gemini CLI）：自定义子代理拿不到
+            # MCP 权限（实测），委托改走内置 general-purpose 子代理，
+            # 以 distill-worker.md 正文为剧本。包内源副本同走此分支。
+            lines.append(
+                "绑定任务之后，立即用 Task 工具 spawn 内置 general-purpose 子代理后台执行补蒸馏："
+                f"让它先读 {IDE_DIR_NAME}/agents/distill-worker.md（蒸馏 worker 剧本），"
+                "再按其中 Mode C 流程执行（本宿主自定义子代理拿不到 MCP 权限，须用内置子代理）；"
+                "主 Agent 不要亲自 read_file raw 原文、也不等蒸馏完成，直接开始回答用户提问。"
+            )
+        lines.append("蒸馏子代理走 Mode C（纯 MCP JSON）流程：")
         lines.append(
             '  1. distill_conversation(mode="prepare", task_id=<绑定的任务id>) '
             "获取该任务的积压对话清单"

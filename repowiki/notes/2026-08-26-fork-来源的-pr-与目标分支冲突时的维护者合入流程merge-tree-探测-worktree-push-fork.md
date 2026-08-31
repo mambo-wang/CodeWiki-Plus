@@ -1,12 +1,20 @@
 ---
 type: lesson
-title: "fork 来源的 PR 与目标分支冲突时的维护者合入流程（merge-tree 探测 + worktree + push fork）"
-tags: ["16", "codewiki", "lesson", "liberifatali"]
+title: fork 来源的 PR 与目标分支冲突时的维护者合入流程（merge-tree 探测 + worktree + push fork）
+tags:
+- '16'
+- codewiki
+- lesson
+- liberifatali
 metadata:
   date: 2026-08-26
   severity: medium
+  consolidated_into:
+  - wiki/scenarios/发布与依赖治理方法.md
 status: stable
-generated: { by: codewiki/5.4.3, at: 2026-08-25T16:38:39Z }
+generated:
+  by: codewiki/5.4.3
+  at: 2026-08-25 16:38:39+00:00
 stale_after: 2027-02-22
 ---
 

@@ -6,6 +6,8 @@ tags:
 metadata:
   date: 2026-08-25
   source_ref: conversations/conv-在用户通过各种方式摄入经验后，如何能让CodingAgent能够自动检索呢.md
+  consolidated_into:
+  - wiki/scenarios/MCP-Server薄壳架构与参数约定.md
 status: stable
 generated:
   by: codewiki/5.4.2

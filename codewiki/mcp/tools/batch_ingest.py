@@ -142,14 +142,23 @@ def handle_batch_ingest(
         except Exception:
             pass
 
-    return json.dumps(
-        {
-            "status": "completed",
-            "total": len(items),
-            "succeeded": succeeded,
-            "failed": failed,
-            "results": results,
-        },
-        indent=2,
-        ensure_ascii=False,
-    )
+    # Write results to workspace file to avoid MCP channel overflow on large batches.
+    # Only return the file path in the response; the caller can read the full report
+    # via view_repo_file if needed.
+    summary = {
+        "status": "completed",
+        "total": len(items),
+        "succeeded": succeeded,
+        "failed": failed,
+    }
+    if output_dir:
+        report_path = output_dir / ".meta" / "batch_ingest_report.json"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        full_report = {**summary, "results": results}
+        report_path.write_text(json.dumps(full_report, indent=2, ensure_ascii=False), encoding="utf-8")
+        summary["report_file"] = str(report_path.relative_to(output_dir))
+        summary["message"] = f"Batch ingest completed. Full report written to {summary['report_file']}. Use view_repo_file to read details."
+    else:
+        summary["results"] = results
+
+    return json.dumps(summary, indent=2, ensure_ascii=False)

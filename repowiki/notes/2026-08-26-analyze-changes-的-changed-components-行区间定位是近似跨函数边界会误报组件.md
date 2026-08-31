@@ -8,6 +8,8 @@ metadata:
   related_modules:
   - change_analysis
   source_ref: conversations/conv-user_command-commands-codewiki-变更评估与代码评审（修改后）-请对最近代码变更做影响范围评-2.md
+  consolidated_into:
+  - wiki/scenarios/代码评审与分析工具方法.md
 status: stable
 generated:
   by: codewiki/5.4.3

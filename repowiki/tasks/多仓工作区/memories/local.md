@@ -34,3 +34,15 @@ Wiki 增量更新按设计文档实施完成：
 - 文案：registry 描述、README 中英、管理模型 §5 步 8+§6、设计文档 §3 deferred 档/§4 实现命名空间回写。
 - 坑：_save_and_compute_order result 嵌 Path 致 JSON 序列化败（meta_join 原返回 str），str() 修。
 - 验证：ruff 过；全量 593 过（仅 2 已知环境性失败）。
+
+### 2026-08-29 23:03
+
+完成 init_workspace 痕迹齐备短路优化：prompt 改为直接跑 bootstrap 补 clone，工具侧 clone-only 保留兜底，98 个测试通过。
+
+### 2026-08-29 23:03
+
+完成 analyze_workspace 增量模式设计与实施：三档分派（跳过/全量/deferred）、锚点复用 metadata.json commit_id、centralized 布局缓存路径对齐，593 个测试通过。
+
+### 2026-08-29 23:03
+
+发现并记录 clone-only 短路路径漏写 workspace.json / 未询问用户模式的 pitfall，待后续修复验证。
