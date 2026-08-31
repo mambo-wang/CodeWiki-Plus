@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import threading
 from datetime import datetime, timezone
@@ -201,19 +200,9 @@ def _resolve_output_dir(
     session: Optional[Any],
     arguments: Dict[str, Any],
 ) -> Path:
-    if session:
-        return Path(session.output_dir).expanduser().resolve()
-    od = arguments.get("output_dir")
-    if od:
-        return Path(od).expanduser().resolve()
-    rp = arguments.get("repo_path")
-    if rp:
-        # Layout-aware (ticket 07): distillation reads/writes the shared
-        # runtime area at the workspace root under centralized layouts.
-        from codewiki.mcp.tools.workspace_layout import default_output_dir
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
 
-        return default_output_dir(Path(rp).expanduser().resolve())
-    raise ValueError("output_dir or repo_path is required (or pass an active session).")
+    return resolve_output_dir(session, arguments)
 
 
 def _load_distilled_file(arguments: Dict[str, Any], output_dir: Path) -> Optional[Dict[str, Any]]:
@@ -1248,39 +1237,14 @@ def _mark_distilled(raw_path: Path) -> None:
 def _sync_raw_index_on_distill(raw_dir: Path, raw_path: Path, deleted: bool) -> None:
     """Keep repowiki/raw/.index.json consistent after distillation.
 
-    capture_conversation maintains this index so that dedup/supersede stay O(1)
-    regardless of how many pending raw files accumulate. When distillation
-    finishes we must remove the entry (deleted) or flip it to status=distilled
-    (kept via keep_raw), otherwise the index would keep pointing at files that
-    no longer exist / no longer match pending supersede. Best-effort: a failed
-    index update must never block or fail distillation.
+    Delegates to ``KnowledgeStore.sync_raw_index`` — the store owns the index
+    format + atomic write; this wrapper only adapts the distill call shape
+    (raw_dir + raw_path + deleted flag) to it. Best-effort: a failed index
+    update must never block or fail distillation.
     """
-    idx = raw_dir / ".index.json"
-    if not idx.is_file():
-        return
-    try:
-        data = json.loads(idx.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return
-    name = raw_path.name
-    files = data.get("files", [])
-    if deleted:
-        files = [e for e in files if e.get("relpath") != name]
-    else:
-        for e in files:
-            if e.get("relpath") == name:
-                e["status"] = "distilled"
-                break
-    tmp = raw_dir / (".index.tmp." + str(os.getpid()))
-    try:
-        tmp.write_text(json.dumps({"files": files}, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, idx)
-    except OSError:
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except OSError:
-            pass
+    from codewiki.src.store import KnowledgeStore
+
+    KnowledgeStore(raw_dir.parent).sync_raw_index(raw_path.name, removed=deleted)
 
 
 # --------------------------------------------------------------------------- #

@@ -18,17 +18,15 @@ Design constraints (must hold):
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
-import os
 import re
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from codewiki.mcp.session import SessionState, SessionStore
 from codewiki.mcp.tools.friction import format_friction_signals, score_friction
+from codewiki.src.store import _MAX_SLUG_LEN  # noqa: F401 (re-exported for tests)
 
 logger = logging.getLogger(__name__)
 
@@ -117,54 +115,17 @@ def _strip_system_injection(text: str) -> str:
 # Filename slug
 # --------------------------------------------------------------------------- #
 # Built from the first user message so archived files mirror the conversation
-# title shown in the IDE. Windows-reserved + generic filesystem-unsafe chars.
-_UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-# Collapse runs of separators into a single dash.
-_MULTI_DASH = re.compile(r"-{2,}")
-# Max slug length (keeps filenames readable and well under OS limits).
-_MAX_SLUG_LEN = 60
-
-
+# title shown in the IDE. Delegates to the shared store implementation.
 def _slugify(text: str) -> str:
     """Turn arbitrary text into a filesystem-safe, human-readable slug.
 
     Returns "" when nothing usable remains (caller then falls back to a
-    timestamp-based name).
+    timestamp-based name). Thin re-export of ``store.slugify`` — kept here for
+    the modules (task_manager) that import it from this module.
     """
-    text = text.strip()
-    if not text:
-        return ""
-    # Replace unsafe chars with a dash separator.
-    slug = _UNSAFE_CHARS.sub("-", text)
-    # Collapse whitespace runs into a single dash.
-    slug = re.sub(r"\s+", "-", slug)
-    slug = _MULTI_DASH.sub("-", slug).strip("-")
-    if not slug:
-        return ""
-    # Truncate (Python str is unicode → slicing at char boundary is safe).
-    if len(slug) > _MAX_SLUG_LEN:
-        slug = slug[:_MAX_SLUG_LEN].rstrip("-")
-    return slug
+    from codewiki.src.store import slugify
 
-
-def _resolve_task_from_binding(output_dir: Path, source_session_id: str) -> str:
-    """Read repowiki/.meta/task_bindings/<session>.json and return its task_id.
-
-    路径约定必须与 task_manager._bindings_dir() 保持一致
-    （output_dir / ".meta" / "task_bindings"）。此处不能 import task_manager，
-    因为它反向 import 了本模块的 _resolve_output_dir / _slugify（循环依赖），
-    所以目录名在这里有意重复一份。
-
-    绑定文件缺失/损坏/无 task_id 时返回 ""（视为无任务对话）。
-    """
-    try:
-        binding = output_dir / ".meta" / "task_bindings" / f"{source_session_id}.json"
-        if not binding.exists():
-            return ""
-        data = json.loads(binding.read_text(encoding="utf-8"))
-        return str(data.get("task_id") or "").strip()
-    except (json.JSONDecodeError, OSError, TypeError):
-        return ""
+    return slugify(text)
 
 
 def _first_user_text(turns: List[Dict[str, str]]) -> str:
@@ -192,26 +153,19 @@ def _resolve_output_dir(
     session: Optional[SessionState],
     arguments: Dict[str, Any],
 ) -> Path:
-    """Resolve the repowiki output directory from session or arguments.
+    """Resolve the repowiki output directory (see store_bridge.resolve_output_dir).
 
     Resolution order:
       1. An active session's ``output_dir`` (a fully-resolved repowiki path).
       2. An explicit ``output_dir`` argument.
       3. ``repo_path``/repowiki fallback.
-    """
-    if session:
-        return Path(session.output_dir).expanduser().resolve()
-    od = arguments.get("output_dir")
-    if od:
-        return Path(od).expanduser().resolve()
-    rp = arguments.get("repo_path")
-    if rp:
-        # Layout-aware (ticket 07): centralized members capture into the
-        # workspace-root shared area; everything else keeps <repo>/repowiki.
-        from codewiki.mcp.tools.workspace_layout import default_output_dir
 
-        return default_output_dir(Path(rp).expanduser().resolve())
-    raise ValueError("output_dir or repo_path is required (or pass an active session).")
+    Thin re-export of the unified bridge — kept here for the modules
+    (task_manager) and tests that import it from this module.
+    """
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
+
+    return resolve_output_dir(session, arguments)
 
 
 # --------------------------------------------------------------------------- #
@@ -338,112 +292,6 @@ def _extract_transcript(conversation: Any) -> List[Dict[str, str]]:
     return turns
 
 
-def _transcript_text(turns: List[Dict[str, str]]) -> str:
-    """Render turns to a plain-text transcript for hashing and fallback body."""
-    lines = []
-    for t in turns:
-        lines.append(f"{t['role']}: {t['content']}")
-    return "\n".join(lines)
-
-
-def _content_hash(turns: List[Dict[str, str]], linked: str, task_id: str = "") -> str:
-    # task_id participates in the hash so the *same* conversation captured under
-    # two different tasks is NOT deduplicated away — the task binding is part of
-    # what makes a capture distinct.
-    payload = json.dumps(
-        {"turns": turns, "link_to": linked, "task_id": task_id},
-        ensure_ascii=False,
-        sort_keys=True,
-    )
-    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-# --------------------------------------------------------------------------- #
-# Raw-dir index (avoids scanning every conv-*.md on every capture)
-# --------------------------------------------------------------------------- #
-# repowiki/raw/ can accumulate many pending files when the hook is enabled but
-# distillation is never run. The previous dedup/supersede logic read EVERY
-# conv-*.md (full file text) on each capture, so capture time grew linearly
-# with the backlog. We instead keep a small sidecar index of metadata so
-# capture stays O(1) regardless of backlog size. The index is a best-effort
-# cache: if it is missing or stale we fall back to scanning (and rebuild it).
-_INDEX_NAME = ".index.json"
-
-
-def _read_index(raw_dir: Path) -> Optional[Dict[str, Any]]:
-    """Load the raw-dir index, or None if absent/corrupt."""
-    idx = raw_dir / _INDEX_NAME
-    if not idx.is_file():
-        return None
-    try:
-        return json.loads(idx.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def _write_index(raw_dir: Path, index: Dict[str, Any]) -> None:
-    """Atomically rewrite the index (temp file + rename) so a crash mid-write
-    cannot leave a truncated index behind."""
-    idx = raw_dir / _INDEX_NAME
-    tmp = raw_dir / (".index.tmp." + str(os.getpid()))
-    try:
-        tmp.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, idx)
-    except OSError:
-        # Best-effort: a failed index update must never break the capture.
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except OSError:
-            pass
-
-
-def _rebuild_index(raw_dir: Path) -> Dict[str, Any]:
-    """Scan existing conv-*.md files and rebuild the index from their frontmatter.
-    Used when the index is missing (e.g. raw files created before this feature)
-    or when a lookup misses and we suspect it is stale."""
-    files: List[Dict[str, str]] = []
-    for existing in sorted(raw_dir.glob("conv-*.md")):
-        try:
-            text = existing.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        ch = _unq(_peek_frontmatter(text, "content_hash"))
-        ss = _unq(_peek_frontmatter(text, "source_session"))
-        st = _unq(_peek_frontmatter(text, "status") or "pending")
-        tk = _unq(_peek_frontmatter(text, "task_id"))
-        ca = _unq(_peek_frontmatter(text, "captured_at"))
-        if not ch:
-            continue
-        files.append(
-            {
-                "relpath": existing.name,
-                "content_hash": ch,
-                "source_session": ss,
-                "status": st,
-                "task_id": tk,
-                "captured_at": ca,
-            }
-        )
-    return {"files": files}
-
-
-def _peek_frontmatter(text: str, key: str) -> str:
-    """Extract a `key: value` line from a markdown frontmatter block (cheap,
-    single-pass, no regex over the whole body)."""
-    marker = f"{key}:"
-    for line in text.splitlines():
-        if line.startswith(marker):
-            return line[len(marker) :].strip()
-    return ""
-
-
-def _unq(v: str) -> str:
-    """Strip surrounding single/double quotes from a frontmatter value."""
-    v = v.strip()
-    return v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v
-
-
 def pending_raws_by_task(output_dir: Path) -> Dict[str, List[Dict[str, str]]]:
     """Aggregate pending (not-yet-distilled) raw conversations by task_id.
 
@@ -465,52 +313,14 @@ def pending_raws_by_task(output_dir: Path) -> Dict[str, List[Dict[str, str]]]:
     Returns ``task_id -> [{"relpath", "task_id", "captured_at"}]``; entries
     without a task_id are grouped under the empty-string key. Never raises —
     any read failure degrades to "no pending raws" for that file.
+
+    Thin re-export of ``KnowledgeStore.pending_raws_by_task`` — kept here for
+    the modules (task_manager / distill_conversation) that import it from this
+    module.
     """
-    from codewiki.src.config import RAW_DIR
+    from codewiki.src.store import KnowledgeStore
 
-    raw_dir = output_dir / RAW_DIR
-    if not raw_dir.is_dir():
-        return {}
-
-    index = _read_index(raw_dir)
-    indexed: Dict[str, dict] = {}
-    if isinstance(index, dict):
-        for e in index.get("files", []):
-            if isinstance(e, dict) and e.get("relpath"):
-                indexed[str(e["relpath"])] = e
-
-    by_task: Dict[str, List[Dict[str, str]]] = {}
-    try:
-        candidates = sorted(raw_dir.glob("conv-*.md"))
-    except OSError:
-        return {}
-    for p in candidates:
-        if not p.is_file():
-            continue
-        entry = indexed.get(p.name)
-        if entry is not None:
-            if _unq(str(entry.get("status") or "pending")) == "distilled":
-                continue
-            task_id = _unq(str(entry.get("task_id") or ""))
-            captured_at = _unq(str(entry.get("captured_at") or ""))
-        else:
-            # Not indexed — peek frontmatter directly.
-            try:
-                text = p.read_text(encoding="utf-8-sig", errors="replace")
-            except OSError:
-                continue
-            if _unq(_peek_frontmatter(text, "status") or "pending") == "distilled":
-                continue
-            task_id = _unq(_peek_frontmatter(text, "task_id"))
-            captured_at = _unq(_peek_frontmatter(text, "captured_at"))
-        by_task.setdefault(task_id, []).append(
-            {
-                "relpath": p.name,
-                "task_id": task_id,
-                "captured_at": captured_at,
-            }
-        )
-    return by_task
+    return KnowledgeStore(output_dir).pending_raws_by_task()
 
 
 # --------------------------------------------------------------------------- #
@@ -558,142 +368,51 @@ def handle_capture_conversation(
     if not turns:
         return json.dumps({"error": "conversation contained no usable turns."})
 
-    link_to = arguments.get("link_to", "")
-    if link_to is None:
-        link_to = ""
-    link_to = str(link_to)
-
+    link_to = str(arguments.get("link_to") or "")
     keep_raw = bool(arguments.get("keep_raw", False))
-
     source_session_id = str(arguments.get("source_session_id") or "")
-
     task_id = str(arguments.get("task_id") or "")
-    task_source = "argument" if task_id else ""
-    # 回退：未显式传入 task_id 时，按 source_session_id 反查会话绑定文件，
-    # 让 set_session_task 建立的绑定真正生效。此前绑定文件从不被消费，
-    # 导致「绑定成功但 raw 仍无 task_id」的断链。显式 task_id 永远优先。
-    if not task_id and source_session_id:
-        task_id = _resolve_task_from_binding(output_dir, source_session_id)
-        if task_id:
-            task_source = "binding"
 
-    content_hash = _content_hash(turns, link_to, task_id)
+    # Friction scoring (K-line): pure-function signal detection on the already
+    # filtered dialogue turns. The score only feeds frontmatter metadata + the
+    # returned JSON; it never gates the capture itself.
+    friction = score_friction(turns)
 
-    # Ensure repowiki/raw/ exists
-    from codewiki.src.config import RAW_DIR
+    from codewiki.src.store import KnowledgeStore
 
-    raw_dir = output_dir / RAW_DIR
-    raw_dir.mkdir(parents=True, exist_ok=True)
+    result = KnowledgeStore(output_dir).capture_raw(
+        turns,
+        source_session_id=source_session_id,
+        task_id=task_id,
+        link_to=link_to,
+        keep_raw=keep_raw,
+        metadata={
+            "friction_score": friction["score"],
+            "friction_signals": format_friction_signals(friction["signals"]),
+        },
+        transcript_title=_first_user_text(turns),
+    )
 
-    # Deduplicate / session-supersede using the raw-dir index (O(1) lookup)
-    # instead of scanning and reading every conv-*.md. Falls back to a full
-    # scan + index rebuild if the index is missing or a lookup misses (keeps
-    # behaviour correct for raw files created before this feature existed).
-    index = _read_index(raw_dir)
-    if index is None:
-        # Backwards-compat: existing raw dir without an index → rebuild once.
-        index = _rebuild_index(raw_dir)
+    kind = result["kind"]
+    if kind == "error":
+        return json.dumps({"error": result.get("error", "Failed to write conversation file.")})
 
-    def _find_in_index(find_hash: str, find_session: str):
-        """Return (duplicate_relpath, supersede_relpath) from the index."""
-        dup = None
-        sup = None
-        for entry in index.get("files", []):
-            if entry.get("content_hash") == find_hash:
-                dup = entry.get("relpath")
-                break
-            if (
-                find_session
-                and entry.get("source_session") == find_session
-                and entry.get("status") == "pending"
-            ):
-                sup = entry.get("relpath")
-        return dup, sup
+    content_hash = result["content_hash"]
 
-    dup_rel, sup_rel = _find_in_index(content_hash, source_session_id)
-    # If the index missed a content_hash match we *know* should exist (e.g. it
-    # is stale), rebuild from disk and re-check once before giving up.
-    if dup_rel is None and sup_rel is None:
-        rebuilt = _rebuild_index(raw_dir)
-        if len(rebuilt.get("files", [])) != len(index.get("files", [])):
-            index = rebuilt
-            dup_rel, sup_rel = _find_in_index(content_hash, source_session_id)
-
-    if dup_rel is not None:
-        existing = raw_dir / dup_rel
+    if kind == "duplicate":
         return json.dumps(
             {
                 "status": "duplicate",
                 "content_hash": content_hash[:24] + "...",
-                "stored_at": str(existing.relative_to(output_dir)),
+                "stored_at": result["relpath"],
                 "message": "Identical conversation already captured; skipped.",
             },
             indent=2,
             ensure_ascii=False,
         )
 
-    # Session-scoped supersede: Stop fires every turn and PreCompact can fire
-    # mid-session, so the same IDE session is captured repeatedly with a
-    # growing transcript. Each capture is a superset of the previous one —
-    # replace that session's still-pending raw file instead of accumulating
-    # incremental copies. Distilled / keep_raw files are left untouched.
-    superseded = False
-    dest_path: Optional[Path] = None
-    if sup_rel is not None:
-        dest_path = raw_dir / sup_rel
-        superseded = True
-        # 绑定文件在首次成功捕获后即被删除（一次性消费凭证）。若同一会话
-        # 再次捕获（supersede）时已解析不到 task_id，从被替换的旧 entry
-        # 继承 task_id，避免覆盖后归属丢失。task_id 参与 content_hash，
-        # 继承后需重算，保证索引与去重一致。
-        if not task_id:
-            for _entry in index.get("files", []):
-                if _entry.get("relpath") == sup_rel:
-                    inherited = str(_entry.get("task_id") or "").strip()
-                    if inherited:
-                        task_id = inherited
-                        task_source = "binding-inherited"
-                        content_hash = _content_hash(turns, link_to, task_id)
-                    break
+    superseded = kind == "superseded"
 
-    now = datetime.now(timezone.utc)
-    stamp = now.strftime("%Y%m%dT%H%M%SZ")
-    if dest_path is None:
-        # Filename is derived from the first user message so archived files
-        # read like the conversation title shown in the IDE (e.g.
-        # ``conv-review最近一次提交.md``). Falls back to the timestamp when no
-        # usable user text is present.
-        slug = _slugify(_first_user_text(turns))
-        if slug:
-            base = f"conv-{slug}"
-            dest_path = raw_dir / f"{base}.md"
-            # Collision guard: same opening sentence captured twice or a slug
-            # clashing with an existing file → append an index suffix.
-            n = 2
-            while dest_path.exists():
-                dest_path = raw_dir / f"{base}-{n}.md"
-                n += 1
-        else:
-            safe_link = "".join(c if c.isalnum() else "-" for c in link_to)[:40]
-            fname = f"conv-{stamp}{('-' + safe_link) if safe_link else ''}.md"
-            dest_path = raw_dir / fname
-            if dest_path.exists():
-                dest_path = raw_dir / f"conv-{stamp}-{int(now.timestamp() * 1000) % 100000}.md"
-
-    now_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    try:
-        from codewiki.src.config import actor_id
-
-        actor = actor_id()
-    except Exception:
-        actor = "codewiki"
-
-    body = _transcript_text(turns)
-    # Friction scoring (K-line): pure-function signal detection on the already
-    # filtered dialogue turns. Default config on purpose — capture must stay
-    # lightweight (no schema.yaml reads here). The score only feeds frontmatter
-    # metadata + the returned JSON; it never gates the capture itself.
-    friction = score_friction(turns)
     # Adoption extraction (P1 A-line): parse ``codewiki:referenced-docs``
     # declarations from assistant turns and persist them into the per-user
     # telemetry event stream. Zero-IO fast path when nothing was declared.
@@ -707,9 +426,9 @@ def handle_capture_conversation(
     adoption_inserted = 0
     if adopted_docs:
         # capture_key (T2): namespaced by user_id so the same session id on
-        # two machines never collides. Manual captures without an id fall
-        # back to the content hash so an identical re-capture stays
-        # idempotent while a changed transcript counts its new claims.
+        # two machines never collides. Manual captures without an id fall back
+        # to the content hash so an identical re-capture stays idempotent while
+        # a changed transcript counts its new claims.
         from codewiki.src.config import user_id
 
         capture_key = f"{user_id()}/{source_session_id or f'hash-{content_hash[:24]}'}"
@@ -717,114 +436,30 @@ def handle_capture_conversation(
             output_dir,
             capture_key,
             adopted_docs,
-            now.strftime("%Y-%m-%d"),
+            result["captured_at"][:10],
         )
     adoption_nudge = bool(not adopted_docs and looks_like_search_happened(turns))
-    meta = {
-        "captured_at": now_iso,
-        "content_hash": content_hash,
-        "turn_count": len(turns),
-        "link_to": link_to,
-        "source_session": source_session_id,
-        "keep_raw": keep_raw,
-        # K-line friction signals: top-level single-line keys so the stdlib-only
-        # line scanners (distill_conversation / session-start hook) can read
-        # them back. A 0 score is written too — "no friction" is information.
-        # Values use the comma+equals format, YAML-special-char free.
-        "friction_score": friction["score"],
-        "friction_signals": format_friction_signals(friction["signals"]),
-    }
-    # task_id must stay top-level (like source_session) so distill_conversation's
-    # simple line parser can read it back; only add when present to avoid an
-    # empty ``task_id: `` line on taskless captures.
-    if task_id:
-        meta["task_id"] = task_id
-    from codewiki.src.frontmatter import inject_okf_frontmatter
-
-    content = inject_okf_frontmatter(
-        "# Conversation Transcript\n\n" + body + "\n",
-        type_="Conversation",
-        title="conversation " + stamp,
-        output_dir=output_dir,
-        status="pending",
-        stale_days=90,  # raw/ 暂存文件 90 天足够长，蒸馏必然在此之前消费
-        # 蒸馏流程用简单行解析读取这些字段（_parse_frontmatter / ^status:），
-        # 必须保持顶层，折叠进 metadata 会破坏蒸馏。
-        top_level_extra=meta,
-        actor=actor,
-        now_iso=now_iso,
-    )
-
-    try:
-        dest_path.write_text(content, encoding="utf-8")
-    except OSError as e:
-        return json.dumps({"error": f"Failed to write conversation file: {e}"})
-
-    # Maintain the raw-dir index so future captures stay O(1). On a supersede
-    # we update the existing entry (same relpath) rather than appending.
-    entries = list(index.get("files", []))
-    new_entry = {
-        "relpath": dest_path.name,
-        "content_hash": content_hash,
-        "source_session": source_session_id,
-        "status": "pending",
-        "task_id": task_id,
-        # captured_at is consumed by pending_raws_by_task() → get_task_context
-        # so the backlog listing can show when each capture happened without
-        # opening the raw file.
-        "captured_at": now_iso,
-    }
-    if superseded:
-        for i, e in enumerate(entries):
-            if e.get("relpath") == dest_path.name:
-                entries[i] = new_entry
-                break
-    else:
-        entries.append(new_entry)
-    _write_index(raw_dir, {"files": entries})
-
-    # One-shot binding consumption: a session binding (repowiki/.meta/
-    # task_bindings/<source_session_id>.json) exists only to route this
-    # session's captures to a task. Once the raw file has been written
-    # successfully, the binding has served its purpose — delete it so
-    # task_bindings/ does not accumulate stale records for ended sessions.
-    # Only delete when the task_id actually came from the binding file
-    # (task_source == "binding"); explicit task_id arguments and inherited
-    # supersede ids must not touch it. Missing/undelettable files are fine:
-    # a failed cleanup must never block the capture itself.
-    if task_source == "binding" and source_session_id:
-        _binding_path = output_dir / ".meta" / "task_bindings" / f"{source_session_id}.json"
-        try:
-            _binding_path.unlink(missing_ok=True)
-        except OSError:
-            pass  # non-fatal: stale binding files are cosmetic only
-
-    # NOTE: deliberately no append_log() here. Raw capture is transient (the
-    # file is deleted after distillation), and the hook fires on every session
-    # end — logging each capture would leave permanent log.md entries pointing
-    # at files that no longer exist. Note creation is logged by ingest_note
-    # during distillation instead.
 
     logger.info(
         "%s conversation at %s (%d turns)",
         "Superseded" if superseded else "Captured",
-        dest_path,
+        result["relpath"],
         len(turns),
     )
 
     return json.dumps(
         {
             "status": "captured",
-            "conversation_id": dest_path.stem,
-            "stored_at": str(dest_path.relative_to(output_dir)),
-            "turn_count": len(turns),
+            "conversation_id": result["conversation_id"],
+            "stored_at": result["relpath"],
+            "turn_count": result["turn_count"],
             "content_hash": content_hash[:24] + "...",
             "link_to": link_to,
             "source_session": source_session_id,
             "superseded": superseded,
             "keep_raw": keep_raw,
-            "task_id": task_id,
-            "task_source": task_source,
+            "task_id": result["task_id"],
+            "task_source": result["task_source"],
             # K-line friction readout (hook may print it to the IDE log).
             "friction": friction,
             # P1 A-line adoption readout: declared docs (persisted to

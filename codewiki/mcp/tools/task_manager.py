@@ -66,6 +66,13 @@ from codewiki.mcp.tools.capture_conversation import (
     _slugify,
     pending_raws_by_task,
 )
+from codewiki.src.store import (
+    KnowledgeStore,
+    SUMMARY_HEADING,
+    entry_sort_key,
+    parse_frontmatter,
+    split_entries,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,100 +82,14 @@ logger = logging.getLogger(__name__)
 # --------------------------------------------------------------------------- #
 
 
-def _tasks_dir(output_dir: Path) -> Path:
-    """Path to the repowiki/tasks directory (created lazily by callers)."""
-    return output_dir / "tasks"
-
-
-def _bindings_dir(output_dir: Path) -> Path:
-    """Path to repowiki/.meta/task_bindings (created lazily by callers)."""
-    return output_dir / ".meta" / "task_bindings"
-
-
-def _index_path(output_dir: Path) -> Path:
-    return _tasks_dir(output_dir) / ".index.json"
-
-
 def _read_index(output_dir: Path) -> List[Dict[str, Any]]:
-    """Read the task index as a list of task entries; [] when absent/corrupt.
-
-    P1 (multi-user split design §4.5): the ``tasks/`` DIRECTORY is the source
-    of truth; ``.index.json`` is a rebuildable cache. Every read does a cheap
-    id-set check (one readdir — directory names ARE task ids) and only on a
-    mismatch (task on disk missing from index — e.g. merged in from a teammate
-    — or index entry whose directory is gone) or on a corrupt/unreadable index
-    does it scan all ``tasks/*/task.md`` frontmatter to rebuild and rewrite.
-
-    Cross-process race note: create_task writes the index BEFORE task.md, so a
-    concurrent rebuild in that tiny window can transiently drop the entry —
-    self-healing, because the next read sees the task on disk and re-adds it.
-    Belt and suspenders: a directory that exists but has no readable task.md
-    keeps its index entry instead of being dropped.
-    """
-    p = _index_path(output_dir)
-    tasks: List[Dict[str, Any]] = []
-    corrupt = False
-    if p.exists():
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            raw = data.get("tasks", []) if isinstance(data, dict) else []
-            tasks = [t for t in raw if isinstance(t, dict)]
-        except (json.JSONDecodeError, OSError):
-            logger.warning("Task index unreadable at %s; rebuilding from disk.", p)
-            corrupt = True
-            tasks = []
-
-    tdir = _tasks_dir(output_dir)
-    if not tdir.is_dir():
-        return tasks  # nothing on disk; index stands as-is (usually also empty)
-
-    # Cheap validation: compare directory names (= task ids) vs index ids.
-    disk_ids = {d.name for d in tdir.iterdir() if d.is_dir()}
-    index_ids = {str(t.get("id") or "") for t in tasks}
-    if not corrupt and disk_ids == index_ids:
-        return tasks
-
-    # Rebuild: parse every task.md frontmatter (the expensive path, rare).
-    rebuilt: List[Dict[str, Any]] = []
-    for tf in sorted(tdir.glob("*/task.md")):
-        try:
-            text = tf.read_text(encoding="utf-8")
-        except OSError:
-            logger.warning("Unreadable task file %s during index rebuild.", tf)
-            continue
-        entry: Dict[str, Any] = {
-            "id": _extract_fm(text, "task_id") or tf.parent.name,
-            "title": _extract_fm(text, "title") or tf.parent.name,
-            "status": _extract_fm(text, "status") or "active",
-            "created_at": _extract_fm(text, "created_at") or "",
-        }
-        completed = _extract_fm(text, "completed_at")
-        if completed:
-            entry["completed_at"] = completed
-        rebuilt.append(entry)
-    # Directories with no readable task.md (mid-create race) keep their index
-    # entries rather than being dropped.
-    rebuilt_ids = {t["id"] for t in rebuilt}
-    for t in tasks:
-        if t.get("id") not in rebuilt_ids and t.get("id") in disk_ids:
-            rebuilt.append(t)
-    try:
-        _write_index(output_dir, rebuilt)
-    except OSError:
-        logger.warning("Failed to rewrite task index at %s after rebuild.", p)
-    return rebuilt
+    """Read the task index (self-healing) — delegates to the shared store."""
+    return KnowledgeStore(output_dir).read_task_index()
 
 
 def _write_index(output_dir: Path, tasks: List[Dict[str, Any]]) -> None:
-    """Atomically write the task index."""
-    p = _index_path(output_dir)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(
-        json.dumps({"tasks": tasks}, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    _atomic_replace_with_retry(tmp, p)
+    """Atomically write the task index — delegates to the shared store."""
+    KnowledgeStore(output_dir).write_task_index(tasks)
 
 
 def _find_by_id(tasks: List[Dict[str, Any]], task_id: str) -> Optional[Dict[str, Any]]:
@@ -191,12 +112,12 @@ def _now_iso() -> str:
 
 
 def _task_path(output_dir: Path, task_id: str) -> Path:
-    return _tasks_dir(output_dir) / task_id / "task.md"
+    return KnowledgeStore(output_dir).task_path(task_id)
 
 
 def _memories_path(output_dir: Path, task_id: str) -> Path:
     """Legacy single-file memory store path (read-only compat; hot layer)."""
-    return _tasks_dir(output_dir) / task_id / "memories.md"
+    return KnowledgeStore(output_dir).legacy_memory_path(task_id)
 
 
 _MEMORIES_DIRNAME = "memories"
@@ -206,22 +127,14 @@ _ARCHIVE_DIRNAME = "memories-archive"
 _LEGACY_OWNER = "legacy"
 
 
-def _memories_dir(output_dir: Path, task_id: str) -> Path:
-    return _tasks_dir(output_dir) / task_id / _MEMORIES_DIRNAME
-
-
 def _memories_path_for(output_dir: Path, task_id: str, owner: str) -> Path:
     """Per-user memory file path — the ONLY write target for that user."""
-    return _memories_dir(output_dir, task_id) / f"{owner}.md"
-
-
-def _archive_dir(output_dir: Path, task_id: str) -> Path:
-    return _tasks_dir(output_dir) / task_id / _ARCHIVE_DIRNAME
+    return KnowledgeStore(output_dir).memory_path_for(task_id, owner)
 
 
 def _archive_path_for(output_dir: Path, task_id: str, owner: str) -> Path:
     """Per-user archive path (compacted originals). Legacy → 'legacy.md'."""
-    return _archive_dir(output_dir, task_id) / f"{owner}.md"
+    return KnowledgeStore(output_dir).archive_path_for(task_id, owner)
 
 
 def _current_user_id() -> str:
@@ -234,63 +147,33 @@ def _current_user_id() -> str:
 def _collect_memory_files(
     output_dir: Path, task_id: str, uid: str
 ) -> Tuple[Path, Path, List[Path]]:
-    """(own_path, legacy_path, other_paths) for a task's memory files.
-
-    ``other_paths`` are other users' per-user files, sorted by filename for a
-    stable render order. Missing files are still returned as paths (callers
-    check existence); the memories/ dir may not exist at all.
-    """
-    own = _memories_path_for(output_dir, task_id, uid)
-    mdir = _memories_dir(output_dir, task_id)
-    others: List[Path] = []
-    if mdir.is_dir():
-        others = [p for p in sorted(mdir.glob("*.md")) if p.name != own.name]
-    return own, _memories_path(output_dir, task_id), others
+    """(own_path, legacy_path, other_paths) — delegates to the shared store."""
+    return KnowledgeStore(output_dir).collect_memory_files(task_id, uid)
 
 
 _ENTRY_TS_RE = re.compile(r"^### (\d{4}-\d{2}-\d{2} \d{2}:\d{2})")
 
 
 def _entry_sort_key(entry: str) -> Tuple[int, str]:
-    """Chronological sort key: (has_timestamp, timestamp).
-
-    Legacy heading-less entries (no timestamp) sort after dated ones — stable
-    and consistent with the blank-line fallback parse order.
-    """
-    m = _ENTRY_TS_RE.match(entry)
-    if m:
-        return (0, m.group(1))
-    return (1, "")
+    """Chronological sort key — delegates to the shared store implementation."""
+    return entry_sort_key(entry)
 
 
 def _extract_fm(text: str, key: str) -> Optional[str]:
     """Extract a frontmatter value (top-level or nested under ``metadata:``).
 
-    Mirrors ``knowledge_loop._extract_frontmatter`` semantics: the value may sit
-    at the top level of the YAML block, or one level deep under ``metadata:``.
+    Delegates to the shared store parser (json-decoded values, so no quote
+    drift). Returns None when the key is absent or empty.
     """
     if not text:
         return None
-    # Grab the first frontmatter block if present.
-    m = re.match(r"\A---\s*\n(.*?)\n---", text, re.DOTALL)
-    block = m.group(1) if m else text
-    lines = block.splitlines()
-    in_metadata = False
-    for raw in lines:
-        line = raw.rstrip()
-        if not line.strip():
-            continue
-        indent = len(line) - len(line.lstrip())
-        if indent == 0:
-            in_metadata = line.strip().lower() == "metadata:"
-        if ":" not in line:
-            continue
-        k, _, v = line.partition(":")
-        if k.strip() == key and v.strip():
-            # Only honor top-level keys, or keys nested exactly one level.
-            if indent == 0 or (in_metadata and indent >= 2):
-                return v.strip().strip("'\"")
-    return None
+    fm, _ = parse_frontmatter(text)
+    v = fm.get(key)
+    if v is None and isinstance(fm.get("metadata"), dict):
+        v = fm["metadata"].get(key)
+    if v is None or v == "":
+        return None
+    return v if isinstance(v, str) else str(v)
 
 
 # --------------------------------------------------------------------------- #
@@ -298,30 +181,8 @@ def _extract_fm(text: str, key: str) -> Optional[str]:
 # --------------------------------------------------------------------------- #
 
 
-def _task_frontmatter(task: Dict[str, Any]) -> str:
-    """Render the YAML frontmatter block for a task.md file."""
-    lines = [
-        "---",
-        "type: task",
-        f"task_id: {task['id']}",
-        f"title: {task['title']}",
-        f"status: {task['status']}",
-        f"created_at: {task['created_at']}",
-    ]
-    if task.get("completed_at"):
-        lines.append(f"completed_at: {task['completed_at']}")
-    lines.append("---")
-    return "\n".join(lines)
-
-
 def _write_task_file(output_dir: Path, task: Dict[str, Any], description: str) -> None:
-    p = _task_path(output_dir, task["id"])
-    p.parent.mkdir(parents=True, exist_ok=True)
-    body = (description or "").strip()
-    content = _task_frontmatter(task) + "\n\n" + body + "\n"
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(content, encoding="utf-8")
-    _atomic_replace_with_retry(tmp, p)
+    KnowledgeStore(output_dir).write_task_file(task, description)
 
 
 def _atomic_replace_with_retry(src: Path, dst: Path, attempts: int = 5) -> None:
@@ -342,33 +203,6 @@ def _atomic_replace_with_retry(src: Path, dst: Path, attempts: int = 5) -> None:
             time.sleep(0.02 * (i + 1))
 
 
-def _append_memory_atomic(path: Path, content: str) -> None:
-    """Append a memory entry to memories.md using an atomic read-modify-write.
-
-    Entries are stamped with a ``### YYYY-MM-DD HH:MM`` heading (P0 entry
-    structuring, ADR-0001: format stays markdown; the heading is the parse
-    boundary for truncation/compaction). Legacy files without headings are
-    parsed by blank-line fallback — no migration is performed here; the file
-    is rewritten lazily into headed form only when compaction runs (P1).
-
-    The read + write is not lock-protected across processes, but the final
-    replace is atomic, so no reader ever observes a partially written file.
-    Callers that need cross-process serialization should serialize externally;
-    within a single MCP server the tool dispatch already serializes handlers.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    existing = ""
-    if path.exists():
-        existing = path.read_text(encoding="utf-8").rstrip("\n")
-        if existing:
-            existing += "\n\n"
-    entry = f"### {datetime.now():%Y-%m-%d %H:%M}\n\n{(content or '').strip()}\n"
-    new_content = existing + entry
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(new_content, encoding="utf-8")
-    _atomic_replace_with_retry(tmp, path)
-
-
 # Compaction thresholds and keep-window (see docs/任务记忆存储与加载扩展性
 # 设计方案.md §3 Q6/Q7; ADR-0001). The compact tool is a stateless two-phase
 # (prepare/submit) MCP tool — the LLM summary is produced by the CALLER, never
@@ -377,70 +211,12 @@ _COMPACTION_THRESHOLD_COUNT = 40
 _COMPACTION_THRESHOLD_BYTES = 24 * 1024
 _COMPACTION_KEEP = 20
 _COMPACTION_SUMMARY_MAX_CHARS = 2048
-_SUMMARY_HEADING = "## 早期记忆（摘要）"
-_ARCHIVE_FILENAME = "memories-archive.md"  # legacy single-file archive (read-only;
-#   new compaction archives go to memories-archive/<user_id>.md per owner)
+_SUMMARY_HEADING = SUMMARY_HEADING  # re-export of the shared store constant
 
 
 def _split_memories(text: str) -> List[str]:
-    """Split memories.md content into entries (P0 entry structuring).
-
-    Headed form: entries delimited by ``### `` headings; a heading and its
-    multi-paragraph body stay together. Legacy form (no headings): entries
-    fall back to blank-line separated paragraphs. Mixed files (legacy block
-    before the first heading — the lazy-migration intermediate state) use
-    heading boundaries where present and blank-line splitting for the legacy
-    pre-heading block. The compaction summary section (``## 早期记忆（摘要）``)
-    is NOT an entry — use ``_split_summary_and_entries`` for files that may
-    carry one.
-    """
-    if not text or not text.strip():
-        return []
-    if re.search(r"^### ", text, re.M):
-        entries: List[str] = []
-        for part in re.split(r"(?m)^(?=### )", text):
-            part = part.strip()
-            if not part:
-                continue
-            if part.startswith("### "):
-                entries.append(part)
-            else:
-                entries.extend(p.strip() for p in re.split(r"\n\s*\n", part) if p.strip())
-        return entries
-    return [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
-
-
-def _split_summary_and_entries(text: str) -> Tuple[str, List[str]]:
-    """Split memories.md content into (summary_section, entries).
-
-    Post-compaction files carry a ``## 早期记忆（摘要）`` section (summary body
-    + archive pointer line) before the kept entries. The summary section runs
-    from the heading to the first ``### `` entry heading; anything BEFORE the
-    summary heading (should not exist in canonical files, tolerated if it does)
-    parses as legacy entries. Returns ("", entries) when no summary section.
-    """
-    if not text or not text.strip():
-        return "", []
-    idx = text.find(_SUMMARY_HEADING)
-    if idx < 0:
-        return "", _split_memories(text)
-    prefix = text[:idx].strip()
-    rest = text[idx:]
-    m = re.search(r"(?m)^### ", rest)
-    if m:
-        summary = rest[: m.start()].rstrip()
-        entries_text = rest[m.start() :]
-    else:
-        summary = rest.rstrip()
-        entries_text = ""
-    entries = _split_memories(prefix) if prefix else []
-    entries.extend(_split_memories(entries_text))
-    return summary, entries
-
-
-def _archive_path(output_dir: Path, task_id: str) -> Path:
-    """Path to the LEGACY single-file archive (read-only; kept for old data)."""
-    return _tasks_dir(output_dir) / task_id / _ARCHIVE_FILENAME
+    """Split memories.md content into entries — delegates to the shared store."""
+    return split_entries(text)
 
 
 def _compaction_needed(total_entries: int, mem_bytes: int) -> bool:
@@ -481,11 +257,7 @@ def _warm_hint(owner: str, entry: str) -> str:
 
 def _parse_memory_file(path: Path) -> Optional[Tuple[str, str, List[str], int]]:
     """(raw_text, summary_section, entries, file_bytes); None when missing."""
-    if not path.exists():
-        return None
-    text = path.read_text(encoding="utf-8").strip()
-    summary, entries = _split_summary_and_entries(text)
-    return (text, summary, entries, path.stat().st_size)
+    return KnowledgeStore.parse_memory_file(path)
 
 
 def _render_warm_author(owner: str, summary: str, entries: List[str], include_entries: bool) -> str:
@@ -613,24 +385,14 @@ def append_task_memories_direct(output_dir: Path, task_id: str, contents: List[s
     task_id (task deleted after capture) is tolerated: returns 0, no write.
 
     Writes go to the CURRENT USER's ``memories/<user_id>.md`` only (per-user
-    file ownership is the git-level conflict isolation invariant).
+    file ownership is the git-level conflict isolation invariant), under the
+    store's cross-process sidecar lock.
 
     Returns the number of entries actually appended.
     """
     if not task_id or not contents:
         return 0
-    tasks = _read_index(output_dir)
-    if _find_by_id(tasks, task_id) is None:
-        return 0
-    mem_path = _memories_path_for(output_dir, task_id, _current_user_id())
-    written = 0
-    for c in contents:
-        c = str(c or "").strip()
-        if not c:
-            continue
-        _append_memory_atomic(mem_path, c)
-        written += 1
-    return written
+    return KnowledgeStore(output_dir).append_memories(task_id, contents, user=_current_user_id())
 
 
 # --------------------------------------------------------------------------- #
@@ -804,32 +566,8 @@ def handle_delete_task(arguments: Dict[str, Any], store: SessionStore) -> str:
     if task is None:
         return json.dumps({"error": f"Task '{task_id}' does not exist."})
 
-    # 1. Remove from index.
-    remaining = [t for t in tasks if t.get("id") != task_id]
-    _write_index(output_dir, remaining)
-
-    # 2. Remove the task directory tree (task.md + memories/ + legacy files).
-    import shutil
-
-    task_dir = _tasks_dir(output_dir) / task_id
-    if task_dir.exists():
-        shutil.rmtree(task_dir, ignore_errors=True)
-
-    # 3. Cascade: drop session bindings that point at this task.
-    cleared_bindings = 0
-    bdir = _bindings_dir(output_dir)
-    if bdir.exists():
-        for bf in bdir.glob("*.json"):
-            try:
-                data = json.loads(bf.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                continue
-            if data.get("task_id") == task_id:
-                try:
-                    bf.unlink()
-                    cleared_bindings += 1
-                except OSError:
-                    logger.warning("Failed to remove binding %s", bf)
+    # Full cascade (directory + index entry + bindings) lives in the store.
+    cleared_bindings = KnowledgeStore(output_dir).delete_task(task_id)
 
     return json.dumps(
         {
@@ -867,13 +605,7 @@ def handle_set_session_task(arguments: Dict[str, Any], store: SessionStore) -> s
     if _find_by_id(tasks, task_id) is None:
         return json.dumps({"error": f"Task '{task_id}' does not exist."})
 
-    bdir = _bindings_dir(output_dir)
-    bdir.mkdir(parents=True, exist_ok=True)
-    binding = {"task_id": task_id, "bound_at": _now_iso()}
-    p = bdir / f"{source_session_id}.json"
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(binding, ensure_ascii=False, indent=2), encoding="utf-8")
-    _atomic_replace_with_retry(tmp, p)
+    KnowledgeStore(output_dir).write_binding(source_session_id, task_id)
 
     return json.dumps(
         {
@@ -905,7 +637,7 @@ def handle_add_task_memory(arguments: Dict[str, Any], store: SessionStore) -> st
     if _find_by_id(tasks, task_id) is None:
         return json.dumps({"error": f"Task '{task_id}' does not exist."})
 
-    _append_memory_atomic(_memories_path_for(output_dir, task_id, _current_user_id()), content)
+    KnowledgeStore(output_dir).append_memories(task_id, [content], user=_current_user_id())
 
     return json.dumps(
         {

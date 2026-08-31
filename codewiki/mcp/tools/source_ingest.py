@@ -52,20 +52,10 @@ def _save_registry(output_dir: Path, registry: Dict[str, Any]) -> None:
 
 
 def _resolve_output_dir(session: Optional[SessionState], arguments: Dict) -> Path:
-    """Resolve the output directory from session or arguments."""
-    if session:
-        return Path(session.output_dir).expanduser().resolve()
-    od = arguments.get("output_dir")
-    if od:
-        return Path(od).expanduser().resolve()
-    # Fallback: derive from repo_path (layout-aware, ticket 07: centralized
-    # members ingest into the workspace knowledge base).
-    rp = arguments.get("repo_path")
-    if rp:
-        from codewiki.mcp.tools.workspace_layout import default_output_dir
+    """Resolve the output directory — delegates to the shared store bridge."""
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
 
-        return default_output_dir(Path(rp).expanduser().resolve())
-    raise ValueError("output_dir or repo_path is required (or pass an active session).")
+    return resolve_output_dir(session, arguments)
 
 
 def _okf_source_entry(output_dir: Path, name: str, info: Dict[str, Any]) -> Dict[str, Any]:

@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
@@ -114,18 +113,10 @@ def _user_events_path(output_dir, create: bool = False) -> Path:
 
 
 def _atomic_write_lines(path: Path, lines: List[str]) -> None:
-    """Write jsonl lines via temp file + os.replace (crash-safe)."""
-    tmp = path.parent / (path.name + f".tmp.{os.getpid()}")
-    try:
-        tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
-    except OSError:
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except OSError:
-            pass
-        raise
+    """Write jsonl lines atomically — delegates to the shared store writer."""
+    from codewiki.src.store import atomic_write
+
+    atomic_write(path, "\n".join(lines) + "\n")
 
 
 def _read_lines(path: Path) -> List[str]:

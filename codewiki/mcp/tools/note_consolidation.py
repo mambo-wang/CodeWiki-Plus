@@ -314,15 +314,15 @@ def _capacity(output_dir: Path, live_count: int) -> Dict[str, Any]:
 # Tool handler
 # --------------------------------------------------------------------------- #
 def _resolve_output_dir(session: Optional[Any], arguments: Dict[str, Any]) -> Path:
-    if session:
-        return Path(session.output_dir).expanduser().resolve()
-    od = arguments.get("output_dir")
-    if od:
-        return Path(od).expanduser().resolve()
-    rp = arguments.get("repo_path")
-    if rp:
-        return Path(rp).expanduser().resolve() / "repowiki"
-    raise ValueError("output_dir or repo_path is required (or pass an active session).")
+    """Resolve the output directory — delegates to the shared store bridge.
+
+    (Layout-aware: centralized members route to the workspace-root corpus,
+    matching every other tool — this module previously used the plain
+    ``<repo>/repowiki`` path, a latent divergence under centralized layouts.)
+    """
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
+
+    return resolve_output_dir(session, arguments)
 
 
 def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
