@@ -47,6 +47,17 @@
       "related_pages": [],
       "status": "active",
       "content_hash": "sha256:2bb0311d91dd66faa594b4abd8d1d8f4d0a702840dc8792a424dfe1eaa54bc32"
+    },
+    "README": {
+      "path": "raw\\sources\\README.md",
+      "original_path": "D:\\repos\\CodeWiki-CN\\README.md",
+      "source_type": "md",
+      "description": "",
+      "version": "",
+      "imported_at": "2026-08-30T06:41:14.145506",
+      "related_pages": [],
+      "status": "active",
+      "content_hash": "sha256:5c22ac72f88630ad433c2b2fed1ba10cfb8c2ff993635241eab9da3e72ed0709"
     }
   },
   "version": 1

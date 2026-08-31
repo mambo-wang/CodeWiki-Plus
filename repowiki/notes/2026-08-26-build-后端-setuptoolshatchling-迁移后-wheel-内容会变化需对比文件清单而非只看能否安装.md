@@ -1,13 +1,20 @@
 ---
 type: pitfall
-title: "build 后端 setuptools→hatchling 迁移后 wheel 内容会变化，需对比文件清单而非只看能否安装"
-tags: ["16", "pitfall"]
+title: build 后端 setuptools→hatchling 迁移后 wheel 内容会变化，需对比文件清单而非只看能否安装
+tags:
+- '16'
+- pitfall
 metadata:
   date: 2026-08-26
-  related_modules: ["codewiki"]
+  related_modules:
+  - codewiki
   severity: medium
+  consolidated_into:
+  - wiki/scenarios/发布与依赖治理方法.md
 status: stable
-generated: { by: codewiki/5.4.3, at: 2026-08-25T16:38:44Z }
+generated:
+  by: codewiki/5.4.3
+  at: 2026-08-25 16:38:44+00:00
 stale_after: 2027-02-22
 ---
 

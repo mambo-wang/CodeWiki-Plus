@@ -17,6 +17,8 @@ metadata:
   - codewiki/mcp/tools/review_changes.py
   severity: high
   root_cause: review_changes prepare 全轴模式内部串行执行约 12 次 BM25 全库检索，累计分钟级耗时，MCP 通道对长调用无进度反馈导致挂起
+  consolidated_into:
+  - wiki/scenarios/代码评审与分析工具方法.md
 status: stable
 generated:
   by: codewiki/5.4.3

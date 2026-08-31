@@ -12,6 +12,8 @@ metadata:
   severity: medium
   source_ref: conversations/conv-user_command-commands-codewiki-蒸馏对话提取记忆和经验-把已采集的对话（repowiki-9477de.md
   scene: 蒸馏工作流
+  consolidated_into:
+  - wiki/scenarios/对话蒸馏管线与raw暂存区.md
 status: stable
 generated:
   by: codewiki/5.4.2

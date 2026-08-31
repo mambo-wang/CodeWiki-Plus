@@ -6,7 +6,7 @@ aliases:
 - 知识笔记索引
 ---
 
-<!-- 自动生成于 2026-08-29T17:15:14+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-30T07:41:31+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -42,6 +42,7 @@ aliases:
 * [MCP_Tools_Quality](modules/MCP_Tools_Quality.md) - `MCP_Tools_Quality` 是 CodeWiki MCP 工具层中的质量与索引子模块，负责对生成的 Wiki 文档进行健康检查（lint）、全文检索（search）、索引重建（index）、问题标记（issue）、跨服务架构追踪
 * [RouteExtractors](modules/RouteExtractors.md) - RouteExtractors 是 `DependencyAnalyzer` 的叶子模块，负责从各语言源文件中**提取路由节点（`RouteNode`）**，供跨服务（cross-service）调用分析使用。它位于 AST/调用图分析之后
 * [SharedConfig](modules/SharedConfig.md) - `SharedConfig` 是 CodeWiki 横跨 CLI、后端分析与 MCP 服务的**共享配置与文件管理基座**（位于 `codewiki/src/`）。它仅由两个源文件、6 个组件构成，却是各模块协同的基石：`Config` 统
+* [Test Verify](modules/test-verify.md) - Test Verify
 * [WebApp](modules/WebApp.md) - `Frontend/WebApp` 是 CodeWiki 的 Web 入口层，基于 FastAPI 提供图形化界面，让用户提交 GitHub 仓库 URL 即可异步生成完整文档。它由 7 个源文件、15 个组件组成，核心职责是：接收仓库提交
 
 ## 实体
@@ -66,16 +67,28 @@ aliases:
 
 ## 场景方法
 
-* [IDE-Hook采集链路方法](scenarios/IDE-Hook采集链路方法.md) - CodeBuddy IDE hook 对话采集链路的 SOP 与禁忌：transcript 索引分片读取、同步采集异步蒸馏、双副本同步、注入可靠性
-* [MCP-Server薄壳架构与参数约定](scenarios/MCP-Server薄壳架构与参数约定.md) - MCP 薄壳分层、新增工具两处落点、output_dir 解析单点收敛、工具参数先读描述纪律
-* [Wiki页面生成约定与数据结构](scenarios/Wiki页面生成约定与数据结构.md) - status 语义分层、OKF actor 约定、module_tree 字符串引用、实体概念提取识别与举证分离四步流程
-* [任务记忆系统设计方法](scenarios/任务记忆系统设计方法.md) - 任务归属采集阶段决定、source_session_id 维度绑定、pending 确认闸门、memories 追加式原子写
-* [发布与依赖治理方法](scenarios/发布与依赖治理方法.md) - Windows 下发布/CI/依赖升级的工作方法：编码坑规避、网络栈 fallback、密钥扫描、ruff 钉版本、review 工具选型、验证纪律
-* [对话蒸馏管线与raw暂存区](scenarios/对话蒸馏管线与raw暂存区.md) - 蒸馏三模式共同落盘路径、raw 暂存区生命周期、Mode C 多文件蒸馏操作纪律
+* [IDE-Hook采集链路方法](scenarios/IDE-Hook采集链路方法.md) - Hook 采集链路 SOP、仅接线支持边界、distill-worker 随包发布与自动部署、多 IDE 家族归并
+* [MCP-Server薄壳架构与参数约定](scenarios/MCP-Server薄壳架构与参数约定.md) - MCP 薄壳分层、session_id 隐式约定、output_dir 解析单点、索引重建陷阱、doctrine 注入通道
+* [Wiki页面生成约定与数据结构](scenarios/Wiki页面生成约定与数据结构.md) - status 语义分层、OKF actor 约定、frontmatter 约定、doctrine/聚合配置参数化、知识摄入链路
+* [代码评审与分析工具方法](scenarios/代码评审与分析工具方法.md) - review_changes/analyze_* 工具的使用陷阱、行级 diff 近似性、untracked 文件处理、并行竞态、telemetry 聚合修复
+* [任务记忆系统设计方法](scenarios/任务记忆系统设计方法.md) - 任务归属采集阶段决定、绑定一次性消费凭证、subagent 委托补蒸馏、memories 追加式原子写
+* [发布与依赖治理方法](scenarios/发布与依赖治理方法.md) - Windows 编码坑、build 后端迁移验证、uv/ruff 工具链陷阱、fork PR 合入流程、PS1 BOM 编码
+* [多仓工作区初始化与增量分析](scenarios/多仓工作区初始化与增量分析.md) - workspace 初始化短路优化、增量分析锚点设计、clone-only 产物完整性、Wiki 生成显式触发
+* [对话蒸馏管线与raw暂存区](scenarios/对话蒸馏管线与raw暂存区.md) - 蒸馏三模式共同落盘、distilled_file 侧通道、L0 归档零索引、空结果提交纪律、超时不幂等陷阱
 
 ## 知识笔记
 
+* [batch_ingest-修复验证-1](../notes/2026-08-30-batch-ingest-修复验证-1.md) - general (general, 2026-08-30)
+* [batch_ingest-修复验证-2](../notes/2026-08-30-batch-ingest-修复验证-2.md) - general (general, 2026-08-30)
+* [MCP 回归测试 - 临时笔记](../notes/2026-08-30-mcp-回归测试---临时笔记.md) - general (general, 2026-08-30)
+* [analyze_workspace 增量模式：内部自动判断做主路径，锚点复用 metadata.json](../notes/2026-08-29-analyze-workspace-增量模式内部自动判断做主路径锚点复用-metadatajson.md) - decision (decision, 2026-08-29)
+* [clone-only 短路路径必须仍写 workspace.json 并询问用户模式](../notes/2026-08-29-clone-only-短路路径必须仍写-workspacejson-并询问用户模式.md) - pitfall (pitfall, 2026-08-29)
+* [subagent 定义按宿主家族分发：同名不同 schema，且 MCP 权限模型各异](../notes/2026-08-29-subagent-定义的-frontmatter-按宿主家族分发同名文件不同-schema.md) - pitfall (pitfall, 2026-08-29)
+* [工作区痕迹齐备时跳过 init_workspace，直接跑 bootstrap 脚本补 clone](../notes/2026-08-29-工作区痕迹齐备时跳过-init-workspace直接跑-bootstrap-脚本补-clone.md) - decision (decision, 2026-08-29)
+* [引用已有笔记前须检查其 status，deprecated 笔记不应被采纳](../notes/2026-08-29-引用已有笔记前须检查其-statusdeprecated-笔记不应被采纳.md) - pitfall (pitfall, 2026-08-29)
+* [生成文章后应 spawn 子代理对源文档做交叉事实核查](../notes/2026-08-29-生成文章后应-spawn-子代理对源文档做交叉事实核查.md) - lesson (lesson, 2026-08-29)
 * [生成的 .ps1 必须带 UTF-8 BOM，否则 PowerShell 5.1 按 GBK 误读](../notes/2026-08-29-生成的-ps1-必须带-utf-8-bom否则-powershell-51-按-gbk-误读.md) - pitfall (pitfall, 2026-08-29)
+* [登记业务仓后不自动生成 Wiki，必须等用户显式要求](../notes/2026-08-29-登记业务仓后不自动生成-wiki必须等用户显式要求.md) - decision (decision, 2026-08-29)
 * [analyze_changes 的 changed_components 行区间定位是近似，跨函数边界会误报组件](../notes/2026-08-26-analyze-changes-的-changed-components-行区间定位是近似跨函数边界会误报组件.md) - pitfall (pitfall, 2026-08-26)
 * [analyze_repo 增量与依赖图谱的测试并行执行存在时序竞态](../notes/2026-08-26-analyze-repo-增量与依赖图谱的测试并行执行存在时序竞态.md) - lesson (lesson, 2026-08-26)
 * [build 后端 setuptools→hatchling 迁移后 wheel 内容会变化，需对比文件清单而非只看能否安装](../notes/2026-08-26-build-后端-setuptoolshatchling-迁移后-wheel-内容会变化需对比文件清单而非只看能否安装.md) - pitfall (pitfall, 2026-08-26)

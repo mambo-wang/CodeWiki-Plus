@@ -48,7 +48,7 @@ _TASK_MEMORY_AGENTS_SECTION = f"""{_TASK_MEMORY_AGENTS_START}
    - **跳过**：本次会话不做任务关联
    新建任务两步弹框：选择「新建任务」后**必须**再次调用 `ask_followup_question` 弹出第二个输入框（标题「新建任务」，问题「请输入新任务名称」，带 2 个占位选项）。弹框自带输入框，用户可自由输入任务名后回车；以输入文字为准，立即调用 `create_task(title=<任务名>)` 创建并关联。若用户只点了占位选项，用文字追问确认真实任务名
 3. `get_task_context(task_id=<任务id>)` 拉取任务描述 + 记忆 + 关联笔记，作为继续工作的上下文
-4. **补蒸馏（委托 subagent，不阻塞）**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn「蒸馏 worker」subagent（`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP）后台执行：`distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)`，然后**直接开始回答用户提问**。在自然停顿点（任务告一段落/用户空闲）重新 `get_task_context` 拉取最新上下文（任务记忆已直写落盘，`memories_written` 报告条数）→ 只向用户展示待确认的草稿笔记（`confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、草稿笔记在会话结束前展示确认即可
+4. **补蒸馏（委托 subagent，不阻塞）**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn 蒸馏子代理后台执行（CodeBuddy：spawn「蒸馏 worker」subagent，`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP；claude 家族 Qoder/Claude Code/Gemini CLI：**自定义子代理拿不到 MCP 权限**，改 spawn 内置 general-purpose 子代理，让它先读对应 `.qoder|.claude|.gemini/agents/distill-worker.md` 作为剧本）：`distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)`，然后**直接开始回答用户提问**。在自然停顿点（任务告一段落/用户空闲）重新 `get_task_context` 拉取最新上下文（任务记忆已直写落盘，`memories_written` 报告条数）→ 只向用户展示待确认的草稿笔记（`confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、草稿笔记在会话结束前展示确认即可
 
 **工具入口：**
 - `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context` / `compact_task_memories`
@@ -101,7 +101,7 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
         hook_block = f"""## 步骤 2: 启用任务管理（跨会话任务记忆 + 对话采集）
 为支持跨会话任务记忆，启用 SessionEnd hook 使会话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成），并向 AGENTS.md 写入任务引导段，使新建会话时 Agent 提示用户关联已有任务或输入任务名新建。
 
-**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionStart/SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本与 distill-worker subagent 定义到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。接线支持 CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`），三个 IDE 的 settings.json 结构与事件注册完全一致，仅配置目录不同。**只为项目根目录已存在配置目录的智能体接线（自动检测到哪些目录才为哪些接线），绝不主动新建 `.qoder`/`.claude` 等配置目录**——用户明确点名要接未检测到的智能体时，先向用户确认，并提示需先初始化该工具的配置目录。
+**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionStart/SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本与 distill-worker subagent 定义到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。接线支持 CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`）、Gemini CLI（`.gemini/`），四个 IDE 的 settings.json 结构与事件注册完全一致，仅配置目录不同。**只为项目根目录已存在配置目录的智能体接线（自动检测到哪些目录才为哪些接线），绝不主动新建 `.qoder`/`.claude` 等配置目录**——用户明确点名要接未检测到的智能体时，先向用户确认，并提示需先初始化该工具的配置目录。
 
 **首选路径：运行 CLI 自动检测接线（推荐）**
 
@@ -109,7 +109,7 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 codewiki install-hooks --repo-path {repo_path}
 ```
 
-CLI 自动检测项目根目录存在哪些 IDE 配置目录（`.codebuddy/` / `.qoder/` / `.claude/`），检测到哪些就为哪些自动完成全部接线（拷贝脚本与 distill-worker、幂等合并 settings.json、upsert AGENTS.md 引导段）。CLI 不可用时回退到下方手动步骤，Qoder/Claude Code 仅需把 `.codebuddy` 目录换成 `.qoder` / `.claude`。**手动接线同样只为已检测到（目录已存在）的智能体执行；未检测到的一律不接、绝不创建其目录，除非用户明确点名并确认。**
+CLI 自动检测项目根目录存在哪些 IDE 配置目录（`.codebuddy/` / `.qoder/` / `.claude/` / `.gemini/`），检测到哪些就为哪些自动完成全部接线（拷贝脚本与 distill-worker、幂等合并 settings.json、upsert AGENTS.md 引导段）。CLI 不可用时回退到下方手动步骤，Qoder/Claude Code/Gemini CLI 仅需把 `.codebuddy` 目录换成 `.qoder` / `.claude` / `.gemini`。**手动接线同样只为已检测到（目录已存在）的智能体执行；未检测到的一律不接、绝不创建其目录，除非用户明确点名并确认。**
 
 1. **确保两个 hook 脚本与 distill-worker subagent 就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。用以下命令解析 CodeWiki 自带的源文件路径，并**强制复制**到目标目录（务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
 
@@ -128,16 +128,16 @@ CLI 自动检测项目根目录存在哪些 IDE 配置目录（`.codebuddy/` / `
 
    若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从 `CODEWIKI_HOME` 环境变量指向的 checkout 取 `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本与 `$env:CODEWIKI_HOME/codewiki/agents/distill-worker.md`，同样 Copy-Item 到 `$destDir` / `$agentDir`。兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。**为 Qoder/Claude Code 接线时，把 `$destDir` / `$agentDir` 中的 `.codebuddy` 换成 `.qoder` / `.claude` 即可。**
 
-2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置；Qoder/Claude Code 写入 `.qoder/settings.json` / `.claude/settings.json`，command 中路径随目录变化）：
+2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置；Qoder/Claude Code/Gemini CLI 写入 `.qoder/settings.json` / `.claude/settings.json` / `.gemini/settings.json`，command 中目录名随配置目录变化，其余完全一致）。**command 用项目相对路径（宿主以项目根为工作目录执行命令），不写机器相关绝对路径、也不用 `$*_PROJECT_DIR` 变量（各宿主变量展开经实测不可靠）**——settings.json 随仓库共享，绝对路径提交后队友克隆到其他目录即失效：
 
 ```json
 {{
   "hooks": {{
     "SessionStart": [
-      {{ "matcher": "startup", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/task_session_start.py\\"", "timeout": 15 }} ] }}
+      {{ "matcher": "startup", "hooks": [ {{ "type": "command", "command": "python \\".codebuddy/hooks/task_session_start.py\\"", "timeout": 15 }} ] }}
     ],
     "SessionEnd": [
-      {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
+      {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\".codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
     ]
   }}
 }}
@@ -1033,11 +1033,11 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 
 **当前项目探测结果**：`{repo_path}` 下检测到的智能体配置目录：{_detected_str}。**只为探测到的智能体接线**——探测不凭空创建任何目录；用户想接未探测到的智能体时，由用户自行初始化该工具的配置目录后重跑本流程。
 
-claude 家族（CodeBuddy/Qoder/Claude Code 及理论支持工具）接线格式一致（各自 `settings.json`，事件 SessionStart/SessionEnd），仅配置目录不同。cursor 家族（`hooks.json` + 事件名 sessionStart/stop）与 codex 家族（`hooks.json` 嵌套结构）格式不同，且 **cursor 家族采集降级**：stop 事件不携带 transcript_path，只能落事件信封、无法完整蒸馏对话——为 cursor 家族接线前须向用户说明此限制。
+claude 家族（CodeBuddy/Qoder/Claude Code/Gemini CLI 及理论支持工具）接线格式一致（各自 `settings.json`，事件 SessionStart/SessionEnd），仅配置目录不同。cursor 家族（`hooks.json` + 事件名 sessionStart/stop）与 codex 家族（`hooks.json` 嵌套结构）格式不同，且 **cursor 家族采集降级**：stop 事件不携带 transcript_path，只能落事件信封、无法完整蒸馏对话——为 cursor 家族接线前须向用户说明此限制。
 
 ## 步骤 1: 检查当前状态
 依次检查项目根目录下**探测到的**每个智能体配置目录（如 `{repo_path}/.codebuddy/`、`{repo_path}/.qoder/`、`{repo_path}/.claude/` 等，以探测结果为准）：
-- 每个目录下读取家族对应的配置文件（claude 家族 `settings.json`；cursor/codex 家族 `hooks.json`）：**已启用** = 存在 SessionEnd 与 SessionStart（或家族对应事件名）两个条目，且对应目录 `hooks/` 下 `capture_session_end.py` 与 `task_session_start.py` 两个脚本文件都物理存在（注意：hooks 不展开环境变量，命令中必须写脚本的绝对路径，不能用 `$CODEBUDDY_PROJECT_DIR` / `$CLAUDE_PROJECT_DIR`）
+- 每个目录下读取家族对应的配置文件（claude 家族 `settings.json`；cursor/codex 家族 `hooks.json`）：**已启用** = 存在 SessionEnd 与 SessionStart（或家族对应事件名）两个条目，且对应目录 `hooks/` 下 `capture_session_end.py` 与 `task_session_start.py` 两个脚本文件都物理存在（claude 家族 command 用项目相对路径如 `python ".qoder/hooks/task_session_start.py"`——宿主以项目根为工作目录执行命令；不写机器相关绝对路径、也不用 `$*_PROJECT_DIR` 变量（实测不可靠）；历史绝对路径条目可视为已启用，但建议重跑接线迁移为相对路径形式）
 - 向用户报告哪些智能体已启用、哪些未启用
 
 ## 步骤 2A: 启用
@@ -1048,11 +1048,11 @@ codewiki install-hooks --repo-path {repo_path}
 ```
 
 CLI 会自动检测项目根目录下存在哪些智能体配置目录（按 `codewiki/hooks.yaml` 注册表探测），检测到哪些就为哪些自动完成全部接线：
-- 强制拷贝 hook 脚本与 `distill-worker.md` 到对应 `.codebuddy|.qoder|.claude/hooks/` 与 `agents/`
+- 强制拷贝 hook 脚本与 `distill-worker.md` 到对应 `.codebuddy|.qoder|.claude|.gemini/hooks/` 与 `agents/`
 - 幂等合并 `settings.json` 的 SessionStart/SessionEnd 注册（保留已有无关配置，重复运行不产生重复条目）
 - 向 `AGENTS.md` upsert 任务记忆引导段（多 IDE 共享一份，只写一次）
 
-CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤。手动接线时以 `.codebuddy` 为例，**Qoder 与 Claude Code 仅目标目录不同**：`.codebuddy/` ↔ `.qoder/` ↔ `.claude/`（settings.json、hooks/、agents/ 的相对位置与内容完全一致）。**仅为步骤 1 探测到的智能体执行手动接线；未探测到的智能体一律不接、不创建其目录**——本机安装了某工具不等于本仓库在用它，除非用户明确点名并确认。
+CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤。手动接线时以 `.codebuddy` 为例，**Qoder / Claude Code / Gemini CLI 仅目标目录不同**：`.codebuddy/` ↔ `.qoder/` ↔ `.claude/` ↔ `.gemini/`（settings.json、hooks/、agents/ 的相对位置与内容完全一致，command 均为项目相对路径）。**仅为步骤 1 探测到的智能体执行手动接线；未探测到的智能体一律不接、不创建其目录**——本机安装了某工具不等于本仓库在用它，除非用户明确点名并确认。
 
 ### 手动兜底步骤
 1. **确保两个 hook 脚本与 distill-worker subagent 就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。
@@ -1080,16 +1080,16 @@ CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤�
      `$env:CODEWIKI_HOME/codewiki/agents/distill-worker.md`，同样 Copy-Item 到 `$destDir` / `$agentDir`。
      兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
      **为 Qoder/Claude Code 接线时，把上面 `$destDir` / `$agentDir` 中的 `.codebuddy` 换成 `.qoder` / `.claude` 即可。**
-2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置；Qoder/Claude Code 请写入 `.qoder/settings.json` / `.claude/settings.json`，command 中的路径随目录变化）：
+2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置；Qoder/Claude Code/Gemini CLI 写入 `.qoder/settings.json` / `.claude/settings.json` / `.gemini/settings.json`，command 中目录名随配置目录变化，其余完全一致）。**command 用项目相对路径（宿主以项目根为工作目录执行命令），不写机器相关绝对路径、也不用 `$*_PROJECT_DIR` 变量（各宿主变量展开经实测不可靠）**——settings.json 随仓库共享，绝对路径提交后队友克隆到其他目录即失效：
 
 ```json
 {{
   "hooks": {{
     "SessionStart": [
-      {{ "matcher": "startup", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/task_session_start.py\\"", "timeout": 15 }} ] }}
+      {{ "matcher": "startup", "hooks": [ {{ "type": "command", "command": "python \\".codebuddy/hooks/task_session_start.py\\"", "timeout": 15 }} ] }}
     ],
     "SessionEnd": [
-      {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
+      {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\".codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
     ]
   }}
 }}
@@ -1122,7 +1122,7 @@ CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤�
 
 ## 步骤 2B: 关闭
 **首选路径：运行 `codewiki install-hooks --repo-path {repo_path} --ide <name>` 可重新接线；关闭采集时**：
-1. 依次检查三个 IDE 目录（`.codebuddy/`、`.qoder/`、`.claude/`），从对应 `settings.json` 移除 SessionStart 与 SessionEnd 两个条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
+1. 依次检查探测到的各智能体目录（`.codebuddy/`、`.qoder/`、`.claude/`、`.gemini/` 等），从对应 `settings.json` 移除 SessionStart 与 SessionEnd 两个条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
 2. 从 `{repo_path}/AGENTS.md` 移除任务记忆会话引导段：删除 `{_TASK_MEMORY_AGENTS_START}` 到 `{_TASK_MEMORY_AGENTS_END}` 之间的整段（含两行注释标记本身）；若不存在该标记块则无需处理，其余内容保持不动
 3. 已采集的 raw 文件保留在 `repowiki/raw/`，之后仍可蒸馏；关闭采集不会删除它们
 4. hook 脚本 `capture_session_end.py`、`task_session_start.py` 与 subagent 定义 `distill-worker.md` 可保留也可删除；重新启用时步骤 2A 会自动补回
@@ -1200,7 +1200,7 @@ def _prompt_task_workflow(args: dict[str, str]) -> str:
    - **新建任务**：先调用 `ask_followup_question` 弹出输入框（标题「新建任务」，问题「请输入新任务名称」）让用户输入任务名（可再补充一句描述），调用 `create_task(title=<新任务名>, description=<可选>)` 创建后即关联该新任务
 3. 关联后：`set_session_task(source_session_id=<当前会话id>, task_id=<选中任务>)` 建立绑定，之后本会话采集的对话会自动带上 task_id
 4. `get_task_context(task_id=<选中任务>)` 拉取该任务的描述 + 记忆 + 关联笔记，作为继续工作的上下文
-5. **补蒸馏（委托 subagent，不阻塞）**：检查返回的 `pending_raw_count`（本任务未蒸馏的历史对话数）。若 > 0，**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn「蒸馏 worker」subagent（`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP）后台执行：
+5. **补蒸馏（委托 subagent，不阻塞）**：检查返回的 `pending_raw_count`（本任务未蒸馏的历史对话数）。若 > 0，**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn 蒸馏子代理后台执行（CodeBuddy：spawn「蒸馏 worker」subagent，`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP；claude 家族 Qoder/Claude Code/Gemini CLI：**自定义子代理拿不到 MCP 权限**，改 spawn 内置 general-purpose 子代理，让它先读对应 `.qoder|.claude|.gemini/agents/distill-worker.md` 作为剧本再执行）：
    - subagent 执行：`distill_conversation(mode="prepare", task_id=<选中任务>)` 获取该任务的积压对话清单 → 按清单逐条 read_file 阅读 raw 文件，提取 `notes`（通用经验）与 `memories`（任务进度）→ `distill_conversation(mode="submit", distilled=<提取结果>)` 提交（产出草稿笔记 + 直写落盘的任务记忆）
    - 主 Agent **不等蒸馏完成，直接开始回答用户提问**
    - 在自然停顿点（任务告一段落/用户空闲时）重新 `get_task_context` 拉取最新上下文（新落盘的任务记忆/待确认草稿笔记会一并注入）
@@ -1632,7 +1632,7 @@ def register(server):
             ),
             Prompt(
                 name="team-memory-hook",
-                title="任务管理（跨会话任务记忆）",
+                title="启用/禁用任务管理（跨会话任务记忆）",
                 description=(
                     "管理跨会话任务记忆：启用时注册 SessionEnd 采集 Hook 并向 AGENTS.md "
                     "写入任务引导段（新建会话时提示用户关联已有任务或输入任务名新建），"
