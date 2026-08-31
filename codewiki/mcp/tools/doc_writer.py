@@ -956,6 +956,39 @@ def _inject_evidence(session: SessionState, filename: str, doc_path: Path) -> di
     return {"evidence_stamped": len(entries), "components": len(module_components)}
 
 
+def _record_page_manifest(
+    output_dir: str | Path,
+    doc_path: Path,
+    session: SessionState | None,
+    filename: str,
+    page_type: str,
+    repo_path: str | None,
+) -> None:
+    """D2: record/refresh the page's baseline in page_manifest.json (best-effort).
+
+    Called after a page reaches its final content (post evidence / symbol-link
+    injection) so the recorded ``source_fingerprint`` reflects the on-disk
+    ``sources`` block.  Never raises — a failed upsert must not fail the write.
+    """
+    try:
+        from codewiki.mcp.tools.page_manifest import upsert_page_manifest
+        from codewiki.mcp.tools.workspace_layout import routing_for_write
+
+        partition_repo = routing_for_write(Path(output_dir), repo_path)
+        repo = partition_repo or (Path(repo_path).name if repo_path else None)
+        upsert_page_manifest(
+            Path(output_dir),
+            doc_path,
+            session=session,
+            filename=filename,
+            page_type=page_type,
+            repo_name=repo,
+            repo_path=repo_path,
+        )
+    except Exception:
+        logger.warning("page_manifest upsert failed (non-fatal)", exc_info=True)
+
+
 def _collect_wiki_terms(output_dir: Path, exclude: Path | None = None) -> dict[str, str]:
     """Build a {term_lower: slug} map from existing wiki pages.
 
@@ -1387,6 +1420,9 @@ async def handle_write_doc_file(
         except Exception:
             pass
 
+    # D2: record/refresh page baseline after the page reached final content.
+    _record_page_manifest(output_dir, doc_path, session, filename, page_type, repo_path)
+
     result = {
         "status": "created",
         "path": str(doc_path),
@@ -1523,6 +1559,9 @@ async def handle_edit_doc_file(
                     break
 
         doc_path.write_text(old_content, encoding="utf-8")
+
+        # D2: refresh page baseline after undo reverted the content.
+        _record_page_manifest(output_dir, doc_path, session, filename, page_type, repo_path)
 
         # Validate Mermaid after undo
         mermaid_result = await _validate_mermaid(str(doc_path), filename)
@@ -1693,6 +1732,9 @@ async def handle_edit_doc_file(
             doc_path.write_text(linked, encoding="utf-8")
     except Exception:
         pass
+
+    # D2: refresh page baseline after the edit reached final content.
+    _record_page_manifest(output_dir, doc_path, session, filename, page_type, repo_path)
 
     result = {
         "status": "edited",
