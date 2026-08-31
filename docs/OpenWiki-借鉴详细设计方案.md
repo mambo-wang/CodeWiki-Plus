@@ -150,6 +150,7 @@ wiki 增量真正的缝是 `analysis.py::_detect_doc_changes`（`git diff` → �
     "wiki/modules/XService.md": {
       "git_head": "9f3a21c7...",
       "components": ["cid_XService_serve", "cid_XService_auth"],
+      "files": ["src/XService.ts"],
       "source_fingerprint": "sha256:<该页 code-evidence 指纹的确定性聚合>",
       "repo": "codewiki-plus",
       "producer": "codewiki/5.6.0",
@@ -159,8 +160,8 @@ wiki 增量真正的缝是 `analysis.py::_detect_doc_changes`（`git diff` → �
 }
 ```
 
-- **写入**：`handle_write_doc_file` / `handle_edit_doc_file` 成功后 upsert 条目（组件集取该页涉及的 `related_components` / 分析图谱命中的组件；`source_fingerprint` 取该页 `metadata.evidence` 指纹的确定性聚合——与 D1 共用指纹基元）。
-- **消费**：`_detect_doc_changes` 输出新增 `stale_pages` 字段——`changed_files ∩ manifest[page].components` 非空、或 `source_fingerprint` 漂移的页面即受影响页（**覆盖共享池页**，这是 D2 对 `affected_modules` 的唯一增量）。
+- **写入**：`handle_write_doc_file` / `handle_edit_doc_file`（含 undo）成功后 upsert 条目（`components` 取分析图谱命中的组件 id，`files` 为其 `relative_path` 去重集——changed_files 是文件路径、与组件 id 无法直接交集，故落地时额外落 `files` 作命中锚点；`source_fingerprint` 取该页 frontmatter `sources` 各 `content_hash` 的确定性聚合——与 D1 落地后的证据基元一致）。
+- **消费**：`_detect_doc_changes` 输出新增 `stale_pages` 字段——`changed_files ∩ manifest[page].files` 非空、或 `source_fingerprint` 漂移的页面即受影响页（**覆盖共享池页**，这是 D2 对 `affected_modules` 的唯一增量）。
 - **衔接 update_policy**：`update_affected` 策略下，`affected_modules`（模块页）∪ `stale_pages`（共享池页）即"需要复核/重写"的精确清单。
 
 **不引入 per-page 内容快照**（openwiki 存了 `sourceFingerprint` + 回滚快照用于失败回滚）：CodeWiki 的正文在 git 里，回滚有 git 本身，无需侧车快照。只存基线指纹即可。
@@ -175,6 +176,8 @@ wiki 增量真正的缝是 `analysis.py::_detect_doc_changes`（`git diff` → �
 | D2d | 测试（manifest 生命周期 + 命中交叉 + 三态落点） | `tests/test_page_manifest.py` | 各子项 |
 
 工作量约 1 人日。
+
+> **落地记录（2026-08-31）**：D2a-D2d 已实现——新 `codewiki/mcp/tools/page_manifest.py`（`load_manifest`/`save_manifest`/`upsert_page`/`compute_source_fingerprint`/`collect_page_files`/`detect_stale_pages`）、`doc_writer.py` 三处写入点（write/edit/undo 经 `_record_page_manifest`）、`analysis.py::_detect_doc_changes` 输出 `stale_pages`、`tests/test_page_manifest.py`（8 例）。manifest 落点统一 `<output_dir>/.meta/page_manifest.json`（页面级 key，centralized 下共享 `repowiki/.meta/` 单文件、不重蹈 `metadata.json` 被覆盖的覆辙，即 §6.2「决策点」取"可审阅资产"一侧）。缺失/损坏安全退化为空，单仓零影响。
 
 ---
 

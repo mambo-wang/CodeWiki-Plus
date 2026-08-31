@@ -773,6 +773,7 @@ def _detect_doc_changes(
 ) -> Optional[Dict[str, Any]]:
     """Detect documentation-level changes since last generation (legacy JSON fallback)."""
     from codewiki.mcp.cache import resolve_analysis_meta_file
+    from codewiki.mcp.tools.page_manifest import detect_stale_pages
 
     mp = resolve_analysis_meta_file(repo_path, output_dir, "metadata.json")
     mtp = resolve_analysis_meta_file(repo_path, output_dir, "module_tree.json")
@@ -793,11 +794,15 @@ def _detect_doc_changes(
         return None
     cf = changes["changed_files"]
     if not cf:
-        return {
+        _stale = detect_stale_pages(output_dir, [])
+        _res = {
             "has_previous": True,
             "no_changes": True,
             "method": changes.get("method", "unknown"),
         }
+        if _stale:
+            _res["stale_pages"] = _stale
+        return _res
     affected, cascade = _find_affected_modules(mt, cf, components=components)
 
     # Precise overview stale check: only mark overview stale if it actually
@@ -808,6 +813,7 @@ def _detect_doc_changes(
     if overview_stale:
         cascade.add("overview")
 
+    stale_pages = detect_stale_pages(output_dir, cf)
     return {
         "has_previous": True,
         "no_changes": False,
@@ -816,6 +822,7 @@ def _detect_doc_changes(
         "affected_modules": sorted(affected),
         "cascade_modules": sorted(cascade),
         "overview_stale": overview_stale,
+        "stale_pages": sorted(stale_pages),
         "hint": f"Only {len(affected)} module(s) need updating."
         + (" Overview.md is stale." if overview_stale else ""),
     }
