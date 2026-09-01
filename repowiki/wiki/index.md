@@ -6,7 +6,7 @@ aliases:
 - 知识笔记索引
 ---
 
-<!-- 自动生成于 2026-08-30T19:47:10+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-09-01T19:30:03+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -77,6 +77,7 @@ aliases:
 
 ## 知识笔记
 
+* [teamai-cli 多人文件冲突处理全景：靠划分防冲突，不靠锁（v0.21.0 源码核实）](../notes/2026-09-01-teamai-cli-多人文件冲突处理全景靠划分防冲突不靠锁v0210-源码核实.md) - architecture (architecture, 2026-09-01)
 * [analyze_workspace 增量模式：内部自动判断做主路径，锚点复用 metadata.json](../notes/2026-08-29-analyze-workspace-增量模式内部自动判断做主路径锚点复用-metadatajson.md) - decision (decision, 2026-08-29)
 * [clone-only 短路路径必须仍写 workspace.json 并询问用户模式](../notes/2026-08-29-clone-only-短路路径必须仍写-workspacejson-并询问用户模式.md) - pitfall (pitfall, 2026-08-29)
 * [subagent 定义按宿主家族分发：同名不同 schema，且 MCP 权限模型各异](../notes/2026-08-29-subagent-定义的-frontmatter-按宿主家族分发同名文件不同-schema.md) - pitfall (pitfall, 2026-08-29)
