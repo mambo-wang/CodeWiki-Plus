@@ -6,7 +6,7 @@ aliases:
 - 知识笔记索引
 ---
 
-<!-- 自动生成于 2026-08-30T07:41:31+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
+<!-- 自动生成于 2026-08-30T19:47:10+08:00 | Health Score: 0/100 | 本文件由系统自动维护 -->
 
 # 项目文档索引
 
@@ -42,7 +42,6 @@ aliases:
 * [MCP_Tools_Quality](modules/MCP_Tools_Quality.md) - `MCP_Tools_Quality` 是 CodeWiki MCP 工具层中的质量与索引子模块，负责对生成的 Wiki 文档进行健康检查（lint）、全文检索（search）、索引重建（index）、问题标记（issue）、跨服务架构追踪
 * [RouteExtractors](modules/RouteExtractors.md) - RouteExtractors 是 `DependencyAnalyzer` 的叶子模块，负责从各语言源文件中**提取路由节点（`RouteNode`）**，供跨服务（cross-service）调用分析使用。它位于 AST/调用图分析之后
 * [SharedConfig](modules/SharedConfig.md) - `SharedConfig` 是 CodeWiki 横跨 CLI、后端分析与 MCP 服务的**共享配置与文件管理基座**（位于 `codewiki/src/`）。它仅由两个源文件、6 个组件构成，却是各模块协同的基石：`Config` 统
-* [Test Verify](modules/test-verify.md) - Test Verify
 * [WebApp](modules/WebApp.md) - `Frontend/WebApp` 是 CodeWiki 的 Web 入口层，基于 FastAPI 提供图形化界面，让用户提交 GitHub 仓库 URL 即可异步生成完整文档。它由 7 个源文件、15 个组件组成，核心职责是：接收仓库提交
 
 ## 实体
@@ -78,9 +77,6 @@ aliases:
 
 ## 知识笔记
 
-* [batch_ingest-修复验证-1](../notes/2026-08-30-batch-ingest-修复验证-1.md) - general (general, 2026-08-30)
-* [batch_ingest-修复验证-2](../notes/2026-08-30-batch-ingest-修复验证-2.md) - general (general, 2026-08-30)
-* [MCP 回归测试 - 临时笔记](../notes/2026-08-30-mcp-回归测试---临时笔记.md) - general (general, 2026-08-30)
 * [analyze_workspace 增量模式：内部自动判断做主路径，锚点复用 metadata.json](../notes/2026-08-29-analyze-workspace-增量模式内部自动判断做主路径锚点复用-metadatajson.md) - decision (decision, 2026-08-29)
 * [clone-only 短路路径必须仍写 workspace.json 并询问用户模式](../notes/2026-08-29-clone-only-短路路径必须仍写-workspacejson-并询问用户模式.md) - pitfall (pitfall, 2026-08-29)
 * [subagent 定义按宿主家族分发：同名不同 schema，且 MCP 权限模型各异](../notes/2026-08-29-subagent-定义的-frontmatter-按宿主家族分发同名文件不同-schema.md) - pitfall (pitfall, 2026-08-29)
@@ -89,6 +85,7 @@ aliases:
 * [生成文章后应 spawn 子代理对源文档做交叉事实核查](../notes/2026-08-29-生成文章后应-spawn-子代理对源文档做交叉事实核查.md) - lesson (lesson, 2026-08-29)
 * [生成的 .ps1 必须带 UTF-8 BOM，否则 PowerShell 5.1 按 GBK 误读](../notes/2026-08-29-生成的-ps1-必须带-utf-8-bom否则-powershell-51-按-gbk-误读.md) - pitfall (pitfall, 2026-08-29)
 * [登记业务仓后不自动生成 Wiki，必须等用户显式要求](../notes/2026-08-29-登记业务仓后不自动生成-wiki必须等用户显式要求.md) - decision (decision, 2026-08-29)
+* [telemetry 原子写入崩溃会残留孤儿 *.tmp.<PID> 文件，且无自动清理机制](../notes/2026-08-28-telemetry-原子写入崩溃会残留孤儿-tmppid-文件且无自动清理机制.md) - pitfall (pitfall, 2026-08-28)
 * [analyze_changes 的 changed_components 行区间定位是近似，跨函数边界会误报组件](../notes/2026-08-26-analyze-changes-的-changed-components-行区间定位是近似跨函数边界会误报组件.md) - pitfall (pitfall, 2026-08-26)
 * [analyze_repo 增量与依赖图谱的测试并行执行存在时序竞态](../notes/2026-08-26-analyze-repo-增量与依赖图谱的测试并行执行存在时序竞态.md) - lesson (lesson, 2026-08-26)
 * [build 后端 setuptools→hatchling 迁移后 wheel 内容会变化，需对比文件清单而非只看能否安装](../notes/2026-08-26-build-后端-setuptoolshatchling-迁移后-wheel-内容会变化需对比文件清单而非只看能否安装.md) - pitfall (pitfall, 2026-08-26)
