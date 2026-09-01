@@ -177,7 +177,7 @@ wiki 增量真正的缝是 `analysis.py::_detect_doc_changes`（`git diff` → �
 
 工作量约 1 人日。
 
-> **落地记录（2026-08-31）**：D2a-D2d 已实现——新 `codewiki/mcp/tools/page_manifest.py`（`load_manifest`/`save_manifest`/`upsert_page`/`compute_source_fingerprint`/`collect_page_files`/`detect_stale_pages`）、`doc_writer.py` 三处写入点（write/edit/undo 经 `_record_page_manifest`）、`analysis.py::_detect_doc_changes` 输出 `stale_pages`、`tests/test_page_manifest.py`（8 例）。manifest 落点统一 `<output_dir>/.meta/page_manifest.json`（页面级 key，centralized 下共享 `repowiki/.meta/` 单文件、不重蹈 `metadata.json` 被覆盖的覆辙，即 §6.2「决策点」取"可审阅资产"一侧）。缺失/损坏安全退化为空，单仓零影响。
+> **落地记录（2026-08-31，2026-09-01 修订）**：D2a-D2d 已实现——新 `codewiki/mcp/tools/page_manifest.py`（`load_manifest`/`save_manifest`/`upsert_page`/`compute_source_fingerprint`/`collect_page_files`/`detect_stale_pages`）、`doc_writer.py` 三处写入点（write/edit/undo 经 `_record_page_manifest`）、`analysis.py::_enrich_stale_pages` 统一后处理输出 `stale_pages`（覆盖 SQLite 增量与 legacy JSON 两条路径）、`tests/test_page_manifest.py`（9 例）。`collect_page_files` 对 `module` 页走模块树、对 `entity` 页按组件名匹配（class/interface/... 类型）归属文件。manifest 落点统一 `<output_dir>/.meta/page_manifest.json`（页面级 key，centralized 下共享 `repowiki/.meta/` 单文件、不重蹈 `metadata.json` 被覆盖的覆辙，即 §6.2「决策点」取"可审阅资产"一侧）。缺失/损坏安全退化为空，单仓零影响。
 
 ---
 

@@ -66,15 +66,18 @@ def test_compute_source_fingerprint_no_evidence():
 
 
 def test_compute_source_fingerprint_deterministic_and_order_independent():
-    a = "---\nsources:\n- id: a\n  content_hash: \"sha256:1\"\n- id: b\n  content_hash: \"sha256:2\"\n---\nbody\n"
-    b = "---\nsources:\n- id: b\n  content_hash: \"sha256:2\"\n- id: a\n  content_hash: \"sha256:1\"\n---\nbody\n"
+    a = '---\nsources:\n- id: a\n  content_hash: "sha256:1"\n- id: b\n  content_hash: "sha256:2"\n---\nbody\n'
+    b = '---\nsources:\n- id: b\n  content_hash: "sha256:2"\n- id: a\n  content_hash: "sha256:1"\n---\nbody\n'
     fp = compute_source_fingerprint(a)
     assert fp and fp.startswith("sha256:")
     assert compute_source_fingerprint(b) == fp
     # single-entry sources dict form
-    assert compute_source_fingerprint(
-        "---\nsources:\n  id: a\n  content_hash: \"sha256:1\"\n---\nbody\n"
-    ) != fp
+    assert (
+        compute_source_fingerprint(
+            '---\nsources:\n  id: a\n  content_hash: "sha256:1"\n---\nbody\n'
+        )
+        != fp
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -94,6 +97,46 @@ def test_collect_page_files_module_vs_non_module(tmp_path):
     assert collect_page_files(None, "Calc.md", "module") == ([], [])
 
 
+def test_collect_page_files_entity_attribution(tmp_path):
+    repo = tmp_path / "repo"
+    od = repo / "repowiki"
+    session = SessionState(
+        session_id="s",
+        repo_path=str(repo),
+        output_dir=str(od),
+        components={
+            "src/user.py::UserService": Node(
+                id="src/user.py::UserService",
+                name="UserService",
+                component_type="class",
+                file_path="src/user.py",
+                relative_path="src/user.py",
+                start_line=10,
+                end_line=40,
+            ),
+            "src/user.py::login": Node(
+                id="src/user.py::login",
+                name="login",
+                component_type="function",
+                file_path="src/user.py",
+                relative_path="src/user.py",
+                start_line=1,
+                end_line=5,
+            ),
+        },
+        leaf_nodes=[],
+        module_tree={},
+    )
+
+    # Entity page matches the class-like component, not the function.
+    files, comps = collect_page_files(session, "UserService.md", "entity")
+    assert files == ["src/user.py"]
+    assert comps == ["src/user.py::UserService"]
+
+    # Non-matching name -> no attribution (shared-pool fallback behaviour).
+    assert collect_page_files(session, "Missing.md", "entity") == ([], [])
+
+
 # --------------------------------------------------------------------------- #
 # Manifest lifecycle
 # --------------------------------------------------------------------------- #
@@ -103,9 +146,7 @@ def test_manifest_roundtrip_and_corruption_tolerance(tmp_path):
 
     assert load_manifest(od) == {"schema_version": 1, "pages": {}}
 
-    entry = upsert_page_manifest(
-        od, page, filename="Calc.md", page_type="module", repo_name="repo"
-    )
+    entry = upsert_page_manifest(od, page, filename="Calc.md", page_type="module", repo_name="repo")
     assert entry is not None
     assert entry["repo"] == "repo"
     assert entry["git_head"] is None  # no git in this fixture
@@ -150,7 +191,7 @@ def test_detect_stale_pages_via_fingerprint_drift(tmp_path):
     page = _page(
         od,
         "wiki/modules/Note.md",
-        "---\nsources:\n- id: a\n  content_hash: \"sha256:1\"\n---\nbody\n",
+        '---\nsources:\n- id: a\n  content_hash: "sha256:1"\n---\nbody\n',
     )
     upsert_page_manifest(od, page, filename="Note.md", page_type="note")
 
@@ -159,7 +200,7 @@ def test_detect_stale_pages_via_fingerprint_drift(tmp_path):
 
     # External edit to the page's evidence -> fingerprint drift.
     page.write_text(
-        "---\nsources:\n- id: a\n  content_hash: \"sha256:2\"\n---\nbody\n", encoding="utf-8"
+        '---\nsources:\n- id: a\n  content_hash: "sha256:2"\n---\nbody\n', encoding="utf-8"
     )
     assert detect_stale_pages(od, []) == ["wiki/modules/Note.md"]
 

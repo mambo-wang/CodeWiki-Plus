@@ -332,6 +332,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     if changes_info is None:
         changes_info = _detect_doc_changes(repo_path, output_dir, components=metas)
     if changes_info is not None:
+        changes_info = _enrich_stale_pages(changes_info, output_dir)
         workspace.write_json("changes.json", changes_info)
 
     # 5. Summary
@@ -524,6 +525,7 @@ def _build_no_change_response(
         if not lang or lang.lower() in ("null", "none", "unknown"):
             lang = "unknown"
         langs[lang] = langs.get(lang, 0) + 1
+    changes_info = _enrich_stale_pages(changes_info, output_dir)
     workspace.write_json("changes.json", changes_info)
 
     summary = {
@@ -766,6 +768,27 @@ def _build_symbol_map(metas: Dict[str, ComponentMeta]) -> Dict[str, List[str]]:
     return symbol_map
 
 
+def _enrich_stale_pages(
+    changes_info: Optional[Dict[str, Any]], output_dir: Path
+) -> Optional[Dict[str, Any]]:
+    """Merge D2 page-manifest ``stale_pages`` into *changes_info* in place.
+
+    Single post-step so both the SQLite incremental path
+    (:meth:`AnalysisCache.detect_changes`) and the legacy JSON fallback
+    (:func:`_detect_doc_changes`) emit ``stale_pages`` uniformly — the drift
+    signal for shared-pool pages must not depend on which change source ran.
+    """
+    if not isinstance(changes_info, dict):
+        return changes_info
+    from codewiki.mcp.tools.page_manifest import detect_stale_pages
+
+    cf = changes_info.get("changed_files") or []
+    stale = detect_stale_pages(output_dir, cf)
+    if stale:
+        changes_info["stale_pages"] = sorted(stale)
+    return changes_info
+
+
 def _detect_doc_changes(
     repo_path: Path,
     output_dir: Path,
@@ -773,7 +796,6 @@ def _detect_doc_changes(
 ) -> Optional[Dict[str, Any]]:
     """Detect documentation-level changes since last generation (legacy JSON fallback)."""
     from codewiki.mcp.cache import resolve_analysis_meta_file
-    from codewiki.mcp.tools.page_manifest import detect_stale_pages
 
     mp = resolve_analysis_meta_file(repo_path, output_dir, "metadata.json")
     mtp = resolve_analysis_meta_file(repo_path, output_dir, "module_tree.json")
@@ -794,15 +816,11 @@ def _detect_doc_changes(
         return None
     cf = changes["changed_files"]
     if not cf:
-        _stale = detect_stale_pages(output_dir, [])
-        _res = {
+        return {
             "has_previous": True,
             "no_changes": True,
             "method": changes.get("method", "unknown"),
         }
-        if _stale:
-            _res["stale_pages"] = _stale
-        return _res
     affected, cascade = _find_affected_modules(mt, cf, components=components)
 
     # Precise overview stale check: only mark overview stale if it actually
@@ -813,7 +831,6 @@ def _detect_doc_changes(
     if overview_stale:
         cascade.add("overview")
 
-    stale_pages = detect_stale_pages(output_dir, cf)
     return {
         "has_previous": True,
         "no_changes": False,
@@ -822,7 +839,6 @@ def _detect_doc_changes(
         "affected_modules": sorted(affected),
         "cascade_modules": sorted(cascade),
         "overview_stale": overview_stale,
-        "stale_pages": sorted(stale_pages),
         "hint": f"Only {len(affected)} module(s) need updating."
         + (" Overview.md is stale." if overview_stale else ""),
     }
