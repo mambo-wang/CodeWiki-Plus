@@ -42,6 +42,7 @@ _HASH_PREFIX = "sha256:"
 # Path / IO
 # --------------------------------------------------------------------------- #
 
+
 def manifest_path(output_dir: Path) -> Path:
     """Path to the page manifest under ``<output_dir>/.meta/``."""
     return Path(meta_join(str(output_dir), MANIFEST_FILENAME))
@@ -77,9 +78,7 @@ def save_manifest(output_dir: Path, manifest: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     manifest.setdefault("schema_version", SCHEMA_VERSION)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    tmp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, path)
 
 
@@ -101,6 +100,7 @@ def remove_page(manifest: Dict[str, Any], page_key: str) -> None:
 # --------------------------------------------------------------------------- #
 # Evidence fingerprint (shares D1 hash primitives)
 # --------------------------------------------------------------------------- #
+
 
 def compute_source_fingerprint(content: str) -> Optional[str]:
     """Deterministic fingerprint of a page's evidence ``sources``.
@@ -151,6 +151,7 @@ def compute_source_fingerprint_for_file(path: Path) -> Optional[str]:
 # Component / file collection (write path)
 # --------------------------------------------------------------------------- #
 
+
 def _find_module_components(module_tree: Dict[str, Any], target: str) -> List[str]:
     """Locate a module's component ids in the module tree by module name."""
     for name, info in module_tree.items():
@@ -164,36 +165,65 @@ def _find_module_components(module_tree: Dict[str, Any], target: str) -> List[st
     return []
 
 
-def collect_page_files(
-    session: Any, filename: str, page_type: str
-) -> Tuple[List[str], List[str]]:
+_ENTITY_COMPONENT_TYPES = frozenset(
+    {"class", "interface", "struct", "enum", "record", "annotation"}
+)
+
+
+def _component_relative_path(node: Any, comp_id: str) -> str:
+    """Relative path of a component node, falling back to the comp-id prefix."""
+    rel = (getattr(node, "relative_path", "") or "").replace("\\", "/")
+    if not rel and "::" in comp_id:
+        rel = comp_id.split("::", 1)[0].replace("\\", "/")
+    return rel
+
+
+def collect_page_files(session: Any, filename: str, page_type: str) -> Tuple[List[str], List[str]]:
     """Resolve a page's source files and component ids.
 
-    Returns ``(files, components)``.  Only ``module`` pages have a component
-    set (from the module tree); shared-pool pages (entity/concept/note/...)
+    Returns ``(files, components)``.  ``module`` pages are attributed through
+    the module tree; ``entity`` pages (class/interface/...) are matched to
+    components by name.  Other shared-pool pages (concept/note/source/...)
     carry no component attribution and rely on fingerprint drift instead.
     """
-    if session is None or page_type != "module":
+    if session is None:
         return [], []
-    module_tree = session.module_tree or {}
-    if not module_tree:
-        return [], []
-    mod_name = filename.replace(".md", "")
-    comp_ids = _find_module_components(module_tree, mod_name)
-    if not comp_ids:
-        return [], []
+    name = filename.replace(".md", "")
 
-    files: List[str] = []
-    for comp_id in comp_ids:
-        node = session.components.get(comp_id) if session.components else None
-        if node is None:
-            continue
-        rel = (getattr(node, "relative_path", "") or "").replace("\\", "/")
-        if not rel and "::" in comp_id:
-            rel = comp_id.split("::", 1)[0].replace("\\", "/")
-        if rel and rel not in files:
-            files.append(rel)
-    return files, list(comp_ids)
+    if page_type == "module":
+        module_tree = session.module_tree or {}
+        comp_ids = _find_module_components(module_tree, name) if module_tree else []
+        files: List[str] = []
+        for comp_id in comp_ids:
+            node = session.components.get(comp_id) if session.components else None
+            if node is None:
+                continue
+            rel = _component_relative_path(node, comp_id)
+            if rel and rel not in files:
+                files.append(rel)
+        return files, list(comp_ids)
+
+    if page_type == "entity":
+        components = getattr(session, "components", None)
+        if not components:
+            return [], []
+        try:
+            items = components.items()
+        except AttributeError:
+            return [], []
+        files, comp_ids = [], []
+        for comp_id, node in items:
+            if getattr(node, "name", "") != name:
+                continue
+            if (getattr(node, "component_type", "") or "") not in _ENTITY_COMPONENT_TYPES:
+                continue
+            rel = _component_relative_path(node, comp_id)
+            if rel and rel not in files:
+                files.append(rel)
+            comp_ids.append(comp_id)
+        return files, comp_ids
+
+    return [], []
 
 
 def current_git_head(repo_path: Optional[str]) -> Optional[str]:
@@ -215,6 +245,7 @@ def _now_iso() -> str:
 # --------------------------------------------------------------------------- #
 # High-level write entry (called by write/edit_doc_file)
 # --------------------------------------------------------------------------- #
+
 
 def upsert_page_manifest(
     output_dir: Path,
@@ -264,6 +295,7 @@ def upsert_page_manifest(
 # --------------------------------------------------------------------------- #
 # High-level read entry (called by _detect_doc_changes)
 # --------------------------------------------------------------------------- #
+
 
 def detect_stale_pages(output_dir: Path, changed_files: List[str]) -> List[str]:
     """Return page keys whose baseline is stale relative to *changed_files*.
