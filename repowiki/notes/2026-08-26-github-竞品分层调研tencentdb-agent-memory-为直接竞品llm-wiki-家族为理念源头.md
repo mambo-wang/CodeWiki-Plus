@@ -25,6 +25,7 @@ stale_after: '2026-12-24'
 verified:
 - by: human:Administrator
   at: '2026-08-26T04:31:03Z'
+author: mambo-wang
 ---
 
 ## 结论

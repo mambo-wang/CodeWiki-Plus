@@ -26,6 +26,7 @@ verified:
 - by: codewiki/5.2.2
   at: '2026-08-15T13:26:08Z'
 reject_reason: consolidated into MCP-Server薄壳架构与参数约定
+author: mambo-wang
 ---
 
 ## 背景

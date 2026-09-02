@@ -22,6 +22,7 @@ verified:
 - by: codewiki/5.4.2
   at: '2026-08-24T15:30:05Z'
 reject_reason: 聚合进场景：Wiki页面生成约定与数据结构
+author: mambo-wang
 ---
 
 ## 背景

@@ -30,6 +30,7 @@ metadata:
   consolidated_into:
   - wiki/scenarios/Wiki页面生成约定与数据结构.md
 reject_reason: consolidated into Wiki页面生成约定与数据结构
+author: mambo-wang
 ---
 
 ## 背景

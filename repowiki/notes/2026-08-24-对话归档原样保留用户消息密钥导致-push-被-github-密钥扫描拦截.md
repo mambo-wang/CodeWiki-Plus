@@ -24,6 +24,7 @@ verified:
 - by: codewiki/5.4.2
   at: '2026-08-24T15:30:06Z'
 reject_reason: 聚合进场景：发布与依赖治理方法
+author: mambo-wang
 ---
 
 ## 背景

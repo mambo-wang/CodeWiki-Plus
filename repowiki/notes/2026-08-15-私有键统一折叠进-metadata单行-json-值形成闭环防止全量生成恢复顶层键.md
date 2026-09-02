@@ -17,6 +17,7 @@ generated:
 stale_after: 2026-11-13
 origin: conversation
 reject_reason: 用户评审后拒绝全部蒸馏草稿
+author: mambo-wang
 ---
 
 ## 背景

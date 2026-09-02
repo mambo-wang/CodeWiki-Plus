@@ -21,6 +21,7 @@ origin: conversation
 verified:
 - by: human:Administrator
   at: '2026-08-26T04:31:04Z'
+author: mambo-wang
 ---
 
 ## Background

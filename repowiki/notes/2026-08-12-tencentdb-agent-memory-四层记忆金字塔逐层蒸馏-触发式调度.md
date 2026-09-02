@@ -21,6 +21,7 @@ metadata:
   consolidated_into:
   - wiki/scenarios/对话蒸馏管线与raw暂存区.md
 reject_reason: 聚合进场景：对话蒸馏管线与raw暂存区
+author: mambo-wang
 ---
 
 ## 背景

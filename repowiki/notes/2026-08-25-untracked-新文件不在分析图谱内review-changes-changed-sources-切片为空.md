@@ -26,6 +26,7 @@ stale_after: '2027-02-21'
 verified:
 - by: human:mambo-wang
   at: '2026-08-25T15:55:20Z'
+author: wandering-bug
 ---
 
 ## 背景

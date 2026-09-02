@@ -26,6 +26,7 @@ verified:
 - by: codewiki/5.4.2
   at: '2026-08-24T15:30:19Z'
 reject_reason: 聚合进场景：对话蒸馏管线与raw暂存区
+author: mambo-wang
 ---
 
 ## 背景

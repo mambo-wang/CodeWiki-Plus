@@ -31,6 +31,7 @@ verified:
 - by: codewiki/5.3.0
   at: '2026-08-23T12:44:51Z'
 reject_reason: 聚合进场景：IDE-Hook采集链路方法
+author: mambo-wang
 ---
 
 ## 背景

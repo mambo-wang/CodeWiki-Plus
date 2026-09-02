@@ -24,6 +24,7 @@ metadata:
 verified:
 - by: human:wangbao
   at: '2026-08-25T16:48:20Z'
+author: mambo-wang
 ---
 
 ## 背景

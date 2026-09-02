@@ -22,6 +22,7 @@ verified:
 - by: human:wangbao
   at: '2026-08-24T03:40:47Z'
 reject_reason: 聚合进场景：MCP-Server薄壳架构与参数约定
+author: mambo-wang
 ---
 
 ## 背景

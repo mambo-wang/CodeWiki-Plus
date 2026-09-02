@@ -20,6 +20,7 @@ metadata:
   consolidated_into:
   - wiki/scenarios/IDE-Hook采集链路方法.md
 reject_reason: consolidated into IDE-Hook采集链路方法
+author: mambo-wang
 ---
 
 ## 背景

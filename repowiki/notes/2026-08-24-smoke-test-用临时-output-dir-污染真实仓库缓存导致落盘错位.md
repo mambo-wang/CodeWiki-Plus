@@ -26,6 +26,7 @@ verified:
 - by: codewiki/5.4.2
   at: '2026-08-24T13:55:52Z'
 reject_reason: 聚合进场景：MCP-Server薄壳架构与参数约定
+author: wandering-bug
 ---
 
 ## 背景

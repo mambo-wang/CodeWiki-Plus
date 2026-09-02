@@ -21,6 +21,7 @@ verified:
 - by: codewiki/5.2.2
   at: '2026-08-15T13:26:01Z'
 reject_reason: consolidated into 任务记忆系统设计方法
+author: mambo-wang
 ---
 
 ## 背景
