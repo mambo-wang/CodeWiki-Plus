@@ -1672,18 +1672,25 @@ def handle_distill_conversation(
             results.append(res)
         n_notes = sum(len(r.get("notes", [])) for r in results)
         n_conflicts = sum(len(r.get("conflicts", [])) for r in results)
-        return json.dumps(
-            {
-                "status": "completed",
-                "mode": "submit",
-                "distilled": results,
-                "raw_processed": len(results),
-                "notes_created": n_notes,
-                "conflicts_pending": n_conflicts,
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
+        ret: Dict[str, Any] = {
+            "status": "completed",
+            "mode": "submit",
+            "distilled": results,
+            "raw_processed": len(results),
+            "notes_created": n_notes,
+            "conflicts_pending": n_conflicts,
+        }
+        # Phase 4 second slice: submit is a batch boundary → auto-push when
+        # enabled and gated (D17). Best-effort, never blocks the result.
+        try:
+            from codewiki.src.git_sync import auto_push
+
+            _push = auto_push(output_dir, "distill_submit")
+            if _push:
+                ret["git_sync"] = _push
+        except Exception as e:
+            logger.debug("auto_push skipped: %s", e)
+        return json.dumps(ret, indent=2, ensure_ascii=False)
 
     # Mode B: background
     if arguments.get("run_in_background") and not arguments.get("llm"):
