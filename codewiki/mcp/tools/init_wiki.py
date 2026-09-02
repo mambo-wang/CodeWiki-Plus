@@ -164,6 +164,7 @@ def handle_init_wiki(arguments: dict) -> str:
         "ontology_yaml": None,
         "review_checklist_yaml": None,
         "agents_md": None,
+        "gitignore": None,
     }
 
     # ── Steps 1-2: Create directory structure and copy template assets ──
@@ -172,6 +173,32 @@ def handle_init_wiki(arguments: dict) -> str:
     results["schema_yaml"] = tree["schema_yaml"]
     results["ontology_yaml"] = tree["ontology_yaml"]
     results["review_checklist_yaml"] = tree["review_checklist_yaml"]
+
+    # ── Step 2.5: Team-layout gitignore hygiene (Phase 1, D1) ──────────
+    # Rebuildable derived files (wiki/index.md, .meta/*.json indexes,
+    # tasks/.index.json, ...) must stay untracked; init appends the ignore
+    # block idempotently so a fresh project starts on the team layout.
+    # Best-effort: never blocks init when the repo is not a git repo or
+    # .gitignore is not writable.
+    try:
+        from codewiki.mcp.tools.team_layout import (
+            ensure_gitignore_entries,
+            find_repo_root,
+        )
+
+        repo_root = find_repo_root(repo_path_p)
+        if repo_root is not None:
+            changed, added = ensure_gitignore_entries(repo_root, output_dir_p)
+            results["gitignore"] = {
+                "repo_root": str(repo_root),
+                "entries_added": added,
+                "status": "updated" if changed else "already-present",
+            }
+        else:
+            results["gitignore"] = "skipped: not a git repository"
+    except Exception as e:
+        results["gitignore"] = f"WARNING: failed to update .gitignore: {e}"
+        logger.warning("Failed to update .gitignore for team layout: %s", e)
 
     # ── Step 3: Write AGENTS.md ─────────────────────────────────────────
     try:

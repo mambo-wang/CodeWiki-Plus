@@ -784,7 +784,7 @@ _register(
         name="lint_wiki",
         description=(
             "Check documentation-code consistency. Works with or without an active session. "
-            "Runs 21 available checks: stale_refs (docs reference deleted components), "
+            "Runs 22 available checks: stale_refs (docs reference deleted components), "
             "broken_links (markdown links to non-existent pages), "
             "undocumented (high-impact components without docs), "
             "cycles (circular module dependencies), coverage (documentation coverage gaps), "
@@ -852,6 +852,7 @@ _register(
                             "scenario_capacity",
                             "scenario_orphan",
                             "layout_violations",
+                            "team_layout_gitignore",
                         ],
                     },
                     "description": 'Which checks to run (default: ["all"])',

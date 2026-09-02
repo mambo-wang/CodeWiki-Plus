@@ -139,7 +139,7 @@ def _wiki_index_status(output_path: Path) -> str:
         try:
             import sqlite3
 
-            conn = sqlite3.connect(str(index_path))
+            conn = sqlite3.connect(str(index_path), timeout=30.0)  # Team-layout Phase 2
             cur = conn.cursor()
             # Count indexed pages
             try:

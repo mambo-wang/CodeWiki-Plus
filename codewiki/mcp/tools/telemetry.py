@@ -151,32 +151,40 @@ def record_hit(output_dir, doc_path: str, count: int = 1) -> None:
     """
     path = _user_events_path(output_dir, create=True)
     today = date.today().isoformat()
-    lines = _read_lines(path)
-    merged = False
-    # Newest-first scan: merge into the most recent matching hit line.
-    for i in range(len(lines) - 1, -1, -1):
-        try:
-            ev = json.loads(lines[i])
-        except (json.JSONDecodeError, ValueError, TypeError):
-            continue  # corrupt line → skip it, keep scanning
-        if (
-            isinstance(ev, dict)
-            and ev.get("t") == "hit"
-            and ev.get("doc") == doc_path
-            and str(ev.get("at", "")) == today
-        ):
-            ev["n"] = int(ev.get("n", 0) or 0) + int(count)
-            lines[i] = json.dumps(ev, ensure_ascii=False)
-            merged = True
-            break
-    if not merged:
-        lines.append(
-            json.dumps(
-                {"t": "hit", "doc": doc_path, "at": today, "n": int(count)},
-                ensure_ascii=False,
+    # Team-layout Phase 2: the merge-or-append is a read-modify-write on the
+    # per-user event file; the whole sequence runs under the SAME sidecar
+    # lock as record_adopted's append, so a hit merge and an adopted append
+    # serialise instead of interleaving (a target-file lock would not
+    # exclude this atomic replace on Windows).
+    from codewiki.src.store import atomic_write, locked
+
+    with locked(path):
+        lines = _read_lines(path)
+        merged = False
+        # Newest-first scan: merge into the most recent matching hit line.
+        for i in range(len(lines) - 1, -1, -1):
+            try:
+                ev = json.loads(lines[i])
+            except (json.JSONDecodeError, ValueError, TypeError):
+                continue  # corrupt line → skip it, keep scanning
+            if (
+                isinstance(ev, dict)
+                and ev.get("t") == "hit"
+                and ev.get("doc") == doc_path
+                and str(ev.get("at", "")) == today
+            ):
+                ev["n"] = int(ev.get("n", 0) or 0) + int(count)
+                lines[i] = json.dumps(ev, ensure_ascii=False)
+                merged = True
+                break
+        if not merged:
+            lines.append(
+                json.dumps(
+                    {"t": "hit", "doc": doc_path, "at": today, "n": int(count)},
+                    ensure_ascii=False,
+                )
             )
-        )
-    _atomic_write_lines(path, lines)
+        atomic_write(path, "\n".join(lines) + "\n")
 
 
 def record_adopted(output_dir, doc_path: str, capture_key: str) -> None:
@@ -188,8 +196,13 @@ def record_adopted(output_dir, doc_path: str, capture_key: str) -> None:
         "at": datetime.now().isoformat(timespec="seconds"),
         "key": capture_key,
     }
-    with open(path, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+    # Team-layout Phase 2: locked append under the SAME sidecar lock as
+    # record_hit's rewrite — the two write paths of one user file serialise.
+    from codewiki.src.store import locked
+
+    with locked(path):
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
 def adopted_docs_for_key(output_dir, capture_key: str) -> Set[str]:

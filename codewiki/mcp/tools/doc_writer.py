@@ -723,6 +723,27 @@ def _auto_fix_mermaid(content: str) -> tuple[str, list[str]]:
         return content, []
 
 
+def _locked_transform(doc_path: Path, fn) -> None:
+    """read -> fn(text) -> atomic write, all under the sidecar lock.
+
+    Team-layout Phase 2 (§5.3): the standard shape for every
+    read-modify-write on a wiki page (wikilink injection, source-ref resync,
+    ...).  Writes only when fn returns changed text; never raises on I/O
+    (best-effort, same contract as the bare writes it replaces).
+    """
+    from codewiki.src.store import atomic_write, locked
+
+    try:
+        with locked(doc_path):
+            text = doc_path.read_text(encoding="utf-8")
+            new = fn(text)
+            if new is None or new == text:
+                return
+            atomic_write(doc_path, new)
+    except Exception:
+        pass
+
+
 def _save_history(output_dir: str, doc_path: Path, content: str) -> None:
     """Append *content* to edit history for *doc_path*, capped at _MAX_HISTORY_PER_FILE.
 
@@ -731,19 +752,25 @@ def _save_history(output_dir: str, doc_path: Path, content: str) -> None:
     from codewiki.src.config import meta_join
 
     history_path = Path(meta_join(output_dir, "edit_history.json"))
-    history: dict = {}
-    if history_path.exists():
-        try:
-            history = json.loads(history_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-    key = str(doc_path)
-    entry: list = history.setdefault(key, [])
-    entry.append(content)
-    if len(entry) > _MAX_HISTORY_PER_FILE:
-        del entry[: len(entry) - _MAX_HISTORY_PER_FILE]
-    history_path.parent.mkdir(parents=True, exist_ok=True)
-    history_path.write_text(json.dumps(history, ensure_ascii=False), encoding="utf-8")
+    # Team-layout Phase 2: history append is a JSON read-modify-write —
+    # read AND write under the sidecar lock (a read outside it could drop
+    # a concurrent edit's undo entry).
+    from codewiki.src.store import atomic_write, locked
+
+    with locked(history_path):
+        history: dict = {}
+        if history_path.exists():
+            try:
+                history = json.loads(history_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pass
+        key = str(doc_path)
+        entry: list = history.setdefault(key, [])
+        entry.append(content)
+        if len(entry) > _MAX_HISTORY_PER_FILE:
+            del entry[: len(entry) - _MAX_HISTORY_PER_FILE]
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(history_path, json.dumps(history, ensure_ascii=False))
 
 
 def _inject_crosslinks(
@@ -859,16 +886,19 @@ def _inject_crosslinks(
     crosslink_text = "\n".join(lines) + "\n"
 
     # Replace existing crosslinks block or append
-    content = doc_path.read_text(encoding="utf-8")
-    marker = "<!-- crosslinks (auto-generated) -->"
-    if marker in content:
-        # Replace from marker to end of file
-        idx = content.index(marker)
-        content = content[:idx] + crosslink_text
-    else:
-        content = content.rstrip() + "\n\n" + crosslink_text
+    from codewiki.src.store import atomic_write, locked
 
-    doc_path.write_text(content, encoding="utf-8")
+    with locked(doc_path):
+        content = doc_path.read_text(encoding="utf-8")
+        marker = "<!-- crosslinks (auto-generated) -->"
+        if marker in content:
+            # Replace from marker to end of file
+            idx = content.index(marker)
+            content = content[:idx] + crosslink_text
+        else:
+            content = content.rstrip() + "\n\n" + crosslink_text
+
+        atomic_write(doc_path, content)
 
     return {
         "depends_on": sorted(depends_on_modules),
@@ -945,14 +975,17 @@ def _inject_evidence(session: SessionState, filename: str, doc_path: Path) -> di
     if not entries:
         return None
 
+    from codewiki.src.store import atomic_write, locked
+
     try:
-        content = doc_path.read_text(encoding="utf-8")
-        new_content = append_evidence_block(content, entries)
+        with locked(doc_path):
+            content = doc_path.read_text(encoding="utf-8")
+            new_content = append_evidence_block(content, entries)
+            if new_content == content:
+                return None
+            atomic_write(doc_path, new_content)
     except OSError:
         return None
-    if new_content == content:
-        return None
-    doc_path.write_text(new_content, encoding="utf-8")
     return {"evidence_stamped": len(entries), "components": len(module_components)}
 
 
@@ -1334,31 +1367,28 @@ async def handle_write_doc_file(
 
     if shared_pool_write:
         # Locked read-modify-write: concurrent writers of the same shared
-        # page must not lose provenance (ticket 04; lock primitive from 01).
+        # page must not lose provenance (ticket 04).  Phase 2 §5.3: the
+        # sidecar lock (not a target-file lock) so this path serialises
+        # with every other writer of the page — a target-file lock and
+        # atomic os.replace do not exclude each other on Windows.
         from codewiki.mcp.tools.workspace_layout import merge_provenance
-        from codewiki.src.locks import file_lock
+        from codewiki.src.store import atomic_write, locked
 
-        with file_lock(doc_path) as f:
-            old_text = f.read()
+        with locked(doc_path):
+            old_text = doc_path.read_text(encoding="utf-8") if doc_path.exists() else ""
             merged = merge_provenance(
                 content, old_text or None, partition_repo, explicit_scope=scope_arg
             )
-            f.seek(0)
-            f.write(merged)
-            f.truncate()
+            atomic_write(doc_path, merged)
     else:
-        doc_path.write_text(content, encoding="utf-8")
+        from codewiki.src.store import locked_write
+
+        locked_write(doc_path, content)
     if session:
         session.docs_written += 1
 
     # LLM Wiki: convert [[wikilink]] to standard markdown links [text](path)
-    try:
-        raw = doc_path.read_text(encoding="utf-8")
-        linked = _convert_wikilinks_to_md(raw, output_dir, doc_path)
-        if linked != raw:
-            doc_path.write_text(linked, encoding="utf-8")
-    except Exception:
-        pass
+    _locked_transform(doc_path, lambda raw: _convert_wikilinks_to_md(raw, output_dir, doc_path))
 
     # Mermaid validation (on auto-fixed content)
     mermaid_result = await _validate_mermaid(str(doc_path), filename)
@@ -1383,10 +1413,7 @@ async def handle_write_doc_file(
         schema = load_schema(str(output_dir))
         if schema.get("wiki_link_syntax", False):
             terms = _collect_wiki_terms(output_dir, exclude=doc_path)
-            raw = doc_path.read_text(encoding="utf-8")
-            linked = _inject_wiki_links(raw, terms)
-            if linked != raw:
-                doc_path.write_text(linked, encoding="utf-8")
+            _locked_transform(doc_path, lambda raw: _inject_wiki_links(raw, terms))
     except Exception:
         pass
 
@@ -1408,15 +1435,16 @@ async def handle_write_doc_file(
         try:
             from codewiki.mcp.tools.knowledge_loop import _inject_symbol_links
 
-            raw = doc_path.read_text(encoding="utf-8")
             depth = compute_depth(doc_path, str(output_dir))
             try:
                 extra = len(Path(output_dir).resolve().relative_to(Path(repo_path).resolve()).parts)
             except (ValueError, AttributeError):
                 extra = 0
-            linked = _inject_symbol_links(raw, output_dir, depth=depth + extra, session=session)
-            if linked != raw:
-                doc_path.write_text(linked, encoding="utf-8")
+
+            def _sym_link(raw: str, _d=depth, _e=extra):
+                return _inject_symbol_links(raw, output_dir, depth=_d + _e, session=session)
+
+            _locked_transform(doc_path, _sym_link)
         except Exception:
             pass
 
@@ -1524,23 +1552,26 @@ async def handle_edit_doc_file(
     command = arguments["command"]
 
     if command == "undo":
-        # Undo via disk-based history
+        # Undo via disk-based history.  Phase 2 §5.3: the read + pop + write
+        # runs under the sidecar lock so a concurrent edit cannot interleave.
         from codewiki.src.config import meta_join
+        from codewiki.src.store import atomic_write, locked
 
         history_path = Path(meta_join(output_dir, "edit_history.json"))
-        history: dict = {}
-        if history_path.exists():
-            try:
-                history = json.loads(history_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                pass
-        path_history: list = history.get(str(doc_path), [])
-        if not path_history:
-            return json.dumps({"error": f"No edit history found for {filename}."})
-        old_content = path_history.pop()
-        history[str(doc_path)] = path_history
-        history_path.parent.mkdir(parents=True, exist_ok=True)
-        history_path.write_text(json.dumps(history, ensure_ascii=False), encoding="utf-8")
+        with locked(history_path):
+            history: dict = {}
+            if history_path.exists():
+                try:
+                    history = json.loads(history_path.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, OSError):
+                    pass
+            path_history: list = history.get(str(doc_path), [])
+            if not path_history:
+                return json.dumps({"error": f"No edit history found for {filename}."})
+            old_content = path_history.pop()
+            history[str(doc_path)] = path_history
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write(history_path, json.dumps(history, ensure_ascii=False))
 
         # Defensive repair: fix frontmatter/body concatenation if the history
         # snapshot was saved from corrupted content (e.g. "---# Title" instead
@@ -1558,7 +1589,9 @@ async def handle_edit_doc_file(
                     old_content = "\n".join(_lines)
                     break
 
-        doc_path.write_text(old_content, encoding="utf-8")
+        from codewiki.src.store import locked_write
+
+        locked_write(doc_path, old_content)
 
         # D2: refresh page baseline after undo reverted the content.
         _record_page_manifest(output_dir, doc_path, session, filename, page_type, repo_path)
@@ -1631,16 +1664,14 @@ async def handle_edit_doc_file(
         # Save history only for edits that actually happen, so undo never
         # pops a no-op entry left behind by a failed/rejected command.
         _save_history(output_dir, doc_path, current_content)
-        doc_path.write_text(new_content, encoding="utf-8")
+        from codewiki.src.store import locked_write
+
+        locked_write(doc_path, new_content)
 
         # Convert [[wikilink]] to markdown links
-        try:
-            raw = doc_path.read_text(encoding="utf-8")
-            linked = _convert_wikilinks_to_md(raw, Path(output_dir), doc_path)
-            if linked != raw:
-                doc_path.write_text(linked, encoding="utf-8")
-        except Exception:
-            pass
+        _locked_transform(
+            doc_path, lambda raw: _convert_wikilinks_to_md(raw, Path(output_dir), doc_path)
+        )
 
         # Snippet around the edit (use pre-computed edit_line)
         fm_line_count = fm.count("\n") + 1 if fm else 0
@@ -1678,16 +1709,14 @@ async def handle_edit_doc_file(
         lines = lines[:insert_line] + new_str_lines + lines[insert_line:]
         new_content = "\n".join(lines)
         _save_history(output_dir, doc_path, current_content)
-        doc_path.write_text(new_content, encoding="utf-8")
+        from codewiki.src.store import locked_write
+
+        locked_write(doc_path, new_content)
 
         # Convert [[wikilink]] to markdown links
-        try:
-            raw = doc_path.read_text(encoding="utf-8")
-            linked = _convert_wikilinks_to_md(raw, Path(output_dir), doc_path)
-            if linked != raw:
-                doc_path.write_text(linked, encoding="utf-8")
-        except Exception:
-            pass
+        _locked_transform(
+            doc_path, lambda raw: _convert_wikilinks_to_md(raw, Path(output_dir), doc_path)
+        )
 
         start = max(0, insert_line - 4)
         end = min(len(lines), start + len(new_str_lines) + 8)
@@ -1702,13 +1731,7 @@ async def handle_edit_doc_file(
         session.docs_written += 1
 
     # LLM Wiki: re-parse source_refs/chunk_refs from body after edit
-    try:
-        raw = doc_path.read_text(encoding="utf-8")
-        resynced = _resync_source_refs(raw)
-        if resynced != raw:
-            doc_path.write_text(resynced, encoding="utf-8")
-    except Exception:
-        pass
+    _locked_transform(doc_path, _resync_source_refs)
 
     # Mermaid validation
     mermaid_result = await _validate_mermaid(str(doc_path), filename)
@@ -1717,7 +1740,6 @@ async def handle_edit_doc_file(
     try:
         from codewiki.mcp.tools.knowledge_loop import _inject_symbol_links
 
-        raw = doc_path.read_text(encoding="utf-8")
         depth = compute_depth(doc_path, output_dir)
         # symbol_map paths are relative to repo root; add extra levels to
         # escape output_dir (e.g. docs/) up to the repository root.
@@ -1727,9 +1749,11 @@ async def handle_edit_doc_file(
                 extra = len(Path(output_dir).resolve().relative_to(Path(repo_path).resolve()).parts)
             except (ValueError, AttributeError):
                 pass
-        linked = _inject_symbol_links(raw, Path(output_dir), depth=depth + extra, session=session)
-        if linked != raw:
-            doc_path.write_text(linked, encoding="utf-8")
+
+        def _sym_link(raw: str, _d=depth, _e=extra):
+            return _inject_symbol_links(raw, Path(output_dir), depth=_d + _e, session=session)
+
+        _locked_transform(doc_path, _sym_link)
     except Exception:
         pass
 

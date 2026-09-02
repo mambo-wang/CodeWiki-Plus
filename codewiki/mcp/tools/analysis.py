@@ -305,8 +305,11 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
             "output_dir": _rel_output.replace("\\", "/"),
             "cache_db": _cache_rel,
         }
-        Path(meta_join(output_dir, PROJECT_FILENAME)).write_text(
-            json.dumps(project_info, ensure_ascii=False, indent=2), encoding="utf-8"
+        from codewiki.src.store import atomic_write
+
+        atomic_write(
+            Path(meta_join(output_dir, PROJECT_FILENAME)),
+            json.dumps(project_info, ensure_ascii=False, indent=2),
         )
     except Exception as e:
         logger.warning("Failed to write project.json: %s", e)
@@ -410,10 +413,9 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
                     "timestamp": datetime.now().isoformat(),
                 }
             }
-        meta_path.write_text(
-            json.dumps(metadata, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        from codewiki.src.store import locked_write
+
+        locked_write(meta_path, json.dumps(metadata, ensure_ascii=False, indent=2))
     except Exception as e:
         logger.warning("Failed to update overview_stale in metadata: %s", e)
 
@@ -428,9 +430,11 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         meta_dir = Path(meta_join(output_dir, ""))
         meta_dir.mkdir(parents=True, exist_ok=True)
         symbol_map_path = Path(meta_join(output_dir, "symbol_map.json"))
-        symbol_map_path.write_text(
+        from codewiki.src.store import atomic_write
+
+        atomic_write(
+            symbol_map_path,
             json.dumps(symbol_map, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8",
         )
         logger.info("Symbol map written: %d symbols (SQLite + JSON)", len(symbol_map))
     except Exception as e:
@@ -675,15 +679,17 @@ def _run_monorepo_cross_service(
         meta_dir = Path(meta_join(output_dir, ""))
         meta_dir.mkdir(parents=True, exist_ok=True)
 
+        from codewiki.src.store import atomic_write
+
         links_data = [link.model_dump() for link in topology.links]
-        (meta_dir / "cross_service_links.json").write_text(
+        atomic_write(
+            meta_dir / "cross_service_links.json",
             json.dumps(links_data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
         )
         routes_data = [route.model_dump() for route in topology.routes]
-        (meta_dir / "workspace_routes.json").write_text(
+        atomic_write(
+            meta_dir / "workspace_routes.json",
             json.dumps(routes_data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
         )
         logger.info("Cross-service results persisted to %s", meta_dir)
     except Exception as e:
@@ -701,9 +707,11 @@ def _run_monorepo_cross_service(
             meta_dir = Path(meta_join(output_dir, ""))
             meta_dir.mkdir(parents=True, exist_ok=True)
             infra_data = {name: svc.to_dict() for name, svc in infra_services.items()}
-            (meta_dir / "infra_services.json").write_text(
+            from codewiki.src.store import atomic_write
+
+            atomic_write(
+                meta_dir / "infra_services.json",
                 json.dumps(infra_data, ensure_ascii=False, indent=2),
-                encoding="utf-8",
             )
     except Exception as e:
         logger.debug("Infra scanner skipped: %s", e)
@@ -1111,11 +1119,10 @@ def _save_overview_refs(output_dir: Path, refs: Set[str]):
 
     meta_dir = Path(meta_join(output_dir, ""))
     meta_dir.mkdir(parents=True, exist_ok=True)
+    from codewiki.src.store import atomic_write
+
     refs_path = meta_dir / "overview_refs.json"
-    refs_path.write_text(
-        json.dumps(sorted(refs), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    atomic_write(refs_path, json.dumps(sorted(refs), ensure_ascii=False, indent=2))
 
 
 def _load_overview_refs(output_dir: Path) -> Set[str]:

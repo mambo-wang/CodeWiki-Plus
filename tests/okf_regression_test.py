@@ -904,9 +904,13 @@ def main():
             "index", "frontmatter含okf_version", "okf_version" in read_fm(idx), read_fm(idx)[:150]
         )
         check("index", "§8 bullet格式", "* [" in it, it[:300])
-    log = output_dir / "wiki" / "log.md"
-    if log.exists():
-        lt = log.read_text(encoding="utf-8")
+    # team-layout Phase 1 (D5): 操作日志改为月度分片 log-YYYY-MM.md（纯追加），
+    # 旧版单文件 log.md 不再产生——两者取其一做 §9 格式校验
+    wiki_dir = output_dir / "wiki"
+    log = wiki_dir / "log.md"
+    shards = sorted(wiki_dir.glob("log-*.md")) if wiki_dir.is_dir() else []
+    if log.exists() or shards:
+        lt = (log if log.exists() else shards[-1]).read_text(encoding="utf-8")
         check("log", "§9日期分组", "## " in lt and "* **" in lt, lt[:300])
     else:
         check("log", "log.md存在", False, "log.md not found")

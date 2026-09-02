@@ -88,7 +88,9 @@ def _read_sqlite_index_info(output_dir: Path) -> Optional[Dict[str, object]]:
     import sqlite3
 
     try:
-        conn = sqlite3.connect(str(db_path))
+        conn = sqlite3.connect(
+            str(db_path), timeout=30.0
+        )  # Team-layout Phase 2: explicit busy timeout
         try:
             row = conn.execute("SELECT value FROM search_stats WHERE key='total_docs'").fetchone()
             if not row or int(row[0]) == 0:
@@ -275,7 +277,9 @@ def mark_index_built(output_dir: Path) -> None:
 
         db_path = _resolve_db_path(od)
         if db_path is not None and db_path.exists():
-            conn = sqlite3.connect(str(db_path))
+            conn = sqlite3.connect(
+                str(db_path), timeout=30.0
+            )  # Team-layout Phase 2: explicit busy timeout
             try:
                 conn.execute(
                     "INSERT INTO search_stats VALUES(?,?) "

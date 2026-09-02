@@ -48,6 +48,8 @@ _ALL_CHECKS = {
     "low_adoption",
     # Centralized-layout discipline (ticket 09)
     "layout_violations",
+    # Team-layout Phase 1 (D1): rebuildable derived files must not be tracked
+    "team_layout_gitignore",
 }
 
 # 归档/调试暂存目录不参与 wiki 一致性审计：.trash/（deprecated 笔记归档区，
@@ -1657,8 +1659,11 @@ def _check_okf_conformance(
     today_str = date.today().isoformat()
 
     for md_file in sorted(targets):
-        # §4/§11: index.md and log.md are reserved system files
-        if md_file.name in ("index.md", "log.md"):
+        # §4/§11: index.md, log.md and its monthly shards (log-YYYY-MM.md)
+        # are reserved system files
+        if md_file.name in ("index.md", "log.md") or (
+            md_file.name.startswith("log-") and md_file.name.endswith(".md")
+        ):
             continue
 
         rel_path = md_file.relative_to(output_dir).as_posix()
@@ -1939,6 +1944,43 @@ def _check_layout_violations(output_dir: Path) -> List[Dict[str, Any]]:
     return issues
 
 
+def _check_team_layout_gitignore(output_dir: Path) -> List[Dict[str, Any]]:
+    """Team-layout Phase 1 (D1): rebuildable derived files must not be tracked.
+
+    Every file in ``TEAM_LAYOUT_REBUILDABLE_FILES`` has a local rebuild path
+    (directory scan / re-analysis / rebuild_index); committing it only creates
+    merge conflicts.  This check reports the ones still tracked by git so a
+    team migrating to the layout sees exactly what ``codewiki
+    migrate-team-layout`` will fix.  Skipped silently when output_dir is not
+    inside a git repository (nothing to untrack).
+    """
+    from codewiki.mcp.tools.team_layout import find_repo_root, list_tracked_rebuildables
+
+    issues: List[Dict[str, Any]] = []
+    repo_root = find_repo_root(output_dir)
+    if repo_root is None:
+        return issues  # not a git repo — nothing to check
+    for rel in list_tracked_rebuildables(repo_root, output_dir):
+        issues.append(
+            {
+                "check": "team_layout_gitignore",
+                "severity": "warning",
+                "message": (
+                    f"'{rel}' is a rebuildable derived file tracked by git — "
+                    "in team use it becomes a recurring merge-conflict source."
+                ),
+                "file": rel,
+                "line": 1,
+                "suggestion": (
+                    "Run `codewiki migrate-team-layout` (untracks via "
+                    "git rm --cached, files stay on disk) or add the "
+                    "team-layout block to .gitignore manually."
+                ),
+            }
+        )
+    return issues
+
+
 # ---------------------------------------------------------------------------
 #  Main handler
 # ---------------------------------------------------------------------------
@@ -1983,6 +2025,18 @@ def handle_lint_wiki(
         module_tree = _load_module_tree(output_dir)
 
     all_issues: List[Dict[str, Any]] = []
+
+    # Team-layout Phase 1 (D7): wiki/index.md is a rebuildable derived file
+    # no longer committed — a fresh clone has no copy.  Materialise it
+    # transparently before the checks run (seconds-cheap, byte-stable, no-op
+    # when present) so index-referencing checks never report its absence.
+    if output_dir:
+        try:
+            from codewiki.mcp.tools.wiki_index import ensure_index
+
+            ensure_index(output_dir)
+        except Exception:  # self-heal must never block lint
+            pass
 
     # Self-heal stale index references when fix=true.  Rebuild the index only
     # when every stale_ref points at wiki/index.md (a stale generated index),
@@ -2108,6 +2162,10 @@ def handle_lint_wiki(
 
         if is_centralized_corpus(output_dir):
             all_issues.extend(_check_layout_violations(output_dir))
+
+    # Team-layout Phase 1 (D1): rebuildable derived files must stay untracked.
+    if "team_layout_gitignore" in checks and output_dir:
+        all_issues.extend(_check_team_layout_gitignore(output_dir))
 
     # Deduplicate: if a link is already reported as stale_refs, don't also
     # report it as broken_links (same file + line = same underlying problem).
