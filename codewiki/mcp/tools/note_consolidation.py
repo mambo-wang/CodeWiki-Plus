@@ -132,70 +132,86 @@ def _read_body(path: Path) -> str:
 
 
 def _update_frontmatter_meta(path: Path, updates: Dict[str, Any]) -> bool:
-    """Merge *updates* into the frontmatter ``metadata`` mapping (round-trip)."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    if not text.startswith("---"):
-        return False
-    end = text.find("---", 3)
-    if end < 0:
-        return False
-    try:
-        import yaml
+    """Merge *updates* into the frontmatter ``metadata`` mapping (round-trip).
 
-        data = yaml.safe_load(text[3:end])
-        if not isinstance(data, dict):
-            return False
-        meta = data.get("metadata")
-        if not isinstance(meta, dict):
-            meta = {}
-        meta.update(updates)
-        data["metadata"] = meta
-        new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        path.write_text(f"---\n{new_fm}---{text[end + 3 :]}", encoding="utf-8")
-        return True
-    except Exception as e:
-        logger.warning("frontmatter update failed for %s: %s", path, e)
+    Team-layout Phase 2 (§5.3): locked read-modify-write (locked_rmw).
+    """
+    from codewiki.src.store import locked_rmw
+
+    def _update(text: str):
+        if not text.startswith("---"):
+            return None
+        end = text.find("---", 3)
+        if end < 0:
+            return None
+        try:
+            import yaml
+
+            data = yaml.safe_load(text[3:end])
+            if not isinstance(data, dict):
+                return None
+            meta = data.get("metadata")
+            if not isinstance(meta, dict):
+                meta = {}
+            meta.update(updates)
+            data["metadata"] = meta
+            new_fm = yaml.safe_dump(
+                data, allow_unicode=True, sort_keys=False, default_flow_style=False
+            )
+            return f"---\n{new_fm}---{text[end + 3 :]}"
+        except Exception as e:
+            logger.warning("frontmatter update failed for %s: %s", path, e)
+            return None
+
+    try:
+        return locked_rmw(path, _update) is not None
+    except OSError:
         return False
 
 
 def _append_meta_list(path: Path, key: str, values: List[str]) -> bool:
-    """Append *values* to a list field under metadata (deduplicated)."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    if not text.startswith("---"):
-        return False
-    end = text.find("---", 3)
-    if end < 0:
-        return False
-    try:
-        import yaml
+    """Append *values* to a list field under metadata (deduplicated).
 
-        data = yaml.safe_load(text[3:end])
-        if not isinstance(data, dict):
-            return False
-        meta = data.get("metadata")
-        if not isinstance(meta, dict):
-            meta = {}
-        existing = meta.get(key)
-        if isinstance(existing, str):
-            existing = [existing]
-        if not isinstance(existing, list):
-            existing = []
-        for v in values:
-            if v and v not in existing:
-                existing.append(v)
-        meta[key] = existing
-        data["metadata"] = meta
-        new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        path.write_text(f"---\n{new_fm}---{text[end + 3 :]}", encoding="utf-8")
-        return True
-    except Exception as e:
-        logger.warning("frontmatter list append failed for %s: %s", path, e)
+    Team-layout Phase 2 (§5.3): locked read-modify-write (locked_rmw).
+    """
+    from codewiki.src.store import locked_rmw
+
+    def _append(text: str):
+        if not text.startswith("---"):
+            return None
+        end = text.find("---", 3)
+        if end < 0:
+            return None
+        try:
+            import yaml
+
+            data = yaml.safe_load(text[3:end])
+            if not isinstance(data, dict):
+                return None
+            meta = data.get("metadata")
+            if not isinstance(meta, dict):
+                meta = {}
+            existing = meta.get(key)
+            if isinstance(existing, str):
+                existing = [existing]
+            if not isinstance(existing, list):
+                existing = []
+            for v in values:
+                if v and v not in existing:
+                    existing.append(v)
+            meta[key] = existing
+            data["metadata"] = meta
+            new_fm = yaml.safe_dump(
+                data, allow_unicode=True, sort_keys=False, default_flow_style=False
+            )
+            return f"---\n{new_fm}---{text[end + 3 :]}"
+        except Exception as e:
+            logger.warning("frontmatter list append failed for %s: %s", path, e)
+            return None
+
+    try:
+        return locked_rmw(path, _append) is not None
+    except OSError:
         return False
 
 
