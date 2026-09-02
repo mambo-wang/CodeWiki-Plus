@@ -54,6 +54,10 @@ _DEFAULT_CONVENTIONS = {
     # 默认 tags 不再为空：schema.yaml 里 okf_tags 为 [] 时，
     # frontmatter 注入 helper 会回落到此默认值。
     "okf_tags": ["codewiki", "auto-generated"],
+    # Team-layout Phase 4 (D14): git 同步策略。advisory 默认开——只读
+    # fetch、每进程每仓一次、失败静默降级；session_ff_only/auto_push
+    # （第二刀）仅限 repowiki 所在仓不含业务代码的 harness 根仓。
+    "git_sync": {"mode": "advisory", "auto_push": False},
 }
 
 # V4: fill the note_types placeholder from the authoritative table (import kept
