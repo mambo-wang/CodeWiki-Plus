@@ -148,6 +148,58 @@ def compute_source_fingerprint_for_file(path: Path) -> Optional[str]:
 
 
 # --------------------------------------------------------------------------- #
+# Code-state fingerprint (Team-layout Phase 3, D15)
+# --------------------------------------------------------------------------- #
+
+
+def compute_code_fingerprint(output_dir: Path) -> Optional[str]:
+    """Content-hash of the repo's code structure at generation time.
+
+    Hashes ``module_tree.json`` + ``symbol_map.json`` (both local-derived;
+    they are NOT committed since Phase 1, so the hash is recomputed from the
+    local rebuild).  Deliberately NOT a git SHA (design principle 4 —
+    content hash survives rebases and matches evidence.py's orientation).
+
+    Returns ``None`` when either file is missing (fresh clone before the
+    first analyze) — callers treat that as "cannot compare, skip advisory".
+    """
+    from codewiki.src.config import meta_join
+
+    parts = []
+    for filename in ("module_tree.json", "symbol_map.json"):
+        p = Path(meta_join(str(output_dir), filename))
+        if not p.is_file():
+            return None
+        try:
+            parts.append(p.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            return None
+    return _HASH_PREFIX + hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def read_page_code_fingerprint(doc_path: Path) -> Optional[str]:
+    """The ``metadata.code_fingerprint`` recorded on an existing page."""
+    try:
+        content = doc_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if not content.startswith("---"):
+        return None
+    end = content.find("---", 3)
+    if end < 0:
+        return None
+    try:
+        import yaml
+
+        data = yaml.safe_load(content[3:end]) or {}
+    except Exception:
+        return None
+    meta = data.get("metadata") if isinstance(data, dict) else None
+    fp = meta.get("code_fingerprint") if isinstance(meta, dict) else None
+    return fp if isinstance(fp, str) and fp else None
+
+
+# --------------------------------------------------------------------------- #
 # Component / file collection (write path)
 # --------------------------------------------------------------------------- #
 

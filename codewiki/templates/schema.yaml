@@ -110,6 +110,14 @@ conventions:
   # 不愿以 git 真名署名的成员可用 CODEWIKI_USER 设置花名。
   telemetry:
     enabled: true
+  # 团队化 git 同步策略（Phase 4）。mode: off 完全静默；advisory（默认）
+  # 每进程每仓一次只读 git fetch 检测远端分叉，结果作为告警附在
+  # ingest_note / write_doc_file 返回中，不阻断、不改动工作区；
+  # session_ff_only / auto_push（第二刀）仅限"repowiki 所在仓不含业务
+  # 代码"的 harness/工作区根仓显式开启。
+  git_sync:
+    mode: advisory
+    auto_push: false
   # 全局默认标签列表，会自动追加到每个文档的 frontmatter tags 中。
   # 例如 [project-x, v2] 会让所有文档带上这些标签，便于跨项目检索
   okf_tags: []

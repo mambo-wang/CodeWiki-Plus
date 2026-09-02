@@ -642,6 +642,17 @@ def handle_ingest_note(
     frontmatter_lines.append("metadata:")
     frontmatter_lines.extend(metadata_lines)
     frontmatter_lines.append(f"status: {note_status}")
+    # Team-layout Phase 3 (D16): author provenance — data foundation for
+    # multi-user governance (adoption stats / promotion later).  Field is
+    # written but NEVER gates anyone's edits (write-only, no warning).
+    try:
+        from codewiki.src.config import user_id
+
+        _author = user_id()
+        if _author:
+            frontmatter_lines.append(f"author: {_author}")
+    except Exception as e:
+        logger.debug("author stamp skipped: %s", e)
     # OKF v0.2 §5.2/§5.5: provenance actor + absolute staleness date
     frontmatter_lines.append(
         f"generated: {{ by: {_okf_actor(arguments.get('author'))}, at: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')} }}"
@@ -716,6 +727,16 @@ def handle_ingest_note(
         "related_modules": related_modules,
         "tags": tags,
     }
+    # Team-layout Phase 4 first slice (D14): read-only remote-drift advisory,
+    # once per process per repo — relayed into the conversation, never blocks.
+    try:
+        from codewiki.src.git_sync import sync_check
+
+        _sync_advisory = sync_check(output_dir)
+        if _sync_advisory:
+            result["advisories"] = [_sync_advisory]
+    except Exception as e:
+        logger.debug("sync_check advisory skipped: %s", e)
     if note_status == "draft":
         result["hint"] = (
             "Note saved with status=draft; query_wiki will show it with an "

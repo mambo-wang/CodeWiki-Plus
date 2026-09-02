@@ -81,6 +81,9 @@ _OKF_TOP_LEVEL_KEYS = frozenset(
         "tags",
         "sources",
         "metadata",
+        # Team-layout Phase 3 (D16): author provenance, write-only — the
+        # data foundation for multi-user governance (no edit-gating).
+        "author",
     }
 )
 # Legacy top-level extensions that may still appear on older pages.  They are

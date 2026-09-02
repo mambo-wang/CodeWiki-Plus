@@ -744,6 +744,33 @@ def _locked_transform(doc_path: Path, fn) -> None:
         pass
 
 
+def _stamp_metadata_field(text: str, key: str, value: str) -> str | None:
+    """Set ``metadata.<key> = value`` in a page's frontmatter (Phase 3 D15).
+
+    Returns the new text, or None when unchanged.  Preserves the existing
+    metadata block line-by-line; creates one when absent.  Used with
+    ``_locked_transform`` so the stamp is a locked read-modify-write.
+    """
+    import re
+
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    if end < 0:
+        return None
+    block = text[3:end]
+    new_value = f"{key}: {value}"
+    if re.search(rf"^  {re.escape(key)}:", block, re.MULTILINE):
+        new_block = re.sub(rf"^  {re.escape(key)}:.*$", f"  {new_value}", block, flags=re.MULTILINE)
+    elif re.search(r"^metadata:", block, re.MULTILINE):
+        new_block = block.rstrip("\n") + f"\n  {new_value}\n"
+    else:
+        new_block = block.rstrip("\n") + f"\nmetadata:\n  {new_value}\n"
+    if new_block == block:
+        return None
+    return "---" + new_block + text[end:]
+
+
 def _save_history(output_dir: str, doc_path: Path, content: str) -> None:
     """Append *content* to edit history for *doc_path*, capped at _MAX_HISTORY_PER_FILE.
 
@@ -1365,6 +1392,33 @@ async def handle_write_doc_file(
     # Auto-fix common Mermaid syntax errors before writing
     content, mermaid_fixes = _auto_fix_mermaid(content)
 
+    # Team-layout Phase 3 (D15): code-state fingerprint soft advisory.
+    # When OVERWRITING an existing page, compare the current code fingerprint
+    # (module_tree+symbol_map content hash) with the one recorded on the old
+    # page.  Drift means the page was written against a different code state
+    # — surface that in the result for the conversation to relay.  This is a
+    # SOFT advisory by design (D15): no force flag, no blocking; the hard
+    # enforcement lives in lint's stale_pages/stale_evidence afterwards.
+    stale_code_advisory = None
+    new_code_fp = None
+    try:
+        from codewiki.mcp.tools.page_manifest import (
+            compute_code_fingerprint,
+            read_page_code_fingerprint,
+        )
+
+        new_code_fp = compute_code_fingerprint(output_dir)
+        if doc_path.exists() and new_code_fp:
+            old_fp = read_page_code_fingerprint(doc_path)
+            if old_fp and old_fp != new_code_fp:
+                stale_code_advisory = (
+                    f"code_fingerprint 漂移：该页面此前基于另一代码状态生成"
+                    f"（旧 {old_fp[:19]}… → 新 {new_code_fp[:19]}…），本次覆盖写入。"
+                    "旧页结论可能已过期，建议 lint_wiki stale_pages 复核。"
+                )
+    except Exception as e:
+        logger.debug("code fingerprint advisory skipped: %s", e)
+
     if shared_pool_write:
         # Locked read-modify-write: concurrent writers of the same shared
         # page must not lose provenance (ticket 04).  Phase 2 §5.3: the
@@ -1451,6 +1505,18 @@ async def handle_write_doc_file(
     # D2: record/refresh page baseline after the page reached final content.
     _record_page_manifest(output_dir, doc_path, session, filename, page_type, repo_path)
 
+    # Phase 3 (D15): stamp the code fingerprint onto the new page so the
+    # NEXT overwrite can detect drift.  Best-effort; pages without local
+    # analysis artifacts simply carry no fingerprint (skip-compare).
+    if new_code_fp:
+        try:
+            _locked_transform(
+                doc_path,
+                lambda text: _stamp_metadata_field(text, "code_fingerprint", new_code_fp),
+            )
+        except Exception as e:
+            logger.debug("code fingerprint stamp skipped: %s", e)
+
     result = {
         "status": "created",
         "path": str(doc_path),
@@ -1460,6 +1526,21 @@ async def handle_write_doc_file(
         "mermaid_validation": mermaid_result,
         "mermaid_auto_fixes": mermaid_fixes,
     }
+    # Phase 3 (D15) + Phase 4 first slice (D14): soft advisories — drift
+    # information relayed into the conversation, never blocking.
+    advisories = []
+    if stale_code_advisory:
+        advisories.append(stale_code_advisory)
+    try:
+        from codewiki.src.git_sync import sync_check
+
+        _sync_advisory = sync_check(output_dir)
+        if _sync_advisory:
+            advisories.append(_sync_advisory)
+    except Exception as e:
+        logger.debug("sync_check advisory skipped: %s", e)
+    if advisories:
+        result["advisories"] = advisories
     # BUG-17: surface Mermaid warnings prominently in the response
     if "syntax errors" in mermaid_result.lower():
         result["mermaid_warnings"] = mermaid_result
