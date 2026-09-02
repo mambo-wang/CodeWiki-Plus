@@ -266,3 +266,44 @@ def test_auto_push_divergence_keeps_local_commit(tmp_path):
     assert "codewiki: auto-sync knowledge" in log  # auto_push's own commit kept
     # and the tree carries no conflict leftovers from the aborted rebases
     assert _git(repo, "status", "--porcelain").strip() == ""
+
+
+def test_auto_push_aborts_on_preexisting_staged_content(tmp_path):
+    """Real-repo acceptance finding (2026-09-02): git commit commits the
+    WHOLE index — user-staged changes must never be swept into the
+    auto_push commit.  auto_push ABORTS with a report; the user's staged
+    content is left untouched."""
+    _reset_state()
+    repo = _make_workspace_repo(tmp_path, "push-guard", "colocated")
+    # user stages their own change (NOT under repowiki/)
+    (repo / "business.py").write_text("print('user work')\n", encoding="utf-8")
+    _git(repo, "add", "business.py")
+    # knowledge change exists too — the guard must still abort
+    (repo / "repowiki" / "notes" / "new.md").write_text("knowledge\n", encoding="utf-8")
+
+    msg = auto_push(repo / "repowiki", "close_session")
+    assert msg and "跳过自动推送" in msg
+    # user's staged content untouched, knowledge change unstaged (not lost)
+    staged = _git(repo, "diff", "--cached", "--name-only")
+    assert staged.strip() == "business.py"
+    assert (repo / "repowiki" / "notes" / "new.md").exists()
+
+
+def test_auto_push_never_commits_lock_files(tmp_path):
+    """Real-repo finding: a repo whose .gitignore predates the team layout
+    (no *.lck entry) had sidecar locks swept into the commit.  auto_push
+    must unstage them before committing."""
+    _reset_state()
+    repo = _make_workspace_repo(tmp_path, "push-lck", "colocated")
+    # knowledge change + a stray .lck next to it (unignored by this repo)
+    (repo / "repowiki" / "notes" / "n.md").write_text("x\n", encoding="utf-8")
+    (repo / "repowiki" / "notes" / "n.md.lck").write_text("", encoding="utf-8")
+
+    msg = auto_push(repo / "repowiki", "close_session")
+    assert msg and "已推送" in msg
+    # the commit carries the note but not the lock
+    files = _git(repo, "show", "--name-only", "--pretty=format:", "HEAD")
+    assert "repowiki/notes/n.md".replace("/", "\\") in files or "repowiki/notes/n.md" in files
+    assert ".lck" not in files
+    # lock file still on disk
+    assert (repo / "repowiki" / "notes" / "n.md.lck").exists()

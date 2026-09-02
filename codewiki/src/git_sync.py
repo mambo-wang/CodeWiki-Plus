@@ -235,12 +235,33 @@ def auto_push(output_dir: str | Path, tool_name: str) -> Optional[str]:
     except ValueError:
         return None
 
+    # 0) PRE-EXISTING staged content guard (real-repo acceptance finding
+    # 2026-09-02): ``git commit`` commits the WHOLE index.  If the user
+    # already staged their own changes, auto_push must ABORT — silently
+    # committing them is a boundary violation.  We never unstage their work.
+    pre_staged = _run_git(repo_root, ["diff", "--cached", "--name-only"])
+    if pre_staged and pre_staged.strip():
+        return (
+            "git_sync(auto_push): 暂存区已有非工具改动（可能是用户手动 git add 的内容），"
+            "为避免误提交已跳过自动推送；请先提交或暂存（stash）你的改动。"
+        )
+
     # 1) stage only the knowledge tree
     if _run_git(repo_root, ["add", "-A", "--", rel]) is None:
         return None
     staged = _run_git(repo_root, ["diff", "--cached", "--name-only"])
     if not staged or not staged.strip():
         return None  # nothing new — skip silently
+
+    # 1b) sidecar lock files must never be committed even when a repo's
+    # .gitignore predates the team layout (real-repo finding: harness repos
+    # without the Phase 1 ignore list had *.lck staged).  Unstage ours —
+    # unstaging is safe: the files stay on disk, just not in the commit.
+    if any(name.endswith(".lck") for name in staged.splitlines()):
+        _run_git(repo_root, ["reset", "-q", "--", "*.lck"])
+        restaged = _run_git(repo_root, ["diff", "--cached", "--name-only"])
+        if not restaged or not restaged.strip():
+            return None
 
     # 2) commit with the repo's own identity (decision B)
     from datetime import date
