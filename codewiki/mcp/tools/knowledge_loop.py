@@ -685,7 +685,10 @@ def handle_ingest_note(
     except Exception as e:
         logger.debug("Symbol linking skipped: %s", e)
 
-    note_path.write_text(note_content, encoding="utf-8")
+    # Team-layout Phase 2 (§5.3): cross-process safe note creation
+    from codewiki.src.store import locked_write
+
+    locked_write(note_path, note_content)
 
     # LLM Wiki: update index.md and log.md
     try:
@@ -758,81 +761,97 @@ def _apply_status_to_file(
     well-formed.  Returns a JSON string with key ``doc_file``.
     """
     path = Path(path).expanduser().resolve()
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as e:
-        return json.dumps({"error": f"Cannot read document: {e}"})
+    # Team-layout Phase 2 (§5.3): the whole parse→mutate→rewrite sequence
+    # runs under the cross-process sidecar lock — two servers confirming the
+    # same note must not interleave (lost verified entry / torn frontmatter).
+    from codewiki.src.store import locked
 
-    if not text.startswith("---"):
-        return json.dumps({"error": "Document has no YAML frontmatter."})
-
-    end = text.find("---", 3)
-    if end < 0:
-        return json.dumps({"error": "Malformed frontmatter."})
-
-    fm_text = text[3:end]
-    body = text[end + 3 :]
-
-    try:
-        import yaml
-
-        data = yaml.safe_load(fm_text)
-        if not isinstance(data, dict):
-            raise ValueError("frontmatter is not a mapping")
-    except Exception:
-        # Fallback: legacy regex status replacement only
-        import re as _re
-
-        if _re.search(r"^status:", fm_text, _re.MULTILINE):
-            fm_text = _re.sub(r"^status:.*$", f"status: {new_status}", fm_text, flags=_re.MULTILINE)
-        else:
-            fm_text = fm_text.rstrip("\n") + f"\nstatus: {new_status}\n"
-        new_text = f"---{fm_text}---{body}"
-        path.write_text(new_text, encoding="utf-8")
-        return json.dumps(
-            {
-                "status": new_status,
-                "doc_file": str(path.relative_to(output_dir)),
-                "message": f"Document marked as {new_status}.",
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
-
-    data["status"] = new_status
-    if reason and new_status == "deprecated":
-        data["reject_reason"] = reason
-    if verified_by:
-        verified = data.get("verified")
-        if isinstance(verified, dict):
-            verified = [verified]  # bare mapping → one-element list (§5.2)
-        if not isinstance(verified, list):
-            verified = []
-        verified.append(
-            {
-                "by": verified_by,
-                "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            }
-        )
-        data["verified"] = verified
-    if renew_stale_after:
+    with locked(path):
         try:
-            from codewiki.mcp.tools.page_router import load_schema
+            text = path.read_text(encoding="utf-8")
+        except OSError as e:
+            return json.dumps({"error": f"Cannot read document: {e}"})
 
-            _schema = load_schema(str(output_dir))
+        if not text.startswith("---"):
+            return json.dumps({"error": "Document has no YAML frontmatter."})
+
+        end = text.find("---", 3)
+        if end < 0:
+            return json.dumps({"error": "Malformed frontmatter."})
+
+        fm_text = text[3:end]
+        body = text[end + 3 :]
+
+        try:
+            import yaml
+
+            data = yaml.safe_load(fm_text)
+            if not isinstance(data, dict):
+                raise ValueError("frontmatter is not a mapping")
         except Exception:
-            _schema = {}
-        # Type-aware renewal (新鲜度机制专项): the note's own ``type`` field
-        # selects the window; re-confirmation re-guarantees freshness for a
-        # type-appropriate period (OKF §5.5).
-        _stale_days = freshness_window_days(data.get("type"), _schema)
-        data["stale_after"] = (datetime.now() + timedelta(days=_stale_days)).strftime("%Y-%m-%d")
+            # Fallback: legacy regex status replacement only
+            import re as _re
 
-    import yaml as _yaml
+            if _re.search(r"^status:", fm_text, _re.MULTILINE):
+                fm_text = _re.sub(
+                    r"^status:.*$", f"status: {new_status}", fm_text, flags=_re.MULTILINE
+                )
+            else:
+                fm_text = fm_text.rstrip("\n") + f"\nstatus: {new_status}\n"
+            new_text = f"---{fm_text}---{body}"
+            from codewiki.src.store import atomic_write
 
-    new_fm = _yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
-    new_text = f"---\n{new_fm}---{body}"
-    path.write_text(new_text, encoding="utf-8")
+            atomic_write(path, new_text)
+            return json.dumps(
+                {
+                    "status": new_status,
+                    "doc_file": str(path.relative_to(output_dir)),
+                    "message": f"Document marked as {new_status}.",
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+
+        data["status"] = new_status
+        if reason and new_status == "deprecated":
+            data["reject_reason"] = reason
+        if verified_by:
+            verified = data.get("verified")
+            if isinstance(verified, dict):
+                verified = [verified]  # bare mapping → one-element list (§5.2)
+            if not isinstance(verified, list):
+                verified = []
+            verified.append(
+                {
+                    "by": verified_by,
+                    "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            )
+            data["verified"] = verified
+        if renew_stale_after:
+            try:
+                from codewiki.mcp.tools.page_router import load_schema
+
+                _schema = load_schema(str(output_dir))
+            except Exception:
+                _schema = {}
+            # Type-aware renewal (新鲜度机制专项): the note's own ``type`` field
+            # selects the window; re-confirmation re-guarantees freshness for a
+            # type-appropriate period (OKF §5.5).
+            _stale_days = freshness_window_days(data.get("type"), _schema)
+            data["stale_after"] = (datetime.now() + timedelta(days=_stale_days)).strftime(
+                "%Y-%m-%d"
+            )
+
+        import yaml as _yaml
+
+        new_fm = _yaml.safe_dump(
+            data, allow_unicode=True, sort_keys=False, default_flow_style=False
+        )
+        new_text = f"---\n{new_fm}---{body}"
+        from codewiki.src.store import atomic_write
+
+        atomic_write(path, new_text)
 
     # Update search index
     try:

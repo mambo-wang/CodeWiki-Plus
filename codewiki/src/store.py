@@ -120,6 +120,38 @@ def locked(path: Path) -> Iterator[None]:
         yield
 
 
+def locked_write(path: Path, content: str) -> None:
+    """Cross-process safe write: ``locked()`` + ``atomic_write()``.
+
+    Team-layout Phase 2 (§5.3): the standard replacement for bare
+    ``path.write_text(...)`` on files shared between MCP server processes.
+    The sidecar lock serialises concurrent writers; the atomic replace keeps
+    readers crash-safe.
+    """
+    with locked(path):
+        atomic_write(path, content)
+
+
+def locked_rmw(path: Path, transform, *, default: str = "") -> Optional[str]:
+    """Cross-process safe read-modify-write on a text file.
+
+    Team-layout Phase 2 (§5.3): reads the current text (or *default* when
+    the file is missing), hands it to ``transform(text) -> new_text``, and
+    atomically writes the result — all under the sidecar lock, so two
+    processes transforming the same file can never interleave or lose an
+    update.  ``transform`` returning None aborts the write (read-only peek).
+
+    Returns the new text, or None when the write was aborted.
+    """
+    with locked(path):
+        text = path.read_text(encoding="utf-8") if path.exists() else default
+        new_text = transform(text)
+        if new_text is None:
+            return None
+        atomic_write(path, new_text)
+        return new_text
+
+
 # --------------------------------------------------------------------------- #
 # Light read object
 # --------------------------------------------------------------------------- #
@@ -423,6 +455,37 @@ class KnowledgeStore:
                 except OSError:
                     logger.warning("Failed to remove binding %s", bf)
         return cleared
+
+    def gc_bindings(self, max_age_days: int = 30) -> int:
+        """Best-effort sweep of stale one-shot binding vouchers.
+
+        Team-layout Phase 2 (#12): bindings are one-shot session vouchers —
+        they are consumed on the first successful capture.  A binding whose
+        ``bound_at`` is older than *max_age_days* belongs to a session that
+        never captured (abandoned/crashed); without GC they accumulate
+        forever.  Corrupt files (no/invalid ``bound_at``) are left alone —
+        GC must never delete what it cannot date.  Returns files removed.
+        """
+        if not self.bindings_dir.exists():
+            return 0
+        cutoff = datetime.now(timezone.utc).timestamp() - max_age_days * 86400
+        removed = 0
+        for bf in self.bindings_dir.glob("*.json"):
+            try:
+                data = json.loads(bf.read_text(encoding="utf-8"))
+                bound_at = str(data.get("bound_at") or "") if isinstance(data, dict) else ""
+                if not bound_at:
+                    continue  # undateable → keep
+                ts = datetime.fromisoformat(bound_at.replace("Z", "+00:00")).timestamp()
+            except (OSError, ValueError, TypeError):
+                continue
+            if ts < cutoff:
+                try:
+                    bf.unlink()
+                    removed += 1
+                except OSError:
+                    logger.debug("gc_bindings: could not remove %s", bf)
+        return removed
 
     # ── raw/ staging area ──────────────────────────────────────────────────
 

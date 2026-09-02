@@ -47,8 +47,10 @@ def _save_registry(output_dir: Path, registry: Dict[str, Any]) -> None:
 
     meta_dir = output_dir / META_DIR
     meta_dir.mkdir(parents=True, exist_ok=True)
+    from codewiki.src.store import locked_write
+
     reg_path = meta_dir / SOURCE_REGISTRY_FILENAME
-    reg_path.write_text(json.dumps(registry, indent=2, ensure_ascii=False), encoding="utf-8")
+    locked_write(reg_path, json.dumps(registry, indent=2, ensure_ascii=False))
 
 
 def _resolve_output_dir(session: Optional[SessionState], arguments: Dict) -> Path:
@@ -74,40 +76,60 @@ def _okf_source_entry(output_dir: Path, name: str, info: Dict[str, Any]) -> Dict
     return entry
 
 
+def _rmw_page(page_path: Path, transform) -> bool:
+    """Read-modify-write a page under the sidecar lock (Phase 2 §5.3).
+
+    *transform(text)* returns the new text or None to abort (no change).
+    The read AND the write both happen inside the lock — a read outside it
+    could silently drop a concurrent writer's change.
+    Returns True when the file was written.
+    """
+    from codewiki.src.store import locked_rmw
+
+    try:
+        return locked_rmw(page_path, transform) is not None
+    except OSError as e:
+        logger.debug("locked page rewrite skipped for %s: %s", page_path, e)
+        return False
+
+
 def _merge_okf_sources_entry(page_path: Path, entry: Dict[str, Any]) -> None:
     """Merge one OKF ``sources`` entry into a page's frontmatter (idempotent).
 
     Uses a YAML round-trip so list-of-mapping values stay well-formed.
     Existing entries with the same ``id`` are left untouched.
     """
-    try:
-        content = page_path.read_text(encoding="utf-8")
-    except OSError:
-        return
-    if not content.startswith("---"):
-        return  # pages without frontmatter are handled elsewhere
-    end = content.find("---", 3)
-    if end < 0:
-        return
-    try:
-        import yaml
 
-        data = yaml.safe_load(content[3:end])
-        if not isinstance(data, dict):
-            return
-        sources = data.get("sources")
-        if isinstance(sources, dict):
-            sources = [sources]
-        if not isinstance(sources, list):
-            sources = []
-        if any(isinstance(s, dict) and s.get("id") == entry.get("id") for s in sources):
-            return  # already present
-        sources.append(entry)
-        data["sources"] = sources
-        new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        page_path.write_text(f"---\n{new_fm}---{content[end + 3 :]}", encoding="utf-8")
-    except Exception as e:
-        logger.debug("OKF sources merge skipped for %s: %s", page_path, e)
+    def _merge(content: str):
+        if not content.startswith("---"):
+            return None  # pages without frontmatter are handled elsewhere
+        end = content.find("---", 3)
+        if end < 0:
+            return None
+        try:
+            import yaml
+
+            data = yaml.safe_load(content[3:end])
+            if not isinstance(data, dict):
+                return None
+            sources = data.get("sources")
+            if isinstance(sources, dict):
+                sources = [sources]
+            if not isinstance(sources, list):
+                sources = []
+            if any(isinstance(s, dict) and s.get("id") == entry.get("id") for s in sources):
+                return None  # already present
+            sources.append(entry)
+            data["sources"] = sources
+            new_fm = yaml.safe_dump(
+                data, allow_unicode=True, sort_keys=False, default_flow_style=False
+            )
+            return f"---\n{new_fm}---{content[end + 3 :]}"
+        except Exception as e:
+            logger.debug("OKF sources merge skipped for %s: %s", page_path, e)
+            return None
+
+    _rmw_page(page_path, _merge)
 
 
 def _ensure_source_frontmatter(
@@ -140,8 +162,10 @@ def _ensure_source_frontmatter(
         description=description or name,
         status="stable",
     )
+    from codewiki.src.store import locked_write
+
     try:
-        dest_path.write_text(fm, encoding="utf-8")
+        locked_write(dest_path, fm)
     except OSError as e:
         logger.warning("Failed to add OKF frontmatter to %s: %s", dest_path, e)
 
@@ -170,59 +194,54 @@ def _inject_source_refs(output_dir: Path, related_pages: List[str], source_name:
             logger.debug("Related page not found, skipping source_ref injection: %s", page_ref)
             continue
 
-        try:
-            content = page_path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-
         source_ref_line = f'source_ref: "{source_name}"'
 
-        if content.startswith("---"):
-            # Has existing frontmatter — find the closing delimiter
-            end_idx = content.find("---", 3)
-            if end_idx < 0:
-                continue
-            frontmatter = content[3:end_idx]
-            rest = content[end_idx:]  # includes closing "---" and body
+        def _inject(content: str):
+            if content.startswith("---"):
+                # Has existing frontmatter — find the closing delimiter
+                end_idx = content.find("---", 3)
+                if end_idx < 0:
+                    return None
+                frontmatter = content[3:end_idx]
+                rest = content[end_idx:]  # includes closing "---" and body
 
-            # Check if source_refs list already exists
-            if "source_refs:" in frontmatter:
-                # Append to existing source_refs list (YAML list item)
-                # Find the source_refs line and insert after its block
-                lines = frontmatter.split("\n")
-                insert_idx = None
-                for i, line in enumerate(lines):
-                    if line.strip().startswith("source_refs:"):
-                        # Find end of the list (next non-indented, non-list line)
-                        insert_idx = i + 1
-                        while insert_idx < len(lines) and (
-                            lines[insert_idx].startswith("  ")
-                            or lines[insert_idx].strip().startswith("- ")
+                # Check if source_refs list already exists
+                if "source_refs:" in frontmatter:
+                    # Append to existing source_refs list (YAML list item)
+                    # Find the source_refs line and insert after its block
+                    lines = frontmatter.split("\n")
+                    insert_idx = None
+                    for i, line in enumerate(lines):
+                        if line.strip().startswith("source_refs:"):
+                            # Find end of the list (next non-indented, non-list line)
+                            insert_idx = i + 1
+                            while insert_idx < len(lines) and (
+                                lines[insert_idx].startswith("  ")
+                                or lines[insert_idx].strip().startswith("- ")
+                            ):
+                                insert_idx += 1
+                            break
+                    if insert_idx is not None:
+                        # Avoid duplicate
+                        if (
+                            f'- "{source_name}"' not in frontmatter
+                            and f"- {source_name}" not in frontmatter
                         ):
-                            insert_idx += 1
-                        break
-                if insert_idx is not None:
-                    # Avoid duplicate
-                    if (
-                        f'- "{source_name}"' not in frontmatter
-                        and f"- {source_name}" not in frontmatter
-                    ):
-                        lines.insert(insert_idx, f'  - "{source_name}"')
-                        frontmatter = "\n".join(lines)
+                            lines.insert(insert_idx, f'  - "{source_name}"')
+                            frontmatter = "\n".join(lines)
+                else:
+                    # Add source_ref field to frontmatter
+                    frontmatter = frontmatter.rstrip("\n") + f"\n{source_ref_line}\n"
+
+                new_content = "---" + frontmatter + rest
             else:
-                # Add source_ref field to frontmatter
-                frontmatter = frontmatter.rstrip("\n") + f"\n{source_ref_line}\n"
+                # No frontmatter — create one
+                new_content = f"---\n{source_ref_line}\n---\n\n" + content
 
-            new_content = "---" + frontmatter + rest
-        else:
-            # No frontmatter — create one
-            new_content = f"---\n{source_ref_line}\n---\n\n" + content
+            return new_content if new_content != content else None
 
-        if new_content != content:
-            try:
-                page_path.write_text(new_content, encoding="utf-8")
-            except OSError as e:
-                logger.warning("Failed to inject source_ref into %s: %s", page_path, e)
+        # Phase 2 §5.3: read + inject under the sidecar lock
+        _rmw_page(page_path, _inject)
 
         # OKF v0.2 §5.1: dual-write the `sources` frontmatter entry
         _merge_okf_sources_entry(page_path, okf_entry)
@@ -559,37 +578,42 @@ def _strip_okf_sources_entry(md_file: Path, source_name: str) -> bool:
 
     Returns True when the file was modified.
     """
-    try:
-        content = md_file.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    if not content.startswith("---") or "\nsources:" not in content[:2000]:
-        return False
-    end = content.find("---", 3)
-    if end < 0:
-        return False
-    try:
-        import yaml
+    from codewiki.src.store import locked_rmw
 
-        data = yaml.safe_load(content[3:end])
-        if not isinstance(data, dict):
-            return False
-        sources = data.get("sources")
-        if isinstance(sources, dict):
-            sources = [sources]
-        if not isinstance(sources, list):
-            return False
-        kept = [s for s in sources if not (isinstance(s, dict) and s.get("id") == source_name)]
-        if len(kept) == len(sources):
-            return False
-        if kept:
-            data["sources"] = kept
-        else:
-            data.pop("sources", None)
-        new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        md_file.write_text(f"---\n{new_fm}---{content[end + 3 :]}", encoding="utf-8")
-        return True
-    except Exception:
+    def _strip(content: str):
+        if not content.startswith("---") or "\nsources:" not in content[:2000]:
+            return None
+        end = content.find("---", 3)
+        if end < 0:
+            return None
+        try:
+            import yaml
+
+            data = yaml.safe_load(content[3:end])
+            if not isinstance(data, dict):
+                return None
+            sources = data.get("sources")
+            if isinstance(sources, dict):
+                sources = [sources]
+            if not isinstance(sources, list):
+                return None
+            kept = [s for s in sources if not (isinstance(s, dict) and s.get("id") == source_name)]
+            if len(kept) == len(sources):
+                return None
+            if kept:
+                data["sources"] = kept
+            else:
+                data.pop("sources", None)
+            new_fm = yaml.safe_dump(
+                data, allow_unicode=True, sort_keys=False, default_flow_style=False
+            )
+            return f"---\n{new_fm}---{content[end + 3 :]}"
+        except Exception:
+            return None
+
+    try:
+        return locked_rmw(md_file, _strip) is not None
+    except OSError:
         return False
 
 
@@ -600,40 +624,45 @@ def _strip_source_ref_fields(md_file: Path, source_name: str) -> bool:
     frontmatter re-dumps (``source_ref: name`` vs ``source_ref: "name"``)
     are all handled uniformly.  Returns True when the file was modified.
     """
-    try:
-        content = md_file.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    if not content.startswith("---"):
-        return False
-    end = content.find("---", 3)
-    if end < 0:
-        return False
-    try:
-        import yaml
+    from codewiki.src.store import locked_rmw
 
-        data = yaml.safe_load(content[3:end])
-        if not isinstance(data, dict):
-            return False
-        changed = False
-        if str(data.get("source_ref", "")) == source_name:
-            data.pop("source_ref", None)
-            changed = True
-        refs = data.get("source_refs")
-        if isinstance(refs, list):
-            kept = [x for x in refs if str(x) != source_name]
-            if len(kept) != len(refs):
+    def _strip(content: str):
+        if not content.startswith("---"):
+            return None
+        end = content.find("---", 3)
+        if end < 0:
+            return None
+        try:
+            import yaml
+
+            data = yaml.safe_load(content[3:end])
+            if not isinstance(data, dict):
+                return None
+            changed = False
+            if str(data.get("source_ref", "")) == source_name:
+                data.pop("source_ref", None)
                 changed = True
-                if kept:
-                    data["source_refs"] = kept
-                else:
-                    data.pop("source_refs", None)
-        if not changed:
-            return False
-        new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        md_file.write_text(f"---\n{new_fm}---{content[end + 3 :]}", encoding="utf-8")
-        return True
-    except Exception:
+            refs = data.get("source_refs")
+            if isinstance(refs, list):
+                kept = [x for x in refs if str(x) != source_name]
+                if len(kept) != len(refs):
+                    changed = True
+                    if kept:
+                        data["source_refs"] = kept
+                    else:
+                        data.pop("source_refs", None)
+            if not changed:
+                return None
+            new_fm = yaml.safe_dump(
+                data, allow_unicode=True, sort_keys=False, default_flow_style=False
+            )
+            return f"---\n{new_fm}---{content[end + 3 :]}"
+        except Exception:
+            return None
+
+    try:
+        return locked_rmw(md_file, _strip) is not None
+    except OSError:
         return False
 
 
@@ -659,14 +688,13 @@ def _clean_source_refs(output_dir: Path, source_name: str) -> int:
         if not search_dir.is_dir():
             continue
         for md_file in search_dir.rglob("*.md"):
-            try:
-                content = md_file.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            new_content = okf_def.sub("", okf_marker.sub("", legacy_pat.sub("", content)))
-            body_changed = new_content != content
-            if body_changed:
-                md_file.write_text(new_content, encoding="utf-8")
+
+            def _clean_body(content: str):
+                new_content = okf_def.sub("", okf_marker.sub("", legacy_pat.sub("", content)))
+                return new_content if new_content != content else None
+
+            # Phase 2 §5.3: body cleanup read+write under the sidecar lock
+            body_changed = _rmw_page(md_file, _clean_body)
             stripped_fields = _strip_source_ref_fields(md_file, source_name)
             stripped_sources = _strip_okf_sources_entry(md_file, source_name)
             if body_changed or stripped_fields or stripped_sources:

@@ -479,29 +479,33 @@ def _merge_source_into_note(
     instead of creating duplicate drafts.
     """
     note_path = output_dir / existing_file
+
+    # Team-layout Phase 2: read + merge + write all under the sidecar lock
+    # (locked_rmw) — a read outside the lock could lose a concurrent
+    # distillation's source_conversations entry.
+    from codewiki.src.store import locked_rmw
+
+    def _merge(text: str):
+        if not text.startswith("---"):
+            return None
+        end = text.find("\n---", 3)
+        if end == -1:
+            return None
+        block = text[3:end]
+        m = re.search(r"^source_conversations:\s*\[(.*)\]", block, re.MULTILINE)
+        if m:
+            items = [x.strip().strip("'\"") for x in m.group(1).split(",") if x.strip()]
+            if new_source_ref in items:
+                return None
+            items.append(new_source_ref)
+            new_list = "[" + ", ".join(f"'{x}'" for x in items) + "]"
+            new_block = block[: m.start()] + "source_conversations: " + new_list + block[m.end() :]
+        else:
+            new_block = block.rstrip() + f"\nsource_conversations: ['{new_source_ref}']\n"
+        return "---" + new_block + text[end:]
+
     try:
-        text = note_path.read_text(encoding="utf-8")
-    except OSError:
-        return
-    if not text.startswith("---"):
-        return
-    end = text.find("\n---", 3)
-    if end == -1:
-        return
-    block = text[3:end]
-    m = re.search(r"^source_conversations:\s*\[(.*)\]", block, re.MULTILINE)
-    if m:
-        items = [x.strip().strip("'\"") for x in m.group(1).split(",") if x.strip()]
-        if new_source_ref in items:
-            return
-        items.append(new_source_ref)
-        new_list = "[" + ", ".join(f"'{x}'" for x in items) + "]"
-        new_block = block[: m.start()] + "source_conversations: " + new_list + block[m.end() :]
-    else:
-        new_block = block.rstrip() + f"\nsource_conversations: ['{new_source_ref}']\n"
-    new_text = "---" + new_block + text[end:]
-    try:
-        note_path.write_text(new_text, encoding="utf-8")
+        locked_rmw(note_path, _merge)
     except OSError:
         pass
 
@@ -513,22 +517,22 @@ def _patch_note_origin(note_path: Path) -> None:
     conversation must carry origin: conversation). The source_conversation
     reference is already stored via handle_ingest_note's source_ref field.
     """
+    from codewiki.src.store import locked_rmw
+
+    def _patch(text: str):
+        if not text.startswith("---"):
+            return None
+        end = text.find("\n---", 3)
+        if end == -1:
+            return None
+        block = text[3:end]
+        if re.search(r"^origin:", block, re.MULTILINE):
+            return None  # already present
+        new_block = block.rstrip() + "\norigin: conversation\n"
+        return "---" + new_block + text[end:]
+
     try:
-        text = note_path.read_text(encoding="utf-8")
-    except OSError:
-        return
-    if not text.startswith("---"):
-        return
-    end = text.find("\n---", 3)
-    if end == -1:
-        return
-    block = text[3:end]
-    if re.search(r"^origin:", block, re.MULTILINE):
-        return  # already present
-    new_block = block.rstrip() + "\norigin: conversation\n"
-    new_text = "---" + new_block + text[end:]
-    try:
-        note_path.write_text(new_text, encoding="utf-8")
+        locked_rmw(note_path, _patch)
     except OSError:
         pass
 
@@ -709,29 +713,29 @@ def _apply_dedup_action(
     note_path = (output_dir / target) if not Path(target).is_absolute() else Path(target)
     if not note_path.is_file():
         return {"status": "target_not_found", "target": target}
-    try:
-        text = note_path.read_text(encoding="utf-8")
-    except OSError:
-        return {"status": "target_not_found", "target": target}
 
-    head, body = "", text
-    if text.startswith("---"):
-        end = text.find("\n---", 3)
-        if end != -1:
-            head, body = text[: end + 4], text[end + 4 :]
+    # Team-layout Phase 2: read + adjudicated rewrite under the sidecar lock
+    # (locked_rmw) — the dedup adjudication must not race another writer.
+    from codewiki.src.store import locked_rmw
 
-    if action == "update":
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        new_head = re.sub(
-            r"(generated:\s*\{[^}]*at:\s*)\d{4}-\d{2}-\d{2}T[\d:]+Z",
-            lambda m: m.group(1) + now,
-            head,
-            count=1,
-        )
-        new_text = new_head + "\n\n" + content.strip() + "\n"
-    else:  # merge
-        # V6 (note_merge 字段策略): merge 不再是裸 H2 追加——frontmatter 的
-        # tags / related_modules 按策略并集（union），正文追加段带来源标记。
+    def _rewrite(text: str):
+        head, body = "", text
+        if text.startswith("---"):
+            end = text.find("\n---", 3)
+            if end != -1:
+                head, body = text[: end + 4], text[end + 4 :]
+
+        if action == "update":
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            new_head = re.sub(
+                r"(generated:\s*\{[^}]*at:\s*)\d{4}-\d{2}-\d{2}T[\d:]+Z",
+                lambda m: m.group(1) + now,
+                head,
+                count=1,
+            )
+            return new_head + "\n\n" + content.strip() + "\n"
+        # merge: V6 (note_merge 字段策略) — merge 不再是裸 H2 追加：frontmatter
+        # 的 tags / related_modules 按策略并集（union），正文追加段带来源标记。
         # 策略从 note_types 权威表读（默认 union/append），借的是 OpenViking
         # merge_op 的字段粒度，闸门语义不变（合并结果仍是既有笔记的更新）。
         try:
@@ -754,10 +758,12 @@ def _apply_dedup_action(
         body_md = body.strip()
         marker = f"> 合并自蒸馏候选：{title}\n\n" if strategies.get("body") == "append" else ""
         section = f"\n\n## {title}\n\n{marker}{content.strip()}\n"
-        new_text = head + ("\n\n" + body_md if body_md else "") + section
+        return head + ("\n\n" + body_md if body_md else "") + section
 
     try:
-        note_path.write_text(new_text, encoding="utf-8")
+        result_text = locked_rmw(note_path, _rewrite)
+        if result_text is None:
+            return {"status": "write_failed", "target": target}
     except OSError:
         return {"status": "write_failed", "target": target}
     # Provenance: accumulate the raw conversation that fed this change.
@@ -1224,12 +1230,17 @@ async def _distill_one(
 
 
 def _mark_distilled(raw_path: Path) -> None:
-    try:
-        text = raw_path.read_text(encoding="utf-8")
+    # Team-layout Phase 2: regex status flip under the sidecar lock
+    from codewiki.src.store import locked_rmw
+
+    def _flip(text: str):
         new_text = re.sub(r"^status:\s*\w+", "status: distilled", text, count=1, flags=re.MULTILINE)
         if new_text == text and "status:" not in text:
             new_text = text.replace("---", "---\nstatus: distilled", 1)
-        raw_path.write_text(new_text, encoding="utf-8")
+        return new_text
+
+    try:
+        locked_rmw(raw_path, _flip)
     except OSError:
         pass
 
@@ -1302,19 +1313,20 @@ def _rewrite_source_refs_after_archive(output_dir: Path, raw_name: str, archive_
     target = archive_rel.replace("\\", "/")
     updated = 0
     for p in notes_dir.glob("*.md"):
+        # Team-layout Phase 2: read + repoint under the sidecar lock
+        from codewiki.src.store import locked_rmw
+
+        def _repoint(text: str):
+            if raw_name not in text:
+                return None
+            new_text = pattern.sub(target, text)
+            return new_text if new_text != text else None
+
         try:
-            text = p.read_text(encoding="utf-8")
+            if locked_rmw(p, _repoint) is not None:
+                updated += 1
         except OSError:
             continue
-        if raw_name not in text:
-            continue
-        new_text = pattern.sub(target, text)
-        if new_text != text:
-            try:
-                p.write_text(new_text, encoding="utf-8")
-                updated += 1
-            except OSError:
-                pass
     return updated
 
 
@@ -1327,15 +1339,24 @@ def _job_status_path(output_dir: Path) -> Path:
 
 def _write_job_status(output_dir: Path, job_id: str, state: Dict[str, Any]) -> None:
     path = _job_status_path(output_dir)
-    jobs: Dict[str, Any] = {}
-    if path.exists():
+
+    # Team-layout Phase 2: Mode B background jobs from multiple processes
+    # must not lose each other's state entries — the JSON read-modify-write
+    # (read + merge + write) runs entirely under the sidecar lock.
+    from codewiki.src.store import locked_rmw
+
+    def _merge_state(text: str):
         try:
-            jobs = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            jobs = json.loads(text)
+            if not isinstance(jobs, dict):
+                raise ValueError("not a mapping")
+        except (json.JSONDecodeError, ValueError):
             jobs = {}
-    jobs[job_id] = state
+        jobs[job_id] = state
+        return json.dumps(jobs, indent=2, ensure_ascii=False)
+
     try:
-        path.write_text(json.dumps(jobs, indent=2, ensure_ascii=False), encoding="utf-8")
+        locked_rmw(path, _merge_state)
     except OSError:
         pass
 

@@ -129,10 +129,9 @@ def _write_metadata_json(output_dir: str, repo_path: str, commit_id: str | None)
 
         meta_dir = analysis_meta_dir(repo_path, output_dir)
         meta_dir.mkdir(parents=True, exist_ok=True)
-        (meta_dir / "metadata.json").write_text(
-            json.dumps(metadata, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        from codewiki.src.store import atomic_write
+
+        atomic_write(meta_dir / "metadata.json", json.dumps(metadata, indent=2, ensure_ascii=False))
     except Exception as e:
         logger.warning("Failed to write metadata.json: %s", e)
 

@@ -333,12 +333,49 @@ def generate_schema(
     # Merge with existing schema if present
     existing = _load_existing_schema(schema_path)
     if existing is not None:
+        # Team-layout Phase 1 (churn suppression): schema.yaml is the team's
+        # highest-frequency meaningless-conflict source — every analyze_repo
+        # run used to rewrite generated_at (and occasionally project.*),
+        # producing a diff for every developer even when nothing substantive
+        # changed.  Snapshot the on-disk content with generated_at stripped;
+        # if the merge result is byte-identical apart from the timestamp,
+        # skip the write-back entirely.  generated_at thus becomes "last
+        # substantive change of auto-managed content", matching the
+        # team-layout design doc §5.2.
+        before_text = _normalized_yaml_text(existing)
+        old_generated_at = existing.get("generated_at")
         new_schema = _merge_schemas(existing, new_schema)
+        if _normalized_yaml_text(new_schema) == before_text:
+            new_schema["generated_at"] = old_generated_at
+            logger.debug("Schema unchanged (timestamp-only drift); write skipped")
+            return new_schema
 
     # Write to disk
     _write_yaml(schema_path, new_schema)
 
     return new_schema
+
+
+def _normalized_yaml_text(data) -> str:
+    """Serialize *data* to YAML text with ``generated_at`` stripped.
+
+    The churn-free signature used to decide whether a merge changed anything
+    substantive.  Works on both plain dicts and ruamel CommentedMaps
+    (deep-copied first so the caller's object is never mutated).
+    """
+    import copy
+    from io import StringIO
+
+    from ruamel.yaml import YAML
+
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    snapshot = copy.deepcopy(data)
+    if isinstance(snapshot, dict):
+        snapshot.pop("generated_at", None)
+    buf = StringIO()
+    yaml.dump(snapshot, buf)
+    return buf.getvalue()
 
 
 def _load_existing_schema(schema_path: Path):
@@ -431,9 +468,15 @@ def _write_yaml(path: Path, data) -> None:
             )
             data = cm
 
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            yaml.dump(data, f)
+        # Team-layout Phase 2: dump to string then atomic-write (temp +
+        # replace) — a crash mid-dump used to leave a truncated schema.yaml.
+        from io import StringIO
+
+        buf = StringIO()
+        yaml.dump(data, buf)
+        from codewiki.src.store import atomic_write
+
+        atomic_write(path, buf.getvalue())
         logger.info("Schema written to %s", path)
     except Exception as e:
         logger.warning("Failed to write schema.yaml: %s", e)

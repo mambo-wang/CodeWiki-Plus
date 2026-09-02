@@ -120,35 +120,42 @@ def handle_flag_issue(
     # Generate stable ID
     issue_id = _generate_issue_id(issue_type, page_path)
 
-    # Load, update, save
-    tracker = _load_issues(output_dir)
+    # Load, update, save — Phase 2 §5.3: issues.json is a committed content
+    # file; the whole RMW runs under the sidecar lock so concurrent
+    # flag/resolve from two servers cannot lose each other's entries.
+    from codewiki.src.config import ISSUES_FILENAME, meta_join
+    from codewiki.src.store import locked
+
+    issues_path = Path(meta_join(output_dir, ISSUES_FILENAME))
     now = datetime.now().isoformat()
 
-    is_new = issue_id not in tracker["issues"]
-    if is_new:
-        tracker["issues"][issue_id] = {
-            "id": issue_id,
-            "issue_type": issue_type,
-            "page_path": page_path,
-            "description": description,
-            "severity": severity,
-            "created_at": now,
-            "updated_at": now,
-            "status": "open",
-            "occurrences": 1,
-            "updates": [],
-        }
-    else:
-        # BUG-19: preserve original description, append new info as update entry
-        existing = tracker["issues"][issue_id]
-        existing["updated_at"] = now
-        existing["occurrences"] = existing.get("occurrences", 1) + 1
-        if severity:
-            existing["severity"] = severity
-        if description and description != existing.get("description", ""):
-            updates = existing.setdefault("updates", [])
-            updates.append({"timestamp": now, "description": description})
-    _save_issues(output_dir, tracker)
+    with locked(issues_path):
+        tracker = _load_issues(output_dir)
+        is_new = issue_id not in tracker["issues"]
+        if is_new:
+            tracker["issues"][issue_id] = {
+                "id": issue_id,
+                "issue_type": issue_type,
+                "page_path": page_path,
+                "description": description,
+                "severity": severity,
+                "created_at": now,
+                "updated_at": now,
+                "status": "open",
+                "occurrences": 1,
+                "updates": [],
+            }
+        else:
+            # BUG-19: preserve original description, append new info as update entry
+            existing = tracker["issues"][issue_id]
+            existing["updated_at"] = now
+            existing["occurrences"] = existing.get("occurrences", 1) + 1
+            if severity:
+                existing["severity"] = severity
+            if description and description != existing.get("description", ""):
+                updates = existing.setdefault("updates", [])
+                updates.append({"timestamp": now, "description": description})
+        _save_issues(output_dir, tracker)
 
     # Log the operation
     try:

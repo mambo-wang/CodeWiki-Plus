@@ -17,6 +17,10 @@ SCHEMA_FILENAME = "schema.yaml"
 NOTES_DIR = "notes"
 INDEX_FILENAME = "index.md"
 LOG_FILENAME = "log.md"
+# Team-layout Phase 1 (D5): append_log writes monthly shards ``log-YYYY-MM.md``
+# (pure-append, git-merge friendly) instead of rewriting a single log.md.
+# The legacy log.md stays on disk read-only for compatibility.
+LOG_SHARD_PREFIX = "log-"
 SEARCH_INDEX_FILENAME = "search_index.db"
 SYMBOL_MAP_FILENAME = "symbol_map.json"
 # LLM Wiki knowledge layer — structured layout constants
@@ -36,6 +40,25 @@ TASK_BINDINGS_DIR = "task_bindings"
 SOURCE_REGISTRY_FILENAME = "source_registry.json"
 ISSUES_FILENAME = "issues.json"
 PROJECT_FILENAME = "project.json"
+# Team-layout Phase 1 (D1: "git stores content, everything rebuildable stays
+# local"): derived/index/runtime files that must NOT be committed.  Each has a
+# self-heal rebuild path — directory scan (tasks/.index.json, source_registry),
+# re-analysis (.meta/*.json), or rebuild_index (wiki/index.md).  Paths are
+# relative to the wiki output_dir (repowiki root), posix separators.
+TEAM_LAYOUT_REBUILDABLE_FILES = [
+    "wiki/index.md",  # rebuild_index (ensure_index self-heal on read paths)
+    ".meta/edit_history.json",  # undo semantics delegated to git history (D6)
+    ".meta/metadata.json",
+    ".meta/module_tree.json",
+    ".meta/symbol_map.json",
+    ".meta/project.json",
+    ".meta/overview_refs.json",
+    ".meta/aggregate_state.json",
+    ".meta/source_registry.json",
+    ".meta/task_bindings/",  # session-scoped one-shot vouchers, no repo value
+    "tasks/.index.json",  # self-heals from tasks/*/task.md frontmatter scan
+    "distill-jobs.json",  # local runtime state, restartable
+]
 # Mapping from page_type to subdirectory name under wiki/
 PAGE_TYPE_DIRS = {
     "module": "modules",
@@ -49,8 +72,24 @@ PAGE_TYPE_DIRS = {
     # from confirmed notes via consolidate_notes.
     "scenario": "scenarios",
 }
-# Files excluded from wiki index and search (system files)
-WIKI_SYSTEM_FILES = {"index.md", "log.md", "overview.md", "schema.yaml"}
+
+
+# Files excluded from wiki index and search (system files).
+# Team-layout Phase 1: membership also matches monthly log shards
+# (``log-YYYY-MM.md``) so every scanner that filters via
+# ``md.name in WIKI_SYSTEM_FILES`` keeps excluding them without per-site edits.
+class _WikiSystemFiles(frozenset):
+    """frozenset whose ``in`` also matches ``log-*.md`` shard names."""
+
+    _LOG_SHARD_RE = re.compile(r"log-\d{4}-\d{2}\.md")
+
+    def __contains__(self, name: object) -> bool:
+        if isinstance(name, str) and self._LOG_SHARD_RE.fullmatch(name):
+            return True
+        return super().__contains__(name)
+
+
+WIKI_SYSTEM_FILES = _WikiSystemFiles({"index.md", "log.md", "overview.md", "schema.yaml"})
 
 # OKF v0.2 actor convention (§7): '<producer>/<version>' for agents and tools
 # (e.g. ``reference_agent/gemini-2.5-pro``), 'human:<id>' for people,

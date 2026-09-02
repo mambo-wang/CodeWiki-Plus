@@ -417,21 +417,29 @@ def handle_create_task(arguments: Dict[str, Any], store: SessionStore) -> str:
     if not task_id:
         return json.dumps({"error": "title did not produce a usable task id."})
 
-    tasks = _read_index(output_dir)
-    if _find_by_title(tasks, title):
-        return json.dumps({"error": f"A task titled '{title}' already exists."})
-    if _find_by_id(tasks, task_id):
-        return json.dumps({"error": f"A task with id '{task_id}' already exists."})
+    # Team-layout Phase 2 (§5.3): the read→duplicate-check→append→write
+    # sequence must be atomic across processes — two servers creating
+    # different tasks concurrently would otherwise lose one index entry
+    # (and two same-title tasks would both pass the check).
+    from codewiki.src.store import KnowledgeStore, locked
 
-    description = str(arguments.get("description") or "").strip()
-    task = {
-        "id": task_id,
-        "title": title,
-        "status": "active",
-        "created_at": _now_iso(),
-    }
-    tasks.append(task)
-    _write_index(output_dir, tasks)
+    ks = KnowledgeStore(output_dir)
+    with locked(ks.tasks_dir / ".index.json"):
+        tasks = ks.read_task_index()
+        if _find_by_title(tasks, title):
+            return json.dumps({"error": f"A task titled '{title}' already exists."})
+        if _find_by_id(tasks, task_id):
+            return json.dumps({"error": f"A task with id '{task_id}' already exists."})
+
+        description = str(arguments.get("description") or "").strip()
+        task = {
+            "id": task_id,
+            "title": title,
+            "status": "active",
+            "created_at": _now_iso(),
+        }
+        tasks.append(task)
+        ks.write_task_index(tasks)
     _write_task_file(output_dir, task, description)
 
     return json.dumps(
@@ -458,6 +466,14 @@ def handle_list_tasks(arguments: Dict[str, Any], store: SessionStore) -> str:
     if status:
         status = str(status).strip()
         tasks = [t for t in tasks if t.get("status") == status]
+
+    # Team-layout Phase 2 (#12): piggy-back the stale-binding sweep on this
+    # low-frequency read — abandoned session vouchers (never captured) would
+    # otherwise accumulate forever. Best-effort, never blocks listing.
+    try:
+        KnowledgeStore(output_dir).gc_bindings(max_age_days=30)
+    except Exception as e:
+        logger.debug("gc_bindings skipped: %s", e)
 
     return json.dumps({"ok": True, "tasks": tasks}, ensure_ascii=False)
 
@@ -527,16 +543,22 @@ def handle_complete_task(arguments: Dict[str, Any], store: SessionStore) -> str:
     if not task_id:
         return json.dumps({"error": "task_id is required."})
 
-    tasks = _read_index(output_dir)
-    task = _find_by_id(tasks, task_id)
-    if task is None:
-        return json.dumps({"error": f"Task '{task_id}' does not exist."})
-    if task.get("status") == "completed":
-        return json.dumps({"ok": True, "task": task, "note": "Task was already completed."})
+    # Phase 2 §5.3: complete is an index RMW — same locked sequence as
+    # create_task so a concurrent create/complete cannot lose an entry.
+    from codewiki.src.store import KnowledgeStore, locked
 
-    task["status"] = "completed"
-    task["completed_at"] = _now_iso()
-    _write_index(output_dir, tasks)
+    ks = KnowledgeStore(output_dir)
+    with locked(ks.tasks_dir / ".index.json"):
+        tasks = ks.read_task_index()
+        task = _find_by_id(tasks, task_id)
+        if task is None:
+            return json.dumps({"error": f"Task '{task_id}' does not exist."})
+        if task.get("status") == "completed":
+            return json.dumps({"ok": True, "task": task, "note": "Task was already completed."})
+
+        task["status"] = "completed"
+        task["completed_at"] = _now_iso()
+        ks.write_task_index(tasks)
 
     task_file = _task_path(output_dir, task_id)
     if task_file.exists():

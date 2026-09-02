@@ -890,7 +890,9 @@ class AnalysisCache:
     @property
     def conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            # Team-layout Phase 2: explicit busy timeout (default 5s is too
+            # short when two server processes rebuild indexes concurrently).
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False, timeout=30.0)
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.row_factory = sqlite3.Row
@@ -1695,6 +1697,16 @@ class AnalysisCache:
     #  see _tokenize, _STOPWORDS, _extract_snippet above)
 
     def build_search_index(self, output_dir: Path) -> Dict[str, Any]:
+        # Team-layout Phase 2: the DELETE+INSERT full rebuild must not run
+        # concurrently in two processes — the sidecar lock (created next to
+        # the db file) serialises them; the sqlite timeout above only
+        # prevents hard errors, not lost work.
+        from codewiki.src.store import locked
+
+        with locked(Path(self.db_path)):
+            return self._build_search_index_locked(output_dir)
+
+    def _build_search_index_locked(self, output_dir: Path) -> Dict[str, Any]:
         od = Path(output_dir)
         c = self.conn
         c.execute("DELETE FROM search_index")

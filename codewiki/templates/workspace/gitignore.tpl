@@ -13,3 +13,19 @@ Thumbs.db
 repowiki/.meta/search_index.json
 repowiki/.meta/retrieval_stats.db
 repowiki/.meta/telemetry-local/
+# Team-layout Phase 1（D1）：可重建派生物不入库——索引/元数据/运行态本地重建，
+# 入库只会制造整文件重写冲突（详见 docs/团队化文件冲突治理与同步策略设计方案.md）
+repowiki/wiki/index.md
+repowiki/.meta/edit_history.json
+repowiki/.meta/metadata.json
+repowiki/.meta/module_tree.json
+repowiki/.meta/symbol_map.json
+repowiki/.meta/project.json
+repowiki/.meta/overview_refs.json
+repowiki/.meta/aggregate_state.json
+repowiki/.meta/source_registry.json
+repowiki/.meta/task_bindings/
+repowiki/tasks/.index.json
+repowiki/distill-jobs.json
+# KnowledgeStore sidecar 锁文件（锁在目标旁，不入库）
+*.lck
