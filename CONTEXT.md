@@ -24,18 +24,29 @@ Wiki 规范 + Doctrine）、`module_knowledge`（模块历史笔记）、`genera
 checklist）。评审对象 = 同一次 git 变更（since 或未提交），工具只做确定性收集与落盘，
 推理外置给调用方 Agent（Doctrine 约束）。
 
-**frontmatter module** — the deep module at `codewiki/src/frontmatter.py` that owns
-repowiki page frontmatter read/write (`parse_frontmatter` / `render_frontmatter` /
-`update`) and page-type routing (`route_page_type`, backed by `PAGE_TYPE_DIRS`).
-Writer output is byte-compatible with the historical format; readers accept the union
-of all legacy formats; `parse(render(x)) == x` is the round-trip invariant. Rollout:
-readers first, then writers. Slugify / filename conventions are explicitly NOT part
-of it. Permanent interface constraint: `capture_conversation` output (`conv-*.md`)
-must keep `status` and `task_id` as top-level single-line keys — the stdlib-only hook
-`.codebuddy/hooks/task_session_start.py` line-scans for them and cannot import this
-module.
+**possibly_stale** — 对端新鲜度标注（by_file 时间线）：目标源文件的最后一次
+git 提交晚于笔记日期（留 1 天缓冲吸收当天提交噪声）即为 true；判据不可得
+（文件未跟踪、git 不可用、笔记无日期）时返回 null——"不知道"不是失败，不猜。
+与 `stale_after`（笔记自身年龄轴）互补不替换：一个管"知识描述的对象变没变"，
+一个管"知识多大了"。_Avoid_: mtime 判定（clone 场景全量假阳性，已否决）。
+
+**file knowledge** — 文件维度的知识检索（`by_file`）：回答"改这个文件之前，
+这里有哪些历史知识"。按路径段映射笔记的 related_modules/related_components，
+输出只含标题、成本、状态的时间线，不含正文（渐进式披露第一层）。预检性质，
+不进 usage heat 信号。
+
+**frontmatter module** — `codewiki/src/frontmatter.py`：repowiki 页面 frontmatter
+的读取方（`parse_frontmatter`，readers accept the union of all legacy formats）
+与 OKF 注入/私有元数据折叠（`inject_okf_frontmatter` / `fold_private_metadata`）。
+该模块**只有读路径**——序列化 writer（render/update）与 `parse(render(x)) == x`
+往返不变量尚无实现，是 P1-2 `files` 字段落地的前置项；页面类型路由
+（`PAGE_TYPE_DIRS`）在 `codewiki/src/config.py`，不属于本模块。Slugify /
+文件名约定同样不属于。永久接口约束：`capture_conversation` 输出（`conv-*.md`）
+的 `status` 和 `task_id` 必须保持顶层单行键——stdlib-only hook
+`.codebuddy/hooks/task_session_start.py` 逐行扫描它们且无法 import 本模块。
 
 ## Key decisions
 
 - [ADR-0001 — 任务记忆保持 Markdown，不迁移 JSONL](adr/0001-task-memory-stays-markdown.md)（2026-08-24）
 - [ADR-0002 — 任务记忆直写落盘，不设确认闸门](adr/0002-task-memories-direct-write.md)（2026-08-24）
+- [ADR-0003 — 对端新鲜度判据用 git 提交时间而非 mtime](adr/0003-possibly-stale-uses-git-commit-time.md)（2026-09-02）
