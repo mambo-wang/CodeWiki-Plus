@@ -290,6 +290,18 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
         "agents_md_updated": agents_md_updated,
         "agents_md_diff": agents_md_diff,
     }
+    # Phase 4 second slice (design review 2026-09-02, anchor A):
+    # close_session is a natural batch boundary — auto-push the knowledge
+    # tree when enabled and gated (D17). Best-effort, never blocks.
+    try:
+        from codewiki.src.git_sync import auto_push
+
+        _push = auto_push(output_dir, "close_session")
+        if _push:
+            resp["git_sync"] = _push
+    except Exception as e:
+        logger.debug("auto_push skipped: %s", e)
+
     if draft_docs:
         resp["draft_pending"] = {
             "count": len(draft_docs),

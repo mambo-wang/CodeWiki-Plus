@@ -155,10 +155,24 @@ def handle_batch_ingest(
         report_path = output_dir / ".meta" / "batch_ingest_report.json"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         full_report = {**summary, "results": results}
-        report_path.write_text(json.dumps(full_report, indent=2, ensure_ascii=False), encoding="utf-8")
+        report_path.write_text(
+            json.dumps(full_report, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         summary["report_file"] = str(report_path.relative_to(output_dir))
-        summary["message"] = f"Batch ingest completed. Full report written to {summary['report_file']}. Use view_repo_file to read details."
+        summary["message"] = (
+            f"Batch ingest completed. Full report written to {summary['report_file']}. Use view_repo_file to read details."
+        )
     else:
         summary["results"] = results
+
+    # Phase 4 second slice: batch boundary → auto-push when enabled (D17).
+    try:
+        from codewiki.src.git_sync import auto_push
+
+        _push = auto_push(top_output_dir, "batch_ingest")
+        if _push:
+            summary["git_sync"] = _push
+    except Exception as e:
+        logger.debug("auto_push skipped: %s", e)
 
     return json.dumps(summary, indent=2, ensure_ascii=False)

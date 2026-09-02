@@ -364,6 +364,17 @@ def handle_capture_conversation(
     if not conversation:
         return json.dumps({"error": "conversation is required (list of turns or {turns: [...]})."})
 
+    # Phase 4 second slice: session-start ff-only pull on the FIRST write
+    # path this process touches (capture is the earliest knowledge write in
+    # the hook-driven flow). Once per process; gated on D17; never raises.
+    try:
+        from codewiki.src.git_sync import session_ff_only
+
+        _pull = session_ff_only(output_dir)
+    except Exception as e:
+        logger.debug("session_ff_only skipped: %s", e)
+        _pull = None
+
     turns = _extract_transcript(conversation)
     if not turns:
         return json.dumps({"error": "conversation contained no usable turns."})
@@ -447,6 +458,21 @@ def handle_capture_conversation(
         len(turns),
     )
 
+    # Phase 4 second slice: capture is a batch boundary → auto-push when
+    # enabled and gated (D17). Best-effort, never blocks the capture result.
+    git_sync_info = None
+    try:
+        from codewiki.src.git_sync import auto_push
+
+        git_sync_info = auto_push(output_dir, "capture_conversation")
+    except Exception as e:
+        logger.debug("auto_push skipped: %s", e)
+
+    # session_ff_only outcome (from the entry hook above) rides the same
+    # result key so the conversation sees both sync directions at once.
+    if _pull:
+        git_sync_info = _pull if not git_sync_info else f"{git_sync_info} {_pull}"
+
     return json.dumps(
         {
             "status": "captured",
@@ -462,6 +488,8 @@ def handle_capture_conversation(
             "task_source": result["task_source"],
             # K-line friction readout (hook may print it to the IDE log).
             "friction": friction,
+            # Phase 4: push outcome (present only when auto_push ran)
+            **({"git_sync": git_sync_info} if git_sync_info else {}),
             # P1 A-line adoption readout: declared docs (persisted to
             # adoption_events) + a one-shot nudge when search traces exist but
             # nothing was declared.
