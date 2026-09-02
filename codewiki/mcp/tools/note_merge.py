@@ -175,6 +175,11 @@ def merge_notes(
         while out_path.exists():
             n += 1
             out_path = notes_dir / f"{_slugify(title)}-{n}.md"
-        out_path.write_text(content, encoding="utf-8")
+        # Phase 2 (§5.3): unique-filename new-file write — locked_write
+        # (two processes merging the same title resolve different -N names;
+        # the lock only protects against torn writes of the same path).
+        from codewiki.src.store import locked_write
+
+        locked_write(out_path, content)
         result["written"] = str(out_path.relative_to(od)).replace("\\", "/")
     return result

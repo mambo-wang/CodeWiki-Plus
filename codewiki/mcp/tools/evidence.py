@@ -88,35 +88,59 @@ def _merge_sources(
 
     Returns ``{"new": n, "updated": m}``.  Uses a YAML round-trip so
     list-of-mapping values stay well-formed, mirroring source_ingest.
+
+    Team-layout Phase 2 (§5.3): the merge runs as a locked read-modify-write
+    — the caller's *frontmatter*/*body* (read outside the lock) are only a
+    pre-check; the authoritative parse happens INSIDE the lock so a
+    concurrent writer's change is never lost.
     """
-    sources = frontmatter.get("sources")
-    if isinstance(sources, dict):
-        sources = [sources]
-    if not isinstance(sources, list):
-        sources = []
-    sources = [s for s in sources if isinstance(s, dict)]
+    from codewiki.src.store import locked_rmw
 
-    by_id = {s.get("id"): s for s in sources}
-    stats = {"new": 0, "updated": 0}
-    for entry in entries:
-        eid = entry["id"]
-        existing = by_id.get(eid)
-        if existing is None:
-            sources.append(entry)
-            by_id[eid] = entry
-            stats["new"] += 1
-        elif existing.get("content_hash") != entry.get("content_hash"):
-            existing.update(entry)
-            stats["updated"] += 1
+    result: Dict[str, int] = {"new": 0, "updated": 0}
 
-    frontmatter["sources"] = sources
-    import yaml
+    def _merge(text: str) -> Optional[str]:
+        if not text.startswith("---"):
+            return None
+        end = text.find("---", 3)
+        if end < 0:
+            return None
+        try:
+            import yaml
 
-    new_fm = yaml.safe_dump(
-        frontmatter, allow_unicode=True, sort_keys=False, default_flow_style=False
-    )
-    path.write_text(f"---\n{new_fm}---{body}", encoding="utf-8")
-    return stats
+            data = yaml.safe_load(text[3:end]) or {}
+        except Exception:  # noqa: BLE001 - malformed FM is other checks' concern
+            return None
+        if not isinstance(data, dict):
+            return None
+
+        sources = data.get("sources")
+        if isinstance(sources, dict):
+            sources = [sources]
+        if not isinstance(sources, list):
+            sources = []
+        sources = [s for s in sources if isinstance(s, dict)]
+
+        by_id = {s.get("id"): s for s in sources}
+        for entry in entries:
+            eid = entry["id"]
+            existing = by_id.get(eid)
+            if existing is None:
+                sources.append(entry)
+                by_id[eid] = entry
+                result["new"] += 1
+            elif existing.get("content_hash") != entry.get("content_hash"):
+                existing.update(entry)
+                result["updated"] += 1
+
+        data["sources"] = sources
+        new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        return f"---\n{new_fm}---{text[end + 3 :]}"
+
+    try:
+        locked_rmw(path, _merge)
+    except OSError as e:
+        logger.warning("evidence merge failed for %s: %s", path, e)
+    return result
 
 
 def append_evidence_block(content: str, entries: List[Dict[str, Any]]) -> str:
