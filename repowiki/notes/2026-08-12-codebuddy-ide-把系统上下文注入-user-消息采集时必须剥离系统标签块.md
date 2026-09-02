@@ -12,6 +12,7 @@ metadata:
   related_components: []
   related_modules: ["mcp", "capture", "\"\""]
   source_ref: "raw\\conv-user_query-@d-repos-CodeWiki-CN-repowiki-raw-conv-user_info.md"
+author: mambo-wang
 ---
 
 ## 背景

@@ -23,6 +23,7 @@ origin: conversation
 verified:
 - by: human:wangbao
   at: '2026-08-24T16:42:01Z'
+author: mambo-wang
 ---
 
 ## 背景

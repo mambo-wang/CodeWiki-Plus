@@ -16,6 +16,7 @@ generated:
 stale_after: 2026-11-13
 origin: conversation
 reject_reason: 用户评审未采纳
+author: mambo-wang
 ---
 
 ## 背景

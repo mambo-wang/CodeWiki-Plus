@@ -20,6 +20,7 @@ origin: conversation
 verified:
 - by: human:mambo-wang
   at: '2026-08-25T17:03:47Z'
+author: wandering-bug
 ---
 
 ## 背景

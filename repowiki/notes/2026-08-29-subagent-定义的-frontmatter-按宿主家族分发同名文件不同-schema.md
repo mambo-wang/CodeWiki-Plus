@@ -31,6 +31,7 @@ verified:
   at: '2026-08-29T15:32:29Z'
 - by: human:wangbao
   at: '2026-08-29T15:49:48Z'
+author: wandering-bug
 ---
 
 ## 背景

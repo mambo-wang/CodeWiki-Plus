@@ -12,6 +12,7 @@ metadata:
   related_components: []
   related_modules: ["mcp", "\"\""]
   source_ref: "raw\\conv-system_reminder-请注意，当你在遇到无法解决的问题时，往往会出现重复行为，导致陷入循环——例如重复输出相同-9.md"
+author: mambo-wang
 ---
 
 ## 背景

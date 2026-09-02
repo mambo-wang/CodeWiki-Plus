@@ -27,6 +27,7 @@ verified:
 - by: codewiki/5.4.2
   at: '2026-08-24T13:55:42Z'
 reject_reason: 聚合进场景：IDE-Hook采集链路方法
+author: wandering-bug
 ---
 
 ## 背景

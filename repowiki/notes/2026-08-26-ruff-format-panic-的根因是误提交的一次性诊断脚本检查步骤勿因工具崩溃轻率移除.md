@@ -27,6 +27,7 @@ stale_after: '2027-02-22'
 verified:
 - by: human:mambo-wang
   at: '2026-08-26T13:58:01Z'
+author: mambo-wang
 ---
 
 ## 背景

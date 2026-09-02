@@ -23,6 +23,7 @@ origin: conversation
 verified:
 - by: human:wangbao
   at: '2026-08-29T15:14:31Z'
+author: wandering-bug
 ---
 
 ## Background

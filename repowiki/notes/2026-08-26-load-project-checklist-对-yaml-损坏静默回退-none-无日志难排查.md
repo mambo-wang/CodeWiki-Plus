@@ -19,6 +19,7 @@ origin: conversation
 verified:
 - by: human:mambo-wang
   at: '2026-08-25T17:03:48Z'
+author: wandering-bug
 ---
 
 ## 背景

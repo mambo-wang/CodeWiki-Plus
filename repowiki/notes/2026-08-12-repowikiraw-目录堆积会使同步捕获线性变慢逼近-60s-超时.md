@@ -12,6 +12,7 @@ metadata:
   related_components: []
   related_modules: ["mcp", "hooks", "\"\""]
   source_ref: "raw\\conv-hook是同步执行还是异步执行的.md"
+author: mambo-wang
 ---
 
 ## 背景

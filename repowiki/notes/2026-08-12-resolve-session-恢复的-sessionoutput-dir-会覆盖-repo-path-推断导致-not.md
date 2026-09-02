@@ -12,6 +12,7 @@ metadata:
   related_components: []
   related_modules: ["mcp", "\"\""]
   source_ref: "raw\\conv-user_command-commands-codewiki-蒸馏对话提取经验-把已采集的对话（repowiki-raw.md"
+author: mambo-wang
 ---
 
 ## 背景

@@ -19,6 +19,7 @@ origin: conversation
 verified:
 - by: human:wangbao
   at: '2026-08-24T16:32:22Z'
+author: mambo-wang
 ---
 
 ## 背景
