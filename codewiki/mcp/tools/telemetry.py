@@ -205,6 +205,48 @@ def record_adopted(output_dir, doc_path: str, capture_key: str) -> None:
             fh.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
+def record_by_file(output_dir, doc_path: str, count: int = 1) -> None:
+    """Append (or same-day-merge) a ``by_file`` event for *doc_path*.
+
+    P0-2 (claude-mem borrowing): by_file is a pre-read pre-check, NOT a
+    deep-consumption event — it must not feed the usage-heat ranking (same
+    discipline as mode=check). But acceptance #8 needs by_file adoption-rate
+    data, so it IS recorded in the telemetry event stream under its own
+    event type. ``aggregate_usage`` folds only ``hit``/``adopted`` events,
+    so the two pipes stay separate by construction.
+    """
+    path = _user_events_path(output_dir, create=True)
+    today = date.today().isoformat()
+    from codewiki.src.store import atomic_write, locked
+
+    with locked(path):
+        lines = _read_lines(path)
+        merged = False
+        for i in range(len(lines) - 1, -1, -1):
+            try:
+                ev = json.loads(lines[i])
+            except (json.JSONDecodeError, ValueError, TypeError):
+                continue
+            if (
+                isinstance(ev, dict)
+                and ev.get("t") == "by_file"
+                and ev.get("doc") == doc_path
+                and str(ev.get("at", "")) == today
+            ):
+                ev["n"] = int(ev.get("n", 0) or 0) + int(count)
+                lines[i] = json.dumps(ev, ensure_ascii=False)
+                merged = True
+                break
+        if not merged:
+            lines.append(
+                json.dumps(
+                    {"t": "by_file", "doc": doc_path, "at": today, "n": int(count)},
+                    ensure_ascii=False,
+                )
+            )
+        atomic_write(path, "\n".join(lines) + "\n")
+
+
 def adopted_docs_for_key(output_dir, capture_key: str) -> Set[str]:
     """Docs already recorded under *capture_key* in the current user's file.
 

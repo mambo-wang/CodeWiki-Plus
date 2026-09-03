@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.cache import _STOPWORDS
 from codewiki.src.frontmatter import parse_frontmatter
+from codewiki.mcp.tools.injection_budget import estimate_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -1664,6 +1665,264 @@ def _query_mode_check(
     return json.dumps(verdict, indent=2, ensure_ascii=False)
 
 
+def _load_file_knowledge_config(output_dir: Path) -> Dict[str, Any]:
+    """P0-2: resolve ``conventions.file_knowledge`` (defaults → overrides)."""
+    cfg: Dict[str, Any] = {
+        "enabled": True,
+        "max_results": 15,
+        "stale_check": True,
+        "min_module_depth": 1,
+    }
+    try:
+        from codewiki.mcp.tools.page_router import load_schema
+
+        conv = (load_schema(str(output_dir)) or {}).get("conventions") or {}
+        raw = conv.get("file_knowledge")
+    except Exception:
+        raw = None
+    if isinstance(raw, dict):
+        if raw.get("enabled") is not None:
+            cfg["enabled"] = bool(raw.get("enabled"))
+        if raw.get("stale_check") is not None:
+            cfg["stale_check"] = bool(raw.get("stale_check"))
+        for k in ("max_results", "min_module_depth"):
+            try:
+                v = int(raw.get(k))
+                if v > 0:
+                    cfg[k] = v
+            except (TypeError, ValueError):
+                continue
+    return cfg
+
+
+def _last_commit_time(target_path: Path, repo_root: Path) -> Optional[datetime]:
+    """P1-4 (ADR-0003): last git commit time of *target_path*, or None.
+
+    Uses ``git log -1 --format=%cI`` — NOT mtime: a fresh clone sets every
+    file's mtime to clone time, which would false-positive every note as
+    stale. Untracked files / missing git → None (honest "don't know").
+    """
+    import subprocess
+
+    try:
+        r = subprocess.run(
+            ["git", "log", "-1", "--format=%cI", "--", str(target_path)],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if r.returncode != 0 or not r.stdout.strip():
+            return None
+        return datetime.fromisoformat(r.stdout.strip().replace("Z", "+00:00"))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def _file_staleness(
+    note_date: str,
+    target_path: Path,
+    repo_root: Path,
+    buffer_days: int = 1,
+) -> Optional[bool]:
+    """True = the target file has commits newer than the note → possibly stale.
+
+    None is not a failure: untracked file, git unavailable, or note without
+    a date all return "don't know" rather than a guess (ADR-0003).
+    """
+    if not note_date:
+        return None
+    try:
+        note_dt = datetime.fromisoformat(str(note_date).strip())
+        if note_dt.tzinfo is None:
+            note_dt = note_dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    commit_dt = _last_commit_time(target_path, repo_root)
+    if commit_dt is None:
+        return None
+    if commit_dt.tzinfo is None:
+        commit_dt = commit_dt.replace(tzinfo=timezone.utc)
+    return commit_dt > note_dt + timedelta(days=buffer_days)
+
+
+def _by_file_specificity(note_fm: dict, path_segments: set, target_path: str) -> int:
+    """Specificity score (claude-mem file-context.ts:69-86 idea, CodeWiki basis).
+
+    claude-mem scores "file modified +2 / few files covered +2/+1" off its
+    ``files_modified`` observation field. CodeWiki notes express attachment
+    via ``metadata.related_modules`` / ``related_components`` / ``files`` —
+    so the score grades by match granularity instead: exact file > component
+    > module. 0 = no attachment (note excluded from the timeline).
+    """
+    meta = note_fm.get("metadata") or {}
+    mods = {str(m) for m in (meta.get("related_modules") or [])}
+    comps = {str(c) for c in (meta.get("related_components") or [])}
+    files = {str(f).replace("\\", "/") for f in (meta.get("files") or [])}
+
+    score = 0
+    if target_path in files:
+        score += 3  # exact hit (v1.5 optional field, P1-2)
+    if comps & path_segments:
+        score += 2  # component-level hit
+    elif mods & path_segments:
+        score += 1  # module-level hit
+    return score
+
+
+def _query_mode_by_file(
+    output_dir: Path,
+    by_file: str,
+    query: str,
+    session,
+) -> str:
+    """by_file: file-scoped knowledge timeline (P0-2, claude-mem borrowing).
+
+    Answers "what historical knowledge exists for this file" BEFORE the
+    agent reads/edits it: titles + est_tokens + status only, no bodies —
+    progressive disclosure layer 1, same discipline as mode=check.
+    Scope: notes/ only (v1) — generated wiki pages are machine descriptions
+    of code already covered by read_code_components/BM25. Includes draft
+    notes (status shown as-is, same口径 as default BM25). Records a
+    ``by_file`` telemetry event per returned note but NOT a usage-heat hit
+    (pre-check discipline).
+    """
+    cfg = _load_file_knowledge_config(output_dir)
+    if not cfg.get("enabled"):
+        return json.dumps(
+            {"error": "by_file is disabled (conventions.file_knowledge.enabled=false)."},
+            ensure_ascii=False,
+        )
+
+    # --- Normalise the target path: '/' separators, repo-root-relative. ---
+    od = Path(output_dir)
+    target = str(by_file).strip().replace("\\", "/")
+    p = Path(target)
+    if p.is_absolute():
+        for base in (od.resolve().parent, od.resolve()):
+            try:
+                target = p.resolve().relative_to(base).as_posix()
+                break
+            except ValueError:
+                continue
+
+    # --- Path segment set (module-name matching vocabulary). ---
+    parts = [seg for seg in target.split("/") if seg]
+    depth = int(cfg.get("min_module_depth", 1))
+    if depth > 0 and len(parts) > depth:
+        parts = parts[depth:]  # top segment(s) are repo/package noise
+    segments: set = set(parts)
+    for seg in list(segments):
+        stem = seg.rsplit(".", 1)[0] if "." in seg else None
+        if stem:
+            segments.add(stem)
+
+    # --- Query hard-filter tokens (any-token OR semantics). ---
+    q_tokens: List[str] = []
+    if query:
+        try:
+            from codewiki.mcp.cache import _tokenize
+
+            q_tokens = _tokenize(query) or [query]
+        except Exception:
+            q_tokens = [query]
+
+    from codewiki.src.config import NOTES_DIR
+
+    notes_dir = od / NOTES_DIR
+    repo_root = od.resolve().parent  # colocated layout: <repo>/repowiki
+    entries: List[Dict[str, Any]] = []
+    matched_modules: set = set()
+    if notes_dir.is_dir():
+        for note_file in sorted(notes_dir.glob("*.md")):
+            try:
+                content = note_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            fm = _extract_frontmatter_block(content)
+            if not fm:
+                continue  # corrupt frontmatter: skip this note, keep others
+            status = _norm_status(str(fm.get("status") or "stable"))
+            if status == "deprecated":
+                continue  # same skip rule as the default BM25 path
+            meta = fm.get("metadata") or {}
+            spec = _by_file_specificity(fm, segments, target)
+            if spec <= 0:
+                continue
+            # Hard keyword filter: entries containing NONE of the query
+            # tokens are out (title+content, OR semantics — narrow the file's
+            # knowledge range, not a global search).
+            if q_tokens:
+                haystack = (str(fm.get("title") or "") + "\n" + content).lower()
+                if not any(t.lower() in haystack for t in q_tokens):
+                    continue
+            mods = {str(m) for m in (meta.get("related_modules") or [])}
+            matched_modules |= mods & segments
+            note_date = str(meta.get("date") or fm.get("date") or "")
+            if not note_date:
+                gen = fm.get("generated") or {}
+                if isinstance(gen, dict):
+                    note_date = str(gen.get("at") or "")
+            entry: Dict[str, Any] = {
+                "date": note_date,
+                "file": f"{NOTES_DIR}/{note_file.name}",
+                "title": str(fm.get("title") or note_file.stem),
+                "type": str(fm.get("type") or ""),
+                "status": status,
+                "est_tokens": estimate_tokens(len(content)),
+                "specificity": spec,
+            }
+            # P1-4: peer freshness (git last-commit vs note date, ADR-0003).
+            if cfg.get("stale_check"):
+                entry["possibly_stale"] = _file_staleness(note_date, repo_root / target, repo_root)
+            entries.append(entry)
+
+    # Sort: (specificity, date) desc — specificity is by_file's raison d'être.
+    entries.sort(key=lambda e: (e["specificity"], e["date"] or ""), reverse=True)
+    total = len(entries)
+    max_results = int(cfg.get("max_results", 15))
+    timeline = entries[:max_results]
+
+    # Telemetry only — no usage-heat hit (pre-check discipline, §2.5 Rev.2).
+    for e in timeline:
+        try:
+            from codewiki.mcp.tools import telemetry
+
+            telemetry.record_by_file(od, e["file"])
+        except Exception as exc:
+            logger.debug("by_file telemetry skipped: %s", exc)
+
+    total_est = sum(e["est_tokens"] for e in timeline)
+    if total:
+        hint = (
+            f"该文件有 {total} 条历史知识（约 {total_est} tokens）。"
+            f"已按特异性返回前 {len(timeline)} 条。"
+            "够用即可开始；需要细节用 mode=detail 取单篇全文。"
+        )
+    else:
+        hint = (
+            "该文件没有关联的历史知识（notes/ 中无 related_modules 命中）。"
+            "可能是知识空白：值得在完成任务后用 ingest_note 沉淀。"
+        )
+
+    return json.dumps(
+        {
+            "query": query or "",
+            "by_file": target,
+            "matched_modules": sorted(matched_modules),
+            "file_knowledge": {
+                "total": total,
+                "returned": len(timeline),
+                "total_est_tokens": total_est,
+                "timeline": timeline,
+            },
+            "hint": hint,
+        },
+        indent=2,
+        ensure_ascii=False,
+    )
+
+
 def _repo_scope_match(output_dir: Path, rel_file: str, repo_name: str) -> bool:
     """True when *rel_file* (relative to output_dir) applies to *repo_name*.
 
@@ -1724,10 +1983,14 @@ def handle_query_wiki(
 
     query = arguments.get("query", "")
     mode = arguments.get("mode")  # progressive reading: overview | directory | detail
+    # P0-2: file-scoped knowledge timeline — a filter dimension alongside
+    # scope/type_filter, not a mode (it composes with query as a hard filter).
+    by_file = (arguments.get("by_file") or "").strip() or None
     # Progressive reading modes are orientation, not keyword search — query
     # stays optional there (P3: overview mode is the doctrine injection entry).
-    if not query and mode not in ("overview", "directory", "detail"):
-        return json.dumps({"error": "query is required."})
+    # by_file likewise carries its own entry key.
+    if not query and not by_file and mode not in ("overview", "directory", "detail"):
+        return json.dumps({"error": "query is required (or pass by_file)."})
 
     scope = arguments.get("scope")  # optional module name or directory prefix
     include_notes = arguments.get("include_notes", True)
@@ -1780,6 +2043,12 @@ def handle_query_wiki(
         return _query_mode_check(
             output_dir, query, scope, type_filter, session, include_notes, include_sources
         )
+
+    # P0-2: by_file — file-scoped knowledge timeline. Priority: the mode
+    # early-return branches above win; by_file serves the default search
+    # path only (composes with query as a hard filter, never with modes).
+    if by_file:
+        return _query_mode_by_file(output_dir, by_file, query, session)
 
     # P0-1 (claude-mem borrowing): retrieval-cost visibility. _cpt (chars per
     # token) threads est_tokens through every result entry; expand_hint gates
