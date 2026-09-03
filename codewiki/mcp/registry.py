@@ -1027,17 +1027,28 @@ _register(
 _register(
     Tool(
         name="query_wiki",
+        # P0-3 (claude-mem borrowing): workflow built into the tool
+        # description — Rev.2 verbatim copy, do not paraphrase. The
+        # four-layer strategy only works if every invocation sees it.
         description=(
-            "Search across generated documentation and ingested notes. "
-            "Returns ranked results with snippets and a context_package summary "
-            "for IDE agents to use as development context. "
-            "Three-layer search strategy: "
-            "1) BM25 full-text search (default) — returns snippets, "
-            "2) Graph expansion (hop=1-3) — follows wikilinks to find related pages "
-            "with score decay (0.5x per hop), "
-            "3) Deep reading (expand=true) — returns full page content (up to 3000 chars). "
-            "Supports filtering by page type (type_filter) and scope directory prefixes. "
-            "Best for: why decisions were made, lessons learned, architecture rationale. "
+            "Search across generated documentation and ingested notes.\n"
+            "\n"
+            "RETRIEVAL STRATEGY (cheapest first):\n"
+            "1) mode=check — titles only, no snippets. Use FIRST to decide whether a full\n"
+            "   search is worth the tokens. Does NOT pollute usage/heat ranking signals.\n"
+            "2) BM25 search (default) — returns snippets + est_tokens per result.\n"
+            "   est_tokens = estimated cost of expanding that result in full.\n"
+            "3) by_file=<path> — file-scoped knowledge timeline (ingested notes only):\n"
+            "   titles + est_tokens + status, no bodies, sorted by specificity. Check it\n"
+            "   before reading or editing a file to surface prior decisions and lessons.\n"
+            "   Add query=<keyword> to hard-filter within that file's knowledge.\n"
+            "4) expand=true — full page content (up to max_chars, default 3000, max 20000).\n"
+            "   LAST RESORT. Check est_tokens first: 10 results at max_chars=20000 is ~50k\n"
+            "   tokens. Prefer expanding only the 2-3 results you actually need.\n"
+            "\n"
+            "Supports filtering by page type (type_filter), scope, repo (centralized layout),\n"
+            "and task_id. Graph expansion (hop=1-3) follows wikilinks with 0.5x decay per hop.\n"
+            "Best for: why decisions were made, lessons learned, architecture rationale.\n"
             "For code implementation details (function signatures, call chains), use grep instead."
         ),
         inputSchema={
@@ -1131,9 +1142,11 @@ _register(
                     "type": "boolean",
                     "description": (
                         "When true, return full page content (up to max_chars, "
-                        "default 3000) in a 'content' field instead of just snippets. "
-                        "Use for deep reading after identifying relevant pages with "
-                        "a normal search."
+                        "default 3000) in a 'content' field instead of just "
+                        "snippets, plus content_tokens (what this response "
+                        "returned). LAST RESORT: check each result's est_tokens "
+                        "first and expand only the 2-3 results you actually "
+                        "need — 10 results at max_chars=20000 is ~50k tokens."
                     ),
                 },
                 "max_chars": {
@@ -1142,7 +1155,9 @@ _register(
                         "Content budget in characters for expand=true "
                         "(default: 3000, max: 20000). Use 12000-20000 for "
                         "full-page deep reading of complex pages; keep 3000 "
-                        "for quick verification."
+                        "for quick verification. Every expand result carries "
+                        "est_tokens (full-page cost) and content_tokens "
+                        "(what was actually returned)."
                     ),
                 },
                 "mode": {
@@ -1154,8 +1169,8 @@ _register(
                         "'directory': returns Component Constraint Index sections from matching pages. "
                         "'detail': returns full content of a specific page/section (requires 'page' param). "
                         "'check': lightweight relevance pre-check — returns relevant flag, top score "
-                        "and top-3 titles WITHOUT snippets or stats recording. Use it before deciding "
-                        "whether a full search is worth the tokens. "
+                        "and top-3 titles WITHOUT snippets or stats recording. Use it FIRST, before "
+                        "deciding whether a full search is worth the tokens. "
                         "Omit for standard BM25 search."
                     ),
                 },

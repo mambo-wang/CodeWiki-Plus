@@ -110,6 +110,23 @@ conventions:
   # 不愿以 git 真名署名的成员可用 CODEWIKI_USER 设置花名。
   telemetry:
     enabled: true
+  # P0-1（claude-mem 借鉴）：检索成本可见性。est_tokens = ceil(字符数/chars_per_token)
+  # ——决策提示口径，非计费精度。enabled=false 回到 legacy（结果无 est_tokens 字段），
+  # expand_hint=false 关闭响应级 cost_hint。
+  retrieval_cost:
+    enabled: true
+    chars_per_token: 4   # 中英混合语料经验值
+    expand_hint: true    # 响应级成本提示（index/top3/expand_all tokens）
+  # P0-2（claude-mem 借鉴）：by_file 文件知识时间线 + P1-4 对端新鲜度标注。
+  # by_file 是读文件前的预检：只给标题+est_tokens+status，不写 usage heat
+  # （预检不稀释深度消费信号），只记 telemetry by_file 事件。
+  # possibly_stale 判据 = 目标文件最后一次 git 提交时间（ADR-0003，非 mtime），
+  # 判据不可得时返回 null。enabled=false 时 by_file 参数返回明确错误。
+  file_knowledge:
+    enabled: true
+    max_results: 15      # 时间线条数上限
+    stale_check: true    # 是否标注 possibly_stale
+    min_module_depth: 1  # 路径段匹配时忽略的顶层段数（repo 名通常无语义）
   # 全局默认标签列表，会自动追加到每个文档的 frontmatter tags 中。
   # 例如 [project-x, v2] 会让所有文档带上这些标签，便于跨项目检索
   okf_tags: []
