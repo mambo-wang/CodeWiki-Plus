@@ -265,6 +265,12 @@ def _is_item(s: str) -> bool:
     return s == "-" or s.startswith("- ")
 
 
+# ``key: value`` inside a "- " item or its continuation lines. The key must
+# be a bare identifier (letters/digits/_/-) so quoted strings containing a
+# colon (``- "foo: bar"``) never parse as mapping items.
+_KEY_VAL_RE = re.compile(r"^([A-Za-z_][\w-]*)\s*:(?:\s+(.*))?$")
+
+
 def _item_text(s: str) -> str:
     return s[2:] if s.startswith("- ") else ""
 
@@ -286,12 +292,44 @@ def _parse_block(lines: List[Tuple[int, str]]) -> Any:
 
     if _is_item(lines[0][1]):
         items: List[Any] = []
-        for _, s in lines:
-            if _is_item(s):
-                items.append(_decode_scalar(_item_text(s)))
-            elif items:
+        item_indent = lines[0][0]
+        cur: Optional[Dict[str, Any]] = None  # mapping item under construction
+
+        def _flush() -> None:
+            nonlocal cur
+            if cur is not None:
+                items.append(cur)
+                cur = None
+
+        for indent, s in lines:
+            if _is_item(s) and indent == item_indent:
+                _flush()
+                text = _item_text(s)
+                m = _KEY_VAL_RE.match(text)
+                if m:
+                    # ``- key: value`` opens a mapping item; deeper-indented
+                    # ``key: value`` continuation lines extend it (the OKF §5
+                    # ``verified:`` list of {by, at} is the canonical shape).
+                    val = m.group(2).strip()
+                    cur = {m.group(1): _decode_scalar(val)} if val else {}
+                else:
+                    items.append(_decode_scalar(text))
+            elif cur is not None and indent > item_indent:
+                m = _KEY_VAL_RE.match(s)
+                if m:
+                    val = m.group(2).strip()
+                    cur[m.group(1)] = _decode_scalar(val) if val else ""
+                else:
+                    # Non key: value continuation — degrade the mapping to
+                    # text folding (same behaviour as plain string items).
+                    _flush()
+                    items[-1] = f"{items[-1]} {s}" if items else s
+            elif cur is not None:
+                _flush()
+            elif items and not _is_item(s):
                 prev = items[-1]
                 items[-1] = f"{prev} {s}" if str(prev) else s
+        _flush()
         return items
 
     result: Dict[str, Any] = {}

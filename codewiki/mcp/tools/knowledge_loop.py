@@ -1304,18 +1304,15 @@ def _get_module_doc_name(module_name: str) -> str:
 
 
 def _extract_frontmatter_block(text: str) -> Dict[str, Any]:
-    """Parse YAML frontmatter into a dict. Returns {} on failure."""
-    if not text.startswith("---"):
-        return {}
-    try:
-        end = text.index("---", 3)
-        fm_text = text[3:end]
-    except ValueError:
-        return {}
-    try:
-        import yaml
+    """Parse YAML frontmatter into a dict. Returns {} on failure.
 
-        return yaml.safe_load(fm_text) or {}
+    Thin delegation to the frontmatter module's reader (architecture review
+    2026-09, candidate #3 read-side consolidation) — one parser instead of
+    per-module hand-rolled copies.
+    """
+    try:
+        fm, _ = parse_frontmatter(text)
+        return fm if isinstance(fm, dict) else {}
     except Exception:
         return {}
 
