@@ -1781,6 +1781,22 @@ def handle_query_wiki(
             output_dir, query, scope, type_filter, session, include_notes, include_sources
         )
 
+    # P0-1 (claude-mem borrowing): retrieval-cost visibility. _cpt (chars per
+    # token) threads est_tokens through every result entry; expand_hint gates
+    # the response-level cost_hint. None/False = legacy behaviour.
+    _cpt: Optional[int] = None
+    _rc_expand_hint = False
+    try:
+        from codewiki.mcp.tools.injection_budget import load_retrieval_cost
+        from codewiki.mcp.tools.page_router import load_schema as _ls_rc
+
+        _rc = load_retrieval_cost(_ls_rc(str(output_dir)))
+        if _rc.get("enabled"):
+            _cpt = int(_rc.get("chars_per_token") or 4)
+            _rc_expand_hint = bool(_rc.get("expand_hint"))
+    except Exception as e:
+        logger.debug("retrieval_cost config skipped: %s", e)
+
     # Load module tree for component mapping
     module_tree = None
     if session and session.module_tree:
@@ -1825,6 +1841,7 @@ def handle_query_wiki(
             session=session,
             type_filter=type_filter,
             hop=hop,
+            chars_per_token=_cpt or 0,  # P0-1: single source of truth = handler
         )
 
         # T1 (检索透明化): corpus-level coverage of the query tokens. If the
@@ -1856,6 +1873,9 @@ def handle_query_wiki(
                 entry["matched_tokens"] = r["matched_tokens"]
             if r.get("usage") is not None:
                 entry["usage"] = r["usage"]
+            # P0-1: est_tokens pass-through (cost of expanding in full).
+            if r.get("est_tokens") is not None:
+                entry["est_tokens"] = r["est_tokens"]
             # Source type annotation (Roadmap 1.4)
             _fpath = r["file"]
             if _fpath.startswith("notes/"):
@@ -1886,6 +1906,18 @@ def handle_query_wiki(
                         if "<!-- crosslinks" in full_text:
                             full_text = full_text.split("<!-- crosslinks")[0]
                         entry["content"] = full_text[:max_chars].strip()
+                        # P0-1: est_tokens = full-page cost (uniform semantics
+                        # across expand/non-expand), content_tokens = what this
+                        # response actually returned.
+                        try:
+                            from codewiki.mcp.tools.injection_budget import (
+                                estimate_tokens as _est_tk,
+                            )
+
+                            entry["est_tokens"] = _est_tk(len(full_text), _cpt)
+                            entry["content_tokens"] = _est_tk(len(entry["content"]), _cpt)
+                        except Exception:
+                            pass
                         if len(full_text) > max_chars:
                             entry["content_truncated"] = True
                             entry["content_budget"] = max_chars
@@ -2055,6 +2087,32 @@ def handle_query_wiki(
     # Record retrieval stats (which files were hit by this query)
     _record_retrieval_stats(output_dir, query, results)
 
+    # P0-1: response-level cost hint — the layer claude-mem does not have.
+    # Turns expand from a blind guess into a budgeted decision.
+    cost_hint = None
+    if _cpt and _rc_expand_hint and results:
+        try:
+            from codewiki.mcp.tools.injection_budget import estimate_tokens as _est_tk
+
+            _ests = [int(r.get("est_tokens") or 0) for r in results]
+            _expand_all = sum(_ests)
+            _top3 = sum(_ests[:3])
+            _index_tokens = _est_tk(len(json.dumps(results, ensure_ascii=False)), _cpt)
+            if _expand_all:
+                cost_hint = {
+                    "index_tokens": _index_tokens,
+                    "expand_all_tokens": _expand_all,
+                    "top3_tokens": _top3,
+                    "hint": (
+                        f"索引已返回 {len(results)} 条（约 {_index_tokens} tokens）。"
+                        f"展开前 3 条约 {_top3} tokens，全部展开约 {_expand_all} tokens。"
+                        "建议先按 est_tokens 挑最相关的再 expand。"
+                    ),
+                }
+        except Exception as e:
+            logger.debug("cost_hint skipped: %s", e)
+            cost_hint = None
+
     return json.dumps(
         {
             "query": query,
@@ -2063,6 +2121,7 @@ def handle_query_wiki(
             **({"repo_filter": repo_filter} if repo_filter_active else {}),
             **({"query_coverage": coverage} if coverage else {}),
             **({"budget_degraded": degraded_count} if degraded_count else {}),
+            **({"cost_hint": cost_hint} if cost_hint else {}),
             "results": results,
             "context_package": context_package,
             # P1 A-line: adoption convention reminder — a lower-bound usefulness

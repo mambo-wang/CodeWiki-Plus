@@ -29,6 +29,7 @@ from codewiki.mcp.cache import (
     compute_usage_heat,
     _usage_context,
 )
+from codewiki.mcp.tools.injection_budget import estimate_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -458,6 +459,24 @@ def remove_file(output_dir, filepath):
             _save_index(od, idx)
 
 
+def _resolve_retrieval_cost(output_dir) -> Optional[int]:
+    """P0-1: resolve chars_per_token for est_tokens, or None when disabled.
+
+    Loaded once per search() call; the divisor is threaded down to the
+    SQLite paths and used directly in the JSON fallback path.
+    """
+    try:
+        from codewiki.mcp.tools.page_router import load_schema
+        from codewiki.mcp.tools.injection_budget import load_retrieval_cost
+
+        rc = load_retrieval_cost(load_schema(str(output_dir)))
+        if rc.get("enabled"):
+            return int(rc.get("chars_per_token") or 4)
+    except Exception as e:  # config unavailable — feature silently off
+        logger.debug("retrieval_cost config skipped: %s", e)
+    return None
+
+
 def search(
     output_dir,
     query,
@@ -473,6 +492,7 @@ def search(
     decay=0.5,
     apply_authority=True,
     apply_usage=True,
+    chars_per_token=None,
 ):
     """BM25 search. Uses SQLite cache if session available.
 
@@ -481,9 +501,19 @@ def search(
     distill dedup recall) where review status or retrieval popularity must
     not influence duplicate detection.  Result entries still carry the
     ``authority`` / ``usage`` fields for transparency.
+
+    ``chars_per_token`` (P0-1): when an int, every entry gains
+    ``est_tokens`` = ceil(len(full_text) / chars_per_token) — the estimated
+    cost of expanding that result in full. None (default) resolves the
+    ``conventions.retrieval_cost`` config once; disabled → None → legacy
+    entries without the field.
     """
     od = Path(output_dir)
     max_results = min(20, max(1, max_results))
+    if chars_per_token is None:
+        chars_per_token = _resolve_retrieval_cost(od)
+    elif int(chars_per_token) <= 0:
+        chars_per_token = None  # explicit 0 = force off (legacy, no est_tokens)
 
     # T1a: freshness self-heal (sessionless path only — an active session
     # holds its own cache and close_session rebuilds it). Throttled to one
@@ -512,6 +542,7 @@ def search(
                 expand_terms=expand_terms,
                 apply_authority=apply_authority,
                 apply_usage=apply_usage,
+                chars_per_token=chars_per_token,
             )
         except Exception as e:
             logger.warning("SQLite search failed: %s", e)
@@ -535,6 +566,7 @@ def search(
                     expand_terms=expand_terms,
                     apply_authority=apply_authority,
                     apply_usage=apply_usage,
+                    chars_per_token=chars_per_token,
                 )
                 _standalone.close()
                 return results
@@ -614,8 +646,18 @@ def search(
     out = []
     for s, fk, auth in scored:
         u_hits, u_last, u_adopted = usage_map.get(fk, (0, None, 0))
-        out.append(
-            {
+        # P0-1: est_tokens — the full text is already read for the snippet,
+        # so the length costs nothing extra. Only when the feature is on.
+        _est_tokens = None
+        if chars_per_token and (od / fk).exists():
+            try:
+                _est_tokens = estimate_tokens(
+                    len((od / fk).read_text(encoding="utf-8", errors="replace")),
+                    chars_per_token,
+                )
+            except OSError:
+                _est_tokens = None
+        entry = {
                 "file": fk,
                 "title": idx.docs.get(fk, {}).get("title", fk),
                 "source": idx.docs.get(fk, {}).get("source", "doc"),
@@ -628,8 +670,10 @@ def search(
                 "authority": round(auth, 2),
                 "matched_tokens": _matched_for_doc(idx.docs.get(fk, {}).get("term_freq", {}), qts),
                 "usage": {"hit_count": u_hits, "last_hit": u_last, "adopted_count": u_adopted},
-            }
-        )
+        }
+        if _est_tokens is not None:
+            entry["est_tokens"] = _est_tokens
+        out.append(entry)
     return out
 
 
