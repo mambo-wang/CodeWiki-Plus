@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import json
 import logging
+
+from codewiki.src.store import atomic_write
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -306,17 +308,9 @@ def handle_refresh_doctrine(arguments: Dict[str, Any], store: Any) -> str:
         "---",
     ]
     path = _doctrine_path(output_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.parent / (".doctrine.tmp." + str(os.getpid()))
     try:
-        tmp.write_text("\n".join(fm_lines) + "\n\n" + content + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+        atomic_write(path, "\n".join(fm_lines) + "\n\n" + content + "\n")
     except OSError as e:
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except OSError:
-            pass
         return json.dumps({"error": f"Failed to write doctrine: {e}"})
 
     new_state = agg.mark_doctrine_refreshed(output_dir)

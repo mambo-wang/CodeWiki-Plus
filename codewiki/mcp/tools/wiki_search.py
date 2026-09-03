@@ -251,19 +251,13 @@ def _load_index(od):
 
 
 def _save_index(od, idx):
+    from codewiki.src.store import atomic_write
+
     p = _index_path(od)
-    tmp = p.with_suffix(".tmp")
     try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps(idx.to_dict(), ensure_ascii=False), encoding="utf-8")
-        os.replace(str(tmp), str(p))
+        atomic_write(p, json.dumps(idx.to_dict(), ensure_ascii=False))
     except Exception as e:
         logger.warning("Failed to save search index: %s", e)
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
 
 
 def _read_doc(fp: Path):
