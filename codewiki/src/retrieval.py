@@ -257,39 +257,24 @@ def _extract_snippet(content: str, query_tokens: List[str]) -> str:
 
 
 def _parse_frontmatter_dict(text: str) -> Dict[str, Any]:
-    """Parse YAML frontmatter into a dict. Returns {} if no frontmatter or parse fails."""
-    if not text.startswith("---"):
-        return {}
-    try:
-        end = text.index("---", 3)
-        fm_text = text[3:end]
-    except ValueError:
-        return {}
-    try:
-        import yaml
+    """Parse a document's YAML frontmatter into a dict. Returns {} on failure.
 
-        result = yaml.safe_load(fm_text)
-        return result if isinstance(result, dict) else {}
+    Thin delegation to the frontmatter module's reader (architecture review
+    2026-09, candidate #3) — one parser for the whole codebase instead of a
+    yaml copy here plus per-tool hand-rolled variants. The stdlib reader
+    absorbs every shape the write side emits (plain scalars, json-encoded
+    scalars, block lists, nested metadata blocks, verified mapping lists).
+    """
+    try:
+        from codewiki.src.frontmatter import parse_frontmatter
+
+        fm, _ = parse_frontmatter(text)
+        return fm if isinstance(fm, dict) else {}
     except Exception:
-        # Fallback: simple key: value parsing
-        result = {}
-        for line in fm_text.splitlines():
-            line = line.strip()
-            if ":" in line:
-                key, _, val = line.partition(":")
-                key = key.strip()
-                val = val.strip().strip('"').strip("'")
-                if val.startswith("[") and val.endswith("]"):
-                    val = [
-                        v.strip().strip('"').strip("'") for v in val[1:-1].split(",") if v.strip()
-                    ]
-                if key:
-                    result[key] = val
-        return result
+        return {}
 
 
-# ------------------------------------------------------------------ Ontology term expansion
-
+# Ontology term expansion — expansion map cached by file mtime.
 _ontology_cache: Dict[str, Tuple[float, Dict[str, List[str]]]] = {}
 
 
