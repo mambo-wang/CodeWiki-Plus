@@ -294,8 +294,14 @@ def merge_provenance(
     * ``explicit_scope=["a", "b"]`` → exactly these sources.
 
     Existing ``repo:``/``repos:`` lines are always replaced by one canonical
-    line right after the opening fence: ``repo: "<n>"`` for a single source,
-    ``repos: [...]`` for several, none for global.
+    line — ``repo: "<n>"`` for a single source, ``repos: [...]`` for several,
+    none for global.
+
+    PLACEMENT: provenance is producer-private under OKF v0.2 (§4/§5), so the
+    canonical line is written as a child of the frontmatter's ``metadata:``
+    node — the same place ``ingest_note`` stamps it — creating that node when
+    absent. Writing it at the top level trips the ``okf_conformance`` lint
+    check ("Non-OKF top-level frontmatter key(s): repo").
     """
     if explicit_scope == "global":
         ordered: list[str] = []
@@ -307,21 +313,61 @@ def merge_provenance(
             union |= {repo_name}
         ordered = sorted(n for n in union if n)
 
+    canonical = ""
+    if len(ordered) == 1:
+        canonical = f"repo: {json.dumps(ordered[0], ensure_ascii=False)}"
+    elif len(ordered) > 1:
+        canonical = f"repos: {json.dumps(ordered, ensure_ascii=False)}"
+
+    lines = new_content.split("\n")
+
+    # Pre-scan the frontmatter for a top-level `metadata:` node.
+    metadata_idx: int | None = None
+    close_idx: int | None = None
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                close_idx = i
+                break
+        end = close_idx if close_idx is not None else len(lines)
+        for i in range(1, end):
+            if lines[i].rstrip() == "metadata:":
+                metadata_idx = i
+                break
+
     out: list[str] = []
-    in_fm = False
     fence_count = 0
-    for line in new_content.split("\n"):
+    inserted = False
+    for idx, line in enumerate(lines):
         if line.strip() == "---":
             fence_count += 1
-            in_fm = fence_count == 1
             out.append(line)
-            if fence_count == 1 and ordered:
-                if len(ordered) == 1:
-                    out.append(f"repo: {json.dumps(ordered[0], ensure_ascii=False)}")
-                else:
-                    out.append(f"repos: {json.dumps(ordered, ensure_ascii=False)}")
+            # No `metadata:` node in this frontmatter — create one right after
+            # the opening fence so provenance never lands at the top level.
+            if fence_count == 1 and canonical and metadata_idx is None and not inserted:
+                out.append("metadata:")
+                out.append("  " + canonical)
+                inserted = True
             continue
+        in_fm = fence_count == 1
         if in_fm and (_REPO_LINE_RE.match(line) or _REPOS_LINE_RE.match(line)):
-            continue  # replaced by the canonical line above (or stripped)
+            continue  # replaced by the canonical line (or stripped)
+        if in_fm and canonical and not inserted and idx == metadata_idx:
+            out.append(line)
+            out.append("  " + canonical)
+            inserted = True
+            continue
         out.append(line)
-    return "\n".join(out)
+
+    # Stripping can leave `metadata:` with no children (invalid YAML) — drop it.
+    # Only ever touch the frontmatter region, never the body.
+    if close_idx is None:
+        return "\n".join(out)
+    cleaned: list[str] = []
+    for idx, line in enumerate(out):
+        if idx <= close_idx + 2 and line.rstrip() == "metadata:":
+            nxt = out[idx + 1] if idx + 1 < len(out) else ""
+            if not nxt.startswith((" ", "\t")):
+                continue
+        cleaned.append(line)
+    return "\n".join(cleaned)

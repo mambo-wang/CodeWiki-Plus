@@ -22,6 +22,60 @@ logger = logging.getLogger(__name__)
 _SOURCES_KEY_RE = re.compile(r"(?m)^sources\s*:")
 
 
+def evidence_roots(output_dir: Path, repo_name: Optional[str] = None) -> List[Path]:
+    """Candidate roots for resolving ``repo://`` evidence, best guess first.
+
+    Colocated / single-repo workspaces keep the status quo: the code lives at
+    ``output_dir.parent`` (``<repo>/repowiki`` → ``<repo>``).
+
+    Centralized workspaces break that assumption: the corpus is
+    ``<ws>/repowiki`` while the code lives in ``<ws>/<repo>/``, so
+    ``output_dir.parent`` is the workspace root and every repo-relative
+    evidence path looks "disappeared". Resolution order:
+
+    1. the entry's own ``repo`` field (recorded by :func:`handle_stamp_evidence`);
+    2. every business repo registered in the workspace;
+    3. ``output_dir.parent`` (status quo, also covers colocated).
+    """
+    od = Path(output_dir).resolve()
+    fallback = od.parent
+    roots: List[Path] = []
+
+    def _add(candidate: Path) -> None:
+        try:
+            rp = candidate.resolve()
+        except OSError:
+            return
+        if rp.is_dir() and rp not in roots:
+            roots.append(rp)
+
+    if repo_name:
+        _add(fallback / str(repo_name))
+
+    try:
+        from codewiki.mcp.tools.workspace_layout import (
+            LAYOUT_CENTRALIZED,
+            find_workspace_root,
+            is_centralized_corpus,
+            read_layout,
+        )
+
+        if is_centralized_corpus(od):
+            root = find_workspace_root(od)
+            if root is not None and read_layout(root) == LAYOUT_CENTRALIZED:
+                from codewiki.mcp.tools.workspace_bootstrap import (
+                    read_registration_table_names,
+                )
+
+                for name in read_registration_table_names(root):
+                    _add(root / name)
+    except Exception as e:  # pragma: no cover - layout lookups are advisory
+        logger.debug("evidence root expansion skipped: %s", e)
+
+    _add(fallback)
+    return roots
+
+
 def _resolve_targets(
     arguments: Dict[str, Any], store: SessionStore
 ) -> Tuple[Optional[Path], Optional[Path]]:
@@ -214,6 +268,17 @@ def handle_stamp_evidence(arguments: Dict[str, Any], store: SessionStore) -> str
         return json.dumps({"error": f"page has no frontmatter: {page_arg!r}"}, ensure_ascii=False)
     frontmatter, body = parsed
 
+    # Centralized layout: record WHICH repo these repo:// paths are relative to.
+    # Without it a shared corpus leaves the path ambiguous and stale_evidence
+    # cannot resolve it (see evidence_roots).
+    repo_name: Optional[str] = None
+    try:
+        from codewiki.mcp.tools.workspace_layout import routing_for_write
+
+        repo_name = routing_for_write(output_dir, repo_root)
+    except Exception as e:  # pragma: no cover - attribution is advisory
+        logger.debug("evidence repo attribution skipped: %s", e)
+
     entries: List[Dict[str, Any]] = []
     skipped: List[Dict[str, str]] = []
     for item in evidence:
@@ -233,7 +298,7 @@ def handle_stamp_evidence(arguments: Dict[str, Any], store: SessionStore) -> str
         if content_hash is None:
             skipped.append({"resource": resource, "reason": f"file not found under {repo_root}"})
             continue
-        entries.append(make_entry(rel, start, end, content_hash))
+        entries.append(make_entry(rel, start, end, content_hash, repo_name))
 
     if not entries:
         return json.dumps(

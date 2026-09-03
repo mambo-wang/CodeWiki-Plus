@@ -184,13 +184,25 @@ async def handle_get_module_tree(arguments: dict, store=None) -> str:
     raw_od = Path(arguments.get("output_dir", "repowiki")).expanduser()
     output_dir = raw_od.resolve() if raw_od.is_absolute() else (repo_path / raw_od).resolve()
 
-    from codewiki.src.config import meta_resolve
+    from codewiki.src.config import MODULE_TREE_FILENAME, meta_resolve
 
-    module_tree_path = Path(meta_resolve(output_dir, "module_tree.json"))
+    from codewiki.mcp.cache import resolve_analysis_meta_file
+
+    # Centralized workspaces keep per-repo analysis state (module_tree.json
+    # included) in the namespaced <ws>/.codewiki/<repo>/ directory — NOT in
+    # the shared corpus' .meta/. Resolve through the shared helper so both
+    # layouts work and legacy per-output_dir locations keep loading.
+    module_tree_path = Path(
+        resolve_analysis_meta_file(str(repo_path), str(output_dir), MODULE_TREE_FILENAME)
+    )
     if not module_tree_path.exists():
         return json.dumps(
             {
-                "error": f"Module tree not found at {module_tree_path}. Run 'codewiki generate' first."
+                "error": (
+                    f"Module tree not found at {module_tree_path} (also checked "
+                    f"{Path(meta_resolve(output_dir, MODULE_TREE_FILENAME))}). "
+                    "Call save_module_tree first (legacy 'codewiki generate' also works)."
+                )
             }
         )
 

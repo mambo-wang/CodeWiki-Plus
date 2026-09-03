@@ -42,14 +42,21 @@ def resolve_session(
 
     Returns the ``SessionState`` or ``None`` if resolution fails.
     Callers should check the return value and return an error JSON if ``None``.
+
+    ``store`` may be ``None`` (direct handler invocation, tests, CLI): session
+    lookup degrades to ``None`` instead of raising, so a caller that is
+    perfectly able to work session-less (e.g. ``ingest_note`` with an explicit
+    ``output_dir``) is not forced to construct a store.
     """
     session_id = arguments.get("session_id")
     repo_path = arguments.get("repo_path")
 
     if session_id:
-        return store.get(session_id)
+        return store.get(session_id) if store is not None else None
 
     if repo_path:
+        if store is None:
+            return None
         rp = (
             str(Path(repo_path).expanduser().resolve())
             if Path(repo_path).is_absolute()

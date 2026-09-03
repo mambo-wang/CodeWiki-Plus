@@ -540,6 +540,22 @@ def handle_ingest_note(
     except ValueError as e:
         return json.dumps({"error": f"invalid scope: {e}"}, ensure_ascii=False)
 
+    # Silent-global guard: inside a centralized corpus, a note written without
+    # a resolvable writing repo is stored as product-line (global) knowledge.
+    # routing_for_write() needs repo_path, so "pass only output_dir" silently
+    # degrades to global — surface it here instead of leaving lint_wiki's
+    # "no repo:/repos: provenance" info as the first signal.
+    _prov_warning = None
+    if _scope is None and _prov_repo is None:
+        from codewiki.mcp.tools.workspace_layout import is_centralized_corpus
+
+        if is_centralized_corpus(output_dir):
+            _prov_warning = (
+                "No provenance stamped: repo_path is missing, so the writing repo cannot "
+                "be determined — this note lands as product-line (global) knowledge. Pass "
+                "repo_path (or scope=[<repo>]) to tag it with repo:."
+            )
+
     from codewiki.src.config import NOTES_DIR
 
     notes_dir = output_dir / NOTES_DIR
@@ -727,6 +743,8 @@ def handle_ingest_note(
         "related_modules": related_modules,
         "tags": tags,
     }
+    if _prov_warning:
+        result["provenance_warning"] = _prov_warning
     # Team-layout Phase 4 first slice (D14): read-only remote-drift advisory,
     # once per process per repo — relayed into the conversation, never blocks.
     try:

@@ -21,7 +21,6 @@ rather than raising — these are advisory hygiene operations.
 from __future__ import annotations
 
 import logging
-import subprocess
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -50,22 +49,20 @@ def find_repo_root(start: Path) -> Optional[Path]:
 
 
 def _run_git(repo_root: Path, args: List[str]) -> Optional[str]:
-    """Run a git subcommand in *repo_root*; return stdout or None on failure."""
+    """Run a git subcommand in *repo_root*; return stdout or None on failure.
+
+    Delegates to :func:`codewiki.src.git_sync.run_git_bounded` so ``timeout``
+    is a hard wall-clock bound — ``subprocess.run(timeout=...)`` alone keeps
+    waiting on pipes held by git's grandchildren (see that helper).
+    """
     try:
-        proc = subprocess.run(
-            ["git", "-C", str(repo_root), *args],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=_GIT_TIMEOUT,
-        )
-        if proc.returncode == 0:
-            return proc.stdout
-        logger.debug("git %s failed (rc=%s): %s", args[0], proc.returncode, proc.stderr.strip())
-    except Exception as e:  # timeout, missing git, ...
-        logger.debug("git %s raised: %s", args[0], e)
-    return None
+        from codewiki.src.git_sync import run_git_bounded
+
+        res = run_git_bounded(repo_root, args, timeout=_GIT_TIMEOUT)
+        return res.stdout if res is not None else None
+    except Exception as e:  # import failure, missing git, ...
+        logger.debug("git %s unavailable: %s", args[0], e)
+        return None
 
 
 def list_tracked_rebuildables(repo_root: Path, output_dir: Path) -> List[str]:
