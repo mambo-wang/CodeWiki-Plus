@@ -1,0 +1,177 @@
+{
+  "collected_at": "2026-09-03T02:34:49.675165+00:00",
+  "git_head": "c8ddda180b9f4d86e25d9017cd1e7d15de2e471c 2026-09-03T10:17:13+08:00",
+  "purpose": "Fixed 12-query baseline snapshot taken BEFORE the claude-mem borrowing (P0-1 est_tokens / P0-2 by_file / P0-3 description) landed. Re-run the same query set after merge and diff response_chars to validate acceptance #8. The query set is a measurement instrument, not knowledge — it stays out of repowiki.",
+  "queries": [
+    {
+      "label": "decision:蒸馏 为什么 必须 异步 后台",
+      "kind": "decision/lesson",
+      "arguments": {
+        "query": "蒸馏 为什么 必须 异步 后台"
+      },
+      "response_chars": 5108,
+      "result_count": 4,
+      "top_files": [
+        "wiki/scenarios/任务记忆系统设计方法.md",
+        "notes/2026-08-23-会话启动时的-query-wiki蒸馏等重操作委托-subagent-执行避免阻塞用户正常使用.md",
+        "notes/2026-08-21-下一期方向资产置信分层与负反馈闭环roadmap-phase-5.md"
+      ]
+    },
+    {
+      "label": "decision:memory_items 单表 统一 建模",
+      "kind": "decision/lesson",
+      "arguments": {
+        "query": "memory_items 单表 统一 建模"
+      },
+      "response_chars": 9010,
+      "result_count": 7,
+      "top_files": [
+        "notes/2026-08-26-github-竞品分层调研tencentdb-agent-memory-为直接竞品llm-wiki-家族为理念源头.md",
+        "wiki/modules/DependencyAnalyzer.md",
+        "notes/2026-08-23-distill-worker-subagent-定义随包发布hook-启用时自动拷贝到项目-codebuddyagent.md"
+      ]
+    },
+    {
+      "label": "decision:新鲜度 stale 判定 策略",
+      "kind": "decision/lesson",
+      "arguments": {
+        "query": "新鲜度 stale 判定 策略"
+      },
+      "response_chars": 6809,
+      "result_count": 5,
+      "top_files": [
+        "wiki/modules/MCP_Cache.md",
+        "notes/2026-08-21-下一期方向资产置信分层与负反馈闭环roadmap-phase-5.md",
+        "wiki/scenarios/Wiki页面生成约定与数据结构.md"
+      ]
+    },
+    {
+      "label": "decision:hooks 家族归并 多智能体",
+      "kind": "decision/lesson",
+      "arguments": {
+        "query": "hooks 家族归并 多智能体"
+      },
+      "response_chars": 5655,
+      "result_count": 5,
+      "top_files": [
+        "wiki/scenarios/IDE-Hook采集链路方法.md",
+        "notes/2026-08-25-doctrine-不会自动注入-agent-上下文唯一通道是-query-wikimodeoverview.md",
+        "notes/2026-08-23-distill-worker-subagent-定义随包发布hook-启用时自动拷贝到项目-codebuddyagent.md"
+      ]
+    },
+    {
+      "label": "by_file:codewiki/mcp/tools/wiki_search.py",
+      "kind": "by_file",
+      "arguments": {
+        "query": "wiki_search"
+      },
+      "response_chars": 10359,
+      "result_count": 8,
+      "top_files": [
+        "notes/2026-08-26-handle-query-wiki-在-session-存在时每次查询都全量重建检索索引.md",
+        "notes/2026-08-29-引用已有笔记前须检查其-statusdeprecated-笔记不应被采纳.md",
+        "wiki/modules/MCP_Cache.md"
+      ]
+    },
+    {
+      "label": "by_file:codewiki/mcp/tools/knowledge_loop.py",
+      "kind": "by_file",
+      "arguments": {
+        "query": "knowledge_loop"
+      },
+      "response_chars": 4943,
+      "result_count": 4,
+      "top_files": [
+        "notes/2026-08-26-handle-query-wiki-在-session-存在时每次查询都全量重建检索索引.md",
+        "wiki/modules/MCP_Tools_Knowledge.md",
+        "notes/2026-08-25-蒸馏时无知识密度的对话也提交空结果否则-raw-无法归档清理.md"
+      ]
+    },
+    {
+      "label": "by_file:codewiki/mcp/registry.py",
+      "kind": "by_file",
+      "arguments": {
+        "query": "registry"
+      },
+      "response_chars": 3709,
+      "result_count": 3,
+      "top_files": [
+        "wiki/modules/MCP_Tools_Knowledge.md",
+        "notes/2026-08-29-工作区痕迹齐备时跳过-init-workspace直接跑-bootstrap-脚本补-clone.md",
+        "wiki/doctrine.md"
+      ]
+    },
+    {
+      "label": "by_file:codewiki/mcp/cache.py",
+      "kind": "by_file",
+      "arguments": {
+        "query": "cache"
+      },
+      "response_chars": 12546,
+      "result_count": 9,
+      "top_files": [
+        "wiki/modules/LLM_Backend.md",
+        "wiki/modules/MCP_Cache.md",
+        "wiki/modules/WebApp.md"
+      ]
+    },
+    {
+      "label": "mixed:check-蒸馏",
+      "kind": "check/expand",
+      "arguments": {
+        "mode": "check",
+        "query": "蒸馏 异步"
+      },
+      "response_chars": 865,
+      "result_count": 0,
+      "top_files": []
+    },
+    {
+      "label": "mixed:check-schema",
+      "kind": "check/expand",
+      "arguments": {
+        "mode": "check",
+        "query": "schema 版本"
+      },
+      "response_chars": 898,
+      "result_count": 0,
+      "top_files": []
+    },
+    {
+      "label": "mixed:expand-doc",
+      "kind": "check/expand",
+      "arguments": {
+        "expand": true,
+        "max_chars": 3000,
+        "query": "MCP 工具 设计"
+      },
+      "response_chars": 26632,
+      "result_count": 8,
+      "top_files": [
+        "notes/2026-08-03-mcp-工具-schema-不声明-session-idhandler-隐式读取.md",
+        "notes/2026-08-23-会话启动时的-query-wiki蒸馏等重操作委托-subagent-执行避免阻塞用户正常使用.md",
+        "wiki/modules/MCP_Tools_Analysis.md"
+      ]
+    },
+    {
+      "label": "mixed:expand-big",
+      "kind": "check/expand",
+      "arguments": {
+        "expand": true,
+        "max_chars": 20000,
+        "query": "任务记忆 压缩"
+      },
+      "response_chars": 11609,
+      "result_count": 2,
+      "top_files": [
+        "notes/2026-08-26-github-竞品分层调研tencentdb-agent-memory-为直接竞品llm-wiki-家族为理念源头.md",
+        "wiki/modules/MCP_Tools_Quality.md"
+      ]
+    }
+  ],
+  "summary": {
+    "n": 12,
+    "avg_response_chars": 8178.6,
+    "total_response_chars": 98143
+  }
+}
