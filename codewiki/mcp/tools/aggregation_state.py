@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import logging
+
+from codewiki.src.store import atomic_write
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,18 +79,10 @@ def load_state(output_dir: Path) -> Dict[str, Any]:
 def save_state(output_dir: Path, state: Dict[str, Any]) -> None:
     """Atomic write (tmp + os.replace), aligned with task-memory conventions."""
     path = _state_path(output_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.parent / (".aggregate_state.tmp." + str(os.getpid()))
     try:
-        tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, path)
+        atomic_write(path, json.dumps(state, indent=2, ensure_ascii=False))
     except OSError as e:
         logger.warning("aggregate_state save failed: %s", e)
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except OSError:
-            pass
 
 
 def read_config(output_dir: Path) -> Dict[str, int]:

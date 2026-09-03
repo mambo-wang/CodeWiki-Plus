@@ -24,6 +24,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+
+from codewiki.src.store import atomic_write
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,11 +77,8 @@ def load_manifest(output_dir: Path) -> Dict[str, Any]:
 def save_manifest(output_dir: Path, manifest: Dict[str, Any]) -> None:
     """Atomically persist the manifest (temp file + ``os.replace``)."""
     path = manifest_path(output_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
     manifest.setdefault("schema_version", SCHEMA_VERSION)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    atomic_write(path, json.dumps(manifest, ensure_ascii=False, indent=2))
 
 
 def page_key_for(output_dir: Path, doc_path: Path) -> str:

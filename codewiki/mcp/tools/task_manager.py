@@ -70,6 +70,8 @@ from codewiki.src.store import (
     KnowledgeStore,
     SUMMARY_HEADING,
     entry_sort_key,
+    locked_rmw,
+    locked_write,
     parse_frontmatter,
     split_entries,
 )
@@ -183,24 +185,6 @@ def _extract_fm(text: str, key: str) -> Optional[str]:
 
 def _write_task_file(output_dir: Path, task: Dict[str, Any], description: str) -> None:
     KnowledgeStore(output_dir).write_task_file(task, description)
-
-
-def _atomic_replace_with_retry(src: Path, dst: Path, attempts: int = 5) -> None:
-    """os.replace with a short retry for Windows transient sharing violations.
-
-    On Windows, AV scanners / search indexers can hold the destination file
-    briefly, making os.replace fail with PermissionError (WinError 5) even
-    though nothing is logically wrong. Retry with a tiny backoff; a persistent
-    failure (real permission problem) still raises the last error.
-    """
-    for i in range(attempts):
-        try:
-            os.replace(src, dst)
-            return
-        except PermissionError:
-            if i == attempts - 1:
-                raise
-            time.sleep(0.02 * (i + 1))
 
 
 # Compaction thresholds and keep-window (see docs/任务记忆存储与加载扩展性
@@ -985,23 +969,18 @@ def handle_compact_task_memories(arguments: Dict[str, Any], store: SessionStore)
     # loses.
     for owner, parts in blocks_by_owner.items():
         archive_path = _archive_path_for(output_dir, task_id, owner)
-        archive_path.parent.mkdir(parents=True, exist_ok=True)
-        existing_archive = ""
-        if archive_path.exists():
-            existing_archive = archive_path.read_text(encoding="utf-8").rstrip("\n")
-        new_archive = (
-            (existing_archive + "\n\n" if existing_archive else "") + "\n\n".join(parts) + "\n"
-        )
-        archive_tmp = archive_path.with_suffix(".tmp")
-        archive_tmp.write_text(new_archive, encoding="utf-8")
-        _atomic_replace_with_retry(archive_tmp, archive_path)
+
+        def _append_archive(existing: str) -> str:
+            base = existing.rstrip("\n")
+            return (base + "\n\n" if base else "") + "\n\n".join(parts) + "\n"
+
+        # locked_rmw: append-only archive write funnels through the store's
+        # sidecar lock (same-user two-process compaction can no longer race).
+        locked_rmw(archive_path, _append_archive)
 
     # Step 2: rewrite the caller's own file (create it when only legacy data
     # existed — legacy converges into the user's own file here).
-    own_path.parent.mkdir(parents=True, exist_ok=True)
-    own_tmp = own_path.with_suffix(".tmp")
-    own_tmp.write_text(new_text, encoding="utf-8")
-    _atomic_replace_with_retry(own_tmp, own_path)
+    locked_write(own_path, new_text)
 
     # Step 3: remove the converged legacy file (originals already archived;
     # kept entries + summary live in the own file now).
