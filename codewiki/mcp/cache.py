@@ -28,7 +28,6 @@ _DB_FILENAME = "analysis_cache.db"
 _CACHE_DIR = ".codewiki"
 _META_DIR = ".meta"
 _DEFAULT_LRU_SIZE = 500
-_K1, _B = 1.5, 0.75
 
 # SQLite bound-variable limit is 999 on older builds; stay well below it.
 _SQL_CHUNK_SIZE = 500
@@ -39,29 +38,23 @@ def _sql_chunks(items: List[Any], size: int = _SQL_CHUNK_SIZE) -> List[List[Any]
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
-# ------------------------------------------------------------------ Retrieval kernel moved to src/retrieval.py
-#
-# The text-level BM25 kernel (tokeniser, snippet, ontology expansion,
-# authority/usage ranking, indexable-text building) now lives in
-# codewiki/src/retrieval.py — the deep module both search adapters sit on.
-# Compat re-exports below keep historical imports working during the
-# transition; they will be deleted once all consumers point at the kernel.
-
-from codewiki.src.retrieval import (  # noqa: F401  (compat shim)
-    B as _B,
-    K1 as _K1,
-    STOPWORDS as _STOPWORDS,
+# The text-level retrieval kernel (tokeniser, snippet, ontology, authority/
+# usage ranking) lives in codewiki/src/retrieval.py — this module is the
+# SQLite persistence adapter on top of it (architecture review 2026-09 #2).
+from codewiki.src.retrieval import (
+    K1,
+    B,
+    STOPWORDS,
     USAGE_RANKING_DEFAULTS,
-    build_indexable_text as _build_indexable_text,
+    build_indexable_text,
     compute_usage_heat,
-    doc_authority as _doc_authority,
-    expand_with_ontology as _expand_with_ontology,
-    extract_snippet as _extract_snippet,
-    load_ontology as _load_ontology,
+    doc_authority,
+    expand_with_ontology,
+    extract_snippet,
+    load_ontology,
     load_usage_ranking_config,
-    parse_frontmatter_dict as _parse_frontmatter_dict,
-    tokenize as _tokenize,
-    usage_context as _usage_context,
+    tokenize,
+    usage_context,
 )
 
 
@@ -1038,7 +1031,7 @@ class AnalysisCache:
 
     # -- BM25 search --
     # (tokeniser, stopwords and snippet extractor are now module-level;
-    #  see _tokenize, _STOPWORDS, _extract_snippet above)
+    #  see tokenize, STOPWORDS, extract_snippet above)
 
     def build_search_index(self, output_dir: Path) -> Dict[str, Any]:
         # Team-layout Phase 2: the DELETE+INSERT full rebuild must not run
@@ -1077,7 +1070,7 @@ class AnalysisCache:
                 if not ct.strip():
                     continue
                 title = _extract_title(ct) or md.stem.replace("_", " ").title()
-                tokens = _tokenize(_build_indexable_text(ct))
+                tokens = tokenize(build_indexable_text(ct))
                 if not tokens:
                     continue
                 tf = {}
@@ -1088,7 +1081,7 @@ class AnalysisCache:
                     fk = md.name
                 c.execute(
                     "INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
-                    (fk, title, "doc", len(tokens), json.dumps(tf), _doc_authority(fk, "doc", ct)),
+                    (fk, title, "doc", len(tokens), json.dumps(tf), doc_authority(fk, "doc", ct)),
                 )
                 for t, f in tf.items():
                     c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
@@ -1109,7 +1102,7 @@ class AnalysisCache:
             if not ct.strip():
                 continue
             title = _extract_title(ct) or md.stem.replace("_", " ").title()
-            tokens = _tokenize(_build_indexable_text(ct))
+            tokens = tokenize(build_indexable_text(ct))
             if not tokens:
                 continue
             tf = {}
@@ -1122,7 +1115,7 @@ class AnalysisCache:
                     "doc",
                     len(tokens),
                     json.dumps(tf),
-                    _doc_authority(md.name, "doc", ct),
+                    doc_authority(md.name, "doc", ct),
                 ),
             )
             for t, f in tf.items():
@@ -1142,7 +1135,7 @@ class AnalysisCache:
                 if not ct.strip():
                     continue
                 title = _extract_frontmatter(ct, "title") or nf.stem
-                tokens = _tokenize(_build_indexable_text(ct))
+                tokens = tokenize(build_indexable_text(ct))
                 if not tokens:
                     continue
                 tf = {}
@@ -1156,7 +1149,7 @@ class AnalysisCache:
                         "note",
                         len(tokens),
                         json.dumps(tf),
-                        _doc_authority(fk, "note", ct),
+                        doc_authority(fk, "note", ct),
                     ),
                 )
                 for t, f in tf.items():
@@ -1178,7 +1171,7 @@ class AnalysisCache:
                 if not ct.strip():
                     continue
                 title = sf.stem.replace("_", " ").replace("-", " ").title()
-                tokens = _tokenize(_build_indexable_text(ct))
+                tokens = tokenize(build_indexable_text(ct))
                 if not tokens:
                     continue
                 tf = {}
@@ -1192,7 +1185,7 @@ class AnalysisCache:
                         "source",
                         len(tokens),
                         json.dumps(tf),
-                        _doc_authority(fk, "source", ct),
+                        doc_authority(fk, "source", ct),
                     ),
                 )
                 for t, f in tf.items():
@@ -1268,18 +1261,18 @@ class AnalysisCache:
 
         # Usage-signal context (U1): always loaded (results expose a `usage`
         # field); heat multiplies the score only when enabled + not exempted.
-        usage_cfg, usage_map, heat_on = _usage_context(output_dir, apply_usage)
+        usage_cfg, usage_map, heat_on = usage_context(output_dir, apply_usage)
 
-        qts = _tokenize(query)
+        qts = tokenize(query)
         if expand_terms:
             for t in expand_terms:
-                for tt in _tokenize(t):
+                for tt in tokenize(t):
                     if tt not in qts:
                         qts.append(tt)
         # Ontology-based synonym expansion (automatic, no caller action needed)
-        ontology = _load_ontology(output_dir)
+        ontology = load_ontology(output_dir)
         if ontology:
-            qts = _expand_with_ontology(qts, ontology)
+            qts = expand_with_ontology(qts, ontology)
         if not qts:
             return []
         max_results = min(20, max(1, max_results))
@@ -1364,7 +1357,7 @@ class AnalysisCache:
                 df = df_cache.get(qt, 1)
                 idf = max(0.0, math.log((n - df + 0.5) / (df + 0.5) + 1.0))
                 score += (
-                    idf * (tfr["tf"] * (_K1 + 1)) / (tfr["tf"] + _K1 * (1 - _B + _B * dl / avg_dl))
+                    idf * (tfr["tf"] * (K1 + 1)) / (tfr["tf"] + K1 * (1 - B + B * dl / avg_dl))
                 )
             # Authority weighting: multiply AFTER BM25, BEFORE the title floor
             # (otherwise the floor would rescue penalised draft notes).
@@ -1383,7 +1376,7 @@ class AnalysisCache:
             # be filtered by the generic threshold even when the title matches
             # the query. Treat any title-token match on a note as relevant.
             if doc_row["source"] == "note":
-                title_tokens = set(_tokenize(doc_row["title"] or ""))
+                title_tokens = set(tokenize(doc_row["title"] or ""))
                 if title_tokens & set(qts) and score > 0:
                     score = max(score, score_threshold)
             if score >= score_threshold:
@@ -1403,7 +1396,7 @@ class AnalysisCache:
                 if fpath.exists():
                     try:
                         raw = fpath.read_text(encoding="utf-8", errors="replace")
-                        snippet = _extract_snippet(raw, qts)[:300]
+                        snippet = extract_snippet(raw, qts)[:300]
                         raw_len = len(raw)
                     except OSError:
                         pass
@@ -1454,7 +1447,7 @@ class AnalysisCache:
                     if fpath.exists():
                         try:
                             raw = fpath.read_text(encoding="utf-8", errors="replace")
-                            snippet = _extract_snippet(raw, qts)[:300]
+                            snippet = extract_snippet(raw, qts)[:300]
                             ex_raw_len = len(raw)
                         except OSError:
                             pass
@@ -1509,7 +1502,7 @@ class AnalysisCache:
         if "<!-- crosslinks" in ct:
             ct = ct.split("<!-- crosslinks")[0]
         src = "note" if fk.startswith("notes/") else "doc"
-        tokens = _tokenize(_build_indexable_text(ct))
+        tokens = tokenize(build_indexable_text(ct))
         self.conn.execute("DELETE FROM search_index WHERE doc_key=?", (fk,))
         self.conn.execute("DELETE FROM search_token_index WHERE doc_key=?", (fk,))
         if tokens:
@@ -1517,7 +1510,7 @@ class AnalysisCache:
             [tf.update({t: tf.get(t, 0) + 1}) for t in tokens]
             self.conn.execute(
                 "INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
-                (fk, filepath.stem, src, len(tokens), json.dumps(tf), _doc_authority(fk, src, ct)),
+                (fk, filepath.stem, src, len(tokens), json.dumps(tf), doc_authority(fk, src, ct)),
             )
             for t, f in tf.items():
                 self.conn.execute(

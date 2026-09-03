@@ -9,7 +9,8 @@ recall) are exempt via apply_authority=False.
 
 from pathlib import Path
 
-from codewiki.mcp.cache import AnalysisCache, _doc_authority
+from codewiki.mcp.cache import AnalysisCache
+from codewiki.src.retrieval import doc_authority as _doc_authority
 from codewiki.mcp.tools import wiki_search
 
 

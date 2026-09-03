@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 
 
-from codewiki.mcp.cache import USAGE_RANKING_DEFAULTS, compute_usage_heat
+from codewiki.src.retrieval import USAGE_RANKING_DEFAULTS, compute_usage_heat
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.tools.adoption import (
     extract_adopted_docs,
