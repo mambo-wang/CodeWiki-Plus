@@ -1,5 +1,77 @@
 {
- "q00:json": [],
+ "q00:json": [
+  {
+   "authority": 1.2,
+   "est_tokens": 74,
+   "file": "notes/2026-01-01-kernel-decision.md",
+   "matched_tokens": [
+    "检索",
+    "kernel",
+    "retrieval"
+   ],
+   "relevance_score": 5.6539,
+   "snippet": "# 检索 kernel 抽取决策\n\nquery_wiki 的检索路径需要一个小 interface 的 kernel。est_tokens 功能",
+   "source": "note",
+   "title": "检索 kernel 抽取决策",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  },
+  {
+   "authority": 1.0,
+   "est_tokens": 27,
+   "file": "wiki/modules/retrieval.md",
+   "matched_tokens": [
+    "检索",
+    "kernel"
+   ],
+   "relevance_score": 2.0545,
+   "snippet": "BM25 检索 kernel、分词、authority 加权、usage heat。\nSQLite 路径与 legacy JSON 路径双 adapter。",
+   "source": "doc",
+   "title": "检索模块",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  },
+  {
+   "authority": 1.15,
+   "est_tokens": 20,
+   "file": "wiki/scenarios/daily-search.md",
+   "matched_tokens": [
+    "检索"
+   ],
+   "relevance_score": 0.9096,
+   "snippet": "# 日常检索场景\n\nquery_wiki 是高频入口。成本可见性 est_tokens 帮助决策是否展开。",
+   "source": "doc",
+   "title": "日常检索场景",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  },
+  {
+   "authority": 1.15,
+   "est_tokens": 25,
+   "file": "wiki/scenarios/onboarding.md",
+   "matched_tokens": [
+    "检索"
+   ],
+   "relevance_score": 0.8164,
+   "snippet": "先读 overview，再按模块检索。检索透明化提供 matched_tokens 与\nquery_coverage 缺失词提示。",
+   "source": "doc",
+   "title": "新人上手场景",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  }
+ ],
  "q00:sqlite": [
   {
    "authority": 1.2,
@@ -73,7 +145,80 @@
    }
   }
  ],
- "q01:json": [],
+ "q01:json": [
+  {
+   "authority": 1.2,
+   "est_tokens": 74,
+   "file": "notes/2026-01-01-kernel-decision.md",
+   "matched_tokens": [
+    "bm25",
+    "检索",
+    "retrieval"
+   ],
+   "relevance_score": 5.2273,
+   "snippet": "# 检索 kernel 抽取决策\n\nquery_wiki 的检索路径需要一个小 interface 的 kernel。est_tokens 功能",
+   "source": "note",
+   "title": "检索 kernel 抽取决策",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  },
+  {
+   "authority": 1.0,
+   "est_tokens": 27,
+   "file": "wiki/modules/retrieval.md",
+   "matched_tokens": [
+    "bm25",
+    "分词",
+    "检索"
+   ],
+   "relevance_score": 3.845,
+   "snippet": "BM25 检索 kernel、分词、authority 加权、usage heat。\nSQLite 路径与 legacy JSON 路径双 adapter。",
+   "source": "doc",
+   "title": "检索模块",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  },
+  {
+   "authority": 1.15,
+   "est_tokens": 20,
+   "file": "wiki/scenarios/daily-search.md",
+   "matched_tokens": [
+    "检索"
+   ],
+   "relevance_score": 0.9096,
+   "snippet": "# 日常检索场景\n\nquery_wiki 是高频入口。成本可见性 est_tokens 帮助决策是否展开。",
+   "source": "doc",
+   "title": "日常检索场景",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  },
+  {
+   "authority": 1.15,
+   "est_tokens": 25,
+   "file": "wiki/scenarios/onboarding.md",
+   "matched_tokens": [
+    "检索"
+   ],
+   "relevance_score": 0.8164,
+   "snippet": "先读 overview，再按模块检索。检索透明化提供 matched_tokens 与\nquery_coverage 缺失词提示。",
+   "source": "doc",
+   "title": "新人上手场景",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  }
+ ],
  "q01:sqlite": [
   {
    "authority": 1.2,
@@ -148,7 +293,43 @@
    }
   }
  ],
- "q02:json": [],
+ "q02:json": [
+  {
+   "authority": 1.2,
+   "est_tokens": 74,
+   "file": "notes/2026-01-01-kernel-decision.md",
+   "matched_tokens": [
+    "kernel",
+    "抽取"
+   ],
+   "relevance_score": 4.8629,
+   "snippet": "# 检索 kernel 抽取决策\n\nquery_wiki 的检索路径需要一个小 interface 的 kernel。est_tokens 功能",
+   "source": "note",
+   "title": "检索 kernel 抽取决策",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  },
+  {
+   "authority": 1.0,
+   "est_tokens": 27,
+   "file": "wiki/modules/retrieval.md",
+   "matched_tokens": [
+    "kernel"
+   ],
+   "relevance_score": 1.1968,
+   "snippet": "BM25 检索 kernel、分词、authority 加权、usage heat。\nSQLite 路径与 legacy JSON 路径双 adapter。",
+   "source": "doc",
+   "title": "检索模块",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  }
+ ],
  "q02:sqlite": [
   {
    "authority": 1.2,
@@ -186,7 +367,25 @@
    }
   }
  ],
- "q03:json": [],
+ "q03:json": [
+  {
+   "authority": 1.15,
+   "est_tokens": 41,
+   "file": "notes/2026-01-03-frontmatter-lesson.md",
+   "matched_tokens": [
+    "frontmatter"
+   ],
+   "relevance_score": 3.6472,
+   "snippet": "# frontmatter 解析多副本教训\n\n五份手搓 parser 各自近似，语义漂移。应该统一走 src/frontmatter.py。",
+   "source": "note",
+   "title": "frontmatter 解析多副本教训",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  }
+ ],
  "q03:sqlite": [
   {
    "authority": 1.15,
@@ -206,7 +405,25 @@
    }
   }
  ],
- "q04:json": [],
+ "q04:json": [
+  {
+   "authority": 0.87,
+   "est_tokens": 36,
+   "file": "notes/2026-01-02-distill-pitfall.md",
+   "matched_tokens": [
+    "蒸馏"
+   ],
+   "relevance_score": 2.3134,
+   "snippet": "# 蒸馏重复笔记的坑\n\ndistill 的去重召回不应受 usage heat 影响，apply_usage=False 豁免。",
+   "source": "note",
+   "title": "蒸馏重复笔记的坑",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  }
+ ],
  "q04:sqlite": [
   {
    "authority": 0.87,
@@ -226,7 +443,59 @@
    }
   }
  ],
- "q05:json": [],
+ "q05:json": [
+  {
+   "authority": 1.15,
+   "est_tokens": 20,
+   "file": "wiki/scenarios/daily-search.md",
+   "matched_tokens": [
+    "检索"
+   ],
+   "relevance_score": 0.9096,
+   "snippet": "# 日常检索场景\n\nquery_wiki 是高频入口。成本可见性 est_tokens 帮助决策是否展开。",
+   "source": "doc",
+   "title": "日常检索场景",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  },
+  {
+   "authority": 1.0,
+   "est_tokens": 27,
+   "file": "wiki/modules/retrieval.md",
+   "matched_tokens": [
+    "检索"
+   ],
+   "relevance_score": 0.8578,
+   "snippet": "# 检索模块\n\nBM25 检索 kernel、分词、authority 加权、usage heat。",
+   "source": "doc",
+   "title": "检索模块",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  },
+  {
+   "authority": 1.15,
+   "est_tokens": 25,
+   "file": "wiki/scenarios/onboarding.md",
+   "matched_tokens": [
+    "检索"
+   ],
+   "relevance_score": 0.8164,
+   "snippet": "先读 overview，再按模块检索。检索透明化提供 matched_tokens 与\nquery_coverage 缺失词提示。",
+   "source": "doc",
+   "title": "新人上手场景",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  }
+ ],
  "q05:sqlite": [
   {
    "authority": 1.15,
@@ -280,7 +549,42 @@
    }
   }
  ],
- "q06:json": [],
+ "q06:json": [
+  {
+   "authority": 1.15,
+   "est_tokens": 25,
+   "file": "wiki/scenarios/onboarding.md",
+   "matched_tokens": [
+    "场景"
+   ],
+   "relevance_score": 2.1596,
+   "snippet": "# 新人上手场景\n\n先读 overview，再按模块检索。检索透明化提供 matched_tokens 与",
+   "source": "doc",
+   "title": "新人上手场景",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  },
+  {
+   "authority": 1.15,
+   "est_tokens": 20,
+   "file": "wiki/scenarios/daily-search.md",
+   "matched_tokens": [
+    "场景"
+   ],
+   "relevance_score": 2.1196,
+   "snippet": "# 日常检索场景\n\nquery_wiki 是高频入口。成本可见性 est_tokens 帮助决策是否展开。",
+   "source": "doc",
+   "title": "日常检索场景",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  }
+ ],
  "q06:sqlite": [
   {
    "authority": 1.15,
@@ -317,7 +621,25 @@
    }
   }
  ],
- "q07:json": [],
+ "q07:json": [
+  {
+   "authority": 1.15,
+   "est_tokens": 25,
+   "file": "wiki/scenarios/onboarding.md",
+   "matched_tokens": [
+    "新人"
+   ],
+   "relevance_score": 3.2311,
+   "snippet": "# 新人上手场景\n\n先读 overview，再按模块检索。检索透明化提供 matched_tokens 与",
+   "source": "doc",
+   "title": "新人上手场景",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  }
+ ],
  "q07:sqlite": [
   {
    "authority": 1.15,
@@ -337,7 +659,62 @@
    }
   }
  ],
- "q08:json": [],
+ "q08:json": [
+  {
+   "authority": 1.2,
+   "est_tokens": 74,
+   "file": "notes/2026-01-01-kernel-decision.md",
+   "matched_tokens": [
+    "检索",
+    "kernel",
+    "retrieval"
+   ],
+   "relevance_score": 5.6539,
+   "snippet": "# 检索 kernel 抽取决策\n\nquery_wiki 的检索路径需要一个小 interface 的 kernel。est_tokens 功能",
+   "source": "note",
+   "title": "检索 kernel 抽取决策",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  },
+  {
+   "authority": 1.0,
+   "est_tokens": 27,
+   "file": "wiki/modules/retrieval.md",
+   "matched_tokens": [
+    "检索",
+    "kernel"
+   ],
+   "relevance_score": 2.0545,
+   "snippet": "BM25 检索 kernel、分词、authority 加权、usage heat。\nSQLite 路径与 legacy JSON 路径双 adapter。",
+   "source": "doc",
+   "title": "检索模块",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  },
+  {
+   "authority": 1.15,
+   "est_tokens": 20,
+   "file": "wiki/scenarios/daily-search.md",
+   "matched_tokens": [
+    "检索"
+   ],
+   "relevance_score": 0.9096,
+   "snippet": "# 日常检索场景\n\nquery_wiki 是高频入口。成本可见性 est_tokens 帮助决策是否展开。",
+   "source": "doc",
+   "title": "日常检索场景",
+   "usage": {
+    "adopted_count": 0,
+    "hit_count": 0,
+    "last_hit": null
+   }
+  }
+ ],
  "q08:sqlite": [
   {
    "authority": 1.2,

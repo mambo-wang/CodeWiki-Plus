@@ -39,6 +39,65 @@ _SYSTEM_FILES = {"index.md", "log.md", "overview.md"}
 _build_lock = threading.Lock()
 
 
+# ---------------------------------------------------------------------------
+# SearchIndex: the interface both retrieval adapters satisfy. The seam lives
+# here — wiki_search.search is its single owner; callers (handlers, distill
+# dedup, by_file) never pick an adapter themselves. Two adapters justify the
+# seam: AnalysisCache (SQLite) in prod/sessions, the legacy JSON index as
+# the file-based fallback. (Architecture review 2026-09, candidate #2.)
+# ---------------------------------------------------------------------------
+
+from typing import Any, List as _List, Protocol as _Protocol, runtime_checkable as _rc
+
+
+@_rc
+class SearchIndex(_Protocol):
+    """Interface of a retrieval adapter behind the wiki_search seam."""
+
+    def build(self, output_dir) -> dict: ...
+
+    def search(
+        self,
+        query: str,
+        *,
+        scope: str = "",
+        include_notes: bool = True,
+        max_results: int = 10,
+        score_threshold: float = 0.1,
+        output_dir=None,
+        type_filter=None,
+        hop: int = 0,
+        decay: float = 0.5,
+        expand_terms=None,
+        apply_authority: bool = True,
+        apply_usage: bool = True,
+        chars_per_token=None,
+    ) -> _List[dict]: ...
+
+    def update_file(self, output_dir, filepath) -> None: ...
+
+
+def _ensure_index(output_dir: Path, session=None) -> None:
+    """The single freshness gate for every retrieval through this seam.
+
+    R-05: build only when no usable index exists; otherwise let the cheap
+    three-tier freshness check decide (stale -> transparent rebuild, fresh
+    -> reuse). Previously duplicated at both query_wiki handler call sites;
+    now owned here so every caller — handler, distill dedup recall, by_file
+    pre-check — gets freshness for free. Throttled to one inventory scan
+    per output_dir per 60s by index_freshness.ensure_fresh.
+    """
+    try:
+        from codewiki.mcp.tools.index_freshness import ensure_fresh, has_search_index
+
+        if has_search_index(output_dir):
+            ensure_fresh(output_dir, session=session)
+        else:
+            build_full_index(output_dir, session=session)
+    except Exception as e:
+        logger.debug("freshness gate skipped: %s", e)
+
+
 def _resolve_db_path(output_dir: Path) -> Optional[Path]:
     """Resolve analysis_cache.db path from project.json or standard layout.
 
@@ -417,9 +476,11 @@ def update_file(output_dir, filepath, session=None):
             idx.upsert(fk, title, src, ct)
         else:
             idx.remove(fk)
-        # Tool-side update: align the freshness baseline (mirror of
-        # AnalysisCache.update_search_doc) so tier-3 mtime sampling in
-        # ensure_fresh doesn't flag this file as stale on the next query.
+        # JSON adapter's own freshness baseline: a content upsert advances
+        # built_at so tier-3 mtime sampling in ensure_fresh doesn't flag
+        # this file as stale on the next query. (The SQLite adapter keeps
+        # its equivalent inside AnalysisCache.update_search_doc — each
+        # adapter owns its baseline; the invariant lives behind the seam.)
         # Deletes above (ap not exists) intentionally skip this.
         idx.built_at = time.time()
         _save_index(od, idx)
@@ -515,16 +576,10 @@ def search(
     elif int(chars_per_token) <= 0:
         chars_per_token = None  # explicit 0 = force off (legacy, no est_tokens)
 
-    # T1a: freshness self-heal (sessionless path only — an active session
-    # holds its own cache and close_session rebuilds it). Throttled to one
-    # inventory scan per minute; a stale index triggers a transparent rebuild.
-    if session is None:
-        try:
-            from codewiki.mcp.tools.index_freshness import ensure_fresh
-
-            ensure_fresh(od)
-        except Exception as e:
-            logger.debug("freshness check skipped: %s", e)
+    # T1a freshness gate — THE single call site for every retrieval through
+    # this seam (session and sessionless alike; an active session's rebuild
+    # reuses its shared AnalysisCache connection). See _ensure_index.
+    _ensure_index(od, session=session)
 
     # Try SQLite cache first (active session)
     if session is not None and getattr(session, "cache", None) is not None:

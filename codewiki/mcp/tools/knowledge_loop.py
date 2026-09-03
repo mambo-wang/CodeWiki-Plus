@@ -1608,21 +1608,9 @@ def _query_mode_check(
     """
     results: List[Dict[str, Any]] = []
     try:
-        from codewiki.mcp.tools.wiki_search import (
-            search as bm25_search,
-            build_full_index,
-        )
-        from codewiki.mcp.tools.index_freshness import ensure_fresh, has_search_index
-
-        # R-05: build only when no usable index exists; otherwise let the
-        # cheap three-tier freshness check decide (stale -> transparent
-        # rebuild, fresh -> reuse).  No more unconditional full rebuilds on
-        # every query_wiki call.
-        if has_search_index(output_dir):
-            ensure_fresh(output_dir, session=session)
-        else:
-            build_full_index(output_dir, session=session)
-
+        from codewiki.mcp.tools.wiki_search import search as bm25_search
+        # R-05 freshness gate (build-if-missing / three-tier stale check)
+        # now lives inside wiki_search.search — the seam's single owner.
         raw = bm25_search(
             output_dir,
             query,
@@ -2085,21 +2073,9 @@ def handle_query_wiki(
     search_method = "bm25"
     coverage = None  # T1: corpus-level query-token coverage (BM25 path only)
     try:
-        from codewiki.mcp.tools.wiki_search import (
-            search as bm25_search,
-            build_full_index,
-        )
-        from codewiki.mcp.tools.index_freshness import ensure_fresh, has_search_index
-
-        # R-05: build only when no usable index exists; otherwise let the
-        # cheap three-tier freshness check decide (stale -> transparent
-        # rebuild, fresh -> reuse).  No more unconditional full rebuilds on
-        # every query_wiki call.
-        if has_search_index(output_dir):
-            ensure_fresh(output_dir, session=session)
-        else:
-            build_full_index(output_dir, session=session)
-
+        from codewiki.mcp.tools.wiki_search import search as bm25_search
+        # R-05 freshness gate (build-if-missing / three-tier stale check)
+        # now lives inside wiki_search.search — the seam's single owner.
         raw_results = bm25_search(
             output_dir,
             query,
