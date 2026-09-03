@@ -45,14 +45,32 @@ _Avoid_: 把 est_tokens 当"本次已花费"解读（那是 content_tokens / ind
 从盲猜变成有预算的决策；与单条 est_tokens 是两层（条目级 vs 响应级）。
 
 **frontmatter module** — `codewiki/src/frontmatter.py`：repowiki 页面 frontmatter
-的读取方（`parse_frontmatter`，readers accept the union of all legacy formats）
-与 OKF 注入/私有元数据折叠（`inject_okf_frontmatter` / `fold_private_metadata`）。
-该模块**只有读路径**——序列化 writer（render/update）与 `parse(render(x)) == x`
-往返不变量尚无实现，是 P1-2 `files` 字段落地的前置项；页面类型路由
-（`PAGE_TYPE_DIRS`）在 `codewiki/src/config.py`，不属于本模块。Slugify /
-文件名约定同样不属于。永久接口约束：`capture_conversation` 输出（`conv-*.md`）
-的 `status` 和 `task_id` 必须保持顶层单行键——stdlib-only hook
+的读写一体层。读侧 `parse_frontmatter`（readers accept the union of all legacy
+formats：json 编码标量、YAML 流式集合 `[a, b]`/`{ by: x }`、块列表、嵌套
+metadata、`- key: value` 映射项）；写侧 `render_frontmatter`（任意 dict 序列化，
+2026-09 落地）+ OKF 注入/私有元数据折叠（`inject_okf_frontmatter` /
+`fold_private_metadata`）。往返不变量 `parse(render(x)) == x` 以
+`tests/test_frontmatter_roundtrip.py` 固化——P1-2 `files` 字段的前置项已补齐。
+页面类型路由（`PAGE_TYPE_DIRS`）在 `codewiki/src/config.py`，不属于本模块。
+Slugify / 文件名约定同样不属于。永久接口约束：`capture_conversation` 输出
+（`conv-*.md`）的 `status` 和 `task_id` 必须保持顶层单行键——stdlib-only hook
 `.codebuddy/hooks/task_session_start.py` 逐行扫描它们且无法 import 本模块。
+
+**retrieval kernel** — `codewiki/src/retrieval.py`：检索的文本级 kernel（deep
+module，2026-09 架构评审候选 #2 落地）：tokenize（jieba CJK 分词 + regex 回
+退）/ snippet / ontology 同义展开 / indexable text 构建（frontmatter 字段加
+权）/ authority 乘子 / usage heat。公开常量 `K1`/`B`/`STOPWORDS`。SQLite 路径
+（`AnalysisCache`）与 legacy JSON 路径都坐在这个 kernel 上，排序语义不会在两
+个 adapter 之间漂移。kernel 是纯文本逻辑，不持有存储。
+
+**SearchIndex adapter** — 检索 seam 后面的两个 adapter：`AnalysisCache`
+（SQLite，活跃会话或磁盘上已有的 `.codewiki/analysis_cache.db`）与 legacy JSON
+索引（`repowiki/.meta/search_index.json`）。interface（`SearchIndex` Protocol：
+build/search/update_file）的唯一所有者是 `wiki_search.search`——调用方（handler、
+distill 去重召回、by_file 预检）不自己选 adapter。freshness gate（build-if-
+missing / 三级 stale check，`_ensure_index`）同样收口在 search 入口，每
+output_dir 60s 节流。cache.py 已瘦身为纯 persistence adapter，kernel 私有
+import 全仓归零。
 
 ## Key decisions
 
