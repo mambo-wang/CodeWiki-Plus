@@ -35,6 +35,15 @@ git 提交晚于笔记日期（留 1 天缓冲吸收当天提交噪声）即为 
 输出只含标题、成本、状态的时间线，不含正文（渐进式披露第一层）。预检性质，
 不进 usage heat 信号。
 
+**est_tokens** — 检索结果的成本标注：展开该条全文大约要花多少 token。语义统一
+不随层级变化（非 expand 结果与 expand 结果中同义）；expand 结果另有
+content_tokens 表达本次实际返回量。决策提示口径，不用于计费或硬截断。
+_Avoid_: 把 est_tokens 当"本次已花费"解读（那是 content_tokens / index_tokens）。
+
+**cost_hint** — 响应级成本提示：本次索引响应约多少 token（index_tokens）、
+展开前 3 条 / 全部约多少（top3_tokens / expand_all_tokens）。作用是把 expand
+从盲猜变成有预算的决策；与单条 est_tokens 是两层（条目级 vs 响应级）。
+
 **frontmatter module** — `codewiki/src/frontmatter.py`：repowiki 页面 frontmatter
 的读取方（`parse_frontmatter`，readers accept the union of all legacy formats）
 与 OKF 注入/私有元数据折叠（`inject_okf_frontmatter` / `fold_private_metadata`）。
