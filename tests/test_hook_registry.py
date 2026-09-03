@@ -251,9 +251,13 @@ class TestPromptRegistryDriven:
 
         from codewiki.mcp.prompts import _prompt_add_workspace_repo
 
-        ws = os.path.normpath("D:/tmp/ws")
+        # Platform-agnostic: an absolute path renders verbatim; a relative
+        # one is resolved against cwd (the prompt always shows an absolute
+        # path so agents don't have to guess). Use the platform's own abs
+        # path so the assertion holds on Windows (D:/...) and POSIX alike.
+        ws = os.path.normpath(os.path.join(os.getcwd(), "tmp", "ws"))
         s = _prompt_add_workspace_repo(
-            {"workspace_path": "D:/tmp/ws", "name": "demo", "url": "https://x/demo.git"}
+            {"workspace_path": ws, "name": "demo", "url": "https://x/demo.git"}
         )
         assert f'add_workspace_repo(workspace_path="{ws}"' in s
         assert "demo" in s

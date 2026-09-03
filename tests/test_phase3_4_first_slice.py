@@ -207,6 +207,17 @@ def _git(repo: Path, *args: str) -> str:
     return proc.stdout
 
 
+def _git_default_branch(repo: Path) -> str:
+    """The branch name a fresh ``git init`` produced (master or main)."""
+    out = subprocess.run(
+        ["git", "-C", str(repo), "symbolic-ref", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return out.stdout.strip() or "master"
+
+
 def test_sync_check_behind_remote(tmp_path):
     """origin ahead of clone → advisory mentions the count; once per process."""
     git_sync._checked_repos.clear()
@@ -216,6 +227,7 @@ def test_sync_check_behind_remote(tmp_path):
     seed = tmp_path / "seed"
     seed.mkdir()
     _git(seed, "init", "-q")
+    branch = _git_default_branch(seed)  # machine-dependent: master or main
     _git(seed, "config", "user.email", "t@e.com")
     _git(seed, "config", "user.name", "t")
     (seed / "repowiki").mkdir()
@@ -224,14 +236,14 @@ def test_sync_check_behind_remote(tmp_path):
     _git(seed, "add", "-A")
     _git(seed, "commit", "-q", "-m", "init")
     _git(seed, "remote", "add", "origin", str(origin))
-    _git(seed, "push", "-q", "-u", "origin", "master")
+    _git(seed, "push", "-q", "-u", "origin", branch)
 
     clone = tmp_path / "clone"
     _git(tmp_path, "clone", "-q", str(origin), str(clone))
     # remote moves ahead by 2
     _git(seed, "commit", "-q", "--allow-empty", "-m", "r1")
     _git(seed, "commit", "-q", "--allow-empty", "-m", "r2")
-    _git(seed, "push", "-q", "origin", "master")
+    _git(seed, "push", "-q", "origin", branch)
 
     advisory = sync_check(clone / "repowiki")
     assert advisory and "2" in advisory and "远端" in advisory
@@ -247,6 +259,7 @@ def test_sync_check_up_to_date_silent(tmp_path):
     seed = tmp_path / "seed"
     seed.mkdir()
     _git(seed, "init", "-q")
+    branch = _git_default_branch(seed)  # machine-dependent: master or main
     _git(seed, "config", "user.email", "t@e.com")
     _git(seed, "config", "user.name", "t")
     (seed / "repowiki").mkdir()
@@ -254,7 +267,7 @@ def test_sync_check_up_to_date_silent(tmp_path):
     _git(seed, "add", "-A")
     _git(seed, "commit", "-q", "-m", "init")
     _git(seed, "remote", "add", "origin", str(origin))
-    _git(seed, "push", "-q", "-u", "origin", "master")
+    _git(seed, "push", "-q", "-u", "origin", branch)
     clone = tmp_path / "clone2"
     _git(tmp_path, "clone", "-q", str(origin), str(clone))
     assert sync_check(clone / "repowiki") is None
