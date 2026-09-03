@@ -260,6 +260,44 @@ def _load_doctrine(repo_path: str) -> str:
     )
 
 
+def _load_knowledge_overview(repo_path: str) -> str:
+    """One-paragraph knowledge-base overview for the fresh session (P2-2 thin).
+
+    claude-mem borrowing: SessionStart is the "visible before work starts"
+    channel — the tool description (P0-3) only fires when the agent already
+    thinks of calling query_wiki. This section says the knowledge base EXISTS
+    (N notes / recent key decisions) and carries the one-line four-layer
+    retrieval strategy, so agents that never thought to search still do.
+
+    Deliberately thin: counts files and reads only the 3 newest note titles
+    (stdlib-only line scan of ``metadata.date``-style filename prefixes —
+    note filenames start with YYYY-MM-DD). Degrades to "" when repowiki/
+    notes is absent or empty; never breaks the task prompt.
+    """
+    try:
+        notes_dir = Path(repo_path) / "repowiki" / "notes"
+        if not notes_dir.is_dir():
+            return ""
+        notes = sorted(
+            (p for p in notes_dir.glob("*.md") if p.is_file()),
+            key=lambda p: p.name,
+            reverse=True,
+        )
+        if not notes:
+            return ""
+        recent = [p.name[:-3] for p in notes[:3]]
+        lines = [
+            "【知识库提示】本仓库有 repowiki 知识库"
+            f"（{len(notes)} 条笔记），改文件/做设计前先查：",
+            "- 改某文件前：query_wiki(by_file=<路径>) 查该文件的历史决策与教训；",
+            "- 主题检索：query_wiki(mode='check') 先轻量预检，再全文检索（结果带 est_tokens 成本）；",
+            f"- 最新笔记：{ '；'.join(recent) }",
+        ]
+        return "\n".join(lines)
+    except OSError:
+        return ""
+
+
 def _build_message(event: dict, repo_path: str) -> str:
     """Build the guidance injected into the fresh session.
 
@@ -378,6 +416,14 @@ def _build_message(event: dict, repo_path: str) -> str:
     if doctrine:
         lines.append("")
         lines.append(doctrine)
+
+    # P2-2 (claude-mem borrowing, thin): knowledge-base overview — make the
+    # KB's existence and the cheapest retrieval entries visible before work
+    # starts, complementing P0-3's call-time tool description.
+    overview = _load_knowledge_overview(repo_path)
+    if overview:
+        lines.append("")
+        lines.append(overview)
 
     return "\n".join(lines)
 

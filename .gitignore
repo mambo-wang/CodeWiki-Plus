@@ -53,6 +53,10 @@ repowiki/.meta/retrieval_stats.db
 # T2 (团队方案): 共享遥测事件流 .meta/telemetry/ 默认入库；本机退化模式
 # (conventions.telemetry.enabled: false) 的写入位置不入库
 repowiki/.meta/telemetry-local/
+# P2-3: 原子写残留（崩溃/被杀时 .tmp.<pid>.<tid> 不及清理）与 sidecar 锁文件
+# 是本机瞬态产物，永远不入库（历史误提交的 Administrator.jsonl.tmp.19748 即此类残留）
+repowiki/.meta/telemetry/*.tmp.*
+repowiki/.meta/telemetry/*.lck
 # T3 (团队方案): search_index.json 是秒级可重建的本机派生索引——
 # 入库只会制造最大的全量重写冲突面，且可能固化过期索引（T1 自愈兜底重建）
 repowiki/.meta/search_index.json
