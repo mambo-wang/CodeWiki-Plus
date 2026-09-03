@@ -33,6 +33,7 @@ push piggy-backs it.  Nothing is ever force-pushed or reset.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional, Set
@@ -61,37 +62,112 @@ def _resolve_mode(output_dir: Path) -> str:
         return "advisory"
 
 
-def _run_git(repo_root: Path, args: list) -> Optional[str]:
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    """Kill *proc* and every child it spawned.
+
+    ``git fetch`` spawns ``git-remote-https`` (plus credential helpers) and
+    those grandchildren inherit the captured pipes. Killing only the direct
+    child leaves ``communicate()`` waiting on a pipe that never reaches EOF,
+    which is why a nominal 15s timeout could hold a call for minutes.
+    """
     try:
-        proc = subprocess.run(
-            ["git", "-C", str(repo_root), *args],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=_GIT_TIMEOUT,
+        import psutil  # project dependency (see pyproject)
+
+        parent = psutil.Process(proc.pid)
+        for child in parent.children(recursive=True):
+            try:
+                child.kill()
+            except Exception:
+                pass
+        try:
+            parent.kill()
+        except Exception:
+            pass
+        return
+    except Exception:
+        pass
+    try:
+        proc.kill()
+    except Exception:
+        pass
+
+
+def run_git_bounded(
+    repo_root: Path, args: list, timeout: float = _GIT_TIMEOUT, *, ok_only: bool = True
+) -> Optional[subprocess.CompletedProcess]:
+    """Run ``git -C <repo_root> <args>`` under a HARD wall-clock bound.
+
+    ``subprocess.run(timeout=...)`` alone is not enough here: when the timeout
+    fires Python kills the direct child but keeps waiting for the inherited
+    stdout/stderr pipes, which stay open while a grandchild holds them.
+    Measured on a stalled fetch: a nominal 15s advisory held the MCP event
+    loop for 204s, timing out every unrelated request queued behind it.
+
+    With ``ok_only=True`` (the default) returns a CompletedProcess on success
+    (rc == 0) or None on ANY failure (timeout, missing git, non-zero exit) —
+    advisory callers never raise and never need to distinguish failures.
+
+    With ``ok_only=False`` returns the full CompletedProcess whenever the
+    process RAN (rc 0 or not) — None then means only startup failure or
+    timeout.  Use this to separate "network unavailable → degrade silently"
+    (None) from "git refused (divergence/conflict) → report per D12"
+    (``returncode != 0``).  Never raises either way.
+    """
+    kwargs: dict = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "stdin": subprocess.DEVNULL,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    else:
+        kwargs["start_new_session"] = True
+    try:
+        proc = subprocess.Popen(["git", "-C", str(repo_root), *args], **kwargs)
+    except Exception as e:  # no git binary, permission, ...
+        logger.debug("git %s failed to start: %s", args[0], e)
+        return None
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc)
+        try:
+            out, err = proc.communicate(timeout=5)
+        except Exception:
+            out, err = "", ""
+        logger.debug("git %s exceeded %ss — process tree killed", args[0], timeout)
+        return None
+    except Exception as e:
+        _kill_process_tree(proc)
+        logger.debug("git %s raised: %s", args[0], e)
+        return None
+    if proc.returncode != 0:
+        logger.debug("git %s rc=%s: %s", args[0], proc.returncode, (err or "").strip())
+        if ok_only:
+            return None
+        return subprocess.CompletedProcess(
+            args=args, returncode=proc.returncode, stdout=out, stderr=err
         )
-        if proc.returncode == 0:
-            return proc.stdout
-    except Exception as e:  # timeout / no git / offline — silent degrade
-        logger.debug("git %s failed (advisory only): %s", args[0], e)
-    return None
+    return subprocess.CompletedProcess(args=args, returncode=0, stdout=out, stderr=err)
+
+
+def _run_git(repo_root: Path, args: list) -> Optional[str]:
+    """stdout of a bounded git call, or None on any failure."""
+    res = run_git_bounded(repo_root, args)
+    return res.stdout if res is not None else None
 
 
 def _run_git_result(repo_root: Path, args: list) -> Optional[subprocess.CompletedProcess]:
-    """Like _run_git but returns the full result (callers need stderr/rc)."""
-    try:
-        return subprocess.run(
-            ["git", "-C", str(repo_root), *args],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=_GIT_TIMEOUT,
-        )
-    except Exception as e:
-        logger.debug("git %s raised: %s", args[0], e)
-        return None
+    """Full result of a bounded git call for callers that branch on the exit
+    code (D12: "git refused" must be reported, not swallowed).
+
+    Returns a CompletedProcess whenever the process ran (rc 0 or not);
+    None means the process could not run or timed out (network → silent).
+    """
+    return run_git_bounded(repo_root, args, ok_only=False)
 
 
 def _resolve_auto_push(output_dir: Path) -> bool:

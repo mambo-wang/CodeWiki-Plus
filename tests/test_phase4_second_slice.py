@@ -148,6 +148,29 @@ def test_session_ff_only_pulls_on_clean_tree(tmp_path):
     assert (repo / "repowiki" / "notes" / "new.md").exists()  # pulled
 
 
+def test_session_ff_only_reports_on_divergence(tmp_path):
+    """D12: a ff-only pull refused by git (diverged remote) must be REPORTED,
+    not silently swallowed as a network failure (run_git_bounded regression)."""
+    _reset_state()
+    repo = _make_workspace_repo(tmp_path, "ff-diverge", "colocated")
+    # local moves ahead
+    (repo / "repowiki" / "notes" / "local.md").write_text("local\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "local work")
+    # remote moves ahead on a different file (via the seed clone)
+    seed = tmp_path / "ff-diverge-seed"
+    (seed / "repowiki" / "notes" / "remote.md").write_text("remote\n", encoding="utf-8")
+    _git(seed, "add", "-A")
+    _git(seed, "commit", "-q", "-m", "remote work")
+    _git(seed, "push", "-q", "origin", "main")
+
+    msg = session_ff_only(repo / "repowiki")
+    assert msg and "ff-only 拉取失败" in msg
+    assert "人工同步" in msg
+    # the local commit is intact (D12: data intact, arrives later)
+    assert (repo / "repowiki" / "notes" / "local.md").exists()
+
+
 def test_session_ff_only_skips_on_dirty_tree(tmp_path):
     _reset_state()
     repo = _make_workspace_repo(tmp_path, "ff-dirty", "colocated")

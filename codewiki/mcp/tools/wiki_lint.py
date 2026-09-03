@@ -1009,9 +1009,14 @@ def _check_stale_evidence(output_dir: Path) -> List[Dict[str, Any]]:
     ``stale`` (code drifted) or ``missing`` (file gone) entries.  Evidence
     drives review only — this check never rewrites content.
     """
+    from codewiki.mcp.tools.evidence import evidence_roots
     from codewiki.src.evidence import verify_entry
 
-    repo_root = output_dir.parent
+    # Centralized workspaces keep the code in <ws>/<repo>/ while the corpus is
+    # <ws>/repowiki, so output_dir.parent (the status-quo repo root) resolves
+    # nothing — try every plausible root instead. An entry's own `repo` field
+    # (recorded by stamp_evidence) narrows it to the owning repo.
+    base_roots = evidence_roots(output_dir)
     issues: List[Dict[str, Any]] = []
 
     for md_file in output_dir.rglob("*.md"):
@@ -1047,9 +1052,21 @@ def _check_stale_evidence(output_dir: Path) -> List[Dict[str, Any]]:
         for entry in sources:
             if not isinstance(entry, dict) or "content_hash" not in entry:
                 continue
-            status = verify_entry(entry, repo_root)
-            if status == "ok":
+            roots = (
+                evidence_roots(output_dir, entry.get("repo"))
+                if entry.get("repo")
+                else base_roots
+            )
+            statuses = [verify_entry(entry, root) for root in roots]
+            if "ok" in statuses:
                 continue
+            # Only report the most actionable verdict: drift > gone > broken URI.
+            if "stale" in statuses:
+                status = "stale"
+            elif "missing" in statuses:
+                status = "missing"
+            else:
+                status = "unresolvable"
             resource = str(entry.get("resource", "<unknown>"))
             if status == "stale":
                 message = f"code evidence drifted: {resource}"

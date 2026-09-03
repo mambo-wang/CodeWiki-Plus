@@ -4,6 +4,13 @@ Creates the output directory structure, copies the annotated schema.yaml
 template (preserving comments), and injects wiki usage instructions into
 the project's AGENTS.md.  This is a zero-config bootstrap: run it once
 before starting any wiki generation or knowledge ingestion workflow.
+
+Under a centralized workspace layout (design doc §6), a business repo's
+knowledge lives in the workspace corpus: the default output_dir routes to
+the workspace ``repowiki/``, ``wiki/modules/<repo>/`` is ensured, the
+workspace's customized ``schema.yaml`` is never clobbered, and no AGENTS.md
+block is injected into the business repo (``add_workspace_repo`` removed it
+on purpose).  Explicit ``output_dir`` arguments are never hijacked.
 """
 
 from __future__ import annotations
@@ -148,9 +155,35 @@ def handle_init_wiki(arguments: dict) -> str:
             ensure_ascii=False,
         )
 
-    # Resolve output_dir
+    # ── Step 0: centralized-layout routing (design doc §6) ─────────────
+    # A business repo registered in a centralized workspace is pure code:
+    # its knowledge lives in the workspace corpus (modules →
+    # wiki/modules/<repo>/, shared-pool dirs → workspace repowiki/).
+    # Running init_wiki here must therefore route the default output_dir
+    # to the corpus instead of scaffolding <repo>/repowiki/ (which
+    # lint_wiki's layout_violations check would flag) or re-injecting the
+    # AGENTS.md wiki block that add_workspace_repo just removed.
+    # The routing must never break init: any resolution failure falls
+    # back to the status-quo path.
+    _centralized = False
+    try:
+        from codewiki.mcp.tools.workspace_layout import resolve_workspace
+
+        _resolution = resolve_workspace(repo_path_p)
+        _centralized = _resolution.centralized
+    except Exception as e:  # pragma: no cover - routing must never break init
+        logger.warning("centralized-layout routing skipped: %s", e)
+
+    # Resolve output_dir — the default routes to the workspace corpus under
+    # centralized; an explicit output_dir is the caller's directory-level
+    # choice and is never hijacked (same semantics as routing_for_write).
     if not output_dir:
-        output_dir_p = repo_path_p / "repowiki"
+        if _centralized:
+            from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+            output_dir_p = default_output_dir(repo_path_p)
+        else:
+            output_dir_p = repo_path_p / "repowiki"
     elif os.path.isabs(output_dir):
         output_dir_p = Path(output_dir).resolve()
     else:
@@ -168,62 +201,108 @@ def handle_init_wiki(arguments: dict) -> str:
     }
 
     # ── Steps 1-2: Create directory structure and copy template assets ──
-    tree = initialize_wiki_tree(repo_path_p, output_dir_p, overwrite_schema=True)
+    # Under centralized the corpus already carries the workspace's customized
+    # schema.yaml — a business-repo re-run must not clobber it (same rule as
+    # workspace re-runs, see initialize_wiki_tree).
+    tree = initialize_wiki_tree(repo_path_p, output_dir_p, overwrite_schema=not _centralized)
     results["created_dirs"] = tree["created_dirs"]
     results["schema_yaml"] = tree["schema_yaml"]
     results["ontology_yaml"] = tree["ontology_yaml"]
     results["review_checklist_yaml"] = tree["review_checklist_yaml"]
+
+    # ── Step 1.5: ensure the repo's modules partition (centralized, §6) ─
+    # modules → wiki/modules/<repo>/. add_workspace_repo scaffolds this at
+    # registration; ensuring it here keeps init_wiki idempotent for members
+    # registered through other paths.
+    if _centralized:
+        try:
+            from codewiki.mcp.tools.workspace_layout import routing_for_write
+
+            partition = routing_for_write(output_dir_p, repo_path_p)
+            if partition:
+                partition_dir = output_dir_p / "wiki" / "modules" / partition
+                if not partition_dir.exists():
+                    partition_dir.mkdir(parents=True, exist_ok=True)
+                    results["created_dirs"].append(str(partition_dir))
+        except Exception as e:  # best-effort: analyze_repo re-creates it anyway
+            logger.warning("modules partition ensure skipped: %s", e)
 
     # ── Step 2.5: Team-layout gitignore hygiene (Phase 1, D1) ──────────
     # Rebuildable derived files (wiki/index.md, .meta/*.json indexes,
     # tasks/.index.json, ...) must stay untracked; init appends the ignore
     # block idempotently so a fresh project starts on the team layout.
     # Best-effort: never blocks init when the repo is not a git repo or
-    # .gitignore is not writable.
-    try:
-        from codewiki.mcp.tools.team_layout import (
-            ensure_gitignore_entries,
-            find_repo_root,
-        )
+    # .gitignore is not writable.  Skipped under centralized routing: the
+    # corpus belongs to the workspace repo, whose .gitignore is managed by
+    # init_workspace — the business repo must not gain ignore entries for
+    # paths outside itself.
+    if _centralized:
+        results["gitignore"] = "skipped: centralized routing (workspace corpus)"
+    else:
+        try:
+            from codewiki.mcp.tools.team_layout import (
+                ensure_gitignore_entries,
+                find_repo_root,
+            )
 
-        repo_root = find_repo_root(repo_path_p)
-        if repo_root is not None:
-            changed, added = ensure_gitignore_entries(repo_root, output_dir_p)
-            results["gitignore"] = {
-                "repo_root": str(repo_root),
-                "entries_added": added,
-                "status": "updated" if changed else "already-present",
-            }
-        else:
-            results["gitignore"] = "skipped: not a git repository"
-    except Exception as e:
-        results["gitignore"] = f"WARNING: failed to update .gitignore: {e}"
-        logger.warning("Failed to update .gitignore for team layout: %s", e)
+            repo_root = find_repo_root(repo_path_p)
+            if repo_root is not None:
+                changed, added = ensure_gitignore_entries(repo_root, output_dir_p)
+                results["gitignore"] = {
+                    "repo_root": str(repo_root),
+                    "entries_added": added,
+                    "status": "updated" if changed else "already-present",
+                }
+            else:
+                results["gitignore"] = "skipped: not a git repository"
+        except Exception as e:
+            results["gitignore"] = f"WARNING: failed to update .gitignore: {e}"
+            logger.warning("Failed to update .gitignore for team layout: %s", e)
 
     # ── Step 3: Write AGENTS.md ─────────────────────────────────────────
-    try:
-        from codewiki.mcp.tools.agents_md import write_agents_md
-
-        write_agents_md(
-            repo_path=str(repo_path_p),
-            output_dir=str(output_dir_p),
-            module_tree=None,
+    # Under centralized, business-repo AGENTS.md stays clean: the CodeWiki
+    # block was removed by add_workspace_repo (§7.2) and re-injecting it
+    # would point at a repowiki/ that must not exist.  The workspace root's
+    # AGENTS.md (written by init_workspace) carries the routing guidance.
+    if _centralized:
+        results["agents_md"] = (
+            "skipped: centralized business repo (workspace AGENTS.md governs routing)"
         )
-        agents_path = repo_path_p / "AGENTS.md"
-        results["agents_md"] = str(agents_path)
-        logger.info("Wrote AGENTS.md at %s", agents_path)
-    except Exception as e:
-        results["agents_md"] = f"WARNING: failed to write AGENTS.md: {e}"
-        logger.warning("Failed to write AGENTS.md: %s", e)
+    else:
+        try:
+            from codewiki.mcp.tools.agents_md import write_agents_md
+
+            write_agents_md(
+                repo_path=str(repo_path_p),
+                output_dir=str(output_dir_p),
+                module_tree=None,
+            )
+            agents_path = repo_path_p / "AGENTS.md"
+            results["agents_md"] = str(agents_path)
+            logger.info("Wrote AGENTS.md at %s", agents_path)
+        except Exception as e:
+            results["agents_md"] = f"WARNING: failed to write AGENTS.md: {e}"
+            logger.warning("Failed to write AGENTS.md: %s", e)
 
     results["status"] = "ok"
-    results["next_steps"] = (
-        "Wiki workspace initialized. Next: "
-        "1) Edit schema.yaml to set 'purpose' and adjust conventions; "
-        "2) Edit ontology.yaml to define project terms and aliases for search; "
-        "3) Optionally edit review_checklist.yaml to add team review rules "
-        "(merged into review_changes, same id overrides builtin); "
-        "4) Run analyze_repo to parse code and generate docs; "
-        "5) Or use ingest_note/query_wiki for knowledge management."
-    )
+    if _centralized:
+        results["layout"] = "centralized"
+        results["next_steps"] = (
+            "Business repo initialized into the centralized workspace corpus "
+            f"({output_dir_p}). The workspace's schema.yaml/ontology.yaml were "
+            "left untouched; no AGENTS.md block was injected into the business "
+            "repo. Next: run analyze_repo on this repo (modules route to "
+            "wiki/modules/<repo>/), or use ingest_note/query_wiki with "
+            "output_dir=<workspace repowiki> and repo=<name> filtering."
+        )
+    else:
+        results["next_steps"] = (
+            "Wiki workspace initialized. Next: "
+            "1) Edit schema.yaml to set 'purpose' and adjust conventions; "
+            "2) Edit ontology.yaml to define project terms and aliases for search; "
+            "3) Optionally edit review_checklist.yaml to add team review rules "
+            "(merged into review_changes, same id overrides builtin); "
+            "4) Run analyze_repo to parse code and generate docs; "
+            "5) Or use ingest_note/query_wiki for knowledge management."
+        )
     return json.dumps(results, ensure_ascii=False, indent=2)

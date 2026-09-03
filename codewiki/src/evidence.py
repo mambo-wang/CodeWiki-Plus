@@ -59,16 +59,32 @@ def parse_resource(resource: str) -> Optional[Tuple[str, int, int]]:
     return rel, start, end
 
 
-def make_entry(rel_path: str, start: int, end: int, content_hash: str) -> Dict[str, Any]:
+def make_entry(
+    rel_path: str,
+    start: int,
+    end: int,
+    content_hash: str,
+    repo: Optional[str] = None,
+) -> Dict[str, Any]:
     """Build an OKF ``sources`` evidence entry (idempotent key = resource).
 
     ``start <= 0`` denotes a whole-file resource (no ``#L`` range).
+
+    ``repo`` records WHICH repo the ``repo://`` path is relative to. It is
+    required for correctness in a centralized workspace, where several
+    business repos share one knowledge corpus: ``repo://src/x.py`` is
+    ambiguous unless the owning repo is named. Entries written before this
+    field existed simply omit it and fall back to candidate-root resolution.
     """
     if start <= 0:
         resource = f"repo://{rel_path}"
     else:
         resource = resource_for(rel_path, start, end)
-    return {"id": resource, "resource": resource, "content_hash": content_hash}
+    entry: Dict[str, Any] = {"id": resource, "resource": resource}
+    if repo:
+        entry["repo"] = repo
+    entry["content_hash"] = content_hash
+    return entry
 
 
 def hash_resource(resource: str, repo_root: Path) -> Optional[str]:
