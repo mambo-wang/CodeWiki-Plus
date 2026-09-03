@@ -231,9 +231,57 @@ def fold_private_metadata(frontmatter: Dict[str, Any]) -> Dict[str, Any]:
 _FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
 
 
+def _split_flow(inner: str) -> List[str]:
+    """Split a YAML flow collection body on top-level commas.
+
+    Respects nested ``[]``/``{}`` and quoted segments so
+    ``[a, [b, c], "d, e"]`` splits into three items.
+    """
+    parts: List[str] = []
+    buf: List[str] = []
+    depth = 0
+    quote: Optional[str] = None
+    for ch in inner:
+        if quote:
+            buf.append(ch)
+            if ch == quote:
+                quote = None
+            continue
+        if ch in "\"'":
+            quote = ch
+            buf.append(ch)
+        elif ch in "[{":
+            depth += 1
+            buf.append(ch)
+        elif ch in "]}":
+            depth -= 1
+            buf.append(ch)
+        elif ch == "," and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    if buf or parts:
+        parts.append("".join(buf))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _has_flow_noise(inner: str) -> bool:
+    """True when *inner* contains characters a plain YAML flow collection
+    cannot (unescaped newlines, or stray unbalanced brackets) — the decode
+    heuristics bail out and the value stays a string."""
+    return "\n" in inner or inner.count("[") != inner.count("]")
+
+
 def _decode_scalar(raw: str) -> Any:
     """Decode a frontmatter scalar: JSON forms become typed values, plain
-    text stays a string. Surrounding quotes always end up stripped."""
+    text stays a string. Surrounding quotes always end up stripped.
+
+    YAML flow collections with unquoted content (``tags: [a, b]``,
+    ``generated: { by: x, at: y }`` — common in hand-edited notes and in
+    everything written before the unified parser) decode to lists/dicts,
+    matching what the yaml-based readers they replaced used to produce.
+    """
     v = raw.strip()
     if not v:
         return ""
@@ -246,6 +294,18 @@ def _decode_scalar(raw: str) -> Any:
     if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
         inner = v[1:-1]
         return inner.replace("''", "'") if v[0] == "'" else inner
+    # Unquoted YAML flow sequence: [a, b, c] (json failed, so unquoted).
+    if v.startswith("[") and v.endswith("]") and not _has_flow_noise(v[1:-1]):
+        return [_decode_scalar(item) for item in _split_flow(v[1:-1])]
+    # Unquoted YAML flow mapping: { k: v, k2: v2 }.
+    if v.startswith("{") and v.endswith("}") and not _has_flow_noise(v[1:-1]):
+        out: Dict[str, Any] = {}
+        for part in _split_flow(v[1:-1]):
+            k, sep, val = part.partition(":")
+            if sep and k.strip():
+                out[k.strip()] = _decode_scalar(val)
+        if out:
+            return out
     return v
 
 
@@ -447,3 +507,62 @@ def format_frontmatter_value(value: Any) -> str:
                 return v
         return json.dumps(v, ensure_ascii=False)
     return json.dumps(value, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+# Write side — generic serializer (architecture review 2026-09, candidate #3)
+# ---------------------------------------------------------------------------
+
+def render_frontmatter(data: Dict[str, Any]) -> str:
+    """Serialize *data* into a fenced YAML frontmatter block.
+
+    The counterpart of :func:`parse_frontmatter` — together they carry the
+    round-trip invariant ``parse(render(x)) == x`` for every value shape the
+    wiki write paths produce:
+
+    - scalars: :func:`format_frontmatter_value` (plain when unambiguous,
+      JSON-encoded otherwise — ``null``/``42``/``true`` survive as typed);
+    - lists of scalars: inline JSON (``tags: ["a", "b"]``);
+    - mappings: nested 2-space blocks (``metadata:`` shape);
+    - lists of mappings: ``- key: value`` items with deeper continuation
+      lines (``verified:`` shape);
+    - anything else (or empty dict/list): inline JSON.
+
+    Hand-rolled string assembly in write paths should be replaced by this
+    function so the write side has exactly one serialization point.
+    """
+    lines: List[str] = []
+    for key, value in data.items():
+        _render_entry(lines, key, value, indent=0)
+    return "---\n" + "\n".join(lines) + "\n---\n"
+
+
+def _render_entry(lines: List[str], key: str, value: Any, indent: int) -> None:
+    pad = "  " * indent
+    k = str(key)
+    if isinstance(value, dict) and value:
+        lines.append(f"{pad}{k}:")
+        for sub_key, sub_val in value.items():
+            _render_entry(lines, sub_key, sub_val, indent + 1)
+    elif (
+        isinstance(value, list)
+        and value
+        and all(isinstance(v, dict) for v in value)
+        and all(v for v in value)
+    ):
+        # List of mappings — "- key: value" items (verified: shape).
+        lines.append(f"{pad}{k}:")
+        for item in value:
+            first = True
+            for sub_key, sub_val in item.items():
+                if first:
+                    lines.append(
+                        f"{pad}  - {sub_key}: {format_frontmatter_value(sub_val)}"
+                    )
+                    first = False
+                else:
+                    lines.append(
+                        f"{pad}    {sub_key}: {format_frontmatter_value(sub_val)}"
+                    )
+    else:
+        lines.append(f"{pad}{k}: {format_frontmatter_value(value)}")

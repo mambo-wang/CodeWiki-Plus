@@ -284,16 +284,16 @@ def _read_note(fp: Path):
 
 
 def _extract_fm(ct, key):
-    if not ct.startswith("---"):
-        return None
-    try:
-        end = ct.index("---", 3)
-        for line in ct[3:end].splitlines():
-            if line.startswith(f"{key}:"):
-                return line[len(key) + 1 :].strip().strip('"').strip("'")
-    except ValueError:
-        pass
-    return None
+    """Extract one top-level frontmatter value (title etc.).
+
+    Thin delegation to the frontmatter module's reader — json-encoded
+    scalars decode properly instead of the old quote-stripping heuristic.
+    """
+    from codewiki.src.frontmatter import parse_frontmatter
+
+    fm, _ = parse_frontmatter(ct)
+    v = fm.get(key)
+    return v if isinstance(v, str) and v else (str(v) if v else None)
 
 
 # Strip markdown links from H1 titles: "[JwtUtil](../src/JwtUtil.java)" -> "JwtUtil"

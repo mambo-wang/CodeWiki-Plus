@@ -45,6 +45,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 # V4: single source of truth is the note_types declaration table
 # (codewiki/mcp/tools/note_types.py) — the registry inputSchema enum and
 # knowledge_loop promotion routing derive from the same table.
+from codewiki.src.frontmatter import parse_frontmatter
 from codewiki.mcp.tools.note_types import valid_note_types as _nt_valid
 
 logger = logging.getLogger(__name__)
@@ -338,32 +339,30 @@ def _iter_raw_files(raw_dir: Path) -> List[Path]:
 # Frontmatter parsing helpers
 # --------------------------------------------------------------------------- #
 def _parse_frontmatter(path: Path) -> Dict[str, str]:
+    """Read a page's frontmatter as a flat str->str mapping.
+
+    Thin delegation to the frontmatter module's reader (architecture review
+    2026-09, candidate #3): values are properly decoded there (json-encoded
+    scalars lose their quotes, so ``task_id: "foo"`` never leaks a literal
+    quote into routing keys — the bug ``_unquote_fm`` used to patch around).
+    Non-string values (lists, dicts) are stringified for this flat view;
+    callers that need structure should use ``parse_frontmatter`` directly.
+    """
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return {}
-    if not text.startswith("---"):
-        return {}
-    end = text.find("\n---", 3)
-    if end == -1:
-        return {}
-    block = text[3:end]
-    meta: Dict[str, str] = {}
-    for line in block.splitlines():
-        if ":" in line:
-            k, v = line.split(":", 1)
-            meta[k.strip()] = v.strip()
-    return meta
+    fm, _ = parse_frontmatter(text)
+    return {
+        k: v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+        for k, v in fm.items()
+    }
 
 
 def _unquote_fm(value: str) -> str:
-    """Strip JSON string quoting from a line-parsed frontmatter value.
-
-    ``inject_okf_frontmatter`` writes ``top_level_extra`` values via
-    ``json.dumps`` (e.g. ``task_id: "foo"``). The simple line parser in
-    ``_parse_frontmatter`` keeps those quotes, so a value of ``"foo"`` would
-    otherwise leak into routing keys and break task lookups.
-    """
+    """Kept for compatibility: values from ``_parse_frontmatter`` are already
+    unquoted (json-decoded in the reader). Strips only stray wrapping quotes
+    from values that predate the unified parser."""
     v = (value or "").strip()
     if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
         try:
@@ -484,6 +483,7 @@ def _merge_source_into_note(
     # (locked_rmw) — a read outside the lock could lose a concurrent
     # distillation's source_conversations entry.
     from codewiki.src.store import locked_rmw
+    from codewiki.src.frontmatter import parse_frontmatter
 
     def _merge(text: str):
         if not text.startswith("---"):
