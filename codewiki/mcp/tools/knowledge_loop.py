@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from codewiki.mcp.session import SessionStore
-from codewiki.mcp.cache import _STOPWORDS
+from codewiki.src.retrieval import STOPWORDS as _STOPWORDS
 from codewiki.src.frontmatter import parse_frontmatter
 from codewiki.mcp.tools.injection_budget import estimate_tokens
 
@@ -1821,7 +1821,7 @@ def _query_mode_by_file(
     q_tokens: List[str] = []
     if query:
         try:
-            from codewiki.mcp.cache import _tokenize
+            from codewiki.src.retrieval import tokenize as _tokenize
 
             q_tokens = _tokenize(query) or [query]
         except Exception:
