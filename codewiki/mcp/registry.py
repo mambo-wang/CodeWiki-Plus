@@ -1049,7 +1049,20 @@ _register(
                 },
                 "query": {
                     "type": "string",
-                    "description": "Search query in natural language",
+                    "description": "Search query in natural language (required unless by_file is given)",
+                },
+                "by_file": {
+                    "type": "string",
+                    "description": (
+                        "File-scoped knowledge timeline: pass a target source file "
+                        "path (repo-root relative or absolute) to list the ingested "
+                        "notes (decisions/lessons) attached to it — titles + "
+                        "est_tokens + status + possibly_stale only, no bodies, "
+                        "sorted by specificity. Check it BEFORE reading or editing "
+                        "a file to surface prior knowledge. Optional query=<keyword> "
+                        "hard-filters within that file's knowledge. Notes only; "
+                        "mode= params take precedence over by_file."
+                    ),
                 },
                 "scope": {
                     "type": "string",
@@ -1159,7 +1172,10 @@ _register(
                     "description": "Optional task id to filter notes by (note-scoped; docs/sources are unaffected). Never validates task existence.",
                 },
             },
-            "required": ["query"],
+            # P0-2 (claude-mem borrowing): query is no longer MCP-level
+            # required — by_file alone is a valid invocation. The handler
+            # keeps its own "query is required (or pass by_file)" check.
+            "required": [],
         },
     ),
     handler_path="codewiki.mcp.tools.knowledge_loop:handle_query_wiki",
