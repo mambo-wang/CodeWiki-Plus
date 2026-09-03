@@ -750,6 +750,11 @@ def _stamp_metadata_field(text: str, key: str, value: str) -> str | None:
     Returns the new text, or None when unchanged.  Preserves the existing
     metadata block line-by-line; creates one when absent.  Used with
     ``_locked_transform`` so the stamp is a locked read-modify-write.
+
+    The new line is inserted INSIDE the ``metadata:`` block (after its last
+    child line), never appended to the end of the frontmatter — the block
+    is typically followed by top-level keys (title/status/stale_after), and
+    a dangling indented line there breaks YAML parsing of the whole page.
     """
     import re
 
@@ -760,15 +765,35 @@ def _stamp_metadata_field(text: str, key: str, value: str) -> str | None:
         return None
     block = text[3:end]
     new_value = f"{key}: {value}"
-    if re.search(rf"^  {re.escape(key)}:", block, re.MULTILINE):
-        new_block = re.sub(rf"^  {re.escape(key)}:.*$", f"  {new_value}", block, flags=re.MULTILINE)
-    elif re.search(r"^metadata:", block, re.MULTILINE):
-        new_block = block.rstrip("\n") + f"\n  {new_value}\n"
-    else:
-        new_block = block.rstrip("\n") + f"\nmetadata:\n  {new_value}\n"
-    if new_block == block:
-        return None
-    return "---" + new_block + text[end:]
+    lines = block.split("\n")
+
+    # Existing key inside the metadata block → replace in place.
+    for i, ln in enumerate(lines):
+        m = re.match(rf"^  ({re.escape(key)}):.*$", ln)
+        if m:
+            lines[i] = f"  {new_value}"
+            new_block = "\n".join(lines)
+            if new_block == block:
+                return None
+            return "---" + new_block + text[end:]
+
+    # metadata: block exists → insert after its last child line (the last
+    # line starting with two spaces following the ``metadata:`` header).
+    for i, ln in enumerate(lines):
+        if re.match(r"^metadata:\s*$", ln):
+            j = i + 1
+            while j < len(lines) and (lines[j].startswith("  ") or lines[j].strip() == ""):
+                j += 1
+            # walk back over trailing blank lines inside the block
+            while j > i + 1 and lines[j - 1].strip() == "":
+                j -= 1
+            lines.insert(j, f"  {new_value}")
+            return "---" + "\n".join(lines) + text[end:]
+
+    # No metadata block → create one right after the opening line.
+    lines.insert(0, "metadata:")
+    lines.insert(1, f"  {new_value}")
+    return "---" + "\n".join(lines) + text[end:]
 
 
 def _save_history(output_dir: str, doc_path: Path, content: str) -> None:
