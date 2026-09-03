@@ -18,6 +18,11 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from codewiki.src.be.dependency_analyzer.models.core import Node
 
+# P0-1 (claude-mem borrowing): est_tokens = ceil(len/4)-style cost hint.
+# Imported at module level — injection_budget has no codewiki.mcp imports,
+# so no cycle.
+from codewiki.mcp.tools.injection_budget import estimate_tokens as _estimate_tokens
+
 logger = logging.getLogger(__name__)
 _DB_FILENAME = "analysis_cache.db"
 _CACHE_DIR = ".codewiki"
@@ -1900,6 +1905,7 @@ class AnalysisCache:
         expand_terms: Optional[List[str]] = None,
         apply_authority: bool = True,
         apply_usage: bool = True,
+        chars_per_token: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """BM25 search with authority and usage-heat weighting.
 
@@ -1908,6 +1914,10 @@ class AnalysisCache:
         (e.g. distill dedup recall) where review status or retrieval
         popularity must not influence duplicate detection.  Result entries
         still carry the ``authority`` / ``usage`` fields for transparency.
+
+        ``chars_per_token`` (P0-1): when an int, every entry (BM25 hits and
+        hop-expansion entries alike) gains ``est_tokens`` = ceil(len(full
+        text) / chars_per_token). None = legacy (no field).
         """
         c = self.conn
         r = c.execute("SELECT value FROM search_stats WHERE key='total_docs'").fetchone()
@@ -2048,12 +2058,14 @@ class AnalysisCache:
                 "SELECT title, source FROM search_index WHERE doc_key=?", (dk,)
             ).fetchone()
             snippet = ""
+            raw_len = 0
             if output_dir is not None:
                 fpath = Path(output_dir) / dk
                 if fpath.exists():
                     try:
                         raw = fpath.read_text(encoding="utf-8", errors="replace")
                         snippet = _extract_snippet(raw, qts)[:300]
+                        raw_len = len(raw)
                     except OSError:
                         pass
             u_hits, u_last, u_adopted = usage_map.get(dk, (0, None, 0))
@@ -2071,6 +2083,9 @@ class AnalysisCache:
                     "adopted_count": u_adopted,
                 },
             }
+            # P0-1: full text already read for the snippet — reuse its length.
+            if chars_per_token and raw_len:
+                entry["est_tokens"] = _estimate_tokens(raw_len, chars_per_token)
             # Attach related pages from link graph
             related = self.get_related_pages(dk, limit=5)
             if related:
@@ -2094,12 +2109,14 @@ class AnalysisCache:
                 if not include_notes and doc_row["source"] == "note":
                     continue
                 snippet = ""
+                ex_raw_len = 0
                 if output_dir is not None:
                     fpath = Path(output_dir) / ex["file"]
                     if fpath.exists():
                         try:
                             raw = fpath.read_text(encoding="utf-8", errors="replace")
                             snippet = _extract_snippet(raw, qts)[:300]
+                            ex_raw_len = len(raw)
                         except OSError:
                             pass
                 ex_auth = float(doc_row["authority"] or 1.0) if apply_authority else 1.0
@@ -2110,8 +2127,7 @@ class AnalysisCache:
                     if heat_on
                     else 1.0
                 )
-                results.append(
-                    {
+                ex_entry = {
                         "file": ex["file"],
                         "title": doc_row["title"],
                         "source": doc_row["source"],
@@ -2125,8 +2141,12 @@ class AnalysisCache:
                         },
                         "hop": ex["hop"],
                         "via": ex["via"],
-                    }
-                )
+                }
+                # P0-1: hop entries carry est_tokens too — callers must never
+                # face a KeyError just because a result arrived via the graph.
+                if chars_per_token and ex_raw_len:
+                    ex_entry["est_tokens"] = _estimate_tokens(ex_raw_len, chars_per_token)
+                results.append(ex_entry)
                 existing_keys.add(ex["file"])
 
         return results

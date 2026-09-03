@@ -20,6 +20,7 @@ docs/OpenViking借鉴全景路线图.md V2：AGENTS.md 约定段与 query_wiki �
 from __future__ import annotations
 
 import logging
+import math
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -29,6 +30,14 @@ logger = logging.getLogger(__name__)
 _DEFAULT_BUDGET = {
     "search_result_chars": 1200,
     "agents_md_module_lines": 30,
+}
+
+# P0-1 (claude-mem borrowing): retrieval-cost visibility defaults. est_tokens
+# = ceil(chars / chars_per_token) — a decision hint, never billing precision.
+_DEFAULT_RETRIEVAL_COST = {
+    "enabled": 1,  # truthy int so a missing schema yields legacy-off-safe config
+    "chars_per_token": 4,
+    "expand_hint": 1,
 }
 
 _DESC_RE = re.compile(r'^description:\s*["\']?(.+?)["\']?\s*$', re.MULTILINE)
@@ -47,6 +56,47 @@ def load_budget(schema: Optional[dict]) -> Dict[str, int]:
             except (TypeError, ValueError):
                 continue
     return cfg
+
+
+def load_retrieval_cost(schema: Optional[dict]) -> Dict[str, Any]:
+    """Resolve retrieval-cost config (defaults → schema overrides).
+
+    P0-1（claude-mem 借鉴）: ``conventions.retrieval_cost`` —
+    ``enabled`` false = legacy (no est_tokens field), ``chars_per_token``
+    is the len()/token divisor, ``expand_hint`` false = no cost_hint.
+    Boolean-ish values are coerced via bool().
+    """
+    cfg: Dict[str, Any] = {
+        "enabled": bool(_DEFAULT_RETRIEVAL_COST["enabled"]),
+        "chars_per_token": int(_DEFAULT_RETRIEVAL_COST["chars_per_token"]),
+        "expand_hint": bool(_DEFAULT_RETRIEVAL_COST["expand_hint"]),
+    }
+    conv = (schema or {}).get("conventions") or {}
+    raw = conv.get("retrieval_cost")
+    if isinstance(raw, dict):
+        if raw.get("enabled") is not None:
+            cfg["enabled"] = bool(raw.get("enabled"))
+        if raw.get("expand_hint") is not None:
+            cfg["expand_hint"] = bool(raw.get("expand_hint"))
+        try:
+            cpt = int(raw.get("chars_per_token") or 0)
+            if cpt > 0:
+                cfg["chars_per_token"] = cpt
+        except (TypeError, ValueError):
+            pass
+    return cfg
+
+
+def estimate_tokens(char_count: int, chars_per_token: int = 4) -> int:
+    """Approximate LLM token count from character count (P0-1).
+
+    Calibrated for the mixed zh/en corpus this project targets: zh ~1.5
+    tokens/char in real tokenizers, en ~0.25 — /4 sits close enough for a
+    *decision hint* and is never used for billing or hard truncation.
+    """
+    if char_count <= 0:
+        return 0
+    return max(1, math.ceil(char_count / chars_per_token))
 
 
 def _doc_description(path: Path) -> str:
