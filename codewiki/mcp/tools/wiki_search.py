@@ -17,17 +17,17 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 
-from codewiki.mcp.cache import (
-    _K1,
-    _B,
-    _build_indexable_text,
-    _tokenize,
-    _extract_snippet,
-    _load_ontology,
-    _expand_with_ontology,
-    _doc_authority,
+from codewiki.src.retrieval import (
+    B as _B,
+    K1 as _K1,
+    build_indexable_text as _build_indexable_text,
+    tokenize as _tokenize,
+    extract_snippet as _extract_snippet,
+    load_ontology as _load_ontology,
+    expand_with_ontology as _expand_with_ontology,
+    doc_authority as _doc_authority,
     compute_usage_heat,
-    _usage_context,
+    usage_context as _usage_context,
 )
 from codewiki.mcp.tools.injection_budget import estimate_tokens
 
