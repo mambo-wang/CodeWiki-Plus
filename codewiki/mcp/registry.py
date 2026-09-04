@@ -20,6 +20,8 @@ import dataclasses
 import importlib
 import json
 import logging
+import os
+from pathlib import Path
 from typing import Any
 
 from mcp.types import TextContent, Tool
@@ -1058,6 +1060,14 @@ _register(
                     "type": "string",
                     "description": "Output directory for wiki pages",
                 },
+                "repo_path": {
+                    "type": "string",
+                    "description": (
+                        "Repository root used to locate the knowledge base when output_dir "
+                        "is absent (derives <repo_path>/repowiki; layout-aware in "
+                        "centralized workspaces). Pass repo_path OR output_dir."
+                    ),
+                },
                 "query": {
                     "type": "string",
                     "description": "Search query in natural language (required unless by_file is given)",
@@ -1351,6 +1361,11 @@ _register(
             "Import a third-party document (PDF, MD, DOCX, HTML) into the "
             "knowledge base. The file is stored in raw/sources/ and registered "
             "in source_registry.json for tracking and search indexing. "
+            "Name conflicts: if the requested 'name' is already registered to a "
+            "DIFFERENT file (different content), the tool returns status='conflict' "
+            "and stores nothing — ask the user how to proceed. Re-run with "
+            "overwrite=true only AFTER the user agrees to replace the existing "
+            "document (the old raw file is moved to .trash). "
             "IMPORTANT: This tool only stores and indexes the document. To extract "
             "structured knowledge (entities, concepts) from it, follow this workflow: "
             "1) Call get_prompt(prompt_type='extraction_scan') for extraction guidance. "
@@ -1379,6 +1394,14 @@ _register(
                 "name": {
                     "type": "string",
                     "description": "Identifier for this source (default: filename stem)",
+                },
+                "overwrite": {
+                    "type": "boolean",
+                    "description": (
+                        "Set to true ONLY after user consent to replace an existing "
+                        "source that already uses this name with different content. "
+                        "The previously registered raw file is moved to .trash."
+                    ),
                 },
                 "source_type": {
                     "type": "string",
@@ -1801,6 +1824,14 @@ _register(
                 "output_dir": {
                     "type": "string",
                     "description": "Output directory for wiki pages",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": (
+                        "Repository root used to derive the output directory when "
+                        "output_dir is absent (repo_path/repowiki). "
+                        "Pass repo_path OR output_dir."
+                    ),
                 },
                 "items": {
                     "type": "array",
@@ -2694,6 +2725,43 @@ _register(
 )
 
 
+# -------------------------------------------------------------------
+#  Schema-level target-anchor guard (A: anyOf output_dir | repo_path)
+# -------------------------------------------------------------------
+# Knowledge-base tools expose output_dir and repo_path as ALTERNATIVE target
+# anchors — neither is required by the business payload alone, yet at least
+# one must be present for the call to resolve. Post-processing every
+# registered schema here (single point, Doctrine) makes one of them
+# explicitly required at the schema level, so clients/LLMs see the contract
+# instead of discovering it from a runtime error. Explicit anchor >
+# derivable > session cache: tools that already require either path are
+# skipped; session_id stays out of anyOf (explicit paths beat stale
+# sessions, per Doctrine).
+
+
+def _apply_target_anchor_anyof() -> None:
+    for td in REGISTRY.values():
+        schema = td.schema.inputSchema
+        if not isinstance(schema, dict):
+            continue
+        props = schema.get("properties")
+        if not isinstance(props, dict):
+            continue
+        if "output_dir" not in props or "repo_path" not in props:
+            continue
+        required = set(schema.get("required") or [])
+        if "output_dir" in required or "repo_path" in required:
+            continue
+        if "anyOf" not in schema:
+            schema["anyOf"] = [
+                {"required": ["output_dir"]},
+                {"required": ["repo_path"]},
+            ]
+
+
+_apply_target_anchor_anyof()
+
+
 # ===================================================================
 #  Public API
 # ===================================================================
@@ -2821,6 +2889,37 @@ async def _try_cbm_enrichment(
     return result
 
 
+# -------------------------------------------------------------------
+#  Last-resort repo_path default (B): server start CWD
+# -------------------------------------------------------------------
+# MCP stdio processes are launched with the host's project/workspace root as
+# the CWD. When a knowledge-base call omits BOTH output_dir and repo_path,
+# injecting repo_path=<server start CWD> lets resolution proceed through the
+# normal layout-aware path instead of failing with "output_dir or repo_path
+# is required". Explicit arguments are never overwritten; the injected
+# default only fills complete absence and never outranks session/output_dir
+# downstream (resolution order stays session > output_dir > repo_path).
+try:
+    _SERVER_START_CWD = os.getcwd()
+except Exception:  # pragma: no cover - cwd always readable in practice
+    _SERVER_START_CWD = None
+
+
+def _inject_repo_path_default(arguments: dict[str, Any]) -> None:
+    """Fill ``repo_path`` from the server start CWD when the call has no
+    explicit target anchor (output_dir/repo_path). In place; no-op otherwise."""
+    if _SERVER_START_CWD is None:
+        return
+    if arguments.get("output_dir") or arguments.get("repo_path"):
+        return
+    try:
+        if not Path(_SERVER_START_CWD).is_dir():
+            return
+    except OSError:
+        return
+    arguments["repo_path"] = _SERVER_START_CWD
+
+
 async def dispatch(name: str, arguments: dict[str, Any], store: Any) -> list[TextContent]:
     """Look up a tool by name, dynamically import its handler, and invoke it.
 
@@ -2837,6 +2936,9 @@ async def dispatch(name: str, arguments: dict[str, Any], store: Any) -> list[Tex
         matching the behavior of the original call_tool in server.py.
     """
     try:
+        # B: fallback target anchor for calls that omit output_dir/repo_path
+        _inject_repo_path_default(arguments)
+
         tool_def = REGISTRY.get(name)
         if tool_def is None:
             return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
@@ -2891,4 +2993,25 @@ async def dispatch(name: str, arguments: dict[str, Any], store: Any) -> list[Tex
 
     except Exception as e:
         logger.error("Tool %s failed: %s", name, e, exc_info=True)
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
+        msg = str(e)
+        if isinstance(e, ValueError) and ("output_dir" in msg or "repo_path" in msg):
+            # C: actionable error — tell the caller exactly how to fix the call
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "error": msg,
+                            "fix": (
+                                "Retry with repo_path=<repo root> or "
+                                "output_dir=<repowiki directory> to locate the "
+                                "knowledge base. Passing either explicitly is "
+                                "preferred; the server only falls back to its "
+                                "start directory when both are absent."
+                            ),
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            ]
+        return [TextContent(type="text", text=json.dumps({"error": msg}, ensure_ascii=False))]
