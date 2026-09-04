@@ -1020,7 +1020,7 @@ _register(
             "required": ["title", "content"],
         },
     ),
-    handler_path="codewiki.mcp.tools.knowledge_loop:handle_ingest_note",
+    handler_path="codewiki.mcp.tools.note_ingest:handle_ingest_note",
     mode="thread",
 )
 
@@ -1193,7 +1193,7 @@ _register(
             "required": [],
         },
     ),
-    handler_path="codewiki.mcp.tools.knowledge_loop:handle_query_wiki",
+    handler_path="codewiki.mcp.tools.note_query:handle_query_wiki",
     mode="thread",
 )
 
@@ -1236,7 +1236,7 @@ _register(
             "required": ["note_file"],
         },
     ),
-    handler_path="codewiki.mcp.tools.knowledge_loop:handle_confirm_note",
+    handler_path="codewiki.mcp.tools.note_lifecycle:handle_confirm_note",
     mode="thread",
 )
 
@@ -1300,7 +1300,7 @@ _register(
             "required": ["repo_path"],
         },
     ),
-    handler_path="codewiki.mcp.tools.knowledge_loop:handle_batch_set_status",
+    handler_path="codewiki.mcp.tools.note_lifecycle:handle_batch_set_status",
     mode="thread",
 )
 
@@ -1336,7 +1336,7 @@ _register(
             "required": ["note_file"],
         },
     ),
-    handler_path="codewiki.mcp.tools.knowledge_loop:handle_reject_note",
+    handler_path="codewiki.mcp.tools.note_lifecycle:handle_reject_note",
     mode="thread",
 )
 
@@ -2393,7 +2393,7 @@ _register(
             "required": [],
         },
     ),
-    handler_path="codewiki.mcp.tools.knowledge_loop:handle_wiki_stats",
+    handler_path="codewiki.mcp.tools.wiki_stats:handle_wiki_stats",
     mode="thread",
     takes_store=True,
 )
