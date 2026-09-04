@@ -99,10 +99,16 @@ DEFAULT_IGNORE_PATTERNS = {
     "env",
     ".env",
     "virtualenv",
+    # Agent/CLI temp workspaces: hold vendored plugin/skill copies (often whole
+    # third-party repos, e.g. .caveman-tmp pulling in ~500 Go files).  They are
+    # never project source and dominate parse time when scanned.
+    ".caveman-tmp",
     # IDEs and editors
     ".idea",
     ".vscode",
     ".vs",
+    ".qoder",
+    ".workbuddy",
     "*.swo",
     "*.swn",
     "*.sublime-*",

@@ -9,9 +9,10 @@ block the primary operation.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Tuple
 
 from codewiki.src.locks import file_lock
@@ -413,6 +414,38 @@ _PAGE_TYPE_LABELS = {
     "scenario": "场景方法",
 }
 
+# Markdown inline links: [label](target)
+_INLINE_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
+
+
+def _relocate_summary_links(summary: str, relpath: str) -> str:
+    """Re-base relative links inside *summary* so they resolve from index.md.
+
+    A page's frontmatter ``description`` is authored relative to that page's
+    own directory — e.g. ``[Foo](Foo.md)`` inside ``wiki/modules/``.  Index
+    bullets live in ``wiki/index.md`` (one level up), so such links must gain
+    the page's directory prefix to stay resolvable, otherwise ``lint_wiki``
+    reports them as ``stale_refs``/broken links.
+
+    Only bare filenames are rewritten: URLs, anchors, absolute paths and
+    already-qualified relative paths are left untouched.
+    """
+    base = str(PurePosixPath(relpath.replace("\\", "/")).parent)
+    if base in ("", "."):
+        return summary
+
+    def _fix(match: "re.Match[str]") -> str:
+        target = match.group(2)
+        if (
+            target.startswith(("/", "#", "mailto:"))
+            or "://" in target
+            or "/" in target
+        ):
+            return match.group(0)
+        return f"[{match.group(1)}]({base}/{target})"
+
+    return _INLINE_LINK_RE.sub(_fix, summary)
+
 
 def _render_index(
     type_entries: Dict[str, List[Dict[str, str]]],
@@ -463,7 +496,10 @@ def _render_index(
         parts.append(f"## {label}")
         parts.append("")
         for entry in entries:
-            parts.append(f"* [{entry['title']}]({entry['relpath']}) - {entry['summary']}")
+            parts.append(
+                f"* [{entry['title']}]({entry['relpath']}) - "
+                f"{_relocate_summary_links(entry['summary'], entry['relpath'])}"
+            )
         parts.append("")
 
     # Notes section
