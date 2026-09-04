@@ -1,0 +1,23 @@
+{
+  "name": "distill-backfill",
+  "mainConversationId": "31582129a47a43c4bb3d69f6c74aeca0",
+  "workspacePath": "d:/repos/CodeWiki-CN",
+  "createdAt": "2026-09-04T05:58:30.032Z",
+  "options": {
+    "workspacePath": "d:/repos/CodeWiki-CN"
+  },
+  "members": [
+    {
+      "memberId": "distill-he2@distill-backfill",
+      "name": "distill-he2",
+      "role": "补蒸馏他山之石积压",
+      "sessionId": "7e6f083993734e8ea891a6935f1ce8b7"
+    },
+    {
+      "memberId": "hook-probe@distill-backfill",
+      "name": "hook-probe",
+      "role": "调查 CodeWiki hook/注入设施",
+      "sessionId": "d7e74f690c1b452a94ef174bc494f967"
+    }
+  ]
+}
