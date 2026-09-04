@@ -25,7 +25,8 @@ repowiki/.meta/overview_refs.json
 repowiki/.meta/aggregate_state.json
 repowiki/.meta/source_registry.json
 repowiki/.meta/task_bindings/
+repowiki/.meta/locks/
 repowiki/tasks/.index.json
 repowiki/distill-jobs.json
-# KnowledgeStore sidecar 锁文件（锁在目标旁，不入库）
+# KnowledgeStore 锁文件（集中存放于 .meta/locks/；*.lck 兜底兼容旧版散落 sidecar）
 *.lck

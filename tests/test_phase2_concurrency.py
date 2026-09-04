@@ -206,6 +206,65 @@ def test_locked_rmw_across_processes(tmp_path):
     assert target.read_text(encoding="utf-8") == "30"
 
 
+# --------------------------------------------------------------------------- #
+# Lock relocation: locks centralised under <wiki-root>/.meta/locks/
+# --------------------------------------------------------------------------- #
+
+
+def test_locked_uses_central_locks_dir(tmp_path):
+    """Lock files land in ``.meta/locks/`` (one per resolved target), never
+    beside the wiki content they protect — the content tree stays clean."""
+    (tmp_path / ".meta").mkdir()  # marks the wiki root
+    target = tmp_path / "notes" / "a.md"
+    locked_write(target, "v1")
+    locks = list((tmp_path / ".meta" / "locks").glob("*.lck"))
+    assert len(locks) == 1
+    assert not (target.parent / "a.md.lck").exists()
+    # deterministic mapping: re-acquiring yields the same lock file
+    with locked(target):
+        pass
+    assert list((tmp_path / ".meta" / "locks").glob("*.lck")) == locks
+
+
+def test_locked_falls_back_to_sidecar_without_meta(tmp_path):
+    """No ``.meta`` ancestor → legacy co-located ``<name>.lck`` sidecar:
+    lock placement must never fail closed."""
+    target = tmp_path / "notes" / "b.md"
+    locked_write(target, "v1")
+    assert (target.parent / "b.md.lck").exists()
+
+
+def test_locked_rmw_across_processes_central_locks(tmp_path):
+    """Same cross-process guarantee with the relocated lock files: two real
+    subprocesses, one counter, zero lost updates, one lock file."""
+    import os
+    import subprocess
+    import sys
+
+    (tmp_path / ".meta").mkdir()
+    target = tmp_path / "counter.txt"
+    target.write_text("0", encoding="utf-8")
+    env = dict(os.environ)
+    repo_root = Path(__file__).resolve().parents[1]
+    env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
+    env["PYTHONIOENCODING"] = "utf-8"
+
+    procs = [
+        subprocess.Popen(
+            [sys.executable, "-c", _SUBPROC_WORKER, str(target), "15"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+        for _ in range(2)
+    ]
+    outs = [p.communicate(timeout=60) for p in procs]
+    for p, (out, err) in zip(procs, outs):
+        assert p.returncode == 0, err.decode("utf-8", "replace")
+    assert target.read_text(encoding="utf-8") == "30"
+    assert len(list((tmp_path / ".meta" / "locks").glob("*.lck"))) == 1
+
+
 def test_append_log_concurrent_same_day(tmp_path):
     """Concurrent append_log calls on one day: exactly one ``##`` section
     header, every entry present (no interleave, no lost entry)."""
