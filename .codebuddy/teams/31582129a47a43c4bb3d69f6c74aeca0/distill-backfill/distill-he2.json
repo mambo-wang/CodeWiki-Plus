@@ -1,0 +1,11 @@
+[
+  {
+    "id": "shutdown-1788501682764",
+    "from": "team-lead",
+    "to": "distill-he2",
+    "type": "shutdown_request",
+    "content": "{\"type\":\"shutdown_request\",\"request_id\":\"shutdown-1788501682764\",\"reason\":\"补蒸馏汇报已收到，使命完成，感谢。另确认：你提到「2 条 caveman architecture 笔记已 stable」与用户实际决定有出入——用户此前已拒绝其中 1 条（caveman 生效机制）并 reject_note 标记 deprecated，另 1 条（hook 工程化防御）保留待定。请勿在后续输出中把已拒绝笔记当作生效知识引用。可关闭。\",\"from\":\"team-lead\",\"timestamp\":\"2026-09-04T06:01:22.764Z\"}",
+    "timestamp": "2026-09-04T06:01:22.764Z",
+    "read": true
+  }
+]
