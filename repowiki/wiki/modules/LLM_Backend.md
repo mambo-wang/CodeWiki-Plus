@@ -20,6 +20,13 @@ status: stable
 verified:
 - by: human:wangbao
   at: '2026-08-25T16:48:17Z'
+sources:
+- id: repo://codewiki/src/be/agent_tools/str_replace_editor.py#L407-L513
+  resource: repo://codewiki/src/be/agent_tools/str_replace_editor.py#L407-L513
+  content_hash: sha256:a83e185422a018103e4156d0b21571241d9a0ae4d2a967d7dadb69b5225ab8dd
+- id: repo://codewiki/src/be/agent_tools/str_replace_editor.py#L700-L805
+  resource: repo://codewiki/src/be/agent_tools/str_replace_editor.py#L700-L805
+  content_hash: sha256:911592cff327c7ba43ebcb9de62dc57f764f518d8b3520f430495ec3b5d15059
 ---
 
 # LLM_Backend 模块文档
@@ -51,6 +58,7 @@ verified:
 | DocumentationGenerator / ModuleMetadata / create_documentation_metadata / generate_overview / generate_module_documentation / check_module_exists | class/func | documentation_generator.py | **核心**：驱动整条文档生成流水线 |
 | create_documentation_metadata / extract_repo_name / file_manager / load_json / load_text / meta_join / meta_resolve / safe_join / save_json / save_text | func | file_manager.py | 文件系统与 `.meta` 路径解析 |
 | BackendConfig / from_cli / from_cli_args / from_dict | class/func | config_adapter.py | 配置适配：CLI 参数/字典 → BackendConfig |
+| EditTool（insert / _get_display_path 等） | class | agent_tools/str_replace_editor.py | 供 LLM 直接编辑工作区文件的确定性工具集（查看/字符串替换/插入/建文件），写前校验与展示路径规范化 |
 
 ## 关键设计
 
@@ -77,6 +85,9 @@ verified:
 
 ### 文件与 meta（file_manager.py）
 `file_manager` 是单例，提供 `save_text`/`load_text`/`save_json`/`load_json`；`meta_resolve`/`meta_join`/`safe_join` 统一解析 `<output>/.meta/` 下的元数据路径，`extract_repo_name` 从 git URL 推导仓库名，`create_documentation_metadata` 创建文档级元数据。
+
+### Agent 文件编辑工具（agent_tools/str_replace_editor.py）
+`EditTool` 是注册给 LLM 后端的确定性文件编辑能力（被 pydantic_ai_backend / caw_toolkit 装配），提供查看、字符串替换、行插入与建文件等原子操作；`_get_display_path` 把目标路径规整为工作区相对的展示形式，写操作前对路径与偏移做校验，使模型对源码的改动可控、可预期。与 `documentation_generator` 的生成式输出不同，它面向「Agent 直接在仓库内迭代文件」。
 
 ## 数据流（mermaid）
 ```mermaid

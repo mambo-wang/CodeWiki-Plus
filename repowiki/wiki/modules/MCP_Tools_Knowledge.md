@@ -20,6 +20,28 @@ status: stable
 verified:
 - by: human:wangbao
   at: '2026-08-25T16:48:19Z'
+sources:
+- id: repo://codewiki/mcp/tools/task_manager.py#L87-L110
+  resource: repo://codewiki/mcp/tools/task_manager.py#L87-L110
+  content_hash: sha256:af2b8ecd5393c303553a4e605752b04fa718992dced47c09500f80d6cb8709d9
+- id: repo://codewiki/mcp/tools/note_query.py#L118-L150
+  resource: repo://codewiki/mcp/tools/note_query.py#L118-L150
+  content_hash: sha256:4e4d584abb75839e2f6551ca8f7fcfd3bc3b5605c1aa959c13321f8652673c22
+- id: repo://codewiki/mcp/tools/note_writer.py#L36-L70
+  resource: repo://codewiki/mcp/tools/note_writer.py#L36-L70
+  content_hash: sha256:33c885523cc9aa526df1238fe5a264128cb8ea3482a94b8ae1ff94d471329986
+- id: repo://codewiki/mcp/tools/note_types.py#L93-L130
+  resource: repo://codewiki/mcp/tools/note_types.py#L93-L130
+  content_hash: sha256:9499d922e51fd20f72228bc259386b5043f097901dfb60995dd580160b7a16bd
+- id: repo://codewiki/mcp/tools/note_consolidation.py#L231-L270
+  resource: repo://codewiki/mcp/tools/note_consolidation.py#L231-L270
+  content_hash: sha256:b0c89f0634d1727f9e45e86324f1e0f5830c7a4149cefb6768eff835755be58e
+- id: repo://codewiki/mcp/tools/distill_conversation.py#L341-L399
+  resource: repo://codewiki/mcp/tools/distill_conversation.py#L341-L399
+  content_hash: sha256:cb66ba5412ba9f86aed92fcea5c1e509e57b5d5487e4b98f41563be3248062fa
+- id: repo://codewiki/mcp/tools/hook_registry.py#L31-L71
+  resource: repo://codewiki/mcp/tools/hook_registry.py#L31-L71
+  content_hash: sha256:ad0ab76fd97983b71d5c74fd62578bbe8bac67bac67ab6d8e1a7d32712edada0
 ---
 
 # MCP_Tools_Knowledge 模块文档
@@ -48,6 +70,14 @@ verified:
 | `_build_section` / `_extract_modules` / `_write_agents_md` | 私有 | agents_md.py | 构建 AGENTS.md 章节、解析模块列表、落盘写入 |
 | `_read_source_from_disk` | 私有 | code_reader.py | 从磁盘读取源文件内容 |
 | `_clean_source_refs` / `_count_source_refs` / `_load_registry` / `_resolve_output_dir` / `_save_registry` | 私有 | source_ingest.py | 源引用清理/计数、注册表加载/保存、输出目录解析 |
+| `create_task` / `list_tasks` / `get_task` / `get_task_context` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `compact_task_memories` | 公开 | task_manager.py | 任务记忆工具族：任务 CRUD、会话绑定、记忆追加/上下文拉取与压缩 |
+| `_read_index` / `_find_by_id` | 私有 | task_manager.py | 读取任务索引（tasks/ 目录为真相的缓存）；按 id 查找任务 |
+| `_extract_frontmatter_block` | 私有 | note_query.py | 从笔记文本切出 frontmatter 块，供检索/去重前解析 |
+| `_norm_status` | 私有 | note_writer.py | 规范化笔记 status 值（别名归一、非法回退） |
+| `load_note_types` | 私有 | note_types.py | 从 schema 加载 note_type 定义（约束笔记类型集合） |
+| `_scan_scenarios` | 私有 | note_consolidation.py | 扫描 scenarios 目录待聚合入口笔记（consolidate 前置） |
+| `_unquote_fm` | 私有 | distill_conversation.py | 兼容层：剥离旧 raw 笔记中残留的包裹引号（统一 frontmatter reader 已做 json 解码） |
+| `load_registry` | 私有 | hook_registry.py | 读取 IDE hook 注册表（启用的 hook 清单） |
 
 ## 关键设计
 
@@ -57,6 +87,8 @@ verified:
 4. **源注册表**：source_ingest 维护 registry 记录 source 与生成 doc 的映射，支持 retract 回滚。
 5. **AGENTS.md 自动生成**：从各模块 frontmatter 抽取组件，聚合为仓库入口文档。
 6. **大载荷报告落盘**：`handle_batch_ingest` 将完整逐项结果写入 `<output_dir>/.meta/batch_ingest_report.json`，返回值仅含 `summary` 与 `report_file` 路径，避免 MCP 通道大载荷超时；调用方可用 `view_repo_file` 读取报告详情。无 `output_dir` 时退回内联 `results`。
+7. **任务记忆与笔记同管**：`task_manager` 是任务记忆工具族（与笔记笔记知识同属知识沉淀闭环），索引读取走 [KnowledgeStore](KnowledgeStore.md) 的「目录为真相、缓存校验重建」约定（`_read_index`/`_find_by_id` 支撑会话绑定与上下文拉取）。
+8. **知识工具家族拆分**：note/task/distill/hook 从 `knowledge_loop` 大文件中拆出后各自独立成文件，仍共享同一套 frontmatter 收敛点；统一 reader 落地后，旧式手工剥引号补丁（`_unquote_fm`）降级为兼容层只处理历史遗留值。
 
 ## 数据流（mermaid）
 

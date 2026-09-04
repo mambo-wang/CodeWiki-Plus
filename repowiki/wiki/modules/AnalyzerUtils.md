@@ -19,6 +19,10 @@ status: stable
 verified:
 - by: human:wangbao
   at: '2026-08-25T16:48:15Z'
+sources:
+- id: repo://codewiki/src/be/dependency_analyzer/utils/patterns.py#L102-L111
+  resource: repo://codewiki/src/be/dependency_analyzer/utils/patterns.py#L102-L111
+  content_hash: sha256:cc47946af504b4359072a19f997073cfb8c45aef052496a62afb761b2008ce28
 ---
 
 # AnalyzerUtils 模块文档
@@ -83,6 +87,9 @@ verified:
 
 ### 语言函数模式（patterns.py）
 - `get_function_patterns_for_language` 从 `FUNCTION_DEFINITION_PATTERNS` 取语言的 `def {name}`/`func {name}`/`fn {name}`/`function {name}` 等文本模式，未命中回退 `general` 的 `{name}(`，供快速扫描定位。
+
+### 默认排除规则（patterns.py）
+`DEFAULT_IGNORE_PATTERNS` 是文件扫描的统一排除清单（单一收敛点，结构扫描与 AST 解析共用）：除虚拟环境（`venv`/`.venv`/`env` 等）与常规 IDE 目录（`.idea`/`.vscode`/`.vs`）外，还显式覆盖 Agent/CLI 临时工作区（`.caveman-tmp`——CodeBuddy 在此落地完整插件/技能副本，曾把数百个第三方 `.go` 文件卷入分析）及 `.qoder`/`.workbuddy` 等 IDE 私有目录，保证「非项目源码不参与构图」。
 
 ### 安全（security.py）
 - `_inside`：解析后判定 `target` 是否 `is_relative_to` 基准目录（兼容 py<3.9 的前缀判断）。
