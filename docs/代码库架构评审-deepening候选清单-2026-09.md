@@ -172,8 +172,9 @@ frontmatter 的读取语义散在五个模块、写侧没有正主：
 
 ## 推进顺序建议
 
-> **落地状态（2026-09-03 更新）**：#2、#3、#4 已完成合入（commit 03ab32e..f09f30e，
-> golden 基线零漂移，pytest 779 通过）。#1（拆 knowledge_loop，搭 #5）待做。
+> **落地状态（2026-09-04 更新）**：五个候选全部完成合入（#2/#3/#4 commit
+> 03ab32e..f09f30e；#5 commit f4c8802；#1 commit 206dbd4），golden 基线全程
+> 零漂移，pytest 779 通过，smoke 132 通过。
 > 实施中的两个额外收获：golden 基线抓回一次搬移事故（`_ontology_cache`
 > 定义被正则吞掉，6 快照分数漂移，测试全绿也拦不住）；`parse_frontmatter`
 > 升级吸收 YAML 流式集合与 `verified:` 映射列表（修复晋升年龄回退失效）。
@@ -183,7 +184,7 @@ frontmatter 的读取语义散在五个模块、写侧没有正主：
 1. **#2 检索 kernel**（✅ 已完成）：产品心脏 + 迭代频率最高 + seam 已是既成事实。
 2. **#3 frontmatter 层**（✅ 已完成）：独立可做，且是 P1-2 前置项。
 3. **#4 唯一写路径**（✅ 已完成）：风险最低，修真实竞态。
-4. **#1 拆 knowledge_loop**（待做，搭 #5）：kernel 立稳后顺势推进，#5 同车。
+4. **#1 拆 knowledge_loop**（✅ 已完成，搭 #5）：六个工具族落座独立 module，NoteWriter deep module 抽出，knowledge_loop.py 降为兼容 facade，registry 路径改指真实 module。
 5. 全程 registry.py 零改动（dispatch 按 `module:func` 字符串导入 handler），工具名与对外行为不变。
 
 ## 词汇沉淀
