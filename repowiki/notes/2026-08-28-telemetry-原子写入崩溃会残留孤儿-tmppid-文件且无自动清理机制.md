@@ -1,19 +1,28 @@
 ---
 type: pitfall
-title: "telemetry 原子写入崩溃会残留孤儿 *.tmp.<PID> 文件，且无自动清理机制"
-tags: ["keyboardinterrupt", "memoryerror", "pitfall"]
+title: telemetry 原子写入崩溃会残留孤儿 *.tmp.<PID> 文件，且无自动清理机制
+tags:
+- keyboardinterrupt
+- memoryerror
+- pitfall
 metadata:
   date: 2026-08-28
   task_id: 产品维护
-  related_modules: ["mcp/tools/telemetry"]
+  related_modules:
+  - mcp/tools/telemetry
   severity: medium
-  source_ref: "conversations/conv-@d-repos-CodeWiki-CN-repowiki-.meta-telemetry-Administrator.-2.md"
-  scene: "telemetry 原子写入与运维清理"
-status: draft
-generated: { by: codewiki/5.4.5, at: 2026-08-28T04:17:10Z }
-stale_after: 2027-02-24
+  source_ref: conversations/conv-@d-repos-CodeWiki-CN-repowiki-.meta-telemetry-Administrator.-2.md
+  scene: telemetry 原子写入与运维清理
+status: stable
+generated:
+  by: codewiki/5.4.5
+  at: 2026-08-28 04:17:10+00:00
+stale_after: '2027-03-03'
 origin: conversation
 author: mambo-wang
+verified:
+- by: human:mambo-wang
+  at: '2026-09-04T04:10:53Z'
 ---
 
 ## Background

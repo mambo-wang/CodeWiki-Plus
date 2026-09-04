@@ -12,21 +12,28 @@ metadata:
   generated_by: codewiki
   generator_version: '1.0'
   updated_at: 2026-07-28
-description: '`MCP_Tools_DocWriter` 是 CodeWiki 的文档写入与骨架生成层，负责把 [[MCP_Tools_Analysis]]
-  与 [[DependencyAnalyzer]] 产出的分析结果，转化为可落盘的 Wiki Markdown 文件。它包含四个子文件：`doc_writer.'
+description: '`MCP_Tools_DocWriter` 是 CodeWiki 的文档写入与骨架生成层，负责把 [MCP_Tools_Analysis](MCP_Tools_Analysis.md)
+  与 [DependencyAnalyzer](DependencyAnalyzer.md) 产出的分析结果，转化为可落盘的 Wiki Markdown 文件。它包含四个子文件：`doc_writer.'
 aliases:
 - MCP_Tools_DocWriter
 status: stable
 verified:
 - by: human:wangbao
   at: '2026-08-25T16:48:18Z'
+sources:
+- id: repo://codewiki/mcp/tools/schema_generator.py#L209-L238
+  resource: repo://codewiki/mcp/tools/schema_generator.py#L209-L238
+  content_hash: sha256:4b1ff56d0967ef975e6ba39ea04bb1df4d824c7dbade2bb2070324a267022dad
+- id: repo://codewiki/templates/schema.yaml#L55-L65
+  resource: repo://codewiki/templates/schema.yaml#L55-L65
+  content_hash: sha256:40a438980aca923343a3105338e92600703381b10f6097cb7ba65aa3346ce2d6
 ---
 
 # MCP_Tools_DocWriter 模块文档
 
 ## 概述
 
-`MCP_Tools_DocWriter` 是 CodeWiki 的文档写入与骨架生成层，负责把 [[MCP_Tools_Analysis]] 与 [[DependencyAnalyzer]] 产出的分析结果，转化为可落盘的 Wiki Markdown 文件。它包含四个子文件：`doc_writer.py`（文档写入核心）、`module_tree.py`（模块树与处理顺序）、`page_router.py`（Wiki 路径/目录路由）、`schema_generator.py`（Wiki 结构 schema 生成）。模块对外暴露 MCP 工具入口（`handle_write_doc_file`、`handle_edit_doc_file`、`handle_save_module_tree`、`handle_get_processing_order`、`generate_schema`），内部由大量私有辅助函数支撑路径安全、frontmatter 注入、wikilink 转换与历史留存。
+`MCP_Tools_DocWriter` 是 CodeWiki 的文档写入与骨架生成层，负责把 [MCP_Tools_Analysis](MCP_Tools_Analysis.md) 与 [DependencyAnalyzer](DependencyAnalyzer.md) 产出的分析结果，转化为可落盘的 Wiki Markdown 文件。它包含四个子文件：`doc_writer.py`（文档写入核心）、`module_tree.py`（模块树与处理顺序）、`page_router.py`（Wiki 路径/目录路由）、`schema_generator.py`（Wiki 结构 schema 生成）。模块对外暴露 MCP 工具入口（`handle_write_doc_file`、`handle_edit_doc_file`、`handle_save_module_tree`、`handle_get_processing_order`、`generate_schema`），内部由大量私有辅助函数支撑路径安全、frontmatter 注入、wikilink 转换与历史留存。
 
 ## 组件清单
 
@@ -55,6 +62,8 @@ verified:
 - **Schema 驱动路由**：`page_router.py` 依据 `load_schema` 的目录结构决定页面落盘位置与链接深度，缓存可经 `invalidate_schema_cache` 失效。
 - **顺序化生成**：`module_tree.py` 通过依赖关系计算 `_get_processing_order`，保证底层模块先写。
 - **可重入编辑**：`handle_edit_doc_file` 调用 `_resync_source_refs` 重同步源码引用，避免文档漂移。
+- **配置模板单源**：`schema_generator._load_project_config` 只从包内 `codewiki/templates/schema.yaml`（`_CONFIG_PATH`）加载，已移除仓库根同名文件的回退分支；`_get_defaults` 用其覆盖硬编码默认值，因此新增/调整全局配置（如 `conventions`）只需改包内模板一份，源码树与 wheel 分发走同一路径。
+- **配置模板单源**：`schema_generator._load_project_config` 只从包内 `codewiki/templates/schema.yaml`（`_CONFIG_PATH`）加载，已移除仓库根同名文件的回退分支；`_get_defaults` 用其覆盖硬编码默认值，因此新增/调整全局配置（如 `conventions`）只需改包内模板一份，源码树与 wheel 分发走同一路径。
 
 ## 数据流（mermaid）
 
@@ -75,12 +84,12 @@ flowchart TD
 
 ## 依赖关系
 
-- [[MCP_Server]]：注册并调度本模块暴露的 MCP 工具入口。
-- [[MCP_Core]]：提供工具基础框架与上下文。
-- [[MCP_Cache]]：与 `page_router` 的 schema 缓存协同失效。
-- [[MCP_Tools_Analysis]] / [[DependencyAnalyzer]]：提供组件与依赖数据。
-- [[SharedConfig]]：项目配置与命名约定来源，被 `schema_generator._load_project_config` 使用。
-- [[LLM_Backend]]：文档内容生成的后端支撑。
+- [MCP_Server](MCP_Server.md)：注册并调度本模块暴露的 MCP 工具入口。
+- [MCP_Core](MCP_Core.md)：提供工具基础框架与上下文。
+- [MCP_Cache](MCP_Cache.md)：与 `page_router` 的 schema 缓存协同失效。
+- [MCP_Tools_Analysis](MCP_Tools_Analysis.md) / [DependencyAnalyzer](DependencyAnalyzer.md)：提供组件与依赖数据。
+- [SharedConfig](SharedConfig.md)：项目配置与命名约定来源，被 `schema_generator._load_project_config` 使用。
+- [LLM_Backend](LLM_Backend.md)：文档内容生成的后端支撑。
 
 ## 使用示例
 
@@ -109,12 +118,12 @@ generate_schema(project_root="/repo", wiki_root="/repo/wiki")
 
 ## 相关模块
 
-- [[MCP_Server]]：工具注册与调度。
-- [[MCP_Core]]：核心框架。
-- [[MCP_Cache]]：schema 缓存协同。
-- [[MCP_Tools_Analysis]]：分析数据来源。
-- [[MCP_Tools_Dependency]] / [[DependencyAnalyzer]]：依赖与处理顺序。
-- [[MCP_Tools_Knowledge]] / [[MCP_Tools_Quality]]：知识库与质量校验。
-- [[MCP_Prompts]]：提示词模板。
-- [[SharedConfig]]：配置中心。
-- [[LLM_Backend]]：内容生成后端。
+- [MCP_Server](MCP_Server.md)：工具注册与调度。
+- [MCP_Core](MCP_Core.md)：核心框架。
+- [MCP_Cache](MCP_Cache.md)：schema 缓存协同。
+- [MCP_Tools_Analysis](MCP_Tools_Analysis.md)：分析数据来源。
+- [MCP_Tools_Dependency](MCP_Tools_Dependency.md) / [DependencyAnalyzer](DependencyAnalyzer.md)：依赖与处理顺序。
+- [MCP_Tools_Knowledge](MCP_Tools_Knowledge.md) / [MCP_Tools_Quality](MCP_Tools_Quality.md)：知识库与质量校验。
+- [MCP_Prompts](MCP_Prompts.md)：提示词模板。
+- [SharedConfig](SharedConfig.md)：配置中心。
+- [LLM_Backend](LLM_Backend.md)：内容生成后端。
