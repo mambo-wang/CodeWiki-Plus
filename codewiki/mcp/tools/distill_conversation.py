@@ -1485,7 +1485,7 @@ def handle_distill_conversation(
     # source of truth get_task_context uses for pending_raw_count.
     task_filter = str(arguments.get("task_id") or "").strip()
     if task_filter:
-        from codewiki.mcp.tools.capture_conversation import pending_raws_by_task
+        from codewiki.mcp.tools.store_bridge import pending_raws_by_task
 
         allowed = {
             str((raw_dir / e["relpath"]).resolve())
