@@ -61,11 +61,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from codewiki.mcp.session import SessionStore
-from codewiki.mcp.tools.capture_conversation import (
-    _resolve_output_dir,
-    _slugify,
+from codewiki.mcp.tools.store_bridge import (
     pending_raws_by_task,
+    resolve_output_dir as _resolve_output_dir,
 )
+from codewiki.src.store import slugify as _slugify
 from codewiki.src.store import (
     KnowledgeStore,
     SUMMARY_HEADING,

@@ -25,7 +25,7 @@ old per-tool copies had, so handler error paths behave identically.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from codewiki.mcp.session import SessionState
 from codewiki.src.store import KnowledgeStore
@@ -57,3 +57,14 @@ def store_for(
 ) -> KnowledgeStore:
     """A KnowledgeStore rooted at the resolved repowiki output directory."""
     return KnowledgeStore(resolve_output_dir(session, arguments))
+
+
+def pending_raws_by_task(output_dir: Path) -> Dict[str, List[Dict[str, str]]]:
+    """Pending (undistilled) raw conversations grouped by task_id.
+
+    Thin re-export of ``KnowledgeStore.pending_raws_by_task`` — the seam for
+    task-scoped capture/distill tooling. (Architecture review 2026-09 #5:
+    previously imported from capture_conversation, a historical home that
+    forced sibling tools to reach into its private namespace.)
+    """
+    return KnowledgeStore(output_dir).pending_raws_by_task()
