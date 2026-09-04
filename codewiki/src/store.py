@@ -22,7 +22,11 @@ Invariants:
     replace working).  Locks are machine-local runtime state, so they live
     under ``.meta/locks/`` (git-ignored), not next to the wiki pages they
     protect; targets outside any wiki root fall back to a co-located
-    ``<name>.lck`` sidecar.
+    ``<name>.lck`` sidecar.  Released lock files are best-effort unlinked
+    on Windows only (a delete can only succeed while nobody holds the file
+    open — no inode race); on Unix they are kept because ``flock`` locks the
+    inode and unlinking the path could split one logical lock across two
+    files.  See ``codewiki.src.locks``.
 """
 
 from __future__ import annotations
@@ -144,10 +148,24 @@ def locked(path: Path) -> Iterator[None]:
     Locking a separate file (not the target) keeps ``os.replace`` on the
     target legal on Windows, where a locked/open file cannot be renamed
     over.
+
+    Lock-file cleanup: released lock files are best-effort removed on
+    Windows only (deleting a file that another process has open raises a
+    sharing violation, so the unlink can only succeed when nobody holds it —
+    no inode race).  On Unix the file is deliberately kept: ``flock`` locks
+    the inode, and unlinking the path while a contender has it open would
+    let a third process lock a freshly created file — two "exclusive"
+    holders of the same lock.  See ``codewiki.src.locks``.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    with file_lock(_lock_path_for(path)):
+    lock_file = _lock_path_for(path)
+    with file_lock(lock_file):
         yield
+    if os.name == "nt":  # pragma: no cover - platform branch
+        try:
+            lock_file.unlink(missing_ok=True)
+        except OSError:
+            pass  # another holder keeps it open — leave for lint_wiki sweep
 
 
 def locked_write(path: Path, content: str) -> None:
