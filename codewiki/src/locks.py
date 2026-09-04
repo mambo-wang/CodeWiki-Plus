@@ -24,6 +24,20 @@ on both platforms, so no explicit unlock step is required.  If no OS
 primitive exists at all — or if acquiring the OS lock fails on an exotic
 filesystem — the lock degrades to the thread layer alone and the operation
 still proceeds (the historical append-lock "still write" semantics).
+
+**Lock-file cleanup**: this primitive never deletes the file it locks (a
+caller may lock a *content* file directly, not a sidecar — see
+``wiki_index``).  Callers that know they locked a pure sidecar may
+best-effort unlink it after release, **Windows only**: ``msvcrt.locking``
+holds a byte-range lock on an open handle, and Windows refuses to delete a
+file another process has open (sharing violation), so the unlink can only
+succeed when no other holder exists — there is no inode race and the next
+``file_lock`` simply re-creates the file.  On Unix the sidecar must be kept:
+``flock`` locks the inode, so if a contender has already opened the file and
+is blocked on the lock, unlinking the path lets a *third* process create and
+lock a fresh inode while the blocked contender still waits on the old one —
+two exclusive holders of "the same" lock.  ``store.locked`` implements
+exactly this policy.
 """
 
 from __future__ import annotations

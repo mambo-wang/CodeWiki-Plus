@@ -10,6 +10,7 @@ Covers:
 from __future__ import annotations
 
 import json
+import os
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -213,31 +214,73 @@ def test_locked_rmw_across_processes(tmp_path):
 
 def test_locked_uses_central_locks_dir(tmp_path):
     """Lock files land in ``.meta/locks/`` (one per resolved target), never
-    beside the wiki content they protect — the content tree stays clean."""
+    beside the wiki content they protect — the content tree stays clean.
+
+    Release cleanup is platform-dependent (see ``codewiki.src.locks``): on
+    Windows the released lock file is best-effort unlinked — deleting a file
+    another process has open fails, so no inode race; on Unix it is kept
+    because ``flock`` locks the inode."""
     (tmp_path / ".meta").mkdir()  # marks the wiki root
     target = tmp_path / "notes" / "a.md"
-    locked_write(target, "v1")
-    locks = list((tmp_path / ".meta" / "locks").glob("*.lck"))
-    assert len(locks) == 1
-    assert not (target.parent / "a.md.lck").exists()
+    with locked(target):
+        locks = list((tmp_path / ".meta" / "locks").glob("*.lck"))
+        assert len(locks) == 1
+        assert not (target.parent / "a.md.lck").exists()
+    if os.name == "nt":
+        assert list((tmp_path / ".meta" / "locks").glob("*.lck")) == []
+    else:
+        assert list((tmp_path / ".meta" / "locks").glob("*.lck")) == locks
     # deterministic mapping: re-acquiring yields the same lock file
     with locked(target):
-        pass
-    assert list((tmp_path / ".meta" / "locks").glob("*.lck")) == locks
+        assert list((tmp_path / ".meta" / "locks").glob("*.lck")) == locks
 
 
 def test_locked_falls_back_to_sidecar_without_meta(tmp_path):
     """No ``.meta`` ancestor → legacy co-located ``<name>.lck`` sidecar:
     lock placement must never fail closed."""
     target = tmp_path / "notes" / "b.md"
-    locked_write(target, "v1")
-    assert (target.parent / "b.md.lck").exists()
+    with locked(target):
+        assert (target.parent / "b.md.lck").exists()
+    # release cleanup platform-dependent, same policy as the central dir
+    assert (target.parent / "b.md.lck").exists() is (os.name != "nt")
+
+
+def test_locked_release_cleanup_matches_platform(tmp_path):
+    """Lock-file accumulation guard (Windows-only unlink on release).
+
+    Windows: ``store.locked`` best-effort unlinks the lock file after the
+    block (safe — deleting a file another process has open fails, so the
+    unlink can only succeed when nobody holds it).  Unix: the file must be
+    kept, otherwise ``flock``'s inode-bound lock can be split across a
+    deleted path and a fresh file.  See ``codewiki.src.locks``.
+    """
+    (tmp_path / ".meta").mkdir()  # marks the wiki root
+    target = tmp_path / "notes" / "clean.md"
+
+    def lock_files():
+        return list((tmp_path / ".meta" / "locks").glob("*.lck"))
+
+    assert lock_files() == []
+    locked_write(target, "v1")  # acquire + release
+    if os.name == "nt":
+        assert lock_files() == []  # best-effort unlink on release
+    else:
+        assert len(lock_files()) == 1  # kept: flock binds the inode
+    # re-acquire still works after any cleanup
+    with locked(target):
+        assert len(lock_files()) == 1
+    if os.name == "nt":
+        assert lock_files() == []
+    else:
+        assert len(lock_files()) == 1
 
 
 def test_locked_rmw_across_processes_central_locks(tmp_path):
     """Same cross-process guarantee with the relocated lock files: two real
-    subprocesses, one counter, zero lost updates, one lock file."""
-    import os
+    subprocesses, one counter, zero lost updates.
+
+    Lock-file residue is platform-dependent: Windows unlinks the released
+    lock file (last releaser removes it → 0 left); Unix keeps it (1 left)."""
     import subprocess
     import sys
 
@@ -262,7 +305,14 @@ def test_locked_rmw_across_processes_central_locks(tmp_path):
     for p, (out, err) in zip(procs, outs):
         assert p.returncode == 0, err.decode("utf-8", "replace")
     assert target.read_text(encoding="utf-8") == "30"
-    assert len(list((tmp_path / ".meta" / "locks").glob("*.lck"))) == 1
+    # No lock-file accumulation: two processes touch one counter, so the
+    # central dir must hold at most one .lck afterwards.  Windows best-effort
+    # unlinks on release (usually 0, but a racy final holder can keep 1);
+    # Unix never unlinks, so exactly 1 remains.
+    n_locks = len(list((tmp_path / ".meta" / "locks").glob("*.lck")))
+    assert n_locks <= 1
+    if os.name != "nt":
+        assert n_locks == 1
 
 
 def test_append_log_concurrent_same_day(tmp_path):
