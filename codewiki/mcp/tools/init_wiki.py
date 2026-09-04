@@ -23,10 +23,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Schema template: prefer package-bundled copy, fall back to repo root (dev mode)
-_SCHEMA_TEMPLATE_PKG = Path(__file__).resolve().parents[2] / "templates" / "schema.yaml"
-_SCHEMA_TEMPLATE_ROOT = Path(__file__).resolve().parents[3] / "schema.yaml"
-_SCHEMA_TEMPLATE = _SCHEMA_TEMPLATE_PKG if _SCHEMA_TEMPLATE_PKG.exists() else _SCHEMA_TEMPLATE_ROOT
+# Schema template: package-bundled copy is the single source of truth
+_SCHEMA_TEMPLATE = Path(__file__).resolve().parents[2] / "templates" / "schema.yaml"
 
 # Ontology template: project-level term normalization for search
 _ONTOLOGY_TEMPLATE_PKG = Path(__file__).resolve().parents[2] / "templates" / "ontology.yaml"
