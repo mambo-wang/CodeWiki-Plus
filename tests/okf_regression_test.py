@@ -735,6 +735,67 @@ def main():
     )
     check("ingest_source", "重复内容检测", r.get("status") == "duplicate", str(r)[:200])
 
+    # Name-conflict: 同名但内容不同 → conflict，且不落盘、不覆盖原登记
+    v2_file = base / "ext_spec_v2.md"
+    v2_file.write_text("# 外部规范 V2\n\n这是与既有 ext-spec 完全不同的正文。\n", encoding="utf-8")
+    r = json.loads(
+        handle_ingest_source(
+            {
+                "session_id": sid,
+                "source_ref": str(v2_file),
+                "name": "ext-spec",
+            },
+            store,
+        )
+    )
+    check(
+        "ingest_source",
+        "同名不同内容提示conflict",
+        r.get("status") == "conflict",
+        str(r)[:200],
+    )
+    check(
+        "ingest_source",
+        "conflict返回既有来源信息",
+        bool(r.get("existing", {}).get("path")),
+        str(r)[:300],
+    )
+    orig_text = (output_dir / "raw/sources/ext-spec.md").read_text(encoding="utf-8")
+    check(
+        "ingest_source",
+        "conflict后原raw文件未被覆盖",
+        "外部规范 V2" not in orig_text,
+        orig_text[:200],
+    )
+
+    # overwrite=true（用户同意）→ 旧 raw 文件移入 .trash，新文件以规范名落盘
+    r = json.loads(
+        handle_ingest_source(
+            {
+                "session_id": sid,
+                "source_ref": str(v2_file),
+                "name": "ext-spec",
+                "overwrite": True,
+            },
+            store,
+        )
+    )
+    check("ingest_source", "overwrite替换成功", r.get("status") == "ingested", str(r)[:200])
+    new_text = (output_dir / "raw/sources/ext-spec.md").read_text(encoding="utf-8")
+    check(
+        "ingest_source",
+        "overwrite后新内容已落盘",
+        "外部规范 V2" in new_text,
+        new_text[:200],
+    )
+    trash_files = list((output_dir / ".trash").glob("ext-spec*.md")) if (output_dir / ".trash").is_dir() else []
+    check(
+        "ingest_source",
+        "overwrite后旧raw文件移入.trash",
+        any(f.name.startswith("ext-spec") for f in trash_files),
+        str([f.name for f in trash_files]),
+    )
+
     # ================================================================
     print("\n[8] retract_source — dry_run与引用清理")
     r = json.loads(

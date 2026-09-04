@@ -53,6 +53,36 @@ def _save_registry(output_dir: Path, registry: Dict[str, Any]) -> None:
     locked_write(reg_path, json.dumps(registry, indent=2, ensure_ascii=False))
 
 
+def _retire_registered_file(output_dir: Path, registry: Dict[str, Any], name: str) -> None:
+    """Move the previously registered raw file for *name* into .trash/.
+
+    Called from ingest_source after the caller confirmed an overwrite
+    (``overwrite=true``): the old document is retired so the new file can take
+    over the canonical ``raw/sources/<name>`` path.  Deleting directly is
+    avoided — files go to .trash/ for recoverability, mirroring
+    retract_source's remove_refs mode.
+    """
+    info = registry.get("sources", {}).get(name)
+    if not isinstance(info, dict):
+        return
+    rel = info.get("path")
+    if not rel:
+        return
+    old_abs = output_dir / rel
+    if not old_abs.exists():
+        return
+    try:
+        trash_dir = output_dir / ".trash"
+        trash_dir.mkdir(parents=True, exist_ok=True)
+        dest = trash_dir / old_abs.name
+        if dest.exists():
+            dest = trash_dir / f"{old_abs.stem}_{int(datetime.now().timestamp())}{old_abs.suffix}"
+        shutil.move(str(old_abs), str(dest))
+        logger.info("Overwrite confirmed: retired %s -> %s", old_abs, dest)
+    except OSError as e:
+        logger.warning("Failed to retire old source file %s: %s", old_abs, e)
+
+
 def _resolve_output_dir(session: Optional[SessionState], arguments: Dict) -> Path:
     """Resolve the output directory — delegates to the shared store bridge."""
     from codewiki.mcp.tools.store_bridge import resolve_output_dir
@@ -286,10 +316,14 @@ def handle_ingest_source(
         content_hash = hashlib.sha256(src.read_bytes()).hexdigest()
     except OSError:
         content_hash = ""
+    hash_key = f"sha256:{content_hash}" if content_hash else ""
 
+    # Load the registry once — used for dedup, name-conflict detection and
+    # overwrite bookkeeping below.
+    registry = _load_registry(output_dir)
+
+    # 1) Content-level dedup: identical content anywhere → duplicate.
     if content_hash:
-        registry = _load_registry(output_dir)
-        hash_key = f"sha256:{content_hash}"
         for existing_name, info in registry.get("sources", {}).items():
             if isinstance(info, dict) and info.get("content_hash") == hash_key:
                 if info.get("status") != "retracted":
@@ -306,6 +340,41 @@ def handle_ingest_source(
                         ensure_ascii=False,
                     )
 
+    # 2) Name-level conflict guard: the identifier is already registered to a
+    #    *different* document. Never overwrite silently — surface the conflict
+    #    and require explicit overwrite=true (user consent) before replacing.
+    existing = registry.get("sources", {}).get(name)
+    name_conflict = bool(
+        isinstance(existing, dict)
+        and existing.get("status") != "retracted"
+        and existing.get("content_hash") != hash_key
+    )
+    overwrite = bool(arguments.get("overwrite", False))
+    if name_conflict and not overwrite:
+        return json.dumps(
+            {
+                "status": "conflict",
+                "name": name,
+                "existing": {
+                    "path": existing.get("path", ""),
+                    "original_path": existing.get("original_path", ""),
+                    "imported_at": existing.get("imported_at", ""),
+                    "content_hash": existing.get("content_hash", ""),
+                    "description": existing.get("description", ""),
+                },
+                "message": (
+                    f"Source name '{name}' is already registered to a different document "
+                    f"({existing.get('path') or existing.get('original_path')}, imported "
+                    f"{existing.get('imported_at', 'unknown')}). The new file was NOT stored. "
+                    "After user confirmation, re-run ingest_source with overwrite=true to "
+                    "replace it (the existing raw file will be moved to .trash), or pass a "
+                    "different 'name' to keep both documents."
+                ),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+
     # Ensure raw/sources/ directory exists
     from codewiki.src.config import RAW_SOURCES_DIR
 
@@ -318,8 +387,14 @@ def handle_ingest_source(
     dest_name = f"{name}{src.suffix}" if src.suffix else name
     dest_path = raw_sources / dest_name
 
-    # Handle name collision
-    if dest_path.exists():
+    # Resolve file-level collisions:
+    #  - overwrite=true on a name conflict: retire the previously registered raw
+    #    file (move to .trash) so the new document takes the canonical name.
+    #  - otherwise: an unregistered file already on disk is preserved and the
+    #    new file is stored under a hash-suffixed name.
+    if name_conflict and overwrite:
+        _retire_registered_file(output_dir, registry, name)
+    elif dest_path.exists():
         hash_suffix = src.stat().st_mtime_ns % 0xFFFFFF
         dest_name = f"{name}_{hash_suffix:06x}{src.suffix}"
         dest_path = raw_sources / dest_name

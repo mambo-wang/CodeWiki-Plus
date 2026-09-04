@@ -48,7 +48,11 @@ def resolve_output_dir(
         from codewiki.mcp.tools.workspace_layout import default_output_dir
 
         return default_output_dir(Path(rp).expanduser().resolve())
-    raise ValueError("output_dir or repo_path is required (or pass an active session).")
+    raise ValueError(
+        "output_dir or repo_path is required (or pass an active session). "
+        "Provide repo_path=<repo root> or output_dir=<repowiki directory> to "
+        "locate the knowledge base."
+    )
 
 
 def store_for(
