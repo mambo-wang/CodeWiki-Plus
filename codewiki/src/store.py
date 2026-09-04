@@ -17,9 +17,12 @@ Invariants:
   - ``.index.json`` files are caches; directory scans are the truth. Every
     reader validates cheaply and rebuilds on mismatch.
   - Concurrent stdio MCP server processes serialize read-modify-write
-    sequences through sidecar ``.lck`` files (a locked target cannot be
-    ``os.replace``d on Windows — locking a sidecar keeps atomic replace
-    working).
+    sequences through ``.meta/locks/<hash>.lck`` files (a locked target
+    cannot be ``os.replace``d on Windows — locking a sidecar keeps atomic
+    replace working).  Locks are machine-local runtime state, so they live
+    under ``.meta/locks/`` (git-ignored), not next to the wiki pages they
+    protect; targets outside any wiki root fall back to a co-located
+    ``<name>.lck`` sidecar.
 """
 
 from __future__ import annotations
@@ -106,17 +109,44 @@ def atomic_write(path: Path, content: str) -> None:
             pass
 
 
+_LOCK_NAME_DIGEST_LEN = 20  # sha256 hex prefix — lock id per resolved target
+
+
+def _lock_path_for(path: Path) -> Path:
+    """Lock file for *path*: ``<wiki-root>/.meta/locks/<sha256[:20]>.lck``.
+
+    The wiki root is the nearest ancestor directory carrying ``.meta/``
+    (every ``repowiki/`` produced by analysis/init has one).  Centralising
+    the locks keeps the content tree free of ``.lck`` noise while preserving
+    lock semantics: the lock identity only needs to be a deterministic
+    function of the resolved target path on this machine.
+
+    Fallback: with no ``.meta`` ancestor (bare test fixture, non-wiki path)
+    the legacy co-located sidecar ``<name>.lck`` is used — lock placement
+    must never fail closed.
+    """
+    resolved = path.resolve()
+    for cand in resolved.parents:
+        if (cand / _cfg.META_DIR).is_dir():
+            locks_dir = cand / _cfg.META_DIR / "locks"
+            locks_dir.mkdir(parents=True, exist_ok=True)
+            digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()
+            return locks_dir / f"{digest[:_LOCK_NAME_DIGEST_LEN]}.lck"
+    return resolved.parent / (resolved.name + ".lck")
+
+
 @contextmanager
 def locked(path: Path) -> Iterator[None]:
     """Serialize a read-modify-write sequence on *path* across threads AND
-    processes via a sidecar ``<name>.lck`` file.
+    processes via a lock file in ``<wiki-root>/.meta/locks/`` (co-located
+    ``<name>.lck`` sidecar when no wiki root is found).
 
-    Locking the sidecar (not the target) keeps ``os.replace`` on the target
-    legal on Windows, where a locked/open file cannot be renamed over.
+    Locking a separate file (not the target) keeps ``os.replace`` on the
+    target legal on Windows, where a locked/open file cannot be renamed
+    over.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = path.parent / (path.name + ".lck")
-    with file_lock(lock_path):
+    with file_lock(_lock_path_for(path)):
         yield
 
 

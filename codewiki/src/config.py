@@ -56,6 +56,7 @@ TEAM_LAYOUT_REBUILDABLE_FILES = [
     ".meta/aggregate_state.json",
     ".meta/source_registry.json",
     ".meta/task_bindings/",  # session-scoped one-shot vouchers, no repo value
+    ".meta/locks/",  # centralized cross-process lock files, machine-local runtime
     "tasks/.index.json",  # self-heals from tasks/*/task.md frontmatter scan
     "distill-jobs.json",  # local runtime state, restartable
 ]

@@ -98,7 +98,9 @@ Thumbs.db
 *.tmp
 *.log
 *.bak
-# KnowledgeStore sidecar lock files (created next to atomic-write targets)
+# KnowledgeStore lock files (centralized under repowiki/.meta/locks/; *.lck
+# also covers legacy co-located sidecars)
+repowiki/.meta/locks/
 *.lck
 .trash/
 .codewiki/

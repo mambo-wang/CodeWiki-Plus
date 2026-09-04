@@ -3,7 +3,7 @@ type: Module
 title: KnowledgeStore
 description: '`KnowledgeStore` 是 CodeWiki 的持久化存储层（`codewiki/src/store.py` + `codewiki/src/frontmatter.py`
   + `codewiki/mcp/tools/store_bridge.py`），为单个 repowiki 根提供三样基础：跨进程安全的原子文件写原语（`atomic_write`
-  + `.<name>.lck` 边车…'
+  + 集中于 `.meta/locks/` 的锁文件…'
 tags:
 - CodeWiki-CN
 - knowledgestore
@@ -48,7 +48,7 @@ sources:
 | 组件 | 类型 | 文件 | 职责 |
 |------|------|------|------|
 | `atomic_write` / `_atomic_replace_with_retry` | 函数 / 私有函数 | store.py | 崩溃安全写：同目录临时文件（pid+线程 id 命名）+ `os.replace`（5 次短退避重试抗杀软/索引器短暂占用），`finally` 清理残留临时文件 |
-| `locked` | 上下文管理器 | store.py | 通过 `.<name>.lck` 边车文件跨线程/跨进程串行化读改写序列；锁 sidecar 而非目标（Windows 锁文件无法被 rename 覆盖） |
+| `locked` | 上下文管理器 | store.py | 经 `<wiki-root>/.meta/locks/<sha256[:20]>.lck` 集中锁文件跨线程/跨进程串行化读改写序列（无 `.meta` 祖先时回退目标旁 `.<name>.lck` 边车）；锁独立文件而非目标（Windows 锁文件无法被 rename 覆盖） |
 | `locked_write` | 函数 | store.py | `locked()` + `atomic_write()` 的组合写；团队布局约定下共享文件跨进程写入的标准原语 |
 | `locked_rmw` | 函数 | store.py | 锁内读-转换-原子写；`transform` 返回 `None` 中止写（只读窥探），否则返回新文本 |
 | `Page` | 类 | store.py | 轻量只读文档对象（relpath / 绝对路径 / frontmatter / body） |
@@ -58,7 +58,7 @@ sources:
 
 ## 关键设计
 
-- **原子文件族与边车锁**：Windows 上被打开/锁定的目标文件不能被 `os.replace` 覆盖，因此锁加在目标旁的 `.<name>.lck`；`atomic_write` 用 pid+线程 id 保证跨进程/跨线程临时名唯一，`os.replace` 带退避重试，`finally` 兜底清理。团队布局约定：跨进程共享文件（index、telemetry 等）一律经 `locked_write`/`locked_rmw`，绝不裸 `write_text`。
+- **原子文件族与集中锁**：Windows 上被打开/锁定的目标文件不能被 `os.replace` 覆盖，因此锁加在独立文件上（D19：集中存放于 `<wiki-root>/.meta/locks/`，按目标绝对路径哈希命名——锁语义只要求路径确定性映射，与相邻无关；无 `.meta` 祖先的裸 fixture 回退就地边车）；`atomic_write` 用 pid+线程 id 保证跨进程/跨线程临时名唯一，`os.replace` 带退避重试，`finally` 兜底清理。团队布局约定：跨进程共享文件（index、telemetry 等）一律经 `locked_write`/`locked_rmw`，绝不裸 `write_text`。
 - **门面与 bridge 分层**：`KnowledgeStore` 构造即绑定 root，只认 root 之下的路径，不感知多仓布局；`resolve_output_dir` 是唯一的布局路由入口（集中式 vs 就地）。
 - **目录为真相、索引为缓存**：任务索引 `read_task_index` 先做廉价一致性校验（目录名 id 集合 == 缓存 id 集合），失配/损坏才扫描 `task.md` frontmatter 全量重建并回写（失败不抛错）；raw 索引同理以 `conv-*.md` frontmatter 为真相（`_rebuild_raw_index`）。`content_hash` 把 `task_id` 纳入摘要，同一段对话分属不同任务不会被去重误杀。
 - **frontmatter 单点解析**：所有 frontmatter 读取统一经 `parse_frontmatter`（utf-8-sig BOM 容忍 + 读取失败返回 None），旧式手工剥引号补丁（如 `_unquote_fm`）已成兼容层——统一 reader 已做 json 解码。
