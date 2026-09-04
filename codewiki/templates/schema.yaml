@@ -54,6 +54,10 @@ conventions:
   # 是否在 write_doc_file 后自动注入「相关模块」交叉链接章节。
   # 基于模块树的依赖关系计算 "Depends on" / "Used by" 链接
   auto_crosslink: true
+  # 是否在 write_doc_file 写模块文档时自动打代码证据（P0，openwiki 借鉴）：
+  # 为页面 frontmatter.sources 写入模块组件对应代码区间的 content_hash，
+  # lint 的 stale_evidence 检查据此在代码漂移时报复核提醒（证据不自动改写）。
+  auto_evidence: true
   # 是否强制 OKF（Open Knowledge Format）v0.2 frontmatter。
   # true 时每个 .md 文件必须以 YAML frontmatter 开头，包含 type/title/description/tags 字段，
   # 以及 v0.2 溯源/生命周期字段（generated/status/stale_after）

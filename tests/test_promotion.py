@@ -236,16 +236,16 @@ class TestSchemaOverride:
         _seed_adoption(od, "notes/note-a.md", 3)
         assert _promotion_candidates(od) == []
 
-    def test_config_from_repo_schema_files(self):
-        # The shipped schema templates must carry the promotion thresholds.
+    def test_config_from_bundle_schema(self):
+        # The shipped schema template (single source of truth) must carry the
+        # promotion thresholds.
         import yaml
 
         root = Path(__file__).resolve().parent.parent
-        for rel in ("schema.yaml", "codewiki/templates/schema.yaml"):
-            data = yaml.safe_load((root / rel).read_text(encoding="utf-8"))
-            promo = data["conventions"]["promotion"]
-            assert promo["min_adopted"] == 3
-            assert promo["min_age_days"] == 14
+        data = yaml.safe_load((root / "codewiki/templates/schema.yaml").read_text(encoding="utf-8"))
+        promo = data["conventions"]["promotion"]
+        assert promo["min_adopted"] == 3
+        assert promo["min_age_days"] == 14
 
 
 # --------------------------------------------------------------------------- #
