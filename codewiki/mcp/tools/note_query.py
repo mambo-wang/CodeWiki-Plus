@@ -1209,8 +1209,11 @@ def handle_query_wiki(
             # P1 A-line: adoption convention reminder — a lower-bound usefulness
             # signal. Agents that actually use a result should declare it.
             "adoption_hint": (
-                "If you actually used any result above, include this single-line "
-                "comment in your final reply (paths exactly as returned): "
+                "If you actually used any result above, cite it inline at the "
+                "claim: docs/notes as （依据：<file>） with <file> exactly as "
+                "returned; code facts as <code_file>:<line> using line numbers "
+                "from code you read, never stale ones copied from docs. Then "
+                "include this single-line comment in your final reply: "
                 '<!-- codewiki:referenced-docs: ["<file>", ...] -->. '
                 "Declared docs earn adoption credit which boosts their future "
                 "ranking (usage.adopted_count)."

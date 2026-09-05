@@ -20,6 +20,8 @@ origin: conversation
 verified:
 - by: codewiki/5.5.1
   at: '2026-09-04T04:25:35Z'
+source_conversations: ['conversations/conv-https-github.com-DietrichGebert-ponytail-研究下这个技能是如何生效的.md']
+
 ---
 
 ## Background
@@ -47,3 +49,17 @@ verified:
 ## Rationale
 
 这些模式共同解决注入系统三类常见失效：规则漂移（两处拷贝、被压缩剪掉）、进程级脆弱（缺文件/管道延迟导致宿主崩溃）、资源浪费（全量注入超过上下文预算）。
+
+## ponytail 的 5 个可复用工程手法（单一事实源/永不阻塞/fail-open/副作用最小化/debt 台账）
+
+> 合并自蒸馏候选：ponytail 的 5 个可复用工程手法（单一事实源/永不阻塞/fail-open/副作用最小化/debt 台账）
+
+## ponytail 同主题的增量手法（与 caveman 提炼互补）
+
+DietrichGebert/ponytail 的 hooks 实现与 caveman 属同一类「规则单事实源 + hook 注入」工程，多数模式已在上文覆盖；以下为 ponytail 版本带来的增量点：
+
+1. **fail-open 优先（明文化）**：坏正则、不可解析 payload、无 agent_type 一律降级为「照常注入」（PONYTAIL_SUBAGENT_MATCHER 解析失败不阻断子代理注入），宁可多注入也不静默丢人格。
+2. **副作用最小化**：跨会话 config 只有 /ponytail default X 一条写路径；状态栏 nudge 用 flag 只提示一次；卸载脚本只删自己的状态行。
+3. **把「以后再说」变成台账**：规则要求用 `# ponytail: <天花板> — <升级路径>` 标注刻意简化，再由 /ponytail-debt 收割成清单，避免技术债腐化。
+4. **Windows EOF 陷阱具体化**：读 stdin 一律配 1s setTimeout(...).unref() 兜底——Windows PowerShell 包装会吞掉 EOF 导致钩子挂死（上游 issue #443）。
+5. **规则副本同源校验脚本**：scripts/check-rule-copies.js——改了规则文本而分发副本没同步，测试就红（CodeWiki 多宿主分发可借鉴的防漂移闸门）。

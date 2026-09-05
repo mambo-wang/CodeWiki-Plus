@@ -316,6 +316,25 @@ def handle_ingest_note(
         filename = f"{today}-{slug}-{hash_suffix}.md"
         note_path = notes_dir / filename
 
+    # Conflict advisory (best-effort, never blocks the write): surface notes
+    # that look like the same knowledge so the caller can update/merge instead
+    # of silently accumulating a contradictory twin. Without it a corrected
+    # conclusion is ingested while the refuted note stays live — and being
+    # older and richer in keywords it can out-rank the correction in BM25.
+    # Reuses the distillation pipeline's two-stage dedup (single convergence
+    # point); that helper does not record retrieval stats, so no usage/heat
+    # pollution. Set detect_conflicts=false to skip (e.g. bulk ingest).
+    similar_notes: List[Dict[str, Any]] = []
+    if arguments.get("detect_conflicts", True):
+        try:
+            from codewiki.mcp.tools.distill_conversation import _find_conflict_candidates
+
+            similar_notes = _find_conflict_candidates(
+                title, content, note_type, output_dir, include_strong=True
+            )
+        except Exception as e:  # advisory only — never fail an ingest on it
+            logger.debug("conflict advisory skipped: %s", e)
+
     # Build note content with YAML frontmatter
     tags = _extract_tags(title, content, note_type)
     frontmatter_lines = [
@@ -458,6 +477,18 @@ def handle_ingest_note(
             "[unconfirmed] prefix. Call confirm_note(note_file=...) after review "
             "to promote it to verified knowledge."
         )
+    if similar_notes:
+        result["similar_notes"] = similar_notes
+        conflict_hint = (
+            f"{len(similar_notes)} existing note(s) look like the same knowledge. "
+            "If this note CORRECTS or supersedes one, retire it explicitly — "
+            "reject_note(note_file=..., reason=...) or batch_set_status("
+            "status='deprecated') with a reason pointing at this note — or merge "
+            "them via the 'consolidate' prompt. Leaving both live keeps the "
+            "refuted conclusion in the corpus where it can still out-rank this "
+            "correction. Only keep both if the knowledge is genuinely distinct."
+        )
+        result["hint"] = f"{result['hint']} {conflict_hint}" if "hint" in result else conflict_hint
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
