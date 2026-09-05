@@ -866,6 +866,128 @@ def main():
         str([f.name for f in ri_trash]),
     )
 
+    # version-sibling：内容近似但名字带新版本号（改版改名）→ 确认闸门
+    rev1 = base / "rev_doc_v1.md"
+    rev1.write_text(
+        "# 知识飞轮设计\n\n"
+        "知识飞轮的运营围绕三层循环：采集、蒸馏与沉淀。采集阶段负责把分散的外部输入聚合到原始仓库；"
+        "蒸馏阶段由提取器产出结构化草案；沉淀阶段在用户确认后写入知识库。\n\n"
+        "## 采集\n外部文档、对话与网页。\n\n## 蒸馏\nprepare 到 submit 两段式。\n\n"
+        "## 沉淀\ndraft 确认后落盘。\n",
+        encoding="utf-8",
+    )
+    r = json.loads(
+        handle_ingest_source(
+            {"session_id": sid, "source_ref": str(rev1), "name": "rev-doc-v1"},
+            store,
+        )
+    )
+    check("ingest_source", "sibling场景v1首次登记成功", r.get("status") == "ingested", str(r)[:200])
+    rev2 = base / "rev_doc_v2.md"
+    rev2.write_text(
+        "# 知识飞轮设计（改）\n\n"
+        "知识飞轮的运营围绕三层循环：采集、蒸馏与沉淀。采集阶段负责把分散的外部输入聚合到原始仓库，"
+        "并做去重与去噪；蒸馏阶段由提取器产出结构化草案，先 prepare 后交推理方；"
+        "沉淀阶段在用户确认后写入知识库。\n\n"
+        "## 采集\n外部文档、对话与网页。\n\n## 蒸馏\nprepare 到 submit 两段式。\n\n"
+        "## 沉淀\ndraft 确认后落盘，确认闸门对等。\n\n## 反馈\n负反馈回流到采集。\n",
+        encoding="utf-8",
+    )
+    r = json.loads(
+        handle_ingest_source(
+            {"session_id": sid, "source_ref": str(rev2), "name": "rev-doc-v2"},
+            store,
+        )
+    )
+    check(
+        "ingest_source",
+        "改版改名触发version_sibling",
+        r.get("status") == "version_sibling",
+        str(r)[:300],
+    )
+    check(
+        "ingest_source",
+        "version_sibling要求确认",
+        r.get("requires_user_confirmation") is True,
+        str(r)[:300],
+    )
+    check(
+        "ingest_source",
+        "version_sibling返回相似源与证据",
+        r.get("existing_name") == "rev-doc-v1"
+        and bool(r.get("shared_headings"))
+        and r.get("similarity_score", 0) >= 0.25,
+        str(r)[:400],
+    )
+    reg_now = json.loads(
+        (output_dir / ".meta/source_registry.json").read_text(encoding="utf-8")
+    )["sources"]
+    check("ingest_source", "version_sibling不落盘", "rev-doc-v2" not in reg_now, str(list(reg_now)))
+    r = json.loads(
+        handle_ingest_source(
+            {
+                "session_id": sid,
+                "source_ref": str(rev2),
+                "name": "rev-doc-v2",
+                "allow_sibling": True,
+            },
+            store,
+        )
+    )
+    check("ingest_source", "allow_sibling确认后登记成功", r.get("status") == "ingested", str(r)[:200])
+
+    # 无关文档名带版本号 → 不应误报 version_sibling
+    unrelated_file = base / "annual_report_2025.md"
+    unrelated_file.write_text(
+        "# 年度技术报告\n\n本年度聚焦成本治理与稳定性建设，落地服务网格与多云容灾方案，"
+        "支撑出海业务灰度上线，关键链路 P99 时延下降 30%。\n",
+        encoding="utf-8",
+    )
+    r = json.loads(
+        handle_ingest_source(
+            {"session_id": sid, "source_ref": str(unrelated_file), "name": "annual-report-2025"},
+            store,
+        )
+    )
+    check("ingest_source", "无关文档不误报sibling", r.get("status") == "ingested", str(r)[:300])
+
+    # supersedes 声明（作者显式意图）→ 确认闸门
+    decl_file = base / "decl_supersede.md"
+    decl_file.write_text(
+        "---\nsupersedes: rev-doc-v1\n---\n\n# 订单中心设计\n\n订单中心从零重构，采用事件溯源。\n",
+        encoding="utf-8",
+    )
+    r = json.loads(
+        handle_ingest_source(
+            {"session_id": sid, "source_ref": str(decl_file), "name": "order-design"},
+            store,
+        )
+    )
+    check(
+        "ingest_source",
+        "frontmatter声明supersedes触发闸门",
+        r.get("status") == "supersede_declared",
+        str(r)[:300],
+    )
+    check(
+        "ingest_source",
+        "supersede指向既有源",
+        r.get("supersedes") == "rev-doc-v1",
+        str(r)[:300],
+    )
+    r = json.loads(
+        handle_ingest_source(
+            {
+                "session_id": sid,
+                "source_ref": str(decl_file),
+                "name": "order-design",
+                "allow_sibling": True,
+            },
+            store,
+        )
+    )
+    check("ingest_source", "supersede经allow_sibling确认后登记", r.get("status") == "ingested", str(r)[:200])
+
     # ================================================================
     print("\n[8] retract_source — dry_run与引用清理")
     r = json.loads(

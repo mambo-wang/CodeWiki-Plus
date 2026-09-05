@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -277,6 +278,121 @@ def _inject_source_refs(output_dir: Path, related_pages: List[str], source_name:
         _merge_okf_sources_entry(page_path, okf_entry)
 
 
+# Text formats whose body can be fingerprinted for version-sibling detection.
+# Binary formats (pdf/docx) have no text extractor yet — they skip the gate.
+_TEXT_SUFFIXES = {".md", ".markdown", ".html", ".htm", ".txt", ".rst"}
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _plain_text(path: Path) -> Optional[str]:
+    """UTF-8 text of *path* if it is a text document, else None (HTML tags stripped)."""
+    if path.suffix.lower() not in _TEXT_SUFFIXES:
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if path.suffix.lower() in (".html", ".htm"):
+        text = _HTML_TAG_RE.sub(" ", text)
+    return text
+
+
+def _frontmatter_dict(text: str) -> Dict[str, Any]:
+    """Parse the YAML frontmatter block of a text document."""
+    if not text.startswith("---"):
+        return {}
+    end = text.find("---", 3)
+    if end < 0:
+        return {}
+    try:
+        import yaml
+
+        data = yaml.safe_load(text[3:end])
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _body_without_frontmatter(text: str) -> str:
+    """Strip a leading YAML frontmatter block (headings/fields are not prose)."""
+    if text.startswith("---"):
+        end = text.find("---", 3)
+        if end > 0:
+            text = text[end + 3 :]
+    return text
+
+
+def _declared_supersedes(text: str) -> Optional[str]:
+    """The ``supersedes`` source id declared in the document frontmatter, if any.
+
+    The author stating "this document replaces X" is the strongest signal of
+    all — declared intent beats any fingerprint inference.
+    """
+    fm = _frontmatter_dict(text)
+    declared = fm.get("supersedes")
+    return declared.strip() if isinstance(declared, str) and declared.strip() else None
+
+
+def _registered_fingerprint(output_dir: Path, info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Similarity fingerprint of a registered entry, backfilled from its raw file
+    when the entry predates fingerprinting."""
+    fp = info.get("similarity")
+    if isinstance(fp, dict) and fp.get("sketch"):
+        return fp
+    rel = info.get("path")
+    if not rel:
+        return None
+    text = _plain_text(output_dir / rel)
+    if text is None:
+        return None
+    from codewiki.src import doc_similarity
+
+    fp = doc_similarity.compute_fingerprint(_body_without_frontmatter(text))
+    # Backfill so the next comparison is purely in-memory; the entry is part of
+    # the registry dict, so it is persisted on the next _save_registry.
+    info["similarity"] = fp
+    return fp
+
+
+def _best_sibling(
+    output_dir: Path,
+    registry: Dict[str, Any],
+    fingerprint: Dict[str, Any],
+    skip_name: Optional[str] = None,
+) -> tuple:
+    """Closest registered source by body similarity, with human-readable evidence.
+
+    Returns ``(name, score, shared_headings, backfilled)`` — score 0.0 when
+    nothing matches. ``backfilled`` is True when at least one entry's
+    fingerprint had to be recomputed from disk (caller should persist).
+    """
+    from codewiki.src import doc_similarity
+
+    best = (None, 0.0, [], False)
+    for existing_name, info in registry.get("sources", {}).items():
+        if not isinstance(info, dict) or info.get("status") == "retracted":
+            continue
+        if existing_name == skip_name:
+            continue
+        had_fp = isinstance(info.get("similarity"), dict) and bool(info["similarity"].get("sketch"))
+        fp = _registered_fingerprint(output_dir, info)
+        if fp is None:
+            continue
+        if not had_fp:
+            # Recomputed from disk — mark so the caller persists all backfills
+            # (even when this entry does not become the best match).
+            best = (best[0], best[1], best[2], True)
+        score = doc_similarity.similarity(fingerprint, fp)
+        if score > best[1]:
+            best = (
+                existing_name,
+                score,
+                doc_similarity.shared_headings(fingerprint, fp),
+                best[3],
+            )
+    return best
+
+
 def handle_ingest_source(
     arguments: Dict[str, Any],
     store: SessionStore,
@@ -439,6 +555,105 @@ def handle_ingest_source(
             ensure_ascii=False,
         )
 
+    # 3) Document-evolution guards (after the byte-level duplicate and the
+    #    name-level conflict checks above). Two signals, both *warnings only*:
+    #    nothing is stored until the caller re-runs with allow_sibling=true —
+    #    the explicit "user read the warning, import anyway" token.
+    from codewiki.src import doc_similarity
+
+    allow_sibling = bool(arguments.get("allow_sibling", False))
+    source_text = _plain_text(src)
+    fingerprint: Optional[Dict[str, Any]] = None
+    if source_text is not None:
+        fingerprint = doc_similarity.compute_fingerprint(_body_without_frontmatter(source_text))
+        if not allow_sibling:
+            # 3a) Declared supersede: the document frontmatter says it replaces
+            #     an already-registered source — the author's explicit intent.
+            declared = _declared_supersedes(source_text)
+            if declared and declared in registry.get("sources", {}):
+                declared_info = registry["sources"][declared]
+                if isinstance(declared_info, dict) and declared_info.get("status") != "retracted":
+                    return json.dumps(
+                        {
+                            "status": "supersede_declared",
+                            "name": name,
+                            "supersedes": declared,
+                            "existing": {
+                                "path": declared_info.get("path", ""),
+                                "original_path": declared_info.get("original_path", ""),
+                                "imported_at": declared_info.get("imported_at", ""),
+                                "description": declared_info.get("description", ""),
+                            },
+                            "requires_user_confirmation": True,
+                            "user_options": [
+                                f"supersede (recommended): after the user agrees, "
+                                f"retract_source(name='{declared}', mode='remove_refs') to retire the "
+                                "superseded document, then re-import under the intended stable name",
+                                f"keep_both: only if the user disagrees with the declaration, re-run "
+                                "with allow_sibling=true",
+                                "cancel: drop this import",
+                            ],
+                            "message": (
+                                f"The document declares `supersedes: {declared}` in its frontmatter, "
+                                f"but '{declared}' is already registered "
+                                f"({declared_info.get('path') or declared_info.get('original_path')}, "
+                                f"imported {declared_info.get('imported_at', 'unknown')}). Nothing was "
+                                "stored. ASK THE USER whether to supersede the old source or keep "
+                                "both as separate documents."
+                            ),
+                        },
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+            # 3b) Version-sibling gate: the body fingerprint looks like an
+            #     edited edition of an already-registered document under a
+            #     different name (e.g. 设计文档-v1 -> 设计文档-v2).
+            #     skip_name = the identifier being replaced by an overwrite.
+            sibling_name, score, shared, backfilled = _best_sibling(
+                output_dir, registry, fingerprint, skip_name=name if overwrite else None
+            )
+            if sibling_name and score >= doc_similarity.SIMILAR_LOW:
+                if backfilled:
+                    # Persist backfilled fingerprints even though we return early.
+                    _save_registry(output_dir, registry)
+                sib_info = registry["sources"][sibling_name]
+                return json.dumps(
+                    {
+                        "status": "version_sibling",
+                        "name": name,
+                        "existing_name": sibling_name,
+                        "similarity_score": score,
+                        "confidence": doc_similarity.classify(score),
+                        "shared_headings": shared,
+                        "existing": {
+                            "path": sib_info.get("path", ""),
+                            "original_path": sib_info.get("original_path", ""),
+                            "imported_at": sib_info.get("imported_at", ""),
+                            "description": sib_info.get("description", ""),
+                        },
+                        "requires_user_confirmation": True,
+                        "user_options": [
+                            f"supersede (recommended): after the user agrees, "
+                            f"retract_source(name='{sibling_name}', mode='remove_refs') to retire the "
+                            "old edition, then re-import under a stable name without a version number",
+                            f"keep_both: only if the user confirms this is a genuinely separate "
+                            "document, re-run with allow_sibling=true",
+                            "cancel: drop this import",
+                        ],
+                        "message": (
+                            f"Content resembles the already-registered source '{sibling_name}' "
+                            f"(similarity {score:.2f}, {len(shared)} shared headings"
+                            + (f": {', '.join(shared[:4])}" if shared else "")
+                            + f"). This may be a revised edition imported under a new name "
+                            f"({sib_info.get('path') or sib_info.get('original_path')}, imported "
+                            f"{sib_info.get('imported_at', 'unknown')}). Nothing was stored. "
+                            "ASK THE USER whether to supersede the old edition or keep both."
+                        ),
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+
     # Ensure raw/sources/ directory exists
     from codewiki.src.config import RAW_SOURCES_DIR
 
@@ -484,6 +699,7 @@ def handle_ingest_source(
         "related_pages": related_pages,
         "status": "active",
         "content_hash": f"sha256:{content_hash}" if content_hash else "",
+        "similarity": fingerprint,  # body sketch + headings; None for binary formats
     }
     _save_registry(output_dir, registry)
 

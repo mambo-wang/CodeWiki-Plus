@@ -634,19 +634,30 @@ def _bm25_recall_candidates(
     return out
 
 
-def _find_weak_conflicts(
+def _find_conflict_candidates(
     candidate_title: str,
     candidate_content: str,
     candidate_type: str,
     output_dir: Path,
+    *,
+    include_strong: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Detect WEAK duplicate signals that warrant agent adjudication.
+    """Ranked near-duplicate candidates for a candidate note (two signals).
 
-    Strong duplicates are already handled by ``_find_existing_note`` (and keep
-    the legacy dedup= semantics for idempotent re-distillation). This function
-    only returns the weak band: title similarity in
-    [_CONFLICT_TITLE_FLOOR, strong-threshold) plus BM25 recall hits. An empty
-    list means "no conflict — ingest directly".
+    Default (``include_strong=False``) returns the **weak band** only: title
+    similarity in [_CONFLICT_TITLE_FLOOR, strong-threshold) plus BM25 recall
+    hits. Strong duplicates are already handled by ``_find_existing_note``
+    (and keep the legacy dedup= semantics for idempotent re-distillation), so
+    the distillation pipeline excludes them here. An empty list means
+    "no conflict — ingest directly".
+
+    ``include_strong=True`` additionally keeps the strong band — the
+    "this is an update of an existing note, not new knowledge" case. Advisory
+    consumers (``ingest_note``'s conflict hint) need it: that band is exactly
+    what they must surface to the caller.
+
+    Retired notes (deprecated / legacy rejected|superseded) are never
+    candidates — see ``_is_retired_note``.
     """
     candidates: List[Dict[str, Any]] = []
     notes_dir = output_dir / "notes"
@@ -669,7 +680,7 @@ def _find_weak_conflicts(
                 or (sim >= _DEDUP_THRESHOLD * 0.8 and same_type)
                 or (sim >= _TITLE_SIMILARITY_THRESHOLD and same_type)
             )
-            if is_strong:
+            if is_strong and not include_strong:
                 continue  # handled by _find_existing_note, not a "conflict"
             rel = str(note_path.relative_to(output_dir))
             candidates.append(
@@ -678,6 +689,7 @@ def _find_weak_conflicts(
                     "title": title,
                     "score": round(sim, 3),
                     "signal": "title_sim",
+                    "strong": is_strong,
                 }
             )
     for hit in _bm25_recall_candidates(candidate_title, candidate_content, output_dir):
@@ -1060,7 +1072,7 @@ def _process_llm_output(
                         }
                     )
                 continue
-            weak = _find_weak_conflicts(title, content, note_type, output_dir)
+            weak = _find_conflict_candidates(title, content, note_type, output_dir)
             if weak:
                 if conflict_policy == "hold":
                     # WEAK conflict (Mode C): do NOT ingest yet — report the

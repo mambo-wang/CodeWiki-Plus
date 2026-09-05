@@ -1,20 +1,30 @@
 ---
 type: pitfall
-title: "file_lock 的「锁文件」可能是数据文件本身，释放即删只能加在 store.locked() 不能下沉到 file_lock"
-tags: ["codewiki", "pitfall"]
+title: file_lock 的「锁文件」可能是数据文件本身，释放即删只能加在 store.locked() 不能下沉到 file_lock
+tags:
+- codewiki
+- pitfall
 metadata:
   date: 2026-09-04
   task_id: 产品维护
-  related_modules: ["store", "file_lock", "wiki_index", "workspace_bootstrap"]
+  related_modules:
+  - store
+  - file_lock
+  - wiki_index
+  - workspace_bootstrap
   severity: medium
-  source_ref: "conversations/conv-REVIEW本地变更区代码，测试相关功能.md"
-  scene: "KnowledgeStore 跨进程锁治理"
-status: draft
+  source_ref: conversations/conv-REVIEW本地变更区代码，测试相关功能.md
+  scene: KnowledgeStore 跨进程锁治理
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.5.1, at: 2026-09-04T08:18:32Z }
-stale_after: 2027-03-03
+generated:
+  by: codewiki/5.5.1
+  at: 2026-09-04 08:18:32+00:00
+stale_after: '2027-03-04'
 origin: conversation
-
+verified:
+- by: codewiki/5.6.0
+  at: '2026-09-05T12:47:31Z'
 ---
 
 ## Background

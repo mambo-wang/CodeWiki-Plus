@@ -1,19 +1,27 @@
 ---
 type: decision
-title: "在 CodeBuddy 使用跨 Agent 技能：纯 SKILL.md 直接装 ~/.codebuddy/skills/，hooks 需 CLI/插件市场、Native Pack 无 codebuddy target"
-tags: ["codebuddy", "decision", "juliusbrussee"]
+title: 在 CodeBuddy 使用跨 Agent 技能：纯 SKILL.md 直接装 ~/.codebuddy/skills/，hooks 需 CLI/插件市场、Native
+  Pack 无 codebuddy target
+tags:
+- codebuddy
+- decision
+- juliusbrussee
 metadata:
   date: 2026-09-04
   task_id: 他山之石
   severity: medium
-  source_ref: "conversations/conv-https-github.com-JuliusBrussee-caveman.git-研究下这个技能是如何生效的-a51ed2.md"
-  scene: "他山之石-caveman研究"
-status: draft
+  source_ref: conversations/conv-https-github.com-JuliusBrussee-caveman.git-研究下这个技能是如何生效的-a51ed2.md
+  scene: 他山之石-caveman研究
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.5.1, at: 2026-09-04T06:00:37Z }
-stale_after: 2027-09-04
+generated:
+  by: codewiki/5.5.1
+  at: 2026-09-04 06:00:37+00:00
+stale_after: '2027-09-05'
 origin: conversation
-
+verified:
+- by: codewiki/5.6.0
+  at: '2026-09-05T12:47:31Z'
 ---
 
 ## Background

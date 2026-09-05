@@ -36,6 +36,69 @@
       "repo": "CodeWiki-CN",
       "producer": "codewiki/5.5.1",
       "written_at": "2026-09-04T04:17:55Z"
+    },
+    "wiki/sources/README_CN_2.0.md": {
+      "git_head": null,
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": null,
+      "producer": "codewiki/5.6.0",
+      "written_at": "2026-09-05T11:59:31Z"
+    },
+    "wiki/entities/WeKnora.md": {
+      "git_head": null,
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": null,
+      "producer": "codewiki/5.6.0",
+      "written_at": "2026-09-05T12:00:07Z"
+    },
+    "wiki/concepts/技能目录与沙箱运行时.md": {
+      "git_head": null,
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": null,
+      "producer": "codewiki/5.6.0",
+      "written_at": "2026-09-05T12:00:15Z"
+    },
+    "wiki/concepts/跨会话长期记忆.md": {
+      "git_head": null,
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": null,
+      "producer": "codewiki/5.6.0",
+      "written_at": "2026-09-05T12:00:19Z"
+    },
+    "wiki/concepts/分块编辑与版本历史.md": {
+      "git_head": null,
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": null,
+      "producer": "codewiki/5.6.0",
+      "written_at": "2026-09-05T12:00:23Z"
+    },
+    "wiki/entities/DeepSeekHarness插件.md": {
+      "git_head": null,
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": null,
+      "producer": "codewiki/5.6.0",
+      "written_at": "2026-09-05T12:00:27Z"
+    },
+    "wiki/entities/WeKnoraMCP_Server.md": {
+      "git_head": null,
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": null,
+      "producer": "codewiki/5.6.0",
+      "written_at": "2026-09-05T12:00:39Z"
     }
   }
 }

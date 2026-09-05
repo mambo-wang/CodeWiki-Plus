@@ -1,0 +1,19 @@
+{
+  "name": "_auto_3145cf7354b441ffacadba3e15874bef",
+  "mainConversationId": "3145cf7354b441ffacadba3e15874bef",
+  "workspacePath": "d:\\repos\\CodeWiki-CN",
+  "createdAt": "2026-09-05T11:08:37.175Z",
+  "options": {
+    "workspacePath": "d:\\repos\\CodeWiki-CN",
+    "isAutoTeam": true
+  },
+  "isAutoTeam": true,
+  "members": [
+    {
+      "memberId": "distill-worker@_auto_3145cf7354b441ffacadba3e15874bef",
+      "name": "distill-worker",
+      "role": "补蒸馏产品维护积压对话",
+      "sessionId": "aa58dfd742054c83bd11ec7ef7a8c6fe"
+    }
+  ]
+}

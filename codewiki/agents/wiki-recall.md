@@ -41,5 +41,5 @@ wiki-recall 摘要：
 
 - 永远不把检索结果的完整正文带回主会话——只带路径 + 一句话结论；主 Agent 需要细节时自己用 `codewiki query --expand` 或 MCP 的 query_wiki 深读；
 - 中英文关键词都试一次（知识库是中文为主的，任务描述可能用英文术语）；
-- 宿主 Agent 若最终使用了你报告的知识，提醒它在回复中声明：`<!-- codewiki:referenced-docs: ["<file>", ...] -->`（采纳计数会提升这些知识的排序）；
+- 宿主 Agent 若最终使用了你报告的知识，提醒它回答时在关键论断处标注依据：文档/笔记标 `（依据：<file>）`（file 用检索结果原样路径），代码事实标 `<代码文件>:<行号>`（行号以实际读码为准）；并照旧在回复中声明：`<!-- codewiki:referenced-docs: ["<file>", ...] -->`（采纳计数会提升这些知识的排序）；
 - `codewiki` 命令不可用时返回一行：`wiki-recall: CLI 不可用（pip install codewiki-plus）`，不阻塞任务。

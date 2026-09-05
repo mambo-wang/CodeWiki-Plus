@@ -943,7 +943,13 @@ _register(
             "architecture (system design rationale), bug_fix (how we fixed Y), "
             "pitfall (gotcha with root cause), known_issue (tracked problem), "
             "workaround (temporary solution), general (free-form knowledge). "
-            "Can be used with or without an active session — just provide output_dir."
+            "Can be used with or without an active session — just provide output_dir. "
+            "CONFLICT AWARENESS: before writing it scans notes/ for existing notes that look "
+            "like the same knowledge and returns them in 'similar_notes' with a hint "
+            "(set detect_conflicts=false to skip). It never overwrites or auto-merges — if the "
+            "new note refutes an existing one, retiring the old note is the caller's call "
+            "(reject_note / batch_set_status status='deprecated'). Leaving both live lets a "
+            "refuted conclusion keep ranking in query_wiki."
         ),
         inputSchema={
             "type": "object",
@@ -1017,6 +1023,15 @@ _register(
                 "task_id": {
                     "type": "string",
                     "description": "Optional task id to route this note to (surfaced by query_wiki task_id filter and get_task_context).",
+                },
+                "detect_conflicts": {
+                    "type": "boolean",
+                    "description": (
+                        "Pre-write advisory: look for existing notes that look like the "
+                        "same knowledge and return them in 'similar_notes' with a hint "
+                        "to update/merge/retire instead (default true). Never blocks the "
+                        "write. Set false for bulk ingest where the corpus is known-clean."
+                    ),
                 },
             },
             "required": ["title", "content"],
@@ -1373,6 +1388,18 @@ _register(
             "it only AFTER the user agrees to replace an existing source (the old "
             "raw file is moved to .trash); it is accepted only against the SAME "
             "name and returns status='error' otherwise. "
+            "For TEXT documents (md/html/txt/rst) two version-aware gates also "
+            "fire: status='version_sibling' when the new content resembles an "
+            "already-registered source under a DIFFERENT name (a revised edition, "
+            "e.g. 设计文档-v1 -> 设计文档-v2), and status='supersede_declared' when "
+            "the document frontmatter declares `supersedes: <registered name>`. "
+            "Both also store NOTHING and carry requires_user_confirmation=true "
+            "with the similarity evidence (score, confidence, shared headings). "
+            "allow_sibling=true is the user-consent token for those two gates "
+            "only — pass it AFTER the user has seen the warning and confirmed "
+            "this is a genuinely separate document (it does NOT bypass "
+            "duplicate/conflict). Binary formats (pdf/docx) have no text "
+            "extractor yet and skip the version gates. "
             "IMPORTANT: This tool only stores and indexes the document. To extract "
             "structured knowledge (entities, concepts) from it, follow this workflow: "
             "1) Call get_prompt(prompt_type='extraction_scan') for extraction guidance. "
@@ -1412,6 +1439,16 @@ _register(
                         "raw file is moved to .trash. Accepted only against the SAME "
                         "name; passing it together with a NEW name for content that "
                         "is already registered elsewhere returns an error."
+                    ),
+                },
+                "allow_sibling": {
+                    "type": "boolean",
+                    "description": (
+                        "User-consent token for the version gates. Set to true ONLY "
+                        "after the user has seen status='version_sibling' or "
+                        "status='supersede_declared' and explicitly agreed the "
+                        "document is a genuinely separate entry. Does NOT bypass "
+                        "duplicate/conflict."
                     ),
                 },
                 "source_type": {
