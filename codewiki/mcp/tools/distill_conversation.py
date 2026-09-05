@@ -372,6 +372,20 @@ def _unquote_fm(value: str) -> str:
     return v
 
 
+def _is_retired_note(fm: Dict[str, str]) -> bool:
+    """OKF: a note retired from the knowledge base is not knowledge.
+
+    Covers ``deprecated`` plus the legacy ``rejected`` / ``superseded``
+    vocabulary (normalized by ``note_writer._norm_status``). Dedup answers
+    "does this already exist?" — if a retired note wins, the fresh draft is
+    merged into (or suppressed by) dead knowledge. Same skip rule as the read
+    paths (query_wiki default BM25, by_file, mode=check).
+    """
+    from codewiki.mcp.tools.note_writer import _norm_status
+
+    return _norm_status(fm.get("status") or "stable") == "deprecated"
+
+
 def _extract_turns(text: str) -> str:
     """Pull the transcript body after the frontmatter for LLM input."""
     if text.startswith("---"):
@@ -440,6 +454,10 @@ def _find_existing_note(
         try:
             fm = _parse_frontmatter(note_path)
         except Exception:
+            continue
+        # Retired notes (deprecated / legacy rejected|superseded) are not
+        # knowledge — never a merge target (see _is_retired_note).
+        if _is_retired_note(fm):
             continue
         # ingest_note writes the title JSON-quoted; unquote so Jaccard tokens
         # are not polluted by the surrounding quotes.
@@ -593,6 +611,15 @@ def _bm25_recall_candidates(
         return []
     out: List[Dict[str, Any]] = []
     for h in hits or []:
+        # Retired notes (deprecated / legacy rejected|superseded) are not
+        # knowledge: exclude them from dedup recall, same rule as the
+        # title-sim band and the query_wiki read paths. Best-effort — a
+        # malformed note must never block distillation.
+        try:
+            if h.get("file") and _is_retired_note(_parse_frontmatter(output_dir / h["file"])):
+                continue
+        except Exception:
+            pass
         score = float(h.get("relevance_score") or 0.0)
         if score < _CONFLICT_BM25_FLOOR:
             continue
@@ -629,6 +656,8 @@ def _find_weak_conflicts(
                 fm = _parse_frontmatter(note_path)
             except Exception:
                 continue
+            if _is_retired_note(fm):
+                continue  # retired notes are not conflict candidates
             title = _unquote_fm(fm.get("title", "")) or note_path.stem
             note_type = fm.get("type") or fm.get("note_type") or ""
             sim = _title_similarity(candidate_title, title)

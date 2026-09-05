@@ -398,6 +398,29 @@ def _query_mode_detail(
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
+def _note_lifecycle_status(output_dir: Path, rel_path: str) -> str:
+    """OKF lifecycle status of a search hit; "" when it is not a note.
+
+    Shared skip rule for every read path that answers "does this knowledge
+    exist?" (default BM25, by_file, check): ``deprecated`` — including the
+    legacy ``rejected`` / ``superseded`` vocabulary normalized by
+    ``_norm_status`` — is invisible. Non-note hits (wiki pages, sources) have
+    no note lifecycle and return "" so callers pass them through unchanged.
+    """
+    from codewiki.src.config import NOTES_DIR
+
+    if not rel_path.startswith(f"{NOTES_DIR}/"):
+        return ""
+    try:
+        raw = (output_dir / rel_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    fm = _extract_frontmatter_block(raw)
+    if not fm:
+        return ""  # unreadable frontmatter: unknown status, let it through
+    return _norm_status(str(fm.get("status") or "stable"))
+
+
 def _query_mode_check(
     output_dir: Path,
     query: str,
@@ -434,6 +457,11 @@ def _query_mode_check(
         for r in raw:
             # Mirror the main path's include_sources semantics.
             if not include_sources and r["file"].startswith("raw/sources/"):
+                continue
+            # Mirror the main path's lifecycle skip rule: a deprecated note
+            # (incl. legacy rejected/superseded) is not knowledge and must not
+            # decide the pre-check verdict.
+            if _note_lifecycle_status(output_dir, r["file"]) == "deprecated":
                 continue
             results.append(
                 {
