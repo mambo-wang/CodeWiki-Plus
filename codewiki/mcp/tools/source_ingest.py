@@ -323,22 +323,79 @@ def handle_ingest_source(
     registry = _load_registry(output_dir)
 
     # 1) Content-level dedup: identical content anywhere → duplicate.
+    #    Mirrors the name-conflict guard below: the tool MUST NOT decide on the
+    #    caller's behalf. It stores nothing, reports the clash and surfaces the
+    #    paths the user can choose from; re-running with overwrite=true is the
+    #    explicit "user agreed" signal.
+    overwrite = bool(arguments.get("overwrite", False))
+    duplicate_of: Optional[str] = None
     if content_hash:
         for existing_name, info in registry.get("sources", {}).items():
             if isinstance(info, dict) and info.get("content_hash") == hash_key:
                 if info.get("status") != "retracted":
-                    return json.dumps(
-                        {
-                            "status": "duplicate",
-                            "name": name,
-                            "existing_name": existing_name,
-                            "content_hash": f"sha256:{content_hash[:16]}...",
-                            "message": f"Content identical to existing source '{existing_name}'. "
-                            f"Use a different file or retract the existing source first.",
-                        },
-                        indent=2,
-                        ensure_ascii=False,
-                    )
+                    duplicate_of = existing_name
+                    break
+
+    if duplicate_of:
+        dup_info = registry["sources"][duplicate_of]
+        # A confirmed re-import is only meaningful when it targets the SAME
+        # identifier. Overwriting under a *different* name would store a second
+        # copy of byte-identical content and pollute retrieval with duplicates.
+        if overwrite and duplicate_of != name:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "name": name,
+                    "duplicate_of": duplicate_of,
+                    "message": (
+                        f"Content is already registered as '{duplicate_of}'; refusing to "
+                        f"store a second copy under '{name}'. Ask the user: reuse "
+                        f"'{duplicate_of}' as-is, or retract_source('{duplicate_of}') "
+                        "first and then import under the new name."
+                    ),
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        if not overwrite:
+            return json.dumps(
+                {
+                    "status": "duplicate",
+                    "name": name,
+                    "existing_name": duplicate_of,
+                    "existing": {
+                        "name": duplicate_of,
+                        "path": dup_info.get("path", ""),
+                        "original_path": dup_info.get("original_path", ""),
+                        "imported_at": dup_info.get("imported_at", ""),
+                        "description": dup_info.get("description", ""),
+                        "content_hash": dup_info.get("content_hash", ""),
+                    },
+                    "content_hash": f"sha256:{content_hash[:16]}...",
+                    "requires_user_confirmation": True,
+                    "user_options": [
+                        f"reuse (recommended): skip this import and work with the already "
+                        f"registered source '{duplicate_of}' — the bytes are identical",
+                        f"overwrite: only after the user agrees, re-run with "
+                        f"overwrite=true and name='{duplicate_of}' to re-store the same "
+                        "document under its canonical name (the old raw file moves to .trash)",
+                        f"rename: only if the user wants a separate identifier — "
+                        f"retract_source('{duplicate_of}') first, then import under a new name",
+                    ],
+                    "message": (
+                        f"Content is byte-identical to existing source '{duplicate_of}' "
+                        f"({dup_info.get('path') or dup_info.get('original_path')}, imported "
+                        f"{dup_info.get('imported_at', 'unknown')}). Nothing was stored. "
+                        "ASK THE USER which path to take before calling this tool again — "
+                        "do not silently skip, rename or overwrite on your own."
+                    ),
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        # Confirmed overwrite of the same identifier: retire the old raw file so
+        # the fresh copy takes the canonical path (handled further below).
+        _retire_registered_file(output_dir, registry, duplicate_of)
 
     # 2) Name-level conflict guard: the identifier is already registered to a
     #    *different* document. Never overwrite silently — surface the conflict
@@ -349,7 +406,6 @@ def handle_ingest_source(
         and existing.get("status") != "retracted"
         and existing.get("content_hash") != hash_key
     )
-    overwrite = bool(arguments.get("overwrite", False))
     if name_conflict and not overwrite:
         return json.dumps(
             {
@@ -362,12 +418,20 @@ def handle_ingest_source(
                     "content_hash": existing.get("content_hash", ""),
                     "description": existing.get("description", ""),
                 },
+                "requires_user_confirmation": True,
+                "user_options": [
+                    "overwrite: only after the user agrees, re-run with overwrite=true to "
+                    "replace the existing document (the old raw file moves to .trash)",
+                    "rename: pass a different 'name' to keep both documents",
+                    "cancel: drop this import and keep the existing source untouched",
+                ],
                 "message": (
                     f"Source name '{name}' is already registered to a different document "
                     f"({existing.get('path') or existing.get('original_path')}, imported "
                     f"{existing.get('imported_at', 'unknown')}). The new file was NOT stored. "
-                    "After user confirmation, re-run ingest_source with overwrite=true to "
-                    "replace it (the existing raw file will be moved to .trash), or pass a "
+                    "ASK THE USER first — do not silently skip, rename or overwrite. After the "
+                    "user confirms a replacement, re-run ingest_source with overwrite=true "
+                    "(the existing raw file will be moved to .trash); otherwise pass a "
                     "different 'name' to keep both documents."
                 ),
             },

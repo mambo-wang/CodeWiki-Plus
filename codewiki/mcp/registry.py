@@ -1361,11 +1361,18 @@ _register(
             "Import a third-party document (PDF, MD, DOCX, HTML) into the "
             "knowledge base. The file is stored in raw/sources/ and registered "
             "in source_registry.json for tracking and search indexing. "
-            "Name conflicts: if the requested 'name' is already registered to a "
-            "DIFFERENT file (different content), the tool returns status='conflict' "
-            "and stores nothing — ask the user how to proceed. Re-run with "
-            "overwrite=true only AFTER the user agrees to replace the existing "
-            "document (the old raw file is moved to .trash). "
+            "CONFIRMATION GATE — read first: when the import clashes with anything "
+            "already registered, the tool stores nothing and returns either "
+            "status='duplicate' (identical content already registered, under any "
+            "name) or status='conflict' (this 'name' already registered to a "
+            "DIFFERENT document). Both responses carry "
+            "requires_user_confirmation=true, the 'existing' entry and a "
+            "'user_options' list. You MUST stop and ask the user which option to "
+            "take, then re-run accordingly — never silently skip, rename or "
+            "overwrite on your own. overwrite=true is the user-consent token: pass "
+            "it only AFTER the user agrees to replace an existing source (the old "
+            "raw file is moved to .trash); it is accepted only against the SAME "
+            "name and returns status='error' otherwise. "
             "IMPORTANT: This tool only stores and indexes the document. To extract "
             "structured knowledge (entities, concepts) from it, follow this workflow: "
             "1) Call get_prompt(prompt_type='extraction_scan') for extraction guidance. "
@@ -1398,9 +1405,13 @@ _register(
                 "overwrite": {
                     "type": "boolean",
                     "description": (
-                        "Set to true ONLY after user consent to replace an existing "
-                        "source that already uses this name with different content. "
-                        "The previously registered raw file is moved to .trash."
+                        "User-consent token for re-ingesting an identifier that is "
+                        "already registered. Set to true ONLY after the user has seen "
+                        "the status='duplicate' / status='conflict' response and "
+                        "explicitly agreed to replace it. The previously registered "
+                        "raw file is moved to .trash. Accepted only against the SAME "
+                        "name; passing it together with a NEW name for content that "
+                        "is already registered elsewhere returns an error."
                     ),
                 },
                 "source_type": {

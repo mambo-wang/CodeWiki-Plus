@@ -1,0 +1,19 @@
+{
+  "name": "_auto_8dc3144e030e401a942b5d77f8d4bfcb",
+  "mainConversationId": "8dc3144e030e401a942b5d77f8d4bfcb",
+  "workspacePath": "d:\\repos\\CodeWiki-CN",
+  "createdAt": "2026-09-05T10:32:04.626Z",
+  "options": {
+    "workspacePath": "d:\\repos\\CodeWiki-CN",
+    "isAutoTeam": true
+  },
+  "isAutoTeam": true,
+  "members": [
+    {
+      "memberId": "distill-他山之石@_auto_8dc3144e030e401a942b5d77f8d4bfcb",
+      "name": "distill-他山之石",
+      "role": "补蒸馏他山之石任务",
+      "sessionId": "4e77bbad99d446cd9ac307f548735c87"
+    }
+  ]
+}
