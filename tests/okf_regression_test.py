@@ -796,6 +796,76 @@ def main():
         str([f.name for f in trash_files]),
     )
 
+    # duplicate 确认闸门：内容已登记 → 不落盘，须询问用户后重跑
+    ri_name = "ext-spec-ri"
+    r = json.loads(
+        handle_ingest_source(
+            {"session_id": sid, "source_ref": str(src_file), "name": ri_name},
+            store,
+        )
+    )
+    check("ingest_source", "duplicate场景首次登记成功", r.get("status") == "ingested", str(r)[:200])
+
+    r = json.loads(
+        handle_ingest_source(
+            {"session_id": sid, "source_ref": str(src_file), "name": ri_name},
+            store,
+        )
+    )
+    check("ingest_source", "相同内容提示duplicate", r.get("status") == "duplicate", str(r)[:200])
+    check(
+        "ingest_source",
+        "duplicate要求用户确认",
+        r.get("requires_user_confirmation") is True,
+        str(r)[:300],
+    )
+    check(
+        "ingest_source",
+        "duplicate返回既有来源信息",
+        bool(r.get("existing", {}).get("path")) and r.get("existing", {}).get("name") == ri_name,
+        str(r)[:300],
+    )
+    check("ingest_source", "duplicate给出用户选项", len(r.get("user_options", [])) >= 3, str(r)[:300])
+
+    # 异名 + overwrite → 拒绝，避免同一内容两份副本污染检索
+    r = json.loads(
+        handle_ingest_source(
+            {
+                "session_id": sid,
+                "source_ref": str(src_file),
+                "name": f"{ri_name}-copy",
+                "overwrite": True,
+            },
+            store,
+        )
+    )
+    check(
+        "ingest_source",
+        "duplicate异名overwrite被拒",
+        r.get("status") == "error" and r.get("duplicate_of") == ri_name,
+        str(r)[:300],
+    )
+
+    # 同名 + overwrite（用户确认）→ 重新落盘，旧 raw 移入 .trash
+    r = json.loads(
+        handle_ingest_source(
+            {"session_id": sid, "source_ref": str(src_file), "name": ri_name, "overwrite": True},
+            store,
+        )
+    )
+    check("ingest_source", "duplicate确认后重导成功", r.get("status") == "ingested", str(r)[:200])
+    ri_trash = (
+        list((output_dir / ".trash").glob(f"{ri_name}*.md"))
+        if (output_dir / ".trash").is_dir()
+        else []
+    )
+    check(
+        "ingest_source",
+        "duplicate重导后旧raw移入.trash",
+        bool(ri_trash),
+        str([f.name for f in ri_trash]),
+    )
+
     # ================================================================
     print("\n[8] retract_source — dry_run与引用清理")
     r = json.loads(
