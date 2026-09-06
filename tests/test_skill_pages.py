@@ -305,3 +305,141 @@ def test_search_expanded_terms_do_not_leak_skill(tmp_path):
         assert not [r for r in results if str(r["file"]).startswith("skills/")]
     finally:
         cache.close()
+
+
+# --------------------------------------------------------------------------- #
+# 6. T4 full SKILL.md check set (issue #27, design §4.5)
+# --------------------------------------------------------------------------- #
+def _write_raw_skill(
+    od: Path,
+    name: str,
+    *,
+    fm_overrides: dict | None = None,
+    body: str | None = None,
+) -> Path:
+    """Hand-written draft (bypasses skill_creator submit) for backstop lint."""
+    sk_dir = od / "skills" / name
+    sk_dir.mkdir(parents=True, exist_ok=True)
+    fm = {
+        "name": name,
+        "description": f"When {name} fires, run the recovery SOP",
+        "type": "Skill",
+        "status": "draft",
+        "generated": {"by": "codewiki/test", "at": "2026-09-06T00:00:00Z"},
+        "metadata": {
+            "source_refs": ["notes/any-note.md"],
+            "revisions": [{"at": "2026-09-06T00:00:00Z", "reason": "test", "source": "test"}],
+        },
+    }
+    if fm_overrides:
+        for k, v in fm_overrides.items():
+            if k == "metadata":
+                fm["metadata"].update(v)
+            else:
+                fm[k] = v
+    text_body = body or "\n".join(f"## {s}\n\ncontent" for s in _SECTIONS)
+    p = sk_dir / "SKILL.md"
+    p.write_text(
+        "---\n" + yaml.safe_dump(fm, allow_unicode=True) + "---\n\n" + text_body + "\n",
+        encoding="utf-8",
+    )
+    return p
+
+
+def _lint_skill(repo: str) -> list[dict]:
+    return [i for i in _lint(repo, ["skill_lint"]) if i["check"] == "skill_lint"]
+
+
+def test_skill_lint_clean_draft_passes(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    _write_raw_skill(od, "clean-skill")
+    issues = [i for i in _lint_skill(repo) if i["severity"] == "error"]
+    assert issues == []
+
+
+def test_skill_lint_six_error_rules(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    # name_slug mismatch
+    _write_raw_skill(od, "dir-a", fm_overrides={"name": "totally-different"})
+    # description too short
+    _write_raw_skill(od, "short-desc", fm_overrides={"description": "do it"})
+    # frontmatter incomplete (no status, no source_refs)
+    _write_raw_skill(
+        od,
+        "no-fm",
+        fm_overrides={"status": "", "metadata": {"source_refs": []}},
+    )
+    # body too large
+    _write_raw_skill(od, "big-body", body="## 工作场景\n" + "x" * 9000)
+    # sensitive content
+    _write_raw_skill(od, "leaky", body="## 工作场景\nrun C:\\Users\\john\\s.ps1")
+    # revisions missing though generated
+    _write_raw_skill(
+        od, "no-rev", fm_overrides={"metadata": {"revisions": []}}
+    )
+    issues = _lint_skill(repo)
+    errors = {(i["file"], i["message"].split(":")[0]) for i in issues if i["severity"] == "error"}
+    rels = {f for f, _ in errors}
+    assert "skills/dir-a/SKILL.md" in rels
+    assert "skills/short-desc/SKILL.md" in rels
+    assert "skills/no-fm/SKILL.md" in rels
+    assert "skills/big-body/SKILL.md" in rels
+    assert "skills/leaky/SKILL.md" in rels
+    assert "skills/no-rev/SKILL.md" in rels
+
+
+def test_skill_lint_possibly_stale(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    # material note exists and is stable -> no warning
+    (od / "notes").mkdir(exist_ok=True)
+    (od / "notes" / "mat.md").write_text(
+        "---\ntype: pitfall\ntitle: mat\nstatus: stable\n---\nbody\n", encoding="utf-8"
+    )
+    _write_raw_skill(od, "fresh-skill", fm_overrides={"metadata": {"source_refs": ["notes/mat.md"]}})
+    assert not [i for i in _lint_skill(repo) if "stale" in i["message"]]
+
+    # material goes deprecated -> warning
+    (od / "notes" / "mat.md").write_text(
+        "---\ntype: pitfall\ntitle: mat\nstatus: deprecated\n---\nbody\n", encoding="utf-8"
+    )
+    stale = [i for i in _lint_skill(repo) if "possibly stale" in i["message"]]
+    assert len(stale) == 1 and stale[0]["severity"] == "warning"
+
+    # material removed entirely -> warning too
+    (od / "notes" / "mat.md").unlink()
+    stale = [i for i in _lint_skill(repo) if "possibly stale" in i["message"]]
+    assert len(stale) == 1
+
+
+def test_skill_lint_drift_after_revision(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    from codewiki.mcp.tools.skill_creator import _normalized_hash
+
+    _write_raw_skill(od, "drifty-skill")
+    # simulate install stamping: hash of current content
+    p = od / "skills" / "drifty-skill" / "SKILL.md"
+    text = p.read_text(encoding="utf-8")
+    h = _normalized_hash(
+        "drifty-skill", "When drifty-skill fires, run the recovery SOP", "## x"
+    )
+    fm = yaml.safe_load(text[3 : text.find("---", 3)])
+    fm["metadata"]["installed_hash"] = h
+    p.write_text(
+        "---\n" + yaml.safe_dump(fm, allow_unicode=True) + "---\n\n## revised body\n",
+        encoding="utf-8",
+    )
+    drift = [i for i in _lint_skill(repo) if "drifted" in i["message"]]
+    assert len(drift) == 1 and drift[0]["severity"] == "warning"
+    assert "effect zone still serves the old version" in drift[0]["message"]
+
+
+def test_skill_lint_capacity_grading(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    for i in range(_ORANGE := 9):
+        _write_raw_skill(od, f"cap-{i}")
+    warns = [i for i in _lint_skill(repo) if "near capacity" in i["message"]]
+    assert len(warns) == 1 and warns[0]["severity"] == "warning"
+    for i in range(9, 12):
+        _write_raw_skill(od, f"cap-{i}")
+    errs = [i for i in _lint_skill(repo) if "at/over capacity" in i["message"]]
+    assert len(errs) == 1 and errs[0]["severity"] == "error"
