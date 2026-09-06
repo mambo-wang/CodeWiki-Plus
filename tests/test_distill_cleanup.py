@@ -38,7 +38,7 @@ def _submit(repo: str, distilled: dict):
     store = SessionStore()
     out = distill.handle_distill_conversation(
         {
-            "output_dir": f"{repo}/repowiki",
+            "repo_path": repo,
             "mode": "submit",
             "distilled": distilled,
         },
@@ -169,7 +169,7 @@ def _write_raw_index(repo: str, entries: list) -> None:
 
 def _prepare(repo: str, task_id: str | None) -> dict:
     store = SessionStore()
-    args = {"output_dir": f"{repo}/repowiki", "mode": "prepare"}
+    args = {"repo_path": repo, "mode": "prepare"}
     if task_id is not None:
         args["task_id"] = task_id
     return json.loads(distill.handle_distill_conversation(args, store))
@@ -269,7 +269,7 @@ class TestDistillTaskIdFilter:
         store = SessionStore()
         out = distill.handle_distill_conversation(
             {
-                "output_dir": f"{repo}/repowiki",
+                "repo_path": repo,
                 "mode": "submit",
                 "task_id": "task-one",
                 # Extraction for conv-b (another task) must be ignored; conv-a has

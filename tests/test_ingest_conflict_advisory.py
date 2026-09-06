@@ -39,8 +39,10 @@ def _write_note(notes_dir: Path, filename: str, title: str, status: str = "stabl
 
 
 def _ingest(output_dir: Path, title: str, **extra):
+    # output_dir is retired on write tools; the KB lives at <repo_path>/repowiki
+    # and output_dir (the repowiki root) is always its child.
     args = {
-        "output_dir": str(output_dir),
+        "repo_path": str(output_dir.parent),
         "title": title,
         "content": "写入后删除 key，读多写少场景走 TTL。",
         "note_type": "general",

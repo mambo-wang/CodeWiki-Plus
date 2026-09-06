@@ -210,7 +210,7 @@ class TestScopedKnowledgeQueryable:
         def query(repo):
             return json.loads(
                 handle_query_wiki(
-                    {"query": "quokka", "repo": repo, "output_dir": str(ws / "repowiki")},
+                    {"query": "quokka", "repo": repo, "repo_path": str(ws)},
                     _StubStore(),
                 )
             )

@@ -243,7 +243,7 @@ def test_format_friction_signals_line():
 
 
 def _capture(repo: Path, conversation, **kwargs) -> dict:
-    args = {"output_dir": str(repo / "repowiki"), "conversation": conversation}
+    args = {"repo_path": str(repo), "conversation": conversation}
     args.update(kwargs)
     return json.loads(capture.handle_capture_conversation(args, SessionStore()))
 
@@ -358,7 +358,7 @@ def test_prepare_lists_captures_by_friction_desc(tmp_path):
     out = json.loads(
         distill.handle_distill_conversation(
             {
-                "output_dir": str(tmp_path / "repowiki"),
+                "repo_path": str(tmp_path),
                 "mode": "prepare",
             },
             SessionStore(),
@@ -383,7 +383,7 @@ def test_prepare_no_hint_when_all_calm(tmp_path):
     out = json.loads(
         distill.handle_distill_conversation(
             {
-                "output_dir": str(tmp_path / "repowiki"),
+                "repo_path": str(tmp_path),
                 "mode": "prepare",
             },
             SessionStore(),
@@ -396,10 +396,9 @@ def test_prepare_no_hint_when_all_calm(tmp_path):
 
 def test_get_task_context_pending_raws_carry_friction(tmp_path):
     repo = tmp_path
-    od = str(repo / "repowiki")
     store = SessionStore()
 
-    r = json.loads(tm.handle_create_task({"output_dir": od, "title": "摩擦信号机制"}, store))
+    r = json.loads(tm.handle_create_task({"repo_path": str(repo), "title": "摩擦信号机制"}, store))
     assert r["ok"] is True
     task_id = r["task"]["id"]
 
@@ -408,7 +407,7 @@ def test_get_task_context_pending_raws_carry_friction(tmp_path):
     _capture(repo, calm, task_id=task_id)
     _capture(repo, _correction_conversation(), task_id=task_id)
 
-    ctx = json.loads(tm.handle_get_task_context({"output_dir": od, "task_id": task_id}, store))
+    ctx = json.loads(tm.handle_get_task_context({"repo_path": str(repo), "task_id": task_id}, store))
     assert ctx["ok"] is True
     assert ctx["pending_raw_count"] == 2
     entries = ctx["pending_raws"]

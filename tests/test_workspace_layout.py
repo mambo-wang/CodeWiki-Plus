@@ -215,13 +215,17 @@ class TestInitLayout:
         agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
         assert "一跳" in agents
 
-    def test_centralized_rejects_custom_output_dir(self, tmp_path):
-        """Discovery is anchored at <workspace>/repowiki — a custom output_dir
-        would make the layout config invisible to routing."""
+    def test_centralized_ignores_stale_output_dir_arg(self, tmp_path):
+        """output_dir is retired: init always derives <workspace>/repowiki, so
+        discovery stays anchored at <workspace>/repowiki/.meta/workspace.json
+        and a caller-supplied custom directory is never honoured."""
         res = _init(tmp_path, layout="centralized", output_dir="custom-wiki")
-        assert "error" in res
-        assert "output_dir" in res["error"]
-        assert not (tmp_path / "custom-wiki" / ".meta" / "workspace.json").exists()
+        assert res["status"] == "ok"
+        assert res["output_dir"] == str((tmp_path / "repowiki").resolve())
+        assert not (tmp_path / "custom-wiki").exists()
+        assert json.loads(_config_path(tmp_path).read_text(encoding="utf-8")) == {
+            "wiki_layout": "centralized"
+        }
 
 
 # ---------------------------------------------------------------------------

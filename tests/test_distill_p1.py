@@ -56,7 +56,7 @@ def _submit(repo: str, distilled: dict):
     store = SessionStore()
     out = distill.handle_distill_conversation(
         {
-            "output_dir": f"{repo}/repowiki",
+            "repo_path": repo,
             "mode": "submit",
             "distilled": distilled,
         },

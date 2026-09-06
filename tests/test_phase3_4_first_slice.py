@@ -43,7 +43,7 @@ def test_ingest_note_stamps_author(tmp_path, monkeypatch):
     git_sync._checked_repos.clear()  # isolate sync_check once-per-process state
     res = json.loads(
         handle_ingest_note(
-            {"output_dir": str(tmp_path), "title": "作者标注", "content": "正文"},
+            {"repo_path": str(tmp_path), "title": "作者标注", "content": "正文"},
             _StubStore(),
         )
     )

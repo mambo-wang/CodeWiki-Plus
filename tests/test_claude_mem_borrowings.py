@@ -111,7 +111,9 @@ def _mk_wiki(tmp_path) -> Path:
 
 
 def _query(od: Path, **kw) -> dict:
-    args = {"output_dir": str(od)}
+    # output_dir is retired on query tools; the KB lives at
+    # default_output_dir(repo_path), and od is always <root>/repowiki here.
+    args = {"repo_path": str(od.parent)}
     args.update(kw)
     return json.loads(handle_query_wiki(args, SessionStore()))
 

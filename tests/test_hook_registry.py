@@ -124,7 +124,7 @@ class TestCliQuery:
         from codewiki.cli.commands.query import query_command
 
         od = _mk_wiki(tmp_path)
-        res = CliRunner().invoke(query_command, ["端口冲突", "--output-dir", str(od)])
+        res = CliRunner().invoke(query_command, ["端口冲突", "--repo-path", str(tmp_path)])
         assert res.exit_code == 0, res.output
         out = res.output
         assert out.startswith("--- codewiki:query:start ---")
@@ -138,7 +138,7 @@ class TestCliQuery:
         from codewiki.cli.commands.query import query_command
 
         od = _mk_wiki(tmp_path)
-        res = CliRunner().invoke(query_command, ["端口冲突 量子", "--output-dir", str(od)])
+        res = CliRunner().invoke(query_command, ["端口冲突 量子", "--repo-path", str(tmp_path)])
         assert res.exit_code == 0
         assert "missing_terms: 量子" in res.output
         assert "topically adjacent" in res.output
@@ -147,7 +147,7 @@ class TestCliQuery:
         from codewiki.cli.commands.query import query_command
 
         od = _mk_wiki(tmp_path)
-        res = CliRunner().invoke(query_command, ["端口冲突", "--check", "--output-dir", str(od)])
+        res = CliRunner().invoke(query_command, ["端口冲突", "--check", "--repo-path", str(tmp_path)])
         assert res.exit_code == 0
         assert "relevant: true" in res.output
         assert "top_score:" in res.output
@@ -161,7 +161,7 @@ class TestCliQuery:
     def test_missing_output_dir_errors(self, tmp_path):
         from codewiki.cli.commands.query import query_command
 
-        res = CliRunner().invoke(query_command, ["x", "--output-dir", str(tmp_path / "nope")])
+        res = CliRunner().invoke(query_command, ["x", "--repo-path", str(tmp_path / "nope")])
         assert res.exit_code == 2
 
     def test_full_search_records_telemetry(self, tmp_path):
@@ -169,7 +169,7 @@ class TestCliQuery:
         from codewiki.cli.commands.query import query_command
 
         od = _mk_wiki(tmp_path)
-        CliRunner().invoke(query_command, ["端口冲突", "--output-dir", str(od)])
+        CliRunner().invoke(query_command, ["端口冲突", "--repo-path", str(tmp_path)])
         from codewiki.mcp.tools import telemetry
 
         agg = telemetry.aggregate_usage(od)
@@ -179,7 +179,7 @@ class TestCliQuery:
         from codewiki.cli.commands.query import query_command
 
         od = _mk_wiki(tmp_path)
-        res = CliRunner().invoke(query_command, ["端口冲突", "--output-dir", str(od), "--expand"])
+        res = CliRunner().invoke(query_command, ["端口冲突", "--repo-path", str(tmp_path), "--expand"])
         assert res.exit_code == 0
         assert "lsof" in res.output  # full page content included
 

@@ -221,7 +221,7 @@ def test_lint_wiki_dispatches_stale_evidence(tmp_path):
     handle_stamp_evidence(args, store)
     (repo / "src" / "calc.py").write_text("changed\n", encoding="utf-8")
 
-    res = json.loads(handle_lint_wiki({"output_dir": str(od), "checks": ["stale_evidence"]}, store))
+    res = json.loads(handle_lint_wiki({"repo_path": str(od.parent), "checks": ["stale_evidence"]}, store))
     assert res["checks_run"] == ["stale_evidence"]
     assert res["total_issues"] == 1
     assert res["issues"][0]["check"] == "stale_evidence"

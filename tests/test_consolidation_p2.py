@@ -53,7 +53,7 @@ def _ingest(
     r = json.loads(
         handle_ingest_note(
             {
-                "output_dir": f"{repo}/repowiki",
+                "repo_path": repo,
                 "title": title,
                 "note_type": note_type,
                 "content": content,
@@ -71,7 +71,7 @@ def _confirm(repo: str, note_file: str) -> dict:
     return json.loads(
         handle_confirm_note(
             {
-                "output_dir": f"{repo}/repowiki",
+                "repo_path": repo,
                 "note_file": note_file,
             },
             store,
@@ -109,7 +109,7 @@ def _fm(repo: str, rel: str) -> dict:
 
 def _consolidate(repo: str, args: dict) -> dict:
     store = SessionStore()
-    payload = {"output_dir": f"{repo}/repowiki", **args}
+    payload = {"repo_path": repo, **args}
     return json.loads(cons.handle_consolidate_notes(payload, store))
 
 
@@ -146,7 +146,7 @@ def test_wiki_stats_exposes_aggregation_section(tmp_path):
     nf = _ingest(repo, "Stats visibility note")
     _confirm(repo, nf)
     store = SessionStore()
-    resp = json.loads(handle_wiki_stats({"output_dir": f"{repo}/repowiki"}, store))
+    resp = json.loads(handle_wiki_stats({"repo_path": repo}, store))
     # no retrieval stats DB yet → early return path must still carry counters
     assert "aggregation" in resp
     assert resp["aggregation"]["notes_since_last_consolidation"] == 1
@@ -160,11 +160,11 @@ def test_get_task_context_exposes_aggregation(tmp_path):
 
     store = SessionStore()
     r = json.loads(
-        handle_create_task({"output_dir": f"{repo}/repowiki", "title": "P2 smoke task"}, store)
+        handle_create_task({"repo_path": repo, "title": "P2 smoke task"}, store)
     )
     task_id = r["task"]["id"]
     resp = json.loads(
-        handle_get_task_context({"output_dir": f"{repo}/repowiki", "task_id": task_id}, store)
+        handle_get_task_context({"repo_path": repo, "task_id": task_id}, store)
     )
     assert resp["ok"] is True
     assert "aggregation" in resp
@@ -183,7 +183,7 @@ def test_prepare_lists_only_pending_confirmed_notes(tmp_path):
     rejected = _ingest(repo, "Rejected candidate note")
     store = SessionStore()
     handle_reject_note(
-        {"output_dir": f"{repo}/repowiki", "note_file": rejected, "reason": "noise"}, store
+        {"repo_path": repo, "note_file": rejected, "reason": "noise"}, store
     )
 
     resp = _consolidate(repo, {"mode": "prepare"})
@@ -356,7 +356,7 @@ def test_lint_scenario_capacity_and_orphan(tmp_path):
     store = SessionStore()
     resp = json.loads(
         handle_lint_wiki(
-            {"output_dir": f"{repo}/repowiki", "checks": ["scenario_capacity", "scenario_orphan"]},
+            {"repo_path": repo, "checks": ["scenario_capacity", "scenario_orphan"]},
             store,
         )
     )

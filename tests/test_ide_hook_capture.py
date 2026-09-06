@@ -577,7 +577,7 @@ def test_filename_from_first_user_message(tmp_path):
     result = _json.loads(
         _cap.handle_capture_conversation(
             {
-                "output_dir": str(out),
+                "repo_path": str(out.parent),
                 "conversation": [
                     {"role": "user", "content": "review 最近一次提交"},
                     {"role": "assistant", "content": "好的，我来审查"},
@@ -611,7 +611,7 @@ def test_filename_falls_back_to_timestamp_when_no_user(tmp_path):
     result = _json.loads(
         _cap.handle_capture_conversation(
             {
-                "output_dir": str(out),
+                "repo_path": str(out.parent),
                 "conversation": [
                     {"role": "assistant", "content": "only assistant text"},
                 ],
@@ -641,10 +641,10 @@ def test_filename_collision_appends_suffix(tmp_path):
 
     conv = [{"role": "user", "content": "重复的开场白"}, {"role": "assistant", "content": "回答"}]
     _json.loads(
-        _cap.handle_capture_conversation({"output_dir": str(out), "conversation": conv}, _Store())
+        _cap.handle_capture_conversation({"repo_path": str(out.parent), "conversation": conv}, _Store())
     )
     _json.loads(
-        _cap.handle_capture_conversation({"output_dir": str(out), "conversation": conv}, _Store())
+        _cap.handle_capture_conversation({"repo_path": str(out.parent), "conversation": conv}, _Store())
     )
     # Second capture supersedes the first (same source_session empty) — but here
     # neither has source_session_id, so they are both written. Ensure distinct.

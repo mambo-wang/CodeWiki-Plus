@@ -227,7 +227,7 @@ def test_dispatch_all_surfaces_low_adoption(tmp_path):
     _adopt(od, "notes/other.md")
 
     store = SessionStore()
-    resp = json.loads(handle_lint_wiki({"output_dir": str(od), "checks": ["all"]}, store))
+    resp = json.loads(handle_lint_wiki({"repo_path": str(od.parent), "checks": ["all"]}, store))
     issues = _adopted(resp.get("issues", []))
     assert len(issues) == 1
     assert issues[0]["severity"] == "warning"

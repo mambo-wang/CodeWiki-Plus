@@ -114,9 +114,9 @@ def test_gc_bindings_noop_without_dir(tmp_path):
 
 def test_create_task_duplicate_still_rejected(tmp_path):
     out = str(tmp_path)
-    r1 = json.loads(handle_create_task({"output_dir": out, "title": "Alpha Task"}, _StubStore()))
+    r1 = json.loads(handle_create_task({"repo_path": out, "title": "Alpha Task"}, _StubStore()))
     assert r1.get("ok") is True
-    r2 = json.loads(handle_create_task({"output_dir": out, "title": "Alpha Task"}, _StubStore()))
+    r2 = json.loads(handle_create_task({"repo_path": out, "title": "Alpha Task"}, _StubStore()))
     assert "error" in r2 and "already exists" in r2["error"]
 
 
@@ -384,7 +384,7 @@ def test_create_task_concurrent_same_title_one_wins(tmp_path):
 
     def create():
         results.append(
-            json.loads(handle_create_task({"output_dir": out, "title": "Race"}, _StubStore()))
+            json.loads(handle_create_task({"repo_path": out, "title": "Race"}, _StubStore()))
         )
 
     t1 = threading.Thread(target=create)
