@@ -72,6 +72,15 @@ missing / 三级 stale check，`_ensure_index`）同样收口在 search 入口�
 output_dir 60s 节流。cache.py 已瘦身为纯 persistence adapter，kernel 私有
 import 全仓归零。
 
+**skill** — 从已确认知识编译出的行为指令资产（SKILL.md，Anthropic Agent Skill
+规范）：消费方是宿主 IDE 按 description 自动触发改变 agent 行为，与 scenario
+（检索知识，agent 主动 query_wiki 按需查阅）分轨互补。两区制生命周期：草稿区
+`repowiki/skills/`（进索引进 lint、不生效）→ 人工确认后 install 到生效区
+`.codebuddy/skills/`（IDE 发现即生效）。修订经 `metadata.revisions` 审计链，
+退役 retire 保留正文。有效性反馈收敛到既有 `flag_issue` 通道，不开平行通道。
+_Avoid_: 把 skill 当 scenario 的替身——一个进系统提示改变行为，一个进检索
+供查阅；素材过期联动（stale）走技能自身标注，不改写素材源。
+
 ## Key decisions
 
 - [ADR-0001 — 任务记忆保持 Markdown，不迁移 JSONL](adr/0001-task-memory-stays-markdown.md)（2026-08-24）
