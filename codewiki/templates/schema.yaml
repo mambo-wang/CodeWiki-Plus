@@ -217,6 +217,19 @@ page_types:
       - 调研过程
       - 方案权衡
       - 决策结论
+  # skill-creator (issue #24, ADR-0004)：技能草稿区。注意 directory 是
+  # output_dir 相对路径——skills/ 在 repowiki 根（与 notes/ 同层的知识资产），
+  # 不在 wiki/ 代码文档层；生效区在仓库根 .codebuddy/skills/，repowiki 不扫描。
+  # 正文五段骨架与 scenario 同构（When to Apply ≈ 适用条件，Instructions ≈ SOP）。
+  skill:
+    directory: skills
+    description: 从已确认知识编译的 SKILL.md 行为指令草稿（两区制草稿区：进索引进 lint、不生效），由 skill_creator 生成，经确认后 install 到生效区
+    required_sections:
+      - 工作场景
+      - 适用条件
+      - 核心 SOP
+      - 判断逻辑
+      - 禁忌与反模式
 
 # 提取粒度：控制 extraction_scan 提示词扫描源码时提取实体/概念的密度。
 #   focused    — 3-7 个关键项，适合小型项目或快速概览

@@ -785,7 +785,10 @@ _register(
             "scenario_capacity (L2 scene blocks at/over the consolidation cap — "
             "merge similar scenes before adding more), "
             "scenario_orphan (scene blocks with no source_notes provenance and no "
-            "recent retrieval — possibly redundant or outdated). "
+            "recent retrieval — possibly redundant or outdated), "
+            "skill_sections (draft-zone SKILL.md pages missing the schema "
+            "page_types.skill five-section skeleton — an instruction asset without "
+            "its sections is not actionable). "
             "Run checks=['all'] for a comprehensive audit. "
             "After fixing issues, use flag_issue to track remaining problems. "
             "MANDATORY FINAL STEP: after lint passes (or issues are tracked), you MUST call "
@@ -825,6 +828,7 @@ _register(
                             "okf_conformance",
                             "scenario_capacity",
                             "scenario_orphan",
+                            "skill_sections",
                             "layout_violations",
                             "team_layout_gitignore",
                         ],

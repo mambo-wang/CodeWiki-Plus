@@ -365,7 +365,7 @@ def build_full_index(output_dir, session=None):
     # Legacy JSON fallback
     with _build_lock:
         idx = _IndexData()
-        dc = nc = sc = 0
+        dc = nc = sc = skc = 0
 
         # Scan wiki/ subdirectories recursively
         from codewiki.src.config import WIKI_DIR, WIKI_SYSTEM_FILES
@@ -414,6 +414,27 @@ def build_full_index(output_dir, session=None):
                 idx.upsert(f"{_NOTES_DIR}/{nf.name}", title, "note", ct, batch=True)
                 nc += 1
 
+        # skill-creator (issue #24): draft-zone skill pages (skills/<name>/
+        # SKILL.md), source="skill". Recall-side isolation is enforced at the
+        # search entry point (T5, issue #28) — the index itself carries them.
+        from codewiki.src.config import SKILLS_DIR
+
+        sk_dir = od / SKILLS_DIR
+        if sk_dir.is_dir():
+            for sf in sorted(sk_dir.rglob("SKILL.md")):
+                if not sf.is_file():
+                    continue
+                try:
+                    ct = sf.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if not ct.strip():
+                    continue
+                title = _extract_fm(ct, "name") or sf.parent.name
+                fk = str(sf.relative_to(od)).replace("\\", "/")
+                idx.upsert(fk, title, "skill", ct, batch=True)
+                skc += 1
+
         # Scan raw/sources/
         raw_dir = od / "raw" / "sources"
         if raw_dir.is_dir():
@@ -439,6 +460,7 @@ def build_full_index(output_dir, session=None):
         "docs_indexed": dc,
         "notes_indexed": nc,
         "sources_indexed": sc,
+        "skills_indexed": skc,
         "total_docs": idx.total_docs,
         "avg_doc_len": round(idx.avg_doc_len, 1),
         "vocabulary_size": len(idx.doc_freq),

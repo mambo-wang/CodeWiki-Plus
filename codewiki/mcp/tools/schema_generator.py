@@ -204,6 +204,21 @@ _DEFAULT_PAGE_TYPES = {
             "决策结论",
         ],
     },
+    # skill-creator (issue #24, ADR-0004): skill draft zone at the repowiki
+    # root (output_dir-relative "skills", sibling of notes/) — NOT under
+    # wiki/. Effect zone (.codebuddy/skills/) lives outside repowiki and is
+    # never scanned. Routing fallback lives in page_router's skill branch.
+    "skill": {
+        "directory": "skills",
+        "description": "从已确认知识编译的 SKILL.md 行为指令草稿（两区制草稿区：进索引进 lint、不生效）",
+        "required_sections": [
+            "工作场景",
+            "适用条件",
+            "核心 SOP",
+            "判断逻辑",
+            "禁忌与反模式",
+        ],
+    },
 }
 
 # ── installation schema.yaml loading ─────────────────────────────────────
