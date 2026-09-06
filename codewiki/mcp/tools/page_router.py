@@ -28,6 +28,7 @@ from codewiki.src.config import (
     WIKI_DIR,
     RAW_SOURCES_DIR,
     NOTES_DIR,
+    SKILLS_DIR,
     INDEX_FILENAME,
     LOG_FILENAME,
     OVERVIEW_FILENAME,
@@ -110,6 +111,10 @@ def resolve_wiki_paths(output_dir: str | Path, schema: dict | None = None) -> di
         "queries": wiki / PAGE_TYPE_DIRS["query"],
         "notes": od / NOTES_DIR,
         "raw_sources": od / RAW_SOURCES_DIR,
+        # skill-creator (issue #24, ADR-0004): draft zone at repowiki root —
+        # schema.page_types.skill.directory override maps here (values are
+        # output_dir-relative, so "skills" lands outside wiki/ by design).
+        "skills": od / SKILLS_DIR,
         "index": wiki / INDEX_FILENAME,
         "log": wiki / LOG_FILENAME,
         "overview": wiki / OVERVIEW_FILENAME,
@@ -152,6 +157,13 @@ def get_page_type_dir(page_type: str, output_dir: str | Path, schema: dict | Non
     custom_dir = pt_config.get("directory", "") if isinstance(pt_config, dict) else ""
     if custom_dir:
         return od / custom_dir
+
+    # 1b. skill-creator (issue #24, ADR-0004): skill draft zone lives at the
+    # repowiki root (sibling of notes/), NOT under wiki/ — PAGE_TYPE_DIRS
+    # values are wiki/-relative by convention, so skill gets a dedicated
+    # branch instead of a misleading PAGE_TYPE_DIRS entry.
+    if page_type == "skill":
+        return od / SKILLS_DIR
 
     # 2. built-in mapping (keyed by singular page_type)
     subdir = PAGE_TYPE_DIRS.get(page_type)
@@ -300,5 +312,6 @@ def ensure_wiki_dirs(output_dir: str | Path, schema: dict | None = None) -> None
         "queries",
         "notes",
         "raw_sources",
+        "skills",
     ):
         paths[key].mkdir(parents=True, exist_ok=True)

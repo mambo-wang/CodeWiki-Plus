@@ -74,6 +74,17 @@ PAGE_TYPE_DIRS = {
     "scenario": "scenarios",
 }
 
+# skill-creator (issue #24, ADR-0004): two-zone skill layout.
+# Draft zone lives at the repowiki ROOT (sibling of notes/, not under wiki/ —
+# skills are behaviour assets, not code-structure docs) and is managed:
+# indexed (source="skill"), linted (skill_sections check), never IDE-effective.
+# Effect zone lives at the REPO root, outside repowiki entirely: IDE-discovered
+# and effective, never scanned by any repowiki tool. PAGE_TYPE_DIRS stays
+# untouched because its values are wiki/-relative by convention; the skill
+# page type routes through SKILLS_DIR via page_router + schema declaration.
+SKILLS_DIR = "skills"  # draft zone, relative to output_dir (repowiki root)
+SKILL_EFFECT_DIR = ".codebuddy/skills"  # effect zone, relative to repo root
+
 
 # Files excluded from wiki index and search (system files).
 # Team-layout Phase 1: membership also matches monthly log shards

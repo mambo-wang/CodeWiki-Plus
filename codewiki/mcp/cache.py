@@ -1051,7 +1051,7 @@ class AnalysisCache:
         c.execute("DELETE FROM search_stats")
         from codewiki.src.config import WIKI_SYSTEM_FILES, WIKI_DIR
 
-        dc = nc = sc = 0
+        dc = nc = sc = skc = 0
 
         # Scan wiki/ subdirectories recursively for doc pages
         wiki_dir = od / WIKI_DIR
@@ -1156,6 +1156,46 @@ class AnalysisCache:
                     c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
                 nc += 1
 
+        # skill-creator (issue #24): draft-zone skill pages, one SKILL.md per
+        # nested directory (skills/<name>/SKILL.md). Indexed with
+        # source="skill" — ADR-0004: indexed and linted, but recall-side
+        # isolation (query_wiki never returns them) is enforced separately
+        # at the search entry point (T5, issue #28).
+        from codewiki.src.config import SKILLS_DIR
+
+        sk_dir = od / SKILLS_DIR
+        if sk_dir.is_dir():
+            for sf in sorted(sk_dir.rglob("SKILL.md")):
+                if not sf.is_file():
+                    continue
+                try:
+                    ct = sf.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if not ct.strip():
+                    continue
+                title = _extract_frontmatter(ct, "name") or sf.parent.name
+                tokens = tokenize(build_indexable_text(ct))
+                if not tokens:
+                    continue
+                tf = {}
+                [tf.update({t: tf.get(t, 0) + 1}) for t in tokens]
+                fk = str(sf.relative_to(od)).replace("\\", "/")
+                c.execute(
+                    "INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                    (
+                        fk,
+                        title,
+                        "skill",
+                        len(tokens),
+                        json.dumps(tf),
+                        doc_authority(fk, "skill", ct),
+                    ),
+                )
+                for t, f in tf.items():
+                    c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
+                skc += 1
+
         # Scan raw/sources/ for third-party document text
         raw_dir = od / "raw" / "sources"
         if raw_dir.is_dir():
@@ -1192,7 +1232,7 @@ class AnalysisCache:
                     c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
                 sc += 1
 
-        td = dc + nc + sc
+        td = dc + nc + sc + skc
         if td:
             avg = (c.execute("SELECT SUM(doc_len) FROM search_index").fetchone()[0] or 0) / td
             c.execute("INSERT INTO search_stats VALUES('total_docs',?)", (str(td),))
@@ -1218,6 +1258,7 @@ class AnalysisCache:
             "docs_indexed": dc,
             "notes_indexed": nc,
             "sources_indexed": sc,
+            "skills_indexed": skc,
             "total_docs": td,
             "graph_edges": graph_info.get("edges", 0),
         }

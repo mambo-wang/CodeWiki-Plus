@@ -563,6 +563,7 @@ CodeWiki-Plus 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 | `okf_conformance` | OKF v0.2 合规审计：缺失 type/frontmatter、旧版状态词、verified 格式错误、stale_after 过期、缺 okf_version |
 | `scenario_capacity` | L2 场景块数量达到/超过容量上限（error/warning 分级），需先 MERGE 腾位再新增 |
 | `scenario_orphan` | 无来源标注（metadata.source_notes）且长期未被检索的孤儿场景块，可能冗余或过时 |
+| `skill_sections` | 草稿区技能页（skills/&lt;name&gt;/SKILL.md）缺失 schema `page_types.skill` 五段骨架（工作场景/适用条件/核心 SOP/判断逻辑/禁忌与反模式）——缺章节的指令资产不可执行（error） |
 
 `lint_wiki` 返回 **health_score**（0-100），计算方式为 `100 - Σ(error×10 + warning×3 + info×1)`。
 

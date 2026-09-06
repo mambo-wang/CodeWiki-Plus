@@ -44,6 +44,9 @@ _ALL_CHECKS = {
     # P2 (team-memory fusion): L2 scene block hygiene
     "scenario_capacity",
     "scenario_orphan",
+    # skill-creator (issue #24, ADR-0004): draft-zone SKILL.md section
+    # conformance against schema.page_types.skill.required_sections
+    "skill_sections",
     # P1 B-line: hot-but-never-adopted notes (usage utility dimension)
     "low_adoption",
     # Centralized-layout discipline (ticket 09)
@@ -1555,6 +1558,84 @@ def _check_scenario_orphan(
     return issues
 
 
+def _check_skill_sections(output_dir: Path) -> List[Dict[str, Any]]:
+    """Validate draft-zone SKILL.md bodies against schema required sections.
+
+    skill-creator (issue #24, ADR-0004): every draft skill lives at
+    ``skills/<name>/SKILL.md`` and its body must carry the five-section
+    skeleton declared in ``schema.yaml`` ``page_types.skill`` (same shape as
+    scenario blocks — When-to-Apply ≈ 适用条件, Instructions ≈ SOP). A skill
+    without its sections is not an actionable instruction set, so a missing
+    section is an error, not a warning.
+
+    The section list is read from schema (single source of truth); the check
+    is scoped to the draft zone only — the effect zone (.codebuddy/skills/)
+    lives outside repowiki and is never scanned.
+    """
+    issues: List[Dict[str, Any]] = []
+    try:
+        import re
+
+        from codewiki.mcp.tools.page_router import load_schema
+        from codewiki.src.config import SKILLS_DIR
+
+        schema = load_schema(output_dir)
+        pt = schema.get("page_types", {}).get("skill", {})
+        required = list(pt.get("required_sections", [])) if isinstance(pt, dict) else []
+    except Exception:
+        return issues
+    if not required:
+        return issues  # nothing declared — nothing to enforce
+
+    sk_dir = output_dir / SKILLS_DIR
+    if not sk_dir.is_dir():
+        return issues
+
+    for sf in sorted(sk_dir.rglob("SKILL.md")):
+        if not sf.is_file():
+            continue
+        try:
+            ct = sf.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        try:
+            rel = str(sf.relative_to(output_dir)).replace("\\", "/")
+        except ValueError:
+            rel = f"{SKILLS_DIR}/{sf.parent.name}/SKILL.md"
+
+        # Collect heading titles from the BODY only (frontmatter may mention
+        # section-ish keys; the skeleton lives in the markdown body).
+        body = ct
+        if body.startswith("---"):
+            end = body.find("\n---", 3)
+            if end != -1:
+                body = body[end + 4 :]
+        headings = set()
+        for line in body.splitlines():
+            m = re.match(r"^\s{0,3}#{1,6}\s+(.+?)\s*$", line)
+            if m:
+                headings.add(m.group(1).strip())
+
+        for section in required:
+            if section not in headings:
+                issues.append(
+                    {
+                        "check": "skill_sections",
+                        "severity": "error",
+                        "message": (
+                            f"Skill draft '{rel}' is missing required section "
+                            f"'{section}' (schema page_types.skill skeleton)."
+                        ),
+                        "file": rel,
+                        "suggestion": (
+                            "Re-run skill_creator prepare for the writing-system "
+                            "prompt, then submit with the full five-section body."
+                        ),
+                    }
+                )
+    return issues
+
+
 # ---------------------------------------------------------------------------
 #  OKF v0.2 conformance (§11 / §12)
 # ---------------------------------------------------------------------------
@@ -2110,6 +2191,11 @@ def handle_lint_wiki(
 
     if "scenario_orphan" in checks and output_dir:
         all_issues.extend(_check_scenario_orphan(output_dir))
+
+    if "skill_sections" in checks and output_dir:
+        # skill-creator (issue #24): required-section list is read from
+        # schema.yaml inside the check; dispatch passes no hardcoded values.
+        all_issues.extend(_check_skill_sections(output_dir))
 
     if "okf_conformance" in checks and output_dir:
         all_issues.extend(
