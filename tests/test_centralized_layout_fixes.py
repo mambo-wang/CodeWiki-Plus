@@ -89,7 +89,9 @@ class TestInitWikiCentralizedRouting:
         assert marker in schema.read_text(encoding="utf-8")
         assert (tmp_path / "repowiki" / "notes").is_dir()
 
-    def test_explicit_output_dir_not_hijacked(self, tmp_path):
+    def test_explicit_output_dir_ignored_on_member(self, tmp_path):
+        """output_dir is a pure function of repo_path under the active layout:
+        a caller-supplied value is retired and ignored, never honoured."""
         _init(tmp_path)
         _register(tmp_path)
         repo = tmp_path / "a"
@@ -98,12 +100,12 @@ class TestInitWikiCentralizedRouting:
 
         res = json.loads(handle_init_wiki({"repo_path": str(repo), "output_dir": str(custom)}))
 
-        # Explicit output_dir is the caller's directory-level choice (§7):
-        # never hijacked, but centralized safety defaults still apply.
         assert res["status"] == "ok"
-        assert Path(res["output_dir"]) == custom.resolve()
-        assert (custom / "schema.yaml").is_file()
+        # routing to the workspace corpus wins; the explicit dir is not created
+        assert Path(res["output_dir"]) == (tmp_path / "repowiki").resolve()
+        assert not custom.exists()
         assert not (repo / "AGENTS.md").exists()
+        assert (tmp_path / "repowiki" / "wiki" / "modules" / "a").is_dir()
 
     def test_still_allows_workspace_root(self, tmp_path):
         _init(tmp_path)
@@ -146,18 +148,19 @@ class TestGetModuleTreeLookup:
 
     def test_falls_back_to_corpus_meta(self, tmp_path):
         """Pre-namespacing layout: <corpus>/.meta/module_tree.json still loads."""
+        _init(tmp_path)
+        _register(tmp_path)
+        repo = tmp_path / "a"
+        repo.mkdir(exist_ok=True)
         corpus = tmp_path / "repowiki"
-        (corpus / ".meta").mkdir(parents=True)
+        (corpus / ".meta").mkdir(parents=True, exist_ok=True)
         tree = {"legacy": {"components": [], "children": {}}}
         (corpus / ".meta" / "module_tree.json").write_text(json.dumps(tree), encoding="utf-8")
-        repo = tmp_path / "a"
-        repo.mkdir()
 
-        res = json.loads(
-            asyncio.run(
-                handle_get_module_tree({"repo_path": str(repo), "output_dir": str(corpus)}, None)
-            )
-        )
+        # The corpus derives from the registered member's repo_path (no
+        # output_dir param); with no namespaced tree under <ws>/.codewiki/a,
+        # the legacy corpus .meta file is the fallback that loads.
+        res = json.loads(asyncio.run(handle_get_module_tree({"repo_path": str(repo)}, None)))
 
         assert res["status"] == "success"
         assert res["total_modules"] == 1
@@ -168,11 +171,13 @@ class TestGetModuleTreeLookup:
 # ---------------------------------------------------------------------------
 class TestIngestNoteProvenance:
     def test_warns_when_writing_repo_unknown(self, tmp_path):
+        """Inside a centralized corpus, a write whose repo_path is not a
+        registered member cannot be provenance-stamped → warning surfaced."""
         _init(tmp_path)
+        # The workspace root is not a member repo: routing_for_write returns
+        # None, so the silent-global guard must surface a provenance warning.
         res = json.loads(
-            handle_ingest_note(
-                {"output_dir": str(tmp_path / "repowiki"), "title": "T1", "content": "body"}, None
-            )
+            handle_ingest_note({"repo_path": str(tmp_path), "title": "T1", "content": "body"}, None)
         )
         assert res["status"] == "ingested"
         assert "provenance_warning" in res

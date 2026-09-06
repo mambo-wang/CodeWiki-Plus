@@ -257,7 +257,7 @@ class TestWikiStatsMounting:
         _write_note(od, "note-a.md", date=_days_ago(15))
         _seed_stats_table(od, "notes/note-a.md")
         _seed_adoption(od, "notes/note-a.md", 3)
-        out = json.loads(handle_wiki_stats({"output_dir": str(od)}, SessionStore()))
+        out = json.loads(handle_wiki_stats({"repo_path": str(od.parent)}, SessionStore()))
         assert "promotion_candidates" in out
         cands = out["promotion_candidates"]
         assert len(cands) == 1
@@ -270,7 +270,7 @@ class TestWikiStatsMounting:
         _write_note(od, "note-a.md", date=_days_ago(15))
         _seed_stats_table(od, "notes/note-a.md")
         _seed_adoption(od, "notes/note-a.md", 1)
-        out = json.loads(handle_wiki_stats({"output_dir": str(od)}, SessionStore()))
+        out = json.loads(handle_wiki_stats({"repo_path": str(od.parent)}, SessionStore()))
         assert "promotion_candidates" not in out
 
     def test_ranked_by_adopted_count(self, tmp_path):
@@ -337,11 +337,11 @@ class TestPromoteNotePrompt:
         text = _prompt_promote_note(
             {
                 "note_file": "notes/2026-08-01-port-conflict.md",
-                "output_dir": "D:/repo/repowiki",
+                "repo_path": "D:/repo",
             }
         )
         assert "notes/2026-08-01-port-conflict.md" in text
-        assert "D:/repo/repowiki" in text
+        assert "D:/repo" in text.replace("\\", "/") or "D:\\repo" in text
 
     def test_registered_in_prompt_list(self):
         srv = _FakeServer()
@@ -351,7 +351,8 @@ class TestPromoteNotePrompt:
         assert "promote-note" in names
         entry = next(p for p in prompts if p.name == "promote-note")
         arg_names = {a.name for a in entry.arguments}
-        assert {"note_file", "output_dir", "repo_path"} <= arg_names
+        assert {"note_file", "repo_path"} <= arg_names
+        assert "output_dir" not in arg_names
 
     def test_get_prompt_dispatches_to_handler(self):
         srv = _FakeServer()

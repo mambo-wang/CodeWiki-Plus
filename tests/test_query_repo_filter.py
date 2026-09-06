@@ -107,7 +107,7 @@ def _files(res):
 class TestQueryRepoFilter:
     def test_one_hop_default_covers_all_repos(self, tmp_path):
         ws = _setup_workspace(tmp_path)
-        res = _query(ws, output_dir=ws / "repowiki")
+        res = _query(ws, repo_path=ws)
         files = _files(res)
         assert "wiki/modules/a/autha.md" in files
         assert "wiki/modules/b/authb.md" in files
@@ -115,7 +115,7 @@ class TestQueryRepoFilter:
 
     def test_repo_filter_returns_applicable_knowledge_only(self, tmp_path):
         ws = _setup_workspace(tmp_path)
-        res = _query(ws, repo="a", output_dir=ws / "repowiki")
+        res = _query(ws, repo="a", repo_path=ws)
         assert res.get("repo_filter") == "a"
         files = _files(res)
         # a's partition + shared page tagged a + global page + a-tagged note
@@ -129,7 +129,7 @@ class TestQueryRepoFilter:
 
     def test_repo_filter_other_repo(self, tmp_path):
         ws = _setup_workspace(tmp_path)
-        res = _query(ws, repo="b", output_dir=ws / "repowiki")
+        res = _query(ws, repo="b", repo_path=ws)
         files = _files(res)
         assert "wiki/modules/b/authb.md" in files
         assert "wiki/entities/OnlyBZebra.md" in files
@@ -152,18 +152,24 @@ class TestQueryRepoFilter:
         assert "wiki/modules/a/autha.md" in files
         assert "wiki/modules/b/authb.md" not in files
 
-    def test_output_dir_corpus_with_repo_filter(self, tmp_path):
-        """output_dir picks the corpus; repo= narrows within it."""
+    def test_explicit_output_dir_ignored_on_query(self, tmp_path):
+        """The retired output_dir parameter cannot narrow the corpus: the
+        layout-derived corpus (workspace repowiki) always wins."""
         ws = _setup_workspace(tmp_path)
-        # Corpus limited to a's partition: b's pages are not in the corpus at all.
-        res = _query(ws, repo="a", output_dir=ws / "repowiki" / "wiki" / "modules" / "a")
+        # output_dir points into a's partition, but the derived corpus from
+        # repo_path covers the whole workspace repowiki — b's partition and
+        # shared pools stay reachable, proving the explicit value was ignored.
+        res = _query(
+            ws, repo_path=ws / "a", output_dir=ws / "repowiki" / "wiki" / "modules" / "a"
+        )
         files = _files(res)
-        assert any("autha.md" in f for f in files)
-        assert not any("authb.md" in f for f in files)
+        assert "wiki/modules/b/authb.md" in files
+        assert "wiki/entities/SharedZebra.md" in files
+        assert "wiki/concepts/GlobalZebraConvention.md" in files
 
     def test_repo_filter_unknown_repo_returns_only_globals(self, tmp_path):
         ws = _setup_workspace(tmp_path)
-        res = _query(ws, repo="ghost", output_dir=ws / "repowiki")
+        res = _query(ws, repo="ghost", repo_path=ws)
         files = _files(res)
         # no partition and no tagged pages for "ghost" — only global pages match
         assert "wiki/concepts/GlobalZebraConvention.md" in files
@@ -178,7 +184,7 @@ class TestQueryRepoFilter:
         (repowiki / "wiki" / "modules" / "solo.md").write_text(
             "# Solo zebra\n\nsolo zebra module\n", encoding="utf-8"
         )
-        res = _query(tmp_path, repo="anything", output_dir=repowiki)
+        res = _query(tmp_path, repo="anything", repo_path=repo)
         # Filter inert: the page is found even though it is not under an
         # "anything/" partition, and no repo_filter is reported.
         assert any("solo.md" in f for f in _files(res))

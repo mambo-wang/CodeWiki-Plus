@@ -195,7 +195,7 @@ def test_lint_team_layout_gitignore_reports_tracked(git_repo):
 
     res = json.loads(
         handle_lint_wiki(
-            {"output_dir": str(git_repo / "repowiki"), "checks": ["team_layout_gitignore"]},
+            {"repo_path": str(git_repo), "checks": ["team_layout_gitignore"]},
             _StubStore(),
         )
     )

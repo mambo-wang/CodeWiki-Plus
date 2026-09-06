@@ -48,7 +48,7 @@ def _init_centralized(tmp_path):
 def _lint(ws):
     res = json.loads(
         handle_lint_wiki(
-            {"output_dir": str(ws / "repowiki"), "checks": ["layout_violations"]},
+            {"repo_path": str(ws), "checks": ["layout_violations"]},
             _StubStore(),
         )
     )
@@ -108,7 +108,7 @@ class TestLayoutViolations:
         )
         res = json.loads(
             handle_lint_wiki(
-                {"output_dir": str(repo / "repowiki"), "checks": ["layout_violations"]},
+                {"repo_path": str(repo), "checks": ["layout_violations"]},
                 _StubStore(),
             )
         )

@@ -139,7 +139,7 @@ class TestFreshnessSelfHeal:
             encoding="utf-8",
         )
         out = json.loads(
-            handle_query_wiki({"output_dir": str(od), "query": "供应链追溯"}, SessionStore())
+            handle_query_wiki({"repo_path": str(od.parent), "query": "供应链追溯"}, SessionStore())
         )
         assert any("newmod" in r["file"] for r in out["results"])
 

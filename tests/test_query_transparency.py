@@ -46,7 +46,7 @@ def _mk_wiki(tmp_path) -> Path:
 
 
 def _query(od: Path, **kw) -> dict:
-    args = {"output_dir": str(od), "query": kw.pop("query", "认证")}
+    args = {"repo_path": str(od.parent), "query": kw.pop("query", "认证")}
     args.update(kw)
     return json.loads(handle_query_wiki(args, SessionStore()))
 
@@ -171,7 +171,7 @@ class TestColdCandidates:
         od = _mk_wiki(tmp_path)
         old = (datetime.now() - timedelta(days=220)).strftime("%Y-%m-%d")
         _seed_stats(od, [("wiki/modules/auth.md", 5, old)])
-        out = json.loads(handle_wiki_stats({"output_dir": str(od)}, SessionStore()))
+        out = json.loads(handle_wiki_stats({"repo_path": str(od.parent)}, SessionStore()))
         assert "cold_candidates" in out
         assert out["cold_candidates"][0]["file_path"] == "wiki/modules/auth.md"
 

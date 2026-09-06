@@ -46,7 +46,6 @@ def analyzed_repo(tmp_path):
         handle_analyze_repo(
             {
                 "repo_path": str(tmp_path),
-                "output_dir": str(tmp_path / "repowiki"),
                 "incremental": False,
             },
             store,
