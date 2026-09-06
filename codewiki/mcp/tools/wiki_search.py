@@ -703,6 +703,11 @@ def search(
                 continue
         if not include_notes and di.get("source") == "note":
             continue
+        # skill-creator T5 (issue #28, ADR-0004): recall isolation — draft
+        # skills are indexed but never recalled (behaviour instructions are
+        # consumed via IDE trigger, not query_wiki). Mirrors cache.py search.
+        if di.get("source") == "skill":
+            continue
         s = 0.0
         tfm = di.get("term_freq", {})
         dl = di.get("doc_len", 1)
