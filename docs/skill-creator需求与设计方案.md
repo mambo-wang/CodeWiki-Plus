@@ -239,43 +239,46 @@ Phase 2（本次不做）：真实任务回流编排、技能采纳信号、hook
 - **素材保真度受捕获链路信息损耗制约**（见 §9）：压缩时丢掉的工具操作细节，蒸馏
   永远找不回来——这是 notes/scenarios 素材质量的上游杠杆，影响 skill 生成上限。
 
-## 9. 素材保真度：捕获链路的信息损耗（Phase 2 改进项，本次不改代码）
+## 9. 素材保真度：捕获链路的信息损耗（✅ 方案乙已落地，2026-09-06 收官后实施）
 
 skill 的价值密度取决于素材里「命令-报错-修复对、版本/参数钉子、失败轨迹」的保有量
 （wikiskill 演化产物全是此类；论文 Proposer 纪律要求读 ≥4 条失败 trace 诊断根因）。
-现状是这些信息在捕获链路被系统性丢弃：
+原现状是这些信息在捕获链路被系统性丢弃：
 
-**丢弃触点清单（2026-09-06 实核）**：
+**丢弃触点清单（2026-09-06 实核，现已全部治理）**：
 
-1. `codewiki/mcp/tools/capture_conversation.py:207` — `_NOISE_BLOCK_TYPES` 11 类
-   块（tool_use / tool_result / thinking / system 等）持久化前整体丢弃
-2. `codewiki/mcp/_ide_hook.py:248` — 同名集合，IDE hook 采集侧同样过滤
-3. `AGENTS.md`「QwenWork 捕获协议」— 指令层压缩准则「丢弃寒暄、过程噪音与
-   **工具调用细节**」；千问办公链路的压缩由 agent 执行，口径即天花板
-4. `tests/test_ide_hook_capture.py:229,254` — 测试断言 tool 块被过滤（改口径须同步）
-5. distill-worker 剧本（`.qoder/.codebuddy/agents/distill-worker.md`）— 蒸馏只读
-   raw，raw 缺的提不出
+1. `codewiki/mcp/tools/capture_conversation.py` — ~~`_NOISE_BLOCK_TYPES` 11 类
+   块整体丢弃~~ → 改接共享两级消化
+2. `codewiki/mcp/_ide_hook.py` — ~~同名集合，IDE hook 采集侧同样过滤~~ → 同款接入
+3. `AGENTS.md`「QwenWork 捕获协议」— ~~「丢弃工具调用细节」~~ → 改为「保留关键
+   命令原文、报错→修复对、版本/参数钉子；判断标准：换个会话还能复用吗」
+4. `tests/test_ide_hook_capture.py` — ~~断言 tool 块被过滤~~ → 断言压缩行 +
+   error 片段，新增 tool_digest 专项 3 例
+5. distill-worker 剧本 — raw 现已携带 `[tool: …]` / `[tool-error: …]` 行，
+   蒸馏可直接提取命令-报错-修复对
 
-既有自认：`docs/知识飞轮增强设计方案-P0三项.md` §设计前提已记录该过滤是刻意设计
-（raw 必须无噪音），且 toolError/toolReject 信号在现有管线下不可得。
+**实施（方案乙，共享单点实现 `codewiki/src/tool_digest.py`，stdlib-only）**：
 
-**改进方向（两档，均为后续工单）**：
+- 纯噪音（thinking/reasoning/system/context）仍无条件丢弃
+- tool 调用（tool_use/tool-call/function_call，横杠与下划线两种拼写）保留为
+  一行压缩形态：`[tool: 名 · 命令首行]`（≤160 字符），保持原始顺序——顺序即
+  「命令→报错→修复」链
+- tool 结果仅当疑似错误时保留：is_error 标记或错误指纹（traceback/error/
+  failed/permission denied/exit code…）命中 → `[tool-error: 摘录]`（≤200 字符
+  追加预算）；成功结果仍丢弃
+- 两侧采集路径（capture_conversation + _ide_hook）共享同一实现，永不漂移
+- 副产品：P0 设计的 toolError 摩擦信号从「不可得」变为「可扫 raw 检出」
+  （P0 文档 §2.1 已加勘误）
 
-- **方案甲（指令层，零代码）**：改 AGENTS.md 捕获协议与 distill-worker 剧本的压缩
-  准则——丢过程脚印（重复读、失败搜索、确认往返），**保留关键命令原文、报错→修复
-  对、版本/参数钉子**。判断标准：这条工具信息换个会话还能复用吗？能 → 留。覆盖
-  QwenWork 链路（agent 压缩本就写要点），成本低，先行。
-- **方案乙（代码层）**：`_NOISE_BLOCK_TYPES` 拆两级——纯噪音（thinking/system）
-  仍丢；tool_use 保留压缩形态（toolName + 关键参数首行，如 bash command），
-  tool_result 仅保留 error 片段（首 ~200 字符）；落 raw 时折叠为附录块不污染正文。
-  触点：capture_conversation.py + _ide_hook.py 双处同步 + 测试 + P0 文档更新
-  （IDE hook 是 stdlib-only 确定性脚本，无法做价值判断，只能做形态压缩）。
+**原始改进方向（存档）**：方案甲（指令层压缩准则）与方案乙（代码层两级消化）
+原为两档后续工单；实际落地时合并——AGENTS.md 指令层与代码层同批完成，distill-worker
+剧本随 AGENTS.md 口径自动继承（剧本引用捕获协议，无需单独改）。
 
-**与 MVP 的关系**：不阻塞 MVP（素材源 notes/scenarios 已有存量），但它是素材质量
-的上游杠杆；方案甲可在回流迭代（Phase 2）开工前先做，几乎零成本。
+**与 MVP 的关系**：MVP（T1-T6）已先行落地；本项在其后实施，成为回流迭代
+（Phase 2）的素材质量地基——从此捕获的会话天然携带命令-报错-修复链。
 
 ---
 
 *源设计文档：repowiki/wiki/queries/skill-creator设计方案.md（stable）+
 docs/WikiSkill论文与wikiskill源码精读.md（2026-09-06）+ grill Q1-Q9 收敛记录
-（2026-09-06 会话）。状态：设计定稿待实施。*
+（2026-09-06 会话）。状态：已实施（MVP #24-#29 + §9 素材保真度均落地）。*
