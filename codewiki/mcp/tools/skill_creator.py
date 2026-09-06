@@ -87,6 +87,20 @@ _SENSITIVE_PATTERNS: Tuple[Tuple[str, Any], ...] = (
     ("secret_key", _SECRET_KEY_RE),
 )
 
+
+def _sensitive_scan(text: str) -> Optional[Tuple[str, str]]:
+    """Return (kind, matched_string) of the first sensitive hit, else None.
+
+    Shared by submit validation and the wiki_lint backstop (#27) so the two
+    layers can never drift apart on what counts as sensitive.
+    """
+    for kind, pattern in _SENSITIVE_PATTERNS:
+        m = pattern.search(text or "")
+        if m:
+            return (kind, m.group(0))
+    return None
+
+
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
@@ -468,15 +482,13 @@ def _validate_entry(
         return _err("source_refs_required", "source_refs must contain at least one path.")
 
     # Sensitive strings: absolute paths / secret keys in description or body.
-    scan_text = f"{description}\n{body}"
-    for kind, pattern in _SENSITIVE_PATTERNS:
-        m = pattern.search(scan_text)
-        if m:
-            return _err(
-                "sensitive_content",
-                f"sensitive {kind} pattern matched ('{m.group(0)}'); absolute "
-                "paths and secrets are forbidden in skill bodies.",
-            )
+    scan_hit = _sensitive_scan(f"{description}\n{body}")
+    if scan_hit:
+        return _err(
+            "sensitive_content",
+            f"sensitive {scan_hit[0]} pattern matched ('{scan_hit[1]}'); absolute "
+            "paths and secrets are forbidden in skill bodies.",
+        )
 
     path = _skills_dir(output_dir) / name / "SKILL.md"
     if action == "created" and path.is_file():

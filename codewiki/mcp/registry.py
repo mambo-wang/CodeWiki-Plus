@@ -788,7 +788,12 @@ _register(
             "recent retrieval — possibly redundant or outdated), "
             "skill_sections (draft-zone SKILL.md pages missing the schema "
             "page_types.skill five-section skeleton — an instruction asset without "
-            "its sections is not actionable). "
+            "its sections is not actionable), "
+            "skill_lint (full SKILL.md backstop: name slug / description "
+            "trigger semantics / frontmatter completeness / 8KB body cap / "
+            "sensitive strings / revisions audit trail; warnings for possibly-"
+            "stale source materials and draft-vs-effect-zone drift after "
+            "install). "
             "Run checks=['all'] for a comprehensive audit. "
             "After fixing issues, use flag_issue to track remaining problems. "
             "MANDATORY FINAL STEP: after lint passes (or issues are tracked), you MUST call "
@@ -829,6 +834,7 @@ _register(
                             "scenario_capacity",
                             "scenario_orphan",
                             "skill_sections",
+                            "skill_lint",
                             "layout_violations",
                             "team_layout_gitignore",
                         ],

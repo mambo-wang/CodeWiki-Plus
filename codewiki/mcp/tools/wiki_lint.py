@@ -47,6 +47,9 @@ _ALL_CHECKS = {
     # skill-creator (issue #24, ADR-0004): draft-zone SKILL.md section
     # conformance against schema.page_types.skill.required_sections
     "skill_sections",
+    # skill-creator T4 (issue #27, design §4.5): full SKILL.md check set —
+    # six backstop errors + possibly_stale material linkage + install drift
+    "skill_lint",
     # P1 B-line: hot-but-never-adopted notes (usage utility dimension)
     "low_adoption",
     # Centralized-layout discipline (ticket 09)
@@ -1636,6 +1639,229 @@ def _check_skill_sections(output_dir: Path) -> List[Dict[str, Any]]:
     return issues
 
 
+def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
+    """skill-creator T4 (issue #27, design §4.5): the full SKILL.md check set.
+
+    Backstop lint — submit already validates most of these rules; lint
+    catches drafts written outside the tool or regressed by hand edits:
+
+    errors: name_slug / description_trigger / frontmatter_required /
+    body_too_large / sensitive_content / revisions_required; capacity at
+    the red line. warnings: skill_possibly_stale (a source_refs material
+    is deprecated / soft-deleted / missing, design Q5 — prompt a human
+    revise/retire decision, never auto), skill_drift (draft normalized
+    hash != installed_hash: revised after install, the effect zone still
+    serves the old version; reinstall is a user action, ADR-0004),
+    capacity orange.
+    """
+    issues: List[Dict[str, Any]] = []
+    try:
+        from codewiki.mcp.tools.skill_creator import (
+            _BODY_LIMIT_BYTES,
+            _MAX_SKILLS,
+            _ORANGE_SKILLS,
+            _normalized_hash,
+            _read_body,
+            _read_frontmatter,
+            _scan_skills,
+            _sensitive_scan,
+        )
+        from codewiki.src.store import slugify
+    except Exception:
+        return issues
+
+    skills = _scan_skills(output_dir)
+    if not skills:
+        return issues
+
+    # --- per-skill errors / warnings ---
+    for s in skills:
+        rel = s["file"]
+        path = output_dir / rel
+        fm = _read_frontmatter(path) or {}
+        meta = fm.get("metadata") if isinstance(fm.get("metadata"), dict) else {}
+        name = str(fm.get("name") or "")
+        body = _read_body(path)
+        body_bytes = len(body.encode("utf-8"))
+        description = str(fm.get("description") or "")
+
+        # name_slug: slugify(name) == directory name
+        dirname = path.parent.name
+        if not name or slugify(name) != dirname:
+            issues.append(
+                {
+                    "check": "skill_lint",
+                    "severity": "error",
+                    "message": (
+                        f"Skill '{rel}': name '{name}' is not a slug match for "
+                        f"its directory '{dirname}'."
+                    ),
+                    "file": rel,
+                    "suggestion": "Rename so slugify(name) equals the directory name.",
+                }
+            )
+
+        # description_trigger: non-empty, >= 10 chars (submit's same heuristic)
+        if len(description.strip()) < 10:
+            issues.append(
+                {
+                    "check": "skill_lint",
+                    "severity": "error",
+                    "message": (
+                        f"Skill '{rel}': description missing or too short to "
+                        "carry trigger semantics (condition + action)."
+                    ),
+                    "file": rel,
+                    "suggestion": "Rewrite as '<condition> — <specific action>'.",
+                }
+            )
+
+        # frontmatter_required: status + metadata.source_refs
+        status = str(fm.get("status") or "")
+        refs = meta.get("source_refs")
+        refs = refs if isinstance(refs, list) else []
+        missing = []
+        if status not in ("draft", "stable", "deprecated"):
+            missing.append("status")
+        if not refs:
+            missing.append("metadata.source_refs")
+        if missing:
+            issues.append(
+                {
+                    "check": "skill_lint",
+                    "severity": "error",
+                    "message": f"Skill '{rel}': missing required frontmatter: {', '.join(missing)}.",
+                    "file": rel,
+                    "suggestion": "skill_creator submit writes these; hand-edited drafts need them too.",
+                }
+            )
+
+        # body_too_large
+        if body_bytes > _BODY_LIMIT_BYTES:
+            issues.append(
+                {
+                    "check": "skill_lint",
+                    "severity": "error",
+                    "message": f"Skill '{rel}': body is {body_bytes} bytes (cap {_BODY_LIMIT_BYTES}).",
+                    "file": rel,
+                    "suggestion": "Split the skill or reference the scenario instead of restating it.",
+                }
+            )
+
+        # sensitive_content (description + body)
+        scan_hit = _sensitive_scan(f"{description}\n{body}")
+        if scan_hit:
+            issues.append(
+                {
+                    "check": "skill_lint",
+                    "severity": "error",
+                    "message": (
+                        f"Skill '{rel}': sensitive {scan_hit[0]} pattern matched "
+                        f"('{scan_hit[1]}')."
+                    ),
+                    "file": rel,
+                    "suggestion": "Remove absolute paths and secrets; use repo-relative references.",
+                }
+            )
+
+        # revisions_required: generated provenance must carry an audit trail
+        revisions = meta.get("revisions")
+        revisions = revisions if isinstance(revisions, list) else []
+        if not revisions and fm.get("generated"):
+            issues.append(
+                {
+                    "check": "skill_lint",
+                    "severity": "error",
+                    "message": (
+                        f"Skill '{rel}': has generated provenance but no "
+                        "metadata.revisions audit trail."
+                    ),
+                    "file": rel,
+                    "suggestion": "Re-submit via skill_creator (updated) so the revision lands in revisions.",
+                }
+            )
+
+        # skill_possibly_stale (warning, design Q5)
+        for ref in refs:
+            ref_norm = str(ref).replace("\\", "/")
+            target = output_dir / ref_norm
+            stale_reason = None
+            if not target.is_file():
+                stale_reason = "material file missing"
+            else:
+                mfm = _read_frontmatter(target) or {}
+                m_status = str(mfm.get("status") or "").lower()
+                if m_status in ("deprecated", "superseded", "rejected"):
+                    stale_reason = f"material status={m_status}"
+                elif _read_body(target) == "[DELETED]":
+                    stale_reason = "material soft-deleted"
+            if stale_reason:
+                issues.append(
+                    {
+                        "check": "skill_lint",
+                        "severity": "warning",
+                        "message": (
+                            f"Skill '{rel}' possibly stale: {stale_reason} "
+                            f"(source: {ref_norm})."
+                        ),
+                        "file": rel,
+                        "suggestion": "Review the skill; revise against current material or retire it.",
+                    }
+                )
+                break  # one warning per skill is enough to trigger review
+
+        # skill_drift (warning, design Q6): draft revised after install
+        installed_hash = meta.get("installed_hash")
+        if installed_hash:
+            current = _normalized_hash(name, description, body)
+            if current != installed_hash:
+                issues.append(
+                    {
+                        "check": "skill_lint",
+                        "severity": "warning",
+                        "message": (
+                            f"Skill '{rel}' drifted: the draft was revised after "
+                            "install — the effect zone still serves the old version."
+                        ),
+                        "file": rel,
+                        "suggestion": (
+                            "Re-run skill_creator(mode='install') after user "
+                            "review (reinstall is a user action)."
+                        ),
+                    }
+                )
+
+    # --- capacity (mirror skill_creator grading; deprecated don't count) ---
+    live = [s for s in skills if s.get("status") != "deprecated"]
+    if len(live) >= _MAX_SKILLS:
+        issues.append(
+            {
+                "check": "skill_lint",
+                "severity": "error",
+                "message": (
+                    f"Draft skills at/over capacity: {len(live)}/{_MAX_SKILLS} "
+                    "— merge or retire before creating more."
+                ),
+                "file": "skills/",
+                "suggestion": "Retire or merge similar skills first (skill_creator retire).",
+            }
+        )
+    elif len(live) >= _ORANGE_SKILLS:
+        issues.append(
+            {
+                "check": "skill_lint",
+                "severity": "warning",
+                "message": (
+                    f"Draft skills near capacity: {len(live)}/{_MAX_SKILLS} "
+                    f"(orange line {_ORANGE_SKILLS}) — UPDATE only."
+                ),
+                "file": "skills/",
+                "suggestion": "Default to UPDATE on the next skill_creator run.",
+            }
+        )
+    return issues
+
+
 # ---------------------------------------------------------------------------
 #  OKF v0.2 conformance (§11 / §12)
 # ---------------------------------------------------------------------------
@@ -2196,6 +2422,11 @@ def handle_lint_wiki(
         # skill-creator (issue #24): required-section list is read from
         # schema.yaml inside the check; dispatch passes no hardcoded values.
         all_issues.extend(_check_skill_sections(output_dir))
+
+    if "skill_lint" in checks and output_dir:
+        # skill-creator T4 (issue #27): thresholds are imported from
+        # skill_creator constants — single source, no hardcoded copies.
+        all_issues.extend(_check_skill_lint(output_dir))
 
     if "okf_conformance" in checks and output_dir:
         all_issues.extend(
