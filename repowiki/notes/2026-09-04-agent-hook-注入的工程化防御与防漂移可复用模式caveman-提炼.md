@@ -10,6 +10,7 @@ metadata:
   severity: medium
   source_ref: conversations/conv-https-github.com-JuliusBrussee-caveman.git-研究下这个技能是如何生效的.md
   scene: 他山之石-caveman研究
+  source_conversations: ['conversations/conv-https-github.com-DietrichGebert-ponytail-研究下这个技能是如何生效的.md']
 status: stable
 author: iamwangbao-163-com
 generated:
@@ -20,7 +21,6 @@ origin: conversation
 verified:
 - by: codewiki/5.5.1
   at: '2026-09-04T04:25:35Z'
-source_conversations: ['conversations/conv-https-github.com-DietrichGebert-ponytail-研究下这个技能是如何生效的.md']
 
 ---
 
