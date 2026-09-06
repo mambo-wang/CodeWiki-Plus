@@ -35,6 +35,179 @@
       "status": "open",
       "occurrences": 1,
       "updates": []
+    },
+    "5a846caf": {
+      "id": "5a846caf",
+      "issue_type": "custom",
+      "page_path": "notes/2026-08-03-mcp-工具-schema-不声明-session-idhandler-隐式读取.md",
+      "description": "test",
+      "severity": "warning",
+      "created_at": "2026-09-06T18:21:33.680536",
+      "updated_at": "2026-09-06T18:21:56.131616",
+      "status": "open",
+      "occurrences": 2,
+      "updates": [
+        {
+          "timestamp": "2026-09-06T18:21:56.131616",
+          "description": "low_adoption: recalled 200 times / adopted 0 -> rewrite with concrete steps, commands and expected results, or fold into a scenario block."
+        }
+      ]
+    },
+    "d2244c2f": {
+      "id": "d2244c2f",
+      "issue_type": "custom",
+      "page_path": "notes/2026-08-25-doctrine-不会自动注入-agent-上下文唯一通道是-query-wikimodeoverview.md",
+      "description": "low_adoption: recalled 88 times / adopted 0 -> rewrite with concrete steps, commands and expected results, or fold into a scenario block.",
+      "severity": "warning",
+      "created_at": "2026-09-06T18:21:56.602544",
+      "updated_at": "2026-09-06T18:21:56.602544",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
+    },
+    "f10c0a92": {
+      "id": "f10c0a92",
+      "issue_type": "custom",
+      "page_path": "notes/2026-08-23-distill-worker-subagent-定义随包发布hook-启用时自动拷贝到项目-codebuddyagent.md",
+      "description": "low_adoption: recalled 84 times / adopted 0 -> rewrite with concrete steps, commands and expected results, or fold into a scenario block.",
+      "severity": "warning",
+      "created_at": "2026-09-06T18:21:57.066236",
+      "updated_at": "2026-09-06T18:21:57.066236",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
+    },
+    "05be9a92": {
+      "id": "05be9a92",
+      "issue_type": "custom",
+      "page_path": "notes/2026-08-26-handle-query-wiki-在-session-存在时每次查询都全量重建检索索引.md",
+      "description": "low_adoption: recalled 74 times / adopted 0 -> rewrite with concrete steps, commands and expected results, or fold into a scenario block.",
+      "severity": "warning",
+      "created_at": "2026-09-06T18:21:57.530526",
+      "updated_at": "2026-09-06T18:21:57.530526",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
+    },
+    "a488df01": {
+      "id": "a488df01",
+      "issue_type": "custom",
+      "page_path": "notes/2026-08-25-mcp-参数长度受限时蒸馏-submit-走文件侧通道python-脚本直接调-handle-distill-conve.md",
+      "description": "low_adoption: recalled 58 times / adopted 0 -> rewrite with concrete steps, commands and expected results, or fold into a scenario block.",
+      "severity": "warning",
+      "created_at": "2026-09-06T18:21:58.098090",
+      "updated_at": "2026-09-06T18:21:58.098090",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
+    },
+    "0066c91f": {
+      "id": "0066c91f",
+      "issue_type": "custom",
+      "page_path": "notes/2026-08-25-untracked-新文件不在分析图谱内review-changes-changed-sources-切片为空.md",
+      "description": "low_adoption: recalled 50 times / adopted 0 -> rewrite with concrete steps, commands and expected results, or fold into a scenario block.",
+      "severity": "warning",
+      "created_at": "2026-09-06T18:21:58.557722",
+      "updated_at": "2026-09-06T18:21:58.557722",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
+    },
+    "18250574": {
+      "id": "18250574",
+      "issue_type": "custom",
+      "page_path": "notes/2026-08-26-load-project-checklist-对-yaml-损坏静默回退-none-无日志难排查.md",
+      "description": "low_adoption: recalled 43 times / adopted 0 -> rewrite with concrete steps, commands and expected results, or fold into a scenario block.",
+      "severity": "warning",
+      "created_at": "2026-09-06T18:21:59.010666",
+      "updated_at": "2026-09-06T18:21:59.010666",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
+    },
+    "3290e859": {
+      "id": "3290e859",
+      "issue_type": "custom",
+      "page_path": "notes/2026-08-29-生成的-ps1-必须带-utf-8-bom否则-powershell-51-按-gbk-误读.md",
+      "description": "low_adoption: recalled 41 times / adopted 0 -> rewrite with concrete steps, commands and expected results, or fold into a scenario block.",
+      "severity": "warning",
+      "created_at": "2026-09-06T18:21:59.465742",
+      "updated_at": "2026-09-06T18:21:59.465742",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
+    },
+    "c36a249c": {
+      "id": "c36a249c",
+      "issue_type": "custom",
+      "page_path": "notes/2026-08-29-工作区痕迹齐备时跳过-init-workspace直接跑-bootstrap-脚本补-clone.md",
+      "description": "low_adoption: recalled 39 times / adopted 0 -> rewrite with concrete steps, commands and expected results, or fold into a scenario block.",
+      "severity": "warning",
+      "created_at": "2026-09-06T18:21:59.901791",
+      "updated_at": "2026-09-06T18:21:59.901791",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
+    },
+    "60917120": {
+      "id": "60917120",
+      "issue_type": "custom",
+      "page_path": "notes/2026-08-29-登记业务仓后不自动生成-wiki必须等用户显式要求.md",
+      "description": "low_adoption: recalled 36 times / adopted 0 -> rewrite with concrete steps, commands and expected results, or fold into a scenario block.",
+      "severity": "warning",
+      "created_at": "2026-09-06T18:22:00.363329",
+      "updated_at": "2026-09-06T18:22:00.363329",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
+    },
+    "fad9fdf4": {
+      "id": "fad9fdf4",
+      "issue_type": "no_outlinks",
+      "page_path": "notes/",
+      "description": "BATCH: 153 note pages have no outgoing wikilinks (info). Adding cross-refs one-by-one is low value; decide on a bulk policy (auto-tag related notes or accept).",
+      "severity": "info",
+      "created_at": "2026-09-06T18:22:00.827939",
+      "updated_at": "2026-09-06T18:22:00.827939",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
+    },
+    "05d43ba8": {
+      "id": "05d43ba8",
+      "issue_type": "custom",
+      "page_path": "notes/",
+      "description": "BATCH: 76 note pages marked superseded (info). Archive/delete only after human review - retirement is a knowledge decision, not a lint fix.",
+      "severity": "info",
+      "created_at": "2026-09-06T18:22:01.366847",
+      "updated_at": "2026-09-06T18:22:01.366847",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
+    },
+    "d7c43aab": {
+      "id": "d7c43aab",
+      "issue_type": "custom",
+      "page_path": "codewiki/cli/",
+      "description": "BATCH: 127 isolated components (info), mostly CLI helpers with no dependency edges. Verify they are not dead code before documenting.",
+      "severity": "info",
+      "created_at": "2026-09-06T18:22:01.878474",
+      "updated_at": "2026-09-06T18:22:01.878474",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
+    },
+    "2ceafde2": {
+      "id": "2ceafde2",
+      "issue_type": "custom",
+      "page_path": "skills/maintain-fork-pr-merge/SKILL.md",
+      "description": "适用条件漏了 draft PR：mergeStateStatus=DRAFT 时探测冲突无意义，需先等 CI 出结果再判定",
+      "severity": "warning",
+      "created_at": "2026-09-06T19:45:11.933179",
+      "updated_at": "2026-09-06T19:45:11.933179",
+      "status": "open",
+      "occurrences": 1,
+      "updates": []
     }
   },
   "version": 1

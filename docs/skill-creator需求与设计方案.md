@@ -2,7 +2,7 @@
 
 > 把已确认知识编译成 SKILL.md 行为指令资产：MVP 单向编译器 + 回流接口设计。
 >
-> 编制日期：2026-09-06 · 状态：设计定稿（grill 九问收敛完毕，代码未动）
+> 编制日期：2026-09-06 · 状态：**已实施**（T1-T5 落地于 issues #24-#28，commits b12e98c/3db4827/64fb95e/e08dae6/c1beee9；闭环验证 #29 完成——真实素材全链 prepare→submit→lint→install→flag→revise→drift→reinstall 实测通过。用户文档：`docs/skill-creator使用指南.md`）
 >
 > 前置文档（本方案的输入，本文不重复其论证）：
 > 1. `repowiki/wiki/comparisons/自动生成SKILL可行性-wikiskill闭环-vs-CodeWiki编译复用.md` — 三档方案定档（方案 C 半闭环，MVP = 单向编译器）
