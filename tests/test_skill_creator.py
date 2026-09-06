@@ -406,8 +406,6 @@ def test_submit_validation_rule_names(tmp_path):
 
 def test_submit_invalid_mode_and_report_shape(tmp_path):
     repo, od = _mk_repo(tmp_path)
-    resp = _call(repo, {"mode": "install", "name": "x"})
-    assert "error" in resp and "issue #26" in resp["error"]
     resp = _call(repo, {"mode": "bogus"})
     assert "error" in resp
     resp = _call(repo, {"mode": "submit"})  # missing report
@@ -486,3 +484,127 @@ def test_submit_capacity_orange_blocks_create_allows_update(tmp_path):
     fm = _fm(od / "skills" / "cap-0" / "SKILL.md")
     assert fm["description"].startswith("When cap-0")
     assert fm["metadata"]["revisions"][-1]["reason"] == "orange update"
+
+
+# --------------------------------------------------------------------------- #
+# 5. install / retire (T3, issue #26)
+# --------------------------------------------------------------------------- #
+def test_install_strips_metadata_writes_hash_idempotent(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    _write_skill_draft(od, "installable-skill")
+
+    resp = _call(repo, {"mode": "install", "name": "installable-skill"})
+    assert resp["status"] == "installed", resp
+    eff = Path(repo) / ".codebuddy" / "skills" / "installable-skill" / "SKILL.md"
+    assert eff.is_file()
+
+    # effect-zone file: ONLY name/description + body (management strip)
+    eff_text = eff.read_text(encoding="utf-8")
+    assert eff_text.startswith("---\n")
+    head = eff_text[: eff_text.find("\n---", 3)]
+    assert "name: installable-skill" in head
+    assert "description:" in head
+    for banned in ("type:", "status:", "generated:", "stale_after:", "metadata:"):
+        assert banned not in head, banned
+    assert "## 工作场景" in eff_text  # body survived
+
+    # draft got the installed_* triple stamped
+    fm = _fm(od / "skills" / "installable-skill" / "SKILL.md")
+    meta = fm["metadata"]
+    assert meta["installed_to"] == ".codebuddy/skills/installable-skill/"
+    assert meta["installed_at"]
+    assert meta["installed_hash"].startswith("sha256:")
+
+    # idempotent: second install, same hash, no duplicate side effects
+    resp2 = _call(repo, {"mode": "install", "name": "installable-skill"})
+    assert resp2["status"] == "installed"
+    assert resp2["hash"] == resp["hash"]
+    fm2 = _fm(od / "skills" / "installable-skill" / "SKILL.md")
+    assert fm2["metadata"]["installed_hash"] == meta["installed_hash"]
+
+
+def test_install_draft_revision_rewrites_effect_zone(tmp_path):
+    """After a draft update, install must refresh the effect copy (reinstall)."""
+    repo, od = _mk_repo(tmp_path)
+    _write_skill_draft(od, "iter-skill")
+    _call(repo, {"mode": "install", "name": "iter-skill"})
+    note = _write_note(od, "more-note")
+    _call(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "skills": [
+                    _skill_entry(
+                        "iter-skill",
+                        action="updated",
+                        description="When iter-skill v2 fires, run the v2 SOP now",
+                        source_refs=[note],
+                        revision_note="v2",
+                    )
+                ]
+            },
+        },
+    )
+    resp = _call(repo, {"mode": "install", "name": "iter-skill"})
+    assert resp["status"] == "installed"
+    eff = (Path(repo) / ".codebuddy" / "skills" / "iter-skill" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    assert "run the v2 SOP now" in eff  # effect zone reflects the revision
+
+
+def test_install_errors(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    resp = _call(repo, {"mode": "install", "name": "ghost"})
+    assert "error" in resp
+    resp = _call(repo, {"mode": "install"})
+    assert "error" in resp
+    # deprecated drafts refuse to install
+    _write_skill_draft(od, "dead-skill")
+    draft = od / "skills" / "dead-skill" / "SKILL.md"
+    text = draft.read_text(encoding="utf-8")
+    draft.write_text(text.replace("status: draft", "status: deprecated"), encoding="utf-8")
+    resp = _call(repo, {"mode": "install", "name": "dead-skill"})
+    assert "error" in resp and "deprecated" in resp["error"]
+
+
+def test_retire_marks_draft_removes_effect_keeps_body(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    _write_skill_draft(od, "bye-skill")
+    _call(repo, {"mode": "install", "name": "bye-skill"})
+    eff = Path(repo) / ".codebuddy" / "skills" / "bye-skill" / "SKILL.md"
+    assert eff.is_file()
+
+    resp = _call(repo, {"mode": "retire", "name": "bye-skill", "reason": "superseded by X"})
+    assert resp["status"] == "retired", resp
+    assert resp["effect_removed"] is True
+
+    # draft body kept, status deprecated, revision records the retire reason
+    assert not eff.exists()
+    draft = od / "skills" / "bye-skill" / "SKILL.md"
+    assert draft.is_file()
+    fm = _fm(draft)
+    assert fm["status"] == "deprecated"
+    reasons = [r["reason"] for r in fm["metadata"]["revisions"]]
+    assert any("superseded by X" in r for r in reasons)
+    # installed_* triple cleared
+    for key in ("installed_at", "installed_to", "installed_hash"):
+        assert key not in fm["metadata"]
+    # retire is idempotent on the effect zone (already gone is fine)
+    resp2 = _call(repo, {"mode": "retire", "name": "bye-skill", "reason": "again"})
+    assert resp2["status"] == "retired"
+    assert resp2["effect_removed"] is False
+
+    # and a retired draft can no longer be installed
+    resp3 = _call(repo, {"mode": "install", "name": "bye-skill"})
+    assert "error" in resp3
+
+
+def test_retire_requires_reason(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    _write_skill_draft(od, "reason-skill")
+    resp = _call(repo, {"mode": "retire", "name": "reason-skill"})
+    assert "error" in resp and "reason" in resp["error"]
+    resp = _call(repo, {"mode": "retire", "name": "ghost", "reason": "x"})
+    assert "error" in resp

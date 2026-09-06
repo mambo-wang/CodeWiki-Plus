@@ -28,10 +28,18 @@ tool does deterministic bookkeeping; the host agent does the writing):
       report (``no_action``) is a legal round: "material not worth
       compiling" is not an error.
 
-Out of scope here (later tickets): install/retire (#26), the eight SKILL.md
-lint checks (#27), recall-side isolation (#28). Draft-zone skills are
-indexed but never effective — the two-zone gate (ADR-0004) is physical:
-the IDE never scans repowiki/skills/.
+Out of scope here (later tickets): the eight SKILL.md lint checks (#27).
+Draft-zone skills are indexed but never effective — the two-zone gate
+(ADR-0004) is physical: the IDE never scans repowiki/skills/.
+
+install / retire (T3, issue #26) live here too: install strips all
+management frontmatter and writes a minimal {name, description} + body
+SKILL.md into the EFFECT zone (repo-root .codebuddy/skills/, discovered by
+the IDE), stamping installed_at / installed_to / installed_hash back onto
+the draft. The normalized hash (name + description + body, design §4.2) is
+the drift-detection contract lint (#27) compares against. retire marks the
+draft deprecated and removes the effect-zone copy; the draft body stays
+for audit.
 """
 
 from __future__ import annotations
@@ -599,6 +607,189 @@ def _write_backlinks(values: Dict[str, Any], output_dir: Path) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Install / retire (T3, issue #26) — effect-zone management
+# --------------------------------------------------------------------------- #
+def _normalized_hash(name: str, description: str, body: str) -> str:
+    """Drift-detection contract (design §4.2): hash of the EXACT content that
+    lands in the effect zone — name + description + body, management
+    frontmatter excluded (both sides strip it, whole-file hashes would never
+    match)."""
+    import hashlib
+
+    payload = f"{name}\x00{description}\x00{body.strip()}".encode("utf-8")
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _effect_zone_dir(output_dir: Path) -> Path:
+    """Effect zone = repo root / .codebuddy/skills/ (one level above the
+    repowiki output_dir; ADR-0004: outside repowiki, never scanned)."""
+    from codewiki.src.config import SKILL_EFFECT_DIR
+
+    return output_dir.parent / SKILL_EFFECT_DIR
+
+
+def _mode_install(arguments: Dict[str, Any], output_dir: Path) -> str:
+    """Draft → effect zone. Strips management frontmatter, stamps the
+    installed_* triple back onto the draft, idempotent."""
+    name = str(arguments.get("name") or "").strip()
+    if not name:
+        return json.dumps({"error": "install requires 'name' (draft skill slug)."})
+    draft = _skills_dir(output_dir) / name / "SKILL.md"
+    if not draft.is_file():
+        return json.dumps(
+            {"error": f"draft skills/{name}/SKILL.md not found (install works on drafts)."}
+        )
+    fm, body = _read_frontmatter(draft), _read_body(draft)
+    if not fm:
+        return json.dumps({"error": f"draft skills/{name}/SKILL.md has no parseable frontmatter."})
+    if str(fm.get("status") or "").lower() == "deprecated":
+        return json.dumps(
+            {"error": f"skill '{name}' is deprecated — retire revoked it; re-create instead."}
+        )
+
+    skill_name = str(fm.get("name") or name)
+    description = str(fm.get("description") or "")
+
+    # Effect-zone file: ONLY name/description frontmatter + body (design
+    # §4.2 install strip — the host reads the whole file into context; every
+    # management byte there is wasted tokens).
+    effect_file = _effect_zone_dir(output_dir) / name / "SKILL.md"
+    effect_content = (
+        "---\n"
+        + f"name: {skill_name}\n"
+        + f"description: {description}\n"
+        + "---\n\n"
+        + body.strip()
+        + "\n"
+    )
+
+    import hashlib as _hashlib
+
+    from codewiki.src.store import locked_rmw
+
+    def _transform_draft(text: str) -> Optional[str]:
+        from codewiki.src.frontmatter import parse_frontmatter
+
+        dfm, old_body = parse_frontmatter(text)
+        meta = dfm.get("metadata") if isinstance(dfm.get("metadata"), dict) else {}
+        meta["installed_at"] = _now_iso()
+        # installed_to points at the effect DIRECTORY (design §4.2 shape:
+        # ".codebuddy/skills/<name>/") — hand-built, NOT via _norm_rel whose
+        # lstrip("./") would eat the leading dot of .codebuddy/.
+        meta["installed_to"] = f".codebuddy/skills/{name}/"
+        meta["installed_hash"] = _normalized_hash(skill_name, description, body)
+        dfm["metadata"] = meta
+        return _render_skill_doc(dfm, old_body)
+
+    try:
+        # Idempotent: rewriting the same effect content and re-stamping the
+        # draft is safe; content is deterministic from the draft alone.
+        effect_file.parent.mkdir(parents=True, exist_ok=True)
+        locked_write = None
+        from codewiki.src.store import locked_write as _lw
+
+        locked_write = _lw
+        locked_write(effect_file, effect_content)
+        locked_rmw(draft, _transform_draft)
+    except OSError as e:
+        logger.warning("install failed for %s: %s", name, e)
+        return json.dumps({"error": f"install write failed: {e}"})
+
+    return json.dumps(
+        {
+            "status": "installed",
+            "mode": "install",
+            "name": name,
+            "installed_to": f".codebuddy/skills/{name}/",
+            "hash": _normalized_hash(skill_name, description, body),
+            "digest": _hashlib.sha256(effect_content.encode("utf-8")).hexdigest()[:12],
+            "message": (
+                f"Skill '{name}' installed to the effect zone — the IDE will "
+                "discover it on its next scan. installed_at/to/hash stamped on "
+                "the draft (drift detection compares against this hash, #27)."
+            ),
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+def _mode_retire(arguments: Dict[str, Any], output_dir: Path) -> str:
+    """Deprecate the draft + remove the effect-zone copy. Draft body stays."""
+    name = str(arguments.get("name") or "").strip()
+    reason = str(arguments.get("reason") or "").strip()
+    if not name:
+        return json.dumps({"error": "retire requires 'name' and 'reason'."})
+    if not reason:
+        return json.dumps(
+            {"error": "retire requires 'reason' (audit trail, design §4.1)."}
+        )
+    draft = _skills_dir(output_dir) / name / "SKILL.md"
+    if not draft.is_file():
+        return json.dumps({"error": f"draft skills/{name}/SKILL.md not found."})
+
+    from codewiki.src.store import locked_rmw
+
+    def _transform(text: str) -> Optional[str]:
+        from codewiki.src.frontmatter import parse_frontmatter
+
+        fm, body = parse_frontmatter(text)
+        fm["status"] = "deprecated"
+        meta = fm.get("metadata") if isinstance(fm.get("metadata"), dict) else {}
+        revisions = meta.get("revisions")
+        if not isinstance(revisions, list):
+            revisions = []
+        revisions.append(
+            {
+                "at": _now_iso(),
+                "reason": f"retired: {reason}",
+                "source": "skill_creator",
+            }
+        )
+        meta["revisions"] = revisions
+        meta.pop("installed_at", None)
+        meta.pop("installed_to", None)
+        meta.pop("installed_hash", None)
+        fm["metadata"] = meta
+        return _render_skill_doc(fm, body)
+
+    # Effect-zone removal (absent = already clean; not an error).
+    removed_effect = False
+    effect_file = _effect_zone_dir(output_dir) / name / "SKILL.md"
+    if effect_file.is_file():
+        try:
+            # Keep the body recoverable: move to system trash semantics are
+            # overkill for a derived file — the DRAFT still holds the full
+            # content, the effect copy is disposable.
+            effect_file.unlink()
+            removed_effect = True
+        except OSError as e:
+            logger.warning("effect-zone removal failed for %s: %s", name, e)
+            return json.dumps({"error": f"failed to remove effect copy: {e}"})
+
+    try:
+        locked_rmw(draft, _transform)
+    except OSError as e:
+        logger.warning("retire failed for %s: %s", name, e)
+        return json.dumps({"error": f"retire write failed: {e}"})
+
+    return json.dumps(
+        {
+            "status": "retired",
+            "mode": "retire",
+            "name": name,
+            "effect_removed": removed_effect,
+            "message": (
+                f"Skill '{name}' retired: draft marked deprecated (body kept for "
+                "audit), effect-zone copy removed. The IDE stops discovering it."
+            ),
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Tool handler
 # --------------------------------------------------------------------------- #
 def handle_skill_creator(arguments: Dict[str, Any], store: Any) -> str:
@@ -617,17 +808,12 @@ def handle_skill_creator(arguments: Dict[str, Any], store: Any) -> str:
 
     mode = str(arguments.get("mode") or "prepare").lower()
     if mode in ("install", "retire"):
-        return json.dumps(
-            {
-                "error": (
-                    f"mode='{mode}' is not implemented yet (T3, issue #26); "
-                    "this build covers prepare and submit only."
-                )
-            }
+        return _mode_install(arguments, output_dir) if mode == "install" else _mode_retire(
+            arguments, output_dir
         )
     if mode not in ("prepare", "submit"):
         return json.dumps(
-            {"error": f"Invalid mode '{mode}'. Expected one of: prepare, submit."}
+            {"error": f"Invalid mode '{mode}'. Expected one of: prepare, submit, install, retire."}
         )
 
     # ---- mode == "prepare" (zero side effects) ---- #
