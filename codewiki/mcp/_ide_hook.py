@@ -245,31 +245,18 @@ def _extract_codebuddy_message_text(msg_data: dict) -> str:
     return ""
 
 
-_NOISE_BLOCK_TYPES = frozenset(
-    {
-        "tool-call",
-        "tool_call",
-        "tool-result",
-        "tool_result",
-        "reasoning",
-        "thinking",
-    }
-)
+# Content-block digestion (skill-creator §9): two-tier tool handling shared
+# with capture_conversation — codewiki.src.tool_digest is stdlib-only, so
+# importing it here does not break the hook's stdlib constraint. Tool calls
+# become one ``[tool: name · command]`` line each (command/error/fix chains
+# are skill material); tool results survive only as error excerpts; pure
+# noise (thinking/system) stays dropped.
+from codewiki.src.tool_digest import digest_blocks
 
 
 def _text_from_content_blocks(blocks: list) -> str:
-    """Join text from content blocks, skipping tool-call/tool-result/reasoning noise."""
-    parts: list = []
-    for block in blocks:
-        if not isinstance(block, dict):
-            continue
-        btype = block.get("type", "")
-        if btype in _NOISE_BLOCK_TYPES:
-            continue
-        text = block.get("text")
-        if isinstance(text, str) and text.strip():
-            parts.append(text.strip())
-    return "\n\n".join(parts)
+    """Flatten content blocks with two-tier tool digestion (see tool_digest)."""
+    return "\n\n".join(digest_blocks(blocks))
 
 
 def _load_transcript(path: Optional[str]) -> Optional[list]:

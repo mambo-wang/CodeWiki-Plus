@@ -251,10 +251,12 @@ def test_expand_codebuddy_index(tmp_path):
 
     turns = _ide_hook._load_transcript(str(index_file))
     assert turns is not None
-    # tool messages are skipped, reasoning/tool-call blocks filtered
+    # user/assistant turns only (tool role messages skipped); inside the
+    # assistant turn, reasoning is dropped and the tool call survives as a
+    # compressed line (§9 two-tier digestion)
     assert len(turns) == 2
     assert turns[0] == {"role": "user", "content": "hello world"}
-    assert turns[1] == {"role": "assistant", "content": "here is the answer"}
+    assert turns[1] == {"role": "assistant", "content": "[tool: list_dir]\n\nhere is the answer"}
 
 
 def test_expand_codebuddy_index_only_user_assistant(tmp_path):
@@ -499,7 +501,8 @@ def test_extract_codebuddy_message_text_variants():
         == "direct string"
     )
 
-    # All noise -> empty
+    # Pure noise still dropped, but tool calls now survive as one compressed
+    # line each (skill-creator §9 two-tier digestion)
     assert (
         _ide_hook._extract_codebuddy_message_text(
             {
@@ -513,7 +516,7 @@ def test_extract_codebuddy_message_text_variants():
                 ),
             }
         )
-        == ""
+        == "[tool: x]"
     )
 
 
@@ -653,3 +656,55 @@ def test_filename_collision_appends_suffix(tmp_path):
     assert len(stems) == len(files)
     # At least one carries the expected slug
     assert any("重复的开场白" in s for s in stems)
+
+
+# --------------------------------------------------------------------------- #
+# skill-creator §9: two-tier tool digestion (command→error→fix chains)
+# --------------------------------------------------------------------------- #
+def test_tool_digest_keeps_calls_drops_success_results():
+    from codewiki.src.tool_digest import digest_blocks
+
+    lines = digest_blocks(
+        [
+            {"type": "thinking", "text": "internal"},
+            {"type": "tool-call", "toolName": "Bash", "args": {"command": "git push origin develop"}},
+            {"type": "tool-result", "text": "Everything up-to-date"},
+            {"type": "text", "text": "pushed"},
+        ]
+    )
+    assert lines == ["[tool: Bash · git push origin develop]", "pushed"]
+
+
+def test_tool_digest_keeps_error_excerpts():
+    from codewiki.src.tool_digest import digest_blocks
+
+    lines = digest_blocks(
+        [
+            {"type": "tool-call", "toolName": "Bash", "args": {"command": "uv sync --no-dev"}},
+            {
+                "type": "tool-result",
+                "text": "error: Unknown option '--no-dev'. Did you mean '--no-group dev'?\nexit code 2",
+            },
+            {"type": "tool-call", "toolName": "Bash", "args": {"command": "uv sync --no-group dev"}},
+            {"type": "tool-result", "text": "Installed 42 packages"},
+        ]
+    )
+    # the command→error→fix chain survives in order; the success result drops
+    assert len(lines) == 3
+    assert lines[0] == "[tool: Bash · uv sync --no-dev]"
+    assert lines[1].startswith("[tool-error: error: Unknown option '--no-dev'")
+    assert lines[2] == "[tool: Bash · uv sync --no-group dev]"
+
+
+def test_tool_digest_is_error_flag_and_budget():
+    from codewiki.src.tool_digest import digest_blocks
+
+    # is_error flag alone promotes the excerpt even without fingerprints
+    lines = digest_blocks([{"type": "tool-result", "is_error": True, "text": "weird failure shape"}])
+    assert lines and lines[0].startswith("[tool-error: weird failure shape")
+
+    # long payloads are clipped, not dumped wholesale
+    lines = digest_blocks(
+        [{"type": "tool-call", "toolName": "Bash", "args": {"command": "x" * 500}}]
+    )
+    assert len(lines[0]) <= 161  # 160 budget + ellipsis char
