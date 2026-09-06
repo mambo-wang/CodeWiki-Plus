@@ -14,10 +14,16 @@ from __future__ import annotations
 import json
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from codewiki.mcp.cache import AnalysisCache, ComponentMeta, LazyComponentStore
+from codewiki.mcp.cache import (
+    AnalysisCache,
+    ComponentMeta,
+    LazyComponentStore,
+    default_cache_db,
+)
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.workspace import SessionWorkspace
 
@@ -48,9 +54,16 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     if not repo_path.exists():
         return json.dumps({"error": f"Repository not found: {repo_path}"})
 
-    output_dir = (
-        Path(arguments.get("output_dir", str(repo_path / "repowiki"))).expanduser().resolve()
-    )
+    # Layout-aware default output_dir (ticket 04): an explicit argument always
+    # wins; otherwise a centralized-workspace member repo analyses into the
+    # workspace knowledge base, everything else keeps <repo>/repowiki.
+    _od_arg = (arguments.get("output_dir") or "").strip()
+    if _od_arg:
+        output_dir = Path(_od_arg).expanduser().resolve()
+    else:
+        from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+        output_dir = default_output_dir(repo_path)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     import tempfile
@@ -277,13 +290,26 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
             _rel_output = str(output_dir.resolve().relative_to(repo_path.resolve()))
         except ValueError:
             _rel_output = output_dir.name  # output_dir outside repo — best effort
+        # cache_db is resolved by consumers against output_dir.parent; express
+        # it relative to that anchor so it stays valid in both layouts
+        # (standard: ".codewiki/analysis_cache.db"; centralized:
+        # ".codewiki/<repo>/analysis_cache.db" under the workspace root).
+        try:
+            _cache_rel = os.path.relpath(default_cache_db(repo_path), output_dir.parent).replace(
+                "\\", "/"
+            )
+        except ValueError:
+            _cache_rel = ".codewiki/analysis_cache.db"
         project_info = {
             "repo_name": repo_path.name,
             "output_dir": _rel_output.replace("\\", "/"),
-            "cache_db": ".codewiki/analysis_cache.db",  # relative to repo root
+            "cache_db": _cache_rel,
         }
-        Path(meta_join(output_dir, PROJECT_FILENAME)).write_text(
-            json.dumps(project_info, ensure_ascii=False, indent=2), encoding="utf-8"
+        from codewiki.src.store import atomic_write
+
+        atomic_write(
+            Path(meta_join(output_dir, PROJECT_FILENAME)),
+            json.dumps(project_info, ensure_ascii=False, indent=2),
         )
     except Exception as e:
         logger.warning("Failed to write project.json: %s", e)
@@ -309,6 +335,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     if changes_info is None:
         changes_info = _detect_doc_changes(repo_path, output_dir, components=metas)
     if changes_info is not None:
+        changes_info = _enrich_stale_pages(changes_info, output_dir)
         workspace.write_json("changes.json", changes_info)
 
     # 5. Summary
@@ -330,9 +357,9 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         from codewiki.mcp.tools.schema_generator import generate_schema
 
         module_names = []
-        from codewiki.src.config import meta_resolve
+        from codewiki.mcp.cache import resolve_analysis_meta_file
 
-        mtp = Path(meta_resolve(output_dir, "module_tree.json"))
+        mtp = resolve_analysis_meta_file(repo_path, output_dir, "module_tree.json")
         if mtp.exists():
             try:
                 mt = json.loads(mtp.read_text(encoding="utf-8"))
@@ -368,19 +395,27 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     except Exception as e:
         logger.warning("Overview refs extraction failed: %s", e)
 
-    # 7c. Update overview_stale in metadata.json
+    # 7c. Update overview_stale in metadata.json (or create the incremental
+    # baseline anchor: generation_info.commit_id = HEAD at analysis time).
     try:
-        from codewiki.src.config import meta_resolve, PROJECT_FILENAME
+        from codewiki.mcp.cache import analysis_meta_dir
 
-        meta_path = Path(meta_resolve(output_dir, "metadata.json"))
+        meta_path = analysis_meta_dir(repo_path, output_dir) / "metadata.json"
         if meta_path.exists():
             metadata = json.loads(meta_path.read_text(encoding="utf-8"))
             overview_stale = changes_info.get("overview_stale", False) if changes_info else False
             metadata["overview_stale"] = overview_stale
-            meta_path.write_text(
-                json.dumps(metadata, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+        else:
+            meta_path.parent.mkdir(parents=True, exist_ok=True)
+            metadata = {
+                "generation_info": {
+                    "commit_id": _current_head(repo_path),
+                    "timestamp": datetime.now().isoformat(),
+                }
+            }
+        from codewiki.src.store import locked_write
+
+        locked_write(meta_path, json.dumps(metadata, ensure_ascii=False, indent=2))
     except Exception as e:
         logger.warning("Failed to update overview_stale in metadata: %s", e)
 
@@ -395,9 +430,11 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         meta_dir = Path(meta_join(output_dir, ""))
         meta_dir.mkdir(parents=True, exist_ok=True)
         symbol_map_path = Path(meta_join(output_dir, "symbol_map.json"))
-        symbol_map_path.write_text(
+        from codewiki.src.store import atomic_write
+
+        atomic_write(
+            symbol_map_path,
             json.dumps(symbol_map, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8",
         )
         logger.info("Symbol map written: %d symbols (SQLite + JSON)", len(symbol_map))
     except Exception as e:
@@ -492,6 +529,7 @@ def _build_no_change_response(
         if not lang or lang.lower() in ("null", "none", "unknown"):
             lang = "unknown"
         langs[lang] = langs.get(lang, 0) + 1
+    changes_info = _enrich_stale_pages(changes_info, output_dir)
     workspace.write_json("changes.json", changes_info)
 
     summary = {
@@ -641,15 +679,17 @@ def _run_monorepo_cross_service(
         meta_dir = Path(meta_join(output_dir, ""))
         meta_dir.mkdir(parents=True, exist_ok=True)
 
+        from codewiki.src.store import atomic_write
+
         links_data = [link.model_dump() for link in topology.links]
-        (meta_dir / "cross_service_links.json").write_text(
+        atomic_write(
+            meta_dir / "cross_service_links.json",
             json.dumps(links_data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
         )
         routes_data = [route.model_dump() for route in topology.routes]
-        (meta_dir / "workspace_routes.json").write_text(
+        atomic_write(
+            meta_dir / "workspace_routes.json",
             json.dumps(routes_data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
         )
         logger.info("Cross-service results persisted to %s", meta_dir)
     except Exception as e:
@@ -667,9 +707,11 @@ def _run_monorepo_cross_service(
             meta_dir = Path(meta_join(output_dir, ""))
             meta_dir.mkdir(parents=True, exist_ok=True)
             infra_data = {name: svc.to_dict() for name, svc in infra_services.items()}
-            (meta_dir / "infra_services.json").write_text(
+            from codewiki.src.store import atomic_write
+
+            atomic_write(
+                meta_dir / "infra_services.json",
                 json.dumps(infra_data, ensure_ascii=False, indent=2),
-                encoding="utf-8",
             )
     except Exception as e:
         logger.debug("Infra scanner skipped: %s", e)
@@ -734,16 +776,37 @@ def _build_symbol_map(metas: Dict[str, ComponentMeta]) -> Dict[str, List[str]]:
     return symbol_map
 
 
+def _enrich_stale_pages(
+    changes_info: Optional[Dict[str, Any]], output_dir: Path
+) -> Optional[Dict[str, Any]]:
+    """Merge D2 page-manifest ``stale_pages`` into *changes_info* in place.
+
+    Single post-step so both the SQLite incremental path
+    (:meth:`AnalysisCache.detect_changes`) and the legacy JSON fallback
+    (:func:`_detect_doc_changes`) emit ``stale_pages`` uniformly — the drift
+    signal for shared-pool pages must not depend on which change source ran.
+    """
+    if not isinstance(changes_info, dict):
+        return changes_info
+    from codewiki.mcp.tools.page_manifest import detect_stale_pages
+
+    cf = changes_info.get("changed_files") or []
+    stale = detect_stale_pages(output_dir, cf)
+    if stale:
+        changes_info["stale_pages"] = sorted(stale)
+    return changes_info
+
+
 def _detect_doc_changes(
     repo_path: Path,
     output_dir: Path,
     components: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Detect documentation-level changes since last generation (legacy JSON fallback)."""
-    from codewiki.src.config import meta_resolve
+    from codewiki.mcp.cache import resolve_analysis_meta_file
 
-    mp = Path(meta_resolve(output_dir, "metadata.json"))
-    mtp = Path(meta_resolve(output_dir, "module_tree.json"))
+    mp = resolve_analysis_meta_file(repo_path, output_dir, "metadata.json")
+    mtp = resolve_analysis_meta_file(repo_path, output_dir, "module_tree.json")
     if not mp.exists() or not mtp.exists():
         return None
     try:
@@ -787,6 +850,16 @@ def _detect_doc_changes(
         "hint": f"Only {len(affected)} module(s) need updating."
         + (" Overview.md is stale." if overview_stale else ""),
     }
+
+
+def _current_head(repo_path: Path) -> Optional[str]:
+    """HEAD sha of the repo's own git, or None when git is unavailable."""
+    try:
+        import git
+
+        return git.Repo(repo_path).head.commit.hexsha
+    except Exception:
+        return None
 
 
 def _detect_git_from_meta(repo_path: Path, metadata: Dict, output_dir: Path) -> Optional[Dict]:
@@ -1046,11 +1119,10 @@ def _save_overview_refs(output_dir: Path, refs: Set[str]):
 
     meta_dir = Path(meta_join(output_dir, ""))
     meta_dir.mkdir(parents=True, exist_ok=True)
+    from codewiki.src.store import atomic_write
+
     refs_path = meta_dir / "overview_refs.json"
-    refs_path.write_text(
-        json.dumps(sorted(refs), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    atomic_write(refs_path, json.dumps(sorted(refs), ensure_ascii=False, indent=2))
 
 
 def _load_overview_refs(output_dir: Path) -> Set[str]:

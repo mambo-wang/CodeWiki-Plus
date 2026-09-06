@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -47,22 +48,47 @@ def _save_registry(output_dir: Path, registry: Dict[str, Any]) -> None:
 
     meta_dir = output_dir / META_DIR
     meta_dir.mkdir(parents=True, exist_ok=True)
+    from codewiki.src.store import locked_write
+
     reg_path = meta_dir / SOURCE_REGISTRY_FILENAME
-    reg_path.write_text(json.dumps(registry, indent=2, ensure_ascii=False), encoding="utf-8")
+    locked_write(reg_path, json.dumps(registry, indent=2, ensure_ascii=False))
+
+
+def _retire_registered_file(output_dir: Path, registry: Dict[str, Any], name: str) -> None:
+    """Move the previously registered raw file for *name* into .trash/.
+
+    Called from ingest_source after the caller confirmed an overwrite
+    (``overwrite=true``): the old document is retired so the new file can take
+    over the canonical ``raw/sources/<name>`` path.  Deleting directly is
+    avoided — files go to .trash/ for recoverability, mirroring
+    retract_source's remove_refs mode.
+    """
+    info = registry.get("sources", {}).get(name)
+    if not isinstance(info, dict):
+        return
+    rel = info.get("path")
+    if not rel:
+        return
+    old_abs = output_dir / rel
+    if not old_abs.exists():
+        return
+    try:
+        trash_dir = output_dir / ".trash"
+        trash_dir.mkdir(parents=True, exist_ok=True)
+        dest = trash_dir / old_abs.name
+        if dest.exists():
+            dest = trash_dir / f"{old_abs.stem}_{int(datetime.now().timestamp())}{old_abs.suffix}"
+        shutil.move(str(old_abs), str(dest))
+        logger.info("Overwrite confirmed: retired %s -> %s", old_abs, dest)
+    except OSError as e:
+        logger.warning("Failed to retire old source file %s: %s", old_abs, e)
 
 
 def _resolve_output_dir(session: Optional[SessionState], arguments: Dict) -> Path:
-    """Resolve the output directory from session or arguments."""
-    if session:
-        return Path(session.output_dir).expanduser().resolve()
-    od = arguments.get("output_dir")
-    if od:
-        return Path(od).expanduser().resolve()
-    # Fallback: derive from repo_path
-    rp = arguments.get("repo_path")
-    if rp:
-        return Path(rp).expanduser().resolve() / "repowiki"
-    raise ValueError("output_dir or repo_path is required (or pass an active session).")
+    """Resolve the output directory — delegates to the shared store bridge."""
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
+
+    return resolve_output_dir(session, arguments)
 
 
 def _okf_source_entry(output_dir: Path, name: str, info: Dict[str, Any]) -> Dict[str, Any]:
@@ -81,40 +107,60 @@ def _okf_source_entry(output_dir: Path, name: str, info: Dict[str, Any]) -> Dict
     return entry
 
 
+def _rmw_page(page_path: Path, transform) -> bool:
+    """Read-modify-write a page under the sidecar lock (Phase 2 §5.3).
+
+    *transform(text)* returns the new text or None to abort (no change).
+    The read AND the write both happen inside the lock — a read outside it
+    could silently drop a concurrent writer's change.
+    Returns True when the file was written.
+    """
+    from codewiki.src.store import locked_rmw
+
+    try:
+        return locked_rmw(page_path, transform) is not None
+    except OSError as e:
+        logger.debug("locked page rewrite skipped for %s: %s", page_path, e)
+        return False
+
+
 def _merge_okf_sources_entry(page_path: Path, entry: Dict[str, Any]) -> None:
     """Merge one OKF ``sources`` entry into a page's frontmatter (idempotent).
 
     Uses a YAML round-trip so list-of-mapping values stay well-formed.
     Existing entries with the same ``id`` are left untouched.
     """
-    try:
-        content = page_path.read_text(encoding="utf-8")
-    except OSError:
-        return
-    if not content.startswith("---"):
-        return  # pages without frontmatter are handled elsewhere
-    end = content.find("---", 3)
-    if end < 0:
-        return
-    try:
-        import yaml
 
-        data = yaml.safe_load(content[3:end])
-        if not isinstance(data, dict):
-            return
-        sources = data.get("sources")
-        if isinstance(sources, dict):
-            sources = [sources]
-        if not isinstance(sources, list):
-            sources = []
-        if any(isinstance(s, dict) and s.get("id") == entry.get("id") for s in sources):
-            return  # already present
-        sources.append(entry)
-        data["sources"] = sources
-        new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        page_path.write_text(f"---\n{new_fm}---{content[end + 3 :]}", encoding="utf-8")
-    except Exception as e:
-        logger.debug("OKF sources merge skipped for %s: %s", page_path, e)
+    def _merge(content: str):
+        if not content.startswith("---"):
+            return None  # pages without frontmatter are handled elsewhere
+        end = content.find("---", 3)
+        if end < 0:
+            return None
+        try:
+            import yaml
+
+            data = yaml.safe_load(content[3:end])
+            if not isinstance(data, dict):
+                return None
+            sources = data.get("sources")
+            if isinstance(sources, dict):
+                sources = [sources]
+            if not isinstance(sources, list):
+                sources = []
+            if any(isinstance(s, dict) and s.get("id") == entry.get("id") for s in sources):
+                return None  # already present
+            sources.append(entry)
+            data["sources"] = sources
+            new_fm = yaml.safe_dump(
+                data, allow_unicode=True, sort_keys=False, default_flow_style=False
+            )
+            return f"---\n{new_fm}---{content[end + 3 :]}"
+        except Exception as e:
+            logger.debug("OKF sources merge skipped for %s: %s", page_path, e)
+            return None
+
+    _rmw_page(page_path, _merge)
 
 
 def _ensure_source_frontmatter(
@@ -147,8 +193,10 @@ def _ensure_source_frontmatter(
         description=description or name,
         status="stable",
     )
+    from codewiki.src.store import locked_write
+
     try:
-        dest_path.write_text(fm, encoding="utf-8")
+        locked_write(dest_path, fm)
     except OSError as e:
         logger.warning("Failed to add OKF frontmatter to %s: %s", dest_path, e)
 
@@ -177,62 +225,172 @@ def _inject_source_refs(output_dir: Path, related_pages: List[str], source_name:
             logger.debug("Related page not found, skipping source_ref injection: %s", page_ref)
             continue
 
-        try:
-            content = page_path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-
         source_ref_line = f'source_ref: "{source_name}"'
 
-        if content.startswith("---"):
-            # Has existing frontmatter — find the closing delimiter
-            end_idx = content.find("---", 3)
-            if end_idx < 0:
-                continue
-            frontmatter = content[3:end_idx]
-            rest = content[end_idx:]  # includes closing "---" and body
+        def _inject(content: str):
+            if content.startswith("---"):
+                # Has existing frontmatter — find the closing delimiter
+                end_idx = content.find("---", 3)
+                if end_idx < 0:
+                    return None
+                frontmatter = content[3:end_idx]
+                rest = content[end_idx:]  # includes closing "---" and body
 
-            # Check if source_refs list already exists
-            if "source_refs:" in frontmatter:
-                # Append to existing source_refs list (YAML list item)
-                # Find the source_refs line and insert after its block
-                lines = frontmatter.split("\n")
-                insert_idx = None
-                for i, line in enumerate(lines):
-                    if line.strip().startswith("source_refs:"):
-                        # Find end of the list (next non-indented, non-list line)
-                        insert_idx = i + 1
-                        while insert_idx < len(lines) and (
-                            lines[insert_idx].startswith("  ")
-                            or lines[insert_idx].strip().startswith("- ")
+                # Check if source_refs list already exists
+                if "source_refs:" in frontmatter:
+                    # Append to existing source_refs list (YAML list item)
+                    # Find the source_refs line and insert after its block
+                    lines = frontmatter.split("\n")
+                    insert_idx = None
+                    for i, line in enumerate(lines):
+                        if line.strip().startswith("source_refs:"):
+                            # Find end of the list (next non-indented, non-list line)
+                            insert_idx = i + 1
+                            while insert_idx < len(lines) and (
+                                lines[insert_idx].startswith("  ")
+                                or lines[insert_idx].strip().startswith("- ")
+                            ):
+                                insert_idx += 1
+                            break
+                    if insert_idx is not None:
+                        # Avoid duplicate
+                        if (
+                            f'- "{source_name}"' not in frontmatter
+                            and f"- {source_name}" not in frontmatter
                         ):
-                            insert_idx += 1
-                        break
-                if insert_idx is not None:
-                    # Avoid duplicate
-                    if (
-                        f'- "{source_name}"' not in frontmatter
-                        and f"- {source_name}" not in frontmatter
-                    ):
-                        lines.insert(insert_idx, f'  - "{source_name}"')
-                        frontmatter = "\n".join(lines)
+                            lines.insert(insert_idx, f'  - "{source_name}"')
+                            frontmatter = "\n".join(lines)
+                else:
+                    # Add source_ref field to frontmatter
+                    frontmatter = frontmatter.rstrip("\n") + f"\n{source_ref_line}\n"
+
+                new_content = "---" + frontmatter + rest
             else:
-                # Add source_ref field to frontmatter
-                frontmatter = frontmatter.rstrip("\n") + f"\n{source_ref_line}\n"
+                # No frontmatter — create one
+                new_content = f"---\n{source_ref_line}\n---\n\n" + content
 
-            new_content = "---" + frontmatter + rest
-        else:
-            # No frontmatter — create one
-            new_content = f"---\n{source_ref_line}\n---\n\n" + content
+            return new_content if new_content != content else None
 
-        if new_content != content:
-            try:
-                page_path.write_text(new_content, encoding="utf-8")
-            except OSError as e:
-                logger.warning("Failed to inject source_ref into %s: %s", page_path, e)
+        # Phase 2 §5.3: read + inject under the sidecar lock
+        _rmw_page(page_path, _inject)
 
         # OKF v0.2 §5.1: dual-write the `sources` frontmatter entry
         _merge_okf_sources_entry(page_path, okf_entry)
+
+
+# Text formats whose body can be fingerprinted for version-sibling detection.
+# Binary formats (pdf/docx) have no text extractor yet — they skip the gate.
+_TEXT_SUFFIXES = {".md", ".markdown", ".html", ".htm", ".txt", ".rst"}
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _plain_text(path: Path) -> Optional[str]:
+    """UTF-8 text of *path* if it is a text document, else None (HTML tags stripped)."""
+    if path.suffix.lower() not in _TEXT_SUFFIXES:
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if path.suffix.lower() in (".html", ".htm"):
+        text = _HTML_TAG_RE.sub(" ", text)
+    return text
+
+
+def _frontmatter_dict(text: str) -> Dict[str, Any]:
+    """Parse the YAML frontmatter block of a text document."""
+    if not text.startswith("---"):
+        return {}
+    end = text.find("---", 3)
+    if end < 0:
+        return {}
+    try:
+        import yaml
+
+        data = yaml.safe_load(text[3:end])
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _body_without_frontmatter(text: str) -> str:
+    """Strip a leading YAML frontmatter block (headings/fields are not prose)."""
+    if text.startswith("---"):
+        end = text.find("---", 3)
+        if end > 0:
+            text = text[end + 3 :]
+    return text
+
+
+def _declared_supersedes(text: str) -> Optional[str]:
+    """The ``supersedes`` source id declared in the document frontmatter, if any.
+
+    The author stating "this document replaces X" is the strongest signal of
+    all — declared intent beats any fingerprint inference.
+    """
+    fm = _frontmatter_dict(text)
+    declared = fm.get("supersedes")
+    return declared.strip() if isinstance(declared, str) and declared.strip() else None
+
+
+def _registered_fingerprint(output_dir: Path, info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Similarity fingerprint of a registered entry, backfilled from its raw file
+    when the entry predates fingerprinting."""
+    fp = info.get("similarity")
+    if isinstance(fp, dict) and fp.get("sketch"):
+        return fp
+    rel = info.get("path")
+    if not rel:
+        return None
+    text = _plain_text(output_dir / rel)
+    if text is None:
+        return None
+    from codewiki.src import doc_similarity
+
+    fp = doc_similarity.compute_fingerprint(_body_without_frontmatter(text))
+    # Backfill so the next comparison is purely in-memory; the entry is part of
+    # the registry dict, so it is persisted on the next _save_registry.
+    info["similarity"] = fp
+    return fp
+
+
+def _best_sibling(
+    output_dir: Path,
+    registry: Dict[str, Any],
+    fingerprint: Dict[str, Any],
+    skip_name: Optional[str] = None,
+) -> tuple:
+    """Closest registered source by body similarity, with human-readable evidence.
+
+    Returns ``(name, score, shared_headings, backfilled)`` — score 0.0 when
+    nothing matches. ``backfilled`` is True when at least one entry's
+    fingerprint had to be recomputed from disk (caller should persist).
+    """
+    from codewiki.src import doc_similarity
+
+    best = (None, 0.0, [], False)
+    for existing_name, info in registry.get("sources", {}).items():
+        if not isinstance(info, dict) or info.get("status") == "retracted":
+            continue
+        if existing_name == skip_name:
+            continue
+        had_fp = isinstance(info.get("similarity"), dict) and bool(info["similarity"].get("sketch"))
+        fp = _registered_fingerprint(output_dir, info)
+        if fp is None:
+            continue
+        if not had_fp:
+            # Recomputed from disk — mark so the caller persists all backfills
+            # (even when this entry does not become the best match).
+            best = (best[0], best[1], best[2], True)
+        score = doc_similarity.similarity(fingerprint, fp)
+        if score > best[1]:
+            best = (
+                existing_name,
+                score,
+                doc_similarity.shared_headings(fingerprint, fp),
+                best[3],
+            )
+    return best
 
 
 def handle_ingest_source(
@@ -274,25 +432,227 @@ def handle_ingest_source(
         content_hash = hashlib.sha256(src.read_bytes()).hexdigest()
     except OSError:
         content_hash = ""
+    hash_key = f"sha256:{content_hash}" if content_hash else ""
 
+    # Load the registry once — used for dedup, name-conflict detection and
+    # overwrite bookkeeping below.
+    registry = _load_registry(output_dir)
+
+    # 1) Content-level dedup: identical content anywhere → duplicate.
+    #    Mirrors the name-conflict guard below: the tool MUST NOT decide on the
+    #    caller's behalf. It stores nothing, reports the clash and surfaces the
+    #    paths the user can choose from; re-running with overwrite=true is the
+    #    explicit "user agreed" signal.
+    overwrite = bool(arguments.get("overwrite", False))
+    duplicate_of: Optional[str] = None
     if content_hash:
-        registry = _load_registry(output_dir)
-        hash_key = f"sha256:{content_hash}"
         for existing_name, info in registry.get("sources", {}).items():
             if isinstance(info, dict) and info.get("content_hash") == hash_key:
                 if info.get("status") != "retracted":
+                    duplicate_of = existing_name
+                    break
+
+    if duplicate_of:
+        dup_info = registry["sources"][duplicate_of]
+        # A confirmed re-import is only meaningful when it targets the SAME
+        # identifier. Overwriting under a *different* name would store a second
+        # copy of byte-identical content and pollute retrieval with duplicates.
+        if overwrite and duplicate_of != name:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "name": name,
+                    "duplicate_of": duplicate_of,
+                    "message": (
+                        f"Content is already registered as '{duplicate_of}'; refusing to "
+                        f"store a second copy under '{name}'. Ask the user: reuse "
+                        f"'{duplicate_of}' as-is, or retract_source('{duplicate_of}') "
+                        "first and then import under the new name."
+                    ),
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        if not overwrite:
+            return json.dumps(
+                {
+                    "status": "duplicate",
+                    "name": name,
+                    "existing_name": duplicate_of,
+                    "existing": {
+                        "name": duplicate_of,
+                        "path": dup_info.get("path", ""),
+                        "original_path": dup_info.get("original_path", ""),
+                        "imported_at": dup_info.get("imported_at", ""),
+                        "description": dup_info.get("description", ""),
+                        "content_hash": dup_info.get("content_hash", ""),
+                    },
+                    "content_hash": f"sha256:{content_hash[:16]}...",
+                    "requires_user_confirmation": True,
+                    "user_options": [
+                        f"reuse (recommended): skip this import and work with the already "
+                        f"registered source '{duplicate_of}' — the bytes are identical",
+                        f"overwrite: only after the user agrees, re-run with "
+                        f"overwrite=true and name='{duplicate_of}' to re-store the same "
+                        "document under its canonical name (the old raw file moves to .trash)",
+                        f"rename: only if the user wants a separate identifier — "
+                        f"retract_source('{duplicate_of}') first, then import under a new name",
+                    ],
+                    "message": (
+                        f"Content is byte-identical to existing source '{duplicate_of}' "
+                        f"({dup_info.get('path') or dup_info.get('original_path')}, imported "
+                        f"{dup_info.get('imported_at', 'unknown')}). Nothing was stored. "
+                        "ASK THE USER which path to take before calling this tool again — "
+                        "do not silently skip, rename or overwrite on your own."
+                    ),
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        # Confirmed overwrite of the same identifier: retire the old raw file so
+        # the fresh copy takes the canonical path (handled further below).
+        _retire_registered_file(output_dir, registry, duplicate_of)
+
+    # 2) Name-level conflict guard: the identifier is already registered to a
+    #    *different* document. Never overwrite silently — surface the conflict
+    #    and require explicit overwrite=true (user consent) before replacing.
+    existing = registry.get("sources", {}).get(name)
+    name_conflict = bool(
+        isinstance(existing, dict)
+        and existing.get("status") != "retracted"
+        and existing.get("content_hash") != hash_key
+    )
+    if name_conflict and not overwrite:
+        return json.dumps(
+            {
+                "status": "conflict",
+                "name": name,
+                "existing": {
+                    "path": existing.get("path", ""),
+                    "original_path": existing.get("original_path", ""),
+                    "imported_at": existing.get("imported_at", ""),
+                    "content_hash": existing.get("content_hash", ""),
+                    "description": existing.get("description", ""),
+                },
+                "requires_user_confirmation": True,
+                "user_options": [
+                    "overwrite: only after the user agrees, re-run with overwrite=true to "
+                    "replace the existing document (the old raw file moves to .trash)",
+                    "rename: pass a different 'name' to keep both documents",
+                    "cancel: drop this import and keep the existing source untouched",
+                ],
+                "message": (
+                    f"Source name '{name}' is already registered to a different document "
+                    f"({existing.get('path') or existing.get('original_path')}, imported "
+                    f"{existing.get('imported_at', 'unknown')}). The new file was NOT stored. "
+                    "ASK THE USER first — do not silently skip, rename or overwrite. After the "
+                    "user confirms a replacement, re-run ingest_source with overwrite=true "
+                    "(the existing raw file will be moved to .trash); otherwise pass a "
+                    "different 'name' to keep both documents."
+                ),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+
+    # 3) Document-evolution guards (after the byte-level duplicate and the
+    #    name-level conflict checks above). Two signals, both *warnings only*:
+    #    nothing is stored until the caller re-runs with allow_sibling=true —
+    #    the explicit "user read the warning, import anyway" token.
+    from codewiki.src import doc_similarity
+
+    allow_sibling = bool(arguments.get("allow_sibling", False))
+    source_text = _plain_text(src)
+    fingerprint: Optional[Dict[str, Any]] = None
+    if source_text is not None:
+        fingerprint = doc_similarity.compute_fingerprint(_body_without_frontmatter(source_text))
+        if not allow_sibling:
+            # 3a) Declared supersede: the document frontmatter says it replaces
+            #     an already-registered source — the author's explicit intent.
+            declared = _declared_supersedes(source_text)
+            if declared and declared in registry.get("sources", {}):
+                declared_info = registry["sources"][declared]
+                if isinstance(declared_info, dict) and declared_info.get("status") != "retracted":
                     return json.dumps(
                         {
-                            "status": "duplicate",
+                            "status": "supersede_declared",
                             "name": name,
-                            "existing_name": existing_name,
-                            "content_hash": f"sha256:{content_hash[:16]}...",
-                            "message": f"Content identical to existing source '{existing_name}'. "
-                            f"Use a different file or retract the existing source first.",
+                            "supersedes": declared,
+                            "existing": {
+                                "path": declared_info.get("path", ""),
+                                "original_path": declared_info.get("original_path", ""),
+                                "imported_at": declared_info.get("imported_at", ""),
+                                "description": declared_info.get("description", ""),
+                            },
+                            "requires_user_confirmation": True,
+                            "user_options": [
+                                f"supersede (recommended): after the user agrees, "
+                                f"retract_source(name='{declared}', mode='remove_refs') to retire the "
+                                "superseded document, then re-import under the intended stable name",
+                                f"keep_both: only if the user disagrees with the declaration, re-run "
+                                "with allow_sibling=true",
+                                "cancel: drop this import",
+                            ],
+                            "message": (
+                                f"The document declares `supersedes: {declared}` in its frontmatter, "
+                                f"but '{declared}' is already registered "
+                                f"({declared_info.get('path') or declared_info.get('original_path')}, "
+                                f"imported {declared_info.get('imported_at', 'unknown')}). Nothing was "
+                                "stored. ASK THE USER whether to supersede the old source or keep "
+                                "both as separate documents."
+                            ),
                         },
                         indent=2,
                         ensure_ascii=False,
                     )
+            # 3b) Version-sibling gate: the body fingerprint looks like an
+            #     edited edition of an already-registered document under a
+            #     different name (e.g. 设计文档-v1 -> 设计文档-v2).
+            #     skip_name = the identifier being replaced by an overwrite.
+            sibling_name, score, shared, backfilled = _best_sibling(
+                output_dir, registry, fingerprint, skip_name=name if overwrite else None
+            )
+            if sibling_name and score >= doc_similarity.SIMILAR_LOW:
+                if backfilled:
+                    # Persist backfilled fingerprints even though we return early.
+                    _save_registry(output_dir, registry)
+                sib_info = registry["sources"][sibling_name]
+                return json.dumps(
+                    {
+                        "status": "version_sibling",
+                        "name": name,
+                        "existing_name": sibling_name,
+                        "similarity_score": score,
+                        "confidence": doc_similarity.classify(score),
+                        "shared_headings": shared,
+                        "existing": {
+                            "path": sib_info.get("path", ""),
+                            "original_path": sib_info.get("original_path", ""),
+                            "imported_at": sib_info.get("imported_at", ""),
+                            "description": sib_info.get("description", ""),
+                        },
+                        "requires_user_confirmation": True,
+                        "user_options": [
+                            f"supersede (recommended): after the user agrees, "
+                            f"retract_source(name='{sibling_name}', mode='remove_refs') to retire the "
+                            "old edition, then re-import under a stable name without a version number",
+                            f"keep_both: only if the user confirms this is a genuinely separate "
+                            "document, re-run with allow_sibling=true",
+                            "cancel: drop this import",
+                        ],
+                        "message": (
+                            f"Content resembles the already-registered source '{sibling_name}' "
+                            f"(similarity {score:.2f}, {len(shared)} shared headings"
+                            + (f": {', '.join(shared[:4])}" if shared else "")
+                            + f"). This may be a revised edition imported under a new name "
+                            f"({sib_info.get('path') or sib_info.get('original_path')}, imported "
+                            f"{sib_info.get('imported_at', 'unknown')}). Nothing was stored. "
+                            "ASK THE USER whether to supersede the old edition or keep both."
+                        ),
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
 
     # Ensure raw/sources/ directory exists
     from codewiki.src.config import RAW_SOURCES_DIR
@@ -306,8 +666,14 @@ def handle_ingest_source(
     dest_name = f"{name}{src.suffix}" if src.suffix else name
     dest_path = raw_sources / dest_name
 
-    # Handle name collision
-    if dest_path.exists():
+    # Resolve file-level collisions:
+    #  - overwrite=true on a name conflict: retire the previously registered raw
+    #    file (move to .trash) so the new document takes the canonical name.
+    #  - otherwise: an unregistered file already on disk is preserved and the
+    #    new file is stored under a hash-suffixed name.
+    if name_conflict and overwrite:
+        _retire_registered_file(output_dir, registry, name)
+    elif dest_path.exists():
         hash_suffix = src.stat().st_mtime_ns % 0xFFFFFF
         dest_name = f"{name}_{hash_suffix:06x}{src.suffix}"
         dest_path = raw_sources / dest_name
@@ -333,6 +699,7 @@ def handle_ingest_source(
         "related_pages": related_pages,
         "status": "active",
         "content_hash": f"sha256:{content_hash}" if content_hash else "",
+        "similarity": fingerprint,  # body sketch + headings; None for binary formats
     }
     _save_registry(output_dir, registry)
 
@@ -566,37 +933,42 @@ def _strip_okf_sources_entry(md_file: Path, source_name: str) -> bool:
 
     Returns True when the file was modified.
     """
-    try:
-        content = md_file.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    if not content.startswith("---") or "\nsources:" not in content[:2000]:
-        return False
-    end = content.find("---", 3)
-    if end < 0:
-        return False
-    try:
-        import yaml
+    from codewiki.src.store import locked_rmw
 
-        data = yaml.safe_load(content[3:end])
-        if not isinstance(data, dict):
-            return False
-        sources = data.get("sources")
-        if isinstance(sources, dict):
-            sources = [sources]
-        if not isinstance(sources, list):
-            return False
-        kept = [s for s in sources if not (isinstance(s, dict) and s.get("id") == source_name)]
-        if len(kept) == len(sources):
-            return False
-        if kept:
-            data["sources"] = kept
-        else:
-            data.pop("sources", None)
-        new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        md_file.write_text(f"---\n{new_fm}---{content[end + 3 :]}", encoding="utf-8")
-        return True
-    except Exception:
+    def _strip(content: str):
+        if not content.startswith("---") or "\nsources:" not in content[:2000]:
+            return None
+        end = content.find("---", 3)
+        if end < 0:
+            return None
+        try:
+            import yaml
+
+            data = yaml.safe_load(content[3:end])
+            if not isinstance(data, dict):
+                return None
+            sources = data.get("sources")
+            if isinstance(sources, dict):
+                sources = [sources]
+            if not isinstance(sources, list):
+                return None
+            kept = [s for s in sources if not (isinstance(s, dict) and s.get("id") == source_name)]
+            if len(kept) == len(sources):
+                return None
+            if kept:
+                data["sources"] = kept
+            else:
+                data.pop("sources", None)
+            new_fm = yaml.safe_dump(
+                data, allow_unicode=True, sort_keys=False, default_flow_style=False
+            )
+            return f"---\n{new_fm}---{content[end + 3 :]}"
+        except Exception:
+            return None
+
+    try:
+        return locked_rmw(md_file, _strip) is not None
+    except OSError:
         return False
 
 
@@ -607,40 +979,45 @@ def _strip_source_ref_fields(md_file: Path, source_name: str) -> bool:
     frontmatter re-dumps (``source_ref: name`` vs ``source_ref: "name"``)
     are all handled uniformly.  Returns True when the file was modified.
     """
-    try:
-        content = md_file.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    if not content.startswith("---"):
-        return False
-    end = content.find("---", 3)
-    if end < 0:
-        return False
-    try:
-        import yaml
+    from codewiki.src.store import locked_rmw
 
-        data = yaml.safe_load(content[3:end])
-        if not isinstance(data, dict):
-            return False
-        changed = False
-        if str(data.get("source_ref", "")) == source_name:
-            data.pop("source_ref", None)
-            changed = True
-        refs = data.get("source_refs")
-        if isinstance(refs, list):
-            kept = [x for x in refs if str(x) != source_name]
-            if len(kept) != len(refs):
+    def _strip(content: str):
+        if not content.startswith("---"):
+            return None
+        end = content.find("---", 3)
+        if end < 0:
+            return None
+        try:
+            import yaml
+
+            data = yaml.safe_load(content[3:end])
+            if not isinstance(data, dict):
+                return None
+            changed = False
+            if str(data.get("source_ref", "")) == source_name:
+                data.pop("source_ref", None)
                 changed = True
-                if kept:
-                    data["source_refs"] = kept
-                else:
-                    data.pop("source_refs", None)
-        if not changed:
-            return False
-        new_fm = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        md_file.write_text(f"---\n{new_fm}---{content[end + 3 :]}", encoding="utf-8")
-        return True
-    except Exception:
+            refs = data.get("source_refs")
+            if isinstance(refs, list):
+                kept = [x for x in refs if str(x) != source_name]
+                if len(kept) != len(refs):
+                    changed = True
+                    if kept:
+                        data["source_refs"] = kept
+                    else:
+                        data.pop("source_refs", None)
+            if not changed:
+                return None
+            new_fm = yaml.safe_dump(
+                data, allow_unicode=True, sort_keys=False, default_flow_style=False
+            )
+            return f"---\n{new_fm}---{content[end + 3 :]}"
+        except Exception:
+            return None
+
+    try:
+        return locked_rmw(md_file, _strip) is not None
+    except OSError:
         return False
 
 
@@ -666,14 +1043,13 @@ def _clean_source_refs(output_dir: Path, source_name: str) -> int:
         if not search_dir.is_dir():
             continue
         for md_file in search_dir.rglob("*.md"):
-            try:
-                content = md_file.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            new_content = okf_def.sub("", okf_marker.sub("", legacy_pat.sub("", content)))
-            body_changed = new_content != content
-            if body_changed:
-                md_file.write_text(new_content, encoding="utf-8")
+
+            def _clean_body(content: str):
+                new_content = okf_def.sub("", okf_marker.sub("", legacy_pat.sub("", content)))
+                return new_content if new_content != content else None
+
+            # Phase 2 §5.3: body cleanup read+write under the sidecar lock
+            body_changed = _rmw_page(md_file, _clean_body)
             stripped_fields = _strip_source_ref_fields(md_file, source_name)
             stripped_sources = _strip_okf_sources_entry(md_file, source_name)
             if body_changed or stripped_fields or stripped_sources:

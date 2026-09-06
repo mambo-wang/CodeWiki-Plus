@@ -8,7 +8,17 @@ the repo-map navigation.
 - ``init_workspace`` turns an existing empty directory into such a workspace:
   bootstrap clone scripts, .gitignore, repo-map skeleton, workspace
   conventions section in AGENTS.md, and the standard product-level repowiki
-  (reusing ``init_wiki``'s directory/template logic).
+  (reusing ``init_wiki``'s directory/template logic).  The FIRST init
+  requires an explicit knowledge-layout decision: with no persisted layout
+  config and no ``layout`` argument the tool writes nothing and returns
+  ``status="needs_layout_decision"`` so the calling agent asks the user
+  first.  The chosen layout is persisted to
+  ``<output_dir>/.meta/workspace.json`` for BOTH layouts.  Re-runs detect
+  the traces of a previous init (bootstrap scripts with parseable
+  registration tables, .gitignore, repowiki skeleton) and short-circuit to
+  clone-only adoption — fetching just the missing business-repo clones
+  instead of walking the full skeleton flow again (backfilling the layout
+  config when a legacy workspace lacks it).
 
 - ``add_workspace_repo`` registers one more business repo, transactionally
   updating four files: bootstrap.sh table, bootstrap.ps1 table, .gitignore
@@ -27,8 +37,17 @@ import logging
 import os
 import re
 import shutil
+import stat
 import subprocess
 from pathlib import Path
+
+from codewiki.mcp.tools.workspace_layout import (
+    LAYOUT_CENTRALIZED,
+    LAYOUT_COLOCATED,
+    VALID_LAYOUTS,
+    read_layout,
+    read_layout_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +68,10 @@ _NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 _REPO_MAP_NEW_REPO_COMMENT = "<!-- 新增业务仓模板："
 
+# Per-repo git clone timeout (seconds) for the init_workspace auto-clone —
+# same default as add_workspace_repo's clone_timeout.
+_INIT_CLONE_TIMEOUT = 600
+
 
 # ---------------------------------------------------------------------------
 # Small helpers
@@ -60,12 +83,35 @@ def _err(message: str) -> str:
 
 
 def _read_text(path: Path) -> str:
-    # Normalize CRLF so the table regexes (anchored on \n) work everywhere.
-    return path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    # utf-8-sig strips any UTF-8 BOM so rewrites never double it (files
+    # without a BOM read identically).  Normalize CRLF so the table regexes
+    # (anchored on \n) work everywhere.
+    return path.read_text(encoding="utf-8-sig").replace("\r\n", "\n")
 
 
 def _write_text(path: Path, text: str) -> None:
-    path.write_text(text, encoding="utf-8", newline="\n")
+    # bootstrap.ps1 must carry a UTF-8 BOM: Windows PowerShell 5.1 decodes
+    # BOM-less scripts as ANSI (GBK on zh-CN Windows), mangling the Chinese
+    # text until the script no longer parses.  bootstrap.sh stays BOM-less —
+    # a BOM would break its shebang.
+    encoding = "utf-8-sig" if path.suffix == ".ps1" else "utf-8"
+    path.write_text(text, encoding=encoding, newline="\n")
+
+
+_UTF8_BOM = b"\xef\xbb\xbf"
+
+
+def _ensure_ps1_bom(ps_path: Path) -> bool:
+    """Prepend a UTF-8 BOM to a bootstrap.ps1 written before the BOM fix.
+
+    Byte-level on purpose: the content (including its line endings) stays
+    bit-identical, only the marker is added.  Returns True when repaired.
+    """
+    data = ps_path.read_bytes()
+    if data.startswith(_UTF8_BOM):
+        return False
+    ps_path.write_bytes(_UTF8_BOM + data)
+    return True
 
 
 def _render_template(name: str, **variables: str) -> str:
@@ -104,6 +150,23 @@ def _parse_entries(body: str, is_sh: bool) -> dict:
         if m:
             entries[m.group(1)] = m.group(2)
     return entries
+
+
+def read_registration_table_names(workspace_p: Path) -> set[str]:
+    """Directory names registered in the workspace's bootstrap table.
+
+    Public seam for workspace_layout's membership check: bootstrap.sh is
+    the single source of truth for registration (transactionally kept in
+    sync with bootstrap.ps1).  Missing script or table yields an empty set.
+    """
+    try:
+        text = _read_text(workspace_p / "bootstrap.sh")
+    except OSError:
+        return set()
+    m = _SH_TABLE_RE.search(text)
+    if not m:
+        return set()
+    return set(_parse_entries(m.group(2), True))
 
 
 def _load_tables(workspace_p: Path) -> tuple[dict | None, str | None]:
@@ -220,11 +283,34 @@ def _ensure_gitignore(workspace_p: Path, repo_names: list[str]) -> dict:
     return {"status": "updated" if missing else "up_to_date", "added": missing}
 
 
-def _nav_row(name: str) -> str:
+def _nav_row(name: str, layout: str = LAYOUT_COLOCATED) -> str:
+    if layout == LAYOUT_CENTRALIZED:
+        return (
+            f"| {name} | `{name}/` | <!-- TODO: 填写职责 --> | "
+            f"`repowiki/wiki/modules/{name}/` | <!-- TODO --> |"
+        )
     return f"| {name} | `{name}/` | <!-- TODO: 填写职责 --> | `{name}/repowiki` | <!-- TODO --> |"
 
 
-def _repo_map_section(name: str) -> str:
+def _repo_map_section(name: str, layout: str = LAYOUT_COLOCATED) -> str:
+    if layout == LAYOUT_CENTRALIZED:
+        return (
+            f"## {name}（`{name}/`）\n"
+            "\n"
+            "**业务概述**\n"
+            "\n"
+            "<!-- TODO: 补充业务概述 -->\n"
+            "\n"
+            "**知识分区**\n"
+            "\n"
+            f"`repowiki/wiki/modules/{name}/`（业务仓为纯代码目录，无仓内知识库）\n"
+            "\n"
+            "**检索方式**\n"
+            "\n"
+            "```\n"
+            f'query_wiki(query=<问题>, repo="{name}")\n'
+            "```\n"
+        )
     return (
         f"## {name}（`{name}/`）\n"
         "\n"
@@ -240,7 +326,9 @@ def _repo_map_section(name: str) -> str:
     )
 
 
-def _ensure_repo_map_entry(text: str, name: str) -> tuple[str, dict]:
+def _ensure_repo_map_entry(
+    text: str, name: str, layout: str = LAYOUT_COLOCATED
+) -> tuple[str, dict]:
     """Add the nav-table row and detail section for one repo to repo-map text."""
     result = {"nav_row": "skipped", "section": "skipped"}
     dir_cell = f"`{name}/`"
@@ -257,14 +345,14 @@ def _ensure_repo_map_entry(text: str, name: str) -> tuple[str, dict]:
                 insert_at = i + 1
                 break
         if insert_at is not None:
-            lines.insert(insert_at, _nav_row(name))
+            lines.insert(insert_at, _nav_row(name, layout))
             result["nav_row"] = "added"
         else:
             result["nav_row"] = "warning: navigation table not found; section only"
 
     if not section_exists:
         text = "\n".join(lines)
-        section = _repo_map_section(name)
+        section = _repo_map_section(name, layout)
         idx = text.find(_REPO_MAP_NEW_REPO_COMMENT)
         if idx != -1:
             text = text[:idx] + section + "\n" + text[idx:]
@@ -312,58 +400,135 @@ def _clone_repo(workspace_p: Path, name: str, url: str, timeout: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# MCP handlers
+# Init-trace detection (clone-only adoption on re-runs)
 # ---------------------------------------------------------------------------
 
 
-def handle_init_workspace(arguments: dict) -> str:
-    """Initialize a multi-repo harness workspace.
+def _detect_init_traces(workspace_p: Path, output_dir_p: Path) -> dict:
+    """Which artifacts of a previous workspace init are already present.
 
-    Parameters (from arguments dict):
-        workspace_path: Existing directory to become the workspace root
-            (default: current working directory).
-        output_dir: Product-level repowiki directory (default: <workspace>/repowiki).
-        refresh_conventions: Force-refresh the AGENTS.md conventions block
-            (default: false — existing block is kept).
-        with_readme: Create a README.md skeleton when missing (default: true).
-
-    Repo registration and cloning are handled by add_workspace_repo; this tool
-    only scaffolds the workspace skeleton with empty registration tables.
+    All four traces together mean the workspace IS initialized: a re-run of
+    ``init_workspace`` may short-circuit to clone-only adoption (fetch the
+    missing business-repo clones) instead of walking the full skeleton flow
+    again — no artifact regeneration, no AGENTS.md rewrite.  Hand-built
+    workspaces count too: the registration-table anchors are shared with
+    the templates.
     """
-    workspace_path = (arguments.get("workspace_path") or "").strip()
-    if not workspace_path:
-        workspace_path = os.getcwd()
-    workspace_p = Path(workspace_path).resolve()
-    if not workspace_p.exists():
-        return _err(f"workspace_path does not exist: {workspace_p}")
-    if not workspace_p.is_dir():
-        return _err(f"workspace_path is not a directory: {workspace_p}")
-
-    name = workspace_p.name
-    output_dir = (arguments.get("output_dir") or "").strip()
-    if not output_dir:
-        output_dir_p = workspace_p / "repowiki"
-    elif os.path.isabs(output_dir):
-        output_dir_p = Path(output_dir).resolve()
-    else:
-        output_dir_p = (workspace_p / output_dir).resolve()
-
-    refresh_conventions = bool(arguments.get("refresh_conventions", False))
-    with_readme = bool(arguments.get("with_readme", True))
-
-    results: dict = {
-        "workspace_path": str(workspace_p),
-        "name": name,
-        "output_dir": str(output_dir_p),
+    traces = {
+        "bootstrap_scripts": (workspace_p / "bootstrap.sh").exists()
+        and (workspace_p / "bootstrap.ps1").exists(),
+        "registration_tables": False,
+        "gitignore": (workspace_p / ".gitignore").exists(),
+        "repowiki_skeleton": (output_dir_p / "wiki").is_dir()
+        and (output_dir_p / "schema.yaml").exists(),
     }
-    warnings: list[str] = []
+    if traces["bootstrap_scripts"]:
+        _, err = _load_tables(workspace_p)
+        traces["registration_tables"] = err is None
+    return traces
 
-    # ── Bootstrap scripts (empty registration table; add via add_workspace_repo) ──
+
+def _adopt_initialized_workspace(
+    workspace_p: Path, output_dir_p: Path, layout_arg: str, results: dict
+) -> tuple[dict | None, str | None]:
+    """Clone-only adoption branch for re-runs on an initialized workspace.
+
+    Every init trace is present, so no skeleton artifact is regenerated:
+    the layout is adopted (persisted config; colocated when absent), a
+    missing layout config is backfilled (legacy workspaces initialized
+    before the config became unconditional), missing .gitignore exclusions
+    are repaired, and the caller proceeds straight to cloning un-cloned
+    registered repos.  Returns (registration info, error).
+    """
+    config_path = output_dir_p / ".meta" / "workspace.json"
+    layout = (read_layout_value(config_path) if config_path.exists() else None) or LAYOUT_COLOCATED
+    if layout_arg and layout_arg != layout:
+        return None, (
+            f"workspace already initialized with layout {layout!r}; refusing "
+            "to change the layout in place — switching layouts is a manual "
+            "migration (design doc §13)."
+        )
+    info, err = _load_tables(workspace_p)
+    if err:  # trace detection already validated the tables; guard anyway
+        return None, err
+    if _ensure_ps1_bom(info["ps_path"]):
+        results["bootstrap_ps1_bom"] = "repaired (was written without a BOM)"
+
+    results["mode"] = "clone-only"
+    results["mode_reason"] = (
+        "init traces complete (bootstrap scripts with registration table, "
+        ".gitignore, repowiki skeleton): skeleton regeneration skipped, only "
+        "missing business-repo clones are fetched"
+    )
+    results["layout"] = layout
+    if config_path.exists():
+        results["workspace_config"] = f"kept (already {layout}): {config_path}"
+    else:
+        # Backfill: workspaces initialized before the layout config became
+        # unconditional carry no workspace.json — write the adopted layout
+        # so the workspace is explicitly discoverable from now on.
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_text(
+            config_path,
+            json.dumps({"wiki_layout": layout}, ensure_ascii=False) + "\n",
+        )
+        results["workspace_config"] = f"backfilled (adopted {layout}): {config_path}"
+    # Registered repos must stay excluded from the harness git — repair any
+    # missing /name/ line (no-op when every exclusion is already present).
+    results["gitignore"] = _ensure_gitignore(workspace_p, sorted(info["sh_entries"]))
+    return info, None
+
+
+def _run_full_skeleton_flow(
+    workspace_p: Path, output_dir_p: Path, layout_arg: str, results: dict
+) -> tuple[dict | None, str | None]:
+    """Full initialization/sync flow: layout resolution + skeleton repair.
+
+    Creates every missing artifact, force-refreshes the AGENTS.md
+    conventions block and returns (registration info, error).
+    """
+    results["mode"] = "full"
+
+    # ── Layout: adopt the persisted value on re-runs ───────────────────
+    # First init honors the layout argument (the handler's decision gate
+    # makes it explicit for MCP callers); re-runs read it back from
+    # .meta/workspace.json so a no-arg re-run never fights the original
+    # decision. Switching layouts stays a hard error. The config is written
+    # for BOTH layouts so every initialized workspace carries an explicit,
+    # auditable layout record (absent config = legacy pre-config init).
+    config_path = output_dir_p / ".meta" / "workspace.json"
+    if config_path.exists():
+        layout = read_layout_value(config_path) or LAYOUT_COLOCATED
+        if layout_arg and layout_arg != layout:
+            return None, (
+                f"workspace config already exists with layout {layout!r} "
+                f"({config_path}); refusing to change the layout in place — "
+                "switching layouts is a manual migration (design doc §13)."
+            )
+        results["layout"] = layout
+        results["workspace_config"] = f"kept (already {layout}): {config_path}"
+    else:
+        layout = layout_arg or LAYOUT_COLOCATED
+        results["layout"] = layout
+        if layout == LAYOUT_CENTRALIZED and output_dir_p != workspace_p / "repowiki":
+            return None, (
+                "centralized layout requires the default output_dir <workspace>/repowiki: "
+                "workspace discovery is anchored at <workspace>/repowiki/.meta/workspace.json, "
+                "so a custom output_dir would make the layout config invisible to routing."
+            )
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_text(
+            config_path,
+            json.dumps({"wiki_layout": layout}, ensure_ascii=False) + "\n",
+        )
+        results["workspace_config"] = str(config_path)
+
+    # ── Bootstrap scripts (registration table; add via add_workspace_repo) ──
     sh_path = workspace_p / "bootstrap.sh"
     ps_path = workspace_p / "bootstrap.ps1"
     sh_exists, ps_exists = sh_path.exists(), ps_path.exists()
     if sh_exists != ps_exists:
-        return _err(
+        return None, (
             f"only one bootstrap script exists ({sh_path.name if sh_exists else ps_path.name}); "
             "remove the stray file or restore its pair, then re-run"
         )
@@ -372,10 +537,12 @@ def handle_init_workspace(arguments: dict) -> str:
         _write_text(ps_path, _render_template("bootstrap.ps1.tpl", REPO_TABLE_PS=""))
         results["bootstrap_scripts"] = "created"
     else:
-        info, err = _load_tables(workspace_p)
-        if err:
-            return _err(err)
         results["bootstrap_scripts"] = "kept (already present)"
+    info, err = _load_tables(workspace_p)
+    if err:
+        return None, err
+    if results["bootstrap_scripts"] != "created" and _ensure_ps1_bom(info["ps_path"]):
+        results["bootstrap_ps1_bom"] = "repaired (was written without a BOM)"
 
     # ── .gitignore ───────────────────────────────────────────────────────
     results["gitignore"] = _ensure_gitignore(workspace_p, [])
@@ -399,11 +566,14 @@ def handle_init_workspace(arguments: dict) -> str:
 
     # ── README skeleton ──────────────────────────────────────────────────
     readme_path = workspace_p / "README.md"
-    if with_readme and not readme_path.exists():
-        _write_text(readme_path, _render_template("readme.md.tpl", WORKSPACE_NAME=name))
+    if not readme_path.exists():
+        _write_text(
+            readme_path,
+            _render_template("readme.md.tpl", WORKSPACE_NAME=workspace_p.name),
+        )
         results["readme"] = str(readme_path)
     else:
-        results["readme"] = "kept" if readme_path.exists() else "skipped"
+        results["readme"] = "kept"
 
     # ── Product-level repowiki + AGENTS.md ───────────────────────────────
     from codewiki.mcp.tools.init_wiki import initialize_wiki_tree
@@ -414,8 +584,12 @@ def handle_init_workspace(arguments: dict) -> str:
     from codewiki.mcp.tools.agents_md import write_agents_md, write_workspace_conventions
 
     # Conventions block first so it reads before the CodeWiki usage block.
+    # Always force-refreshed: the block is tool-maintained, customizations
+    # belong outside the markers.
     results["agents_md_conventions"] = write_workspace_conventions(
-        workspace_path=str(workspace_p), workspace_name=name, refresh=refresh_conventions
+        workspace_path=str(workspace_p),
+        workspace_name=workspace_p.name,
+        layout=layout,
     )
     try:
         write_agents_md(repo_path=str(workspace_p), output_dir=str(output_dir_p), module_tree=None)
@@ -424,16 +598,200 @@ def handle_init_workspace(arguments: dict) -> str:
         results["agents_md_codewiki_block"] = f"WARNING: {e}"
         logger.warning("Failed to write CodeWiki block in workspace AGENTS.md: %s", e)
 
+    return info, None
+
+
+# ---------------------------------------------------------------------------
+# MCP handlers
+# ---------------------------------------------------------------------------
+
+
+def handle_init_workspace(arguments: dict) -> str:
+    """Initialize (or re-sync) a multi-repo harness workspace.
+
+    First init requires an explicit knowledge-layout decision: when the
+    skeleton is not complete, no layout config exists yet and ``layout`` is
+    omitted, the tool writes NOTHING and returns
+    ``status="needs_layout_decision"`` with the two options — the calling
+    agent must present them to the user and re-invoke with
+    ``layout=<choice>``.  The chosen layout is persisted to
+    ``<output_dir>/.meta/workspace.json`` for BOTH layouts, so every
+    initialized workspace carries an explicit layout record.
+
+    Re-runs are zero-config and idempotent, with two modes:
+
+    - **clone-only adoption** — every init trace is present (bootstrap.sh /
+      bootstrap.ps1 with parseable registration tables, .gitignore, and the
+      repowiki skeleton ``<output_dir>/wiki/`` + ``schema.yaml``): the
+      workspace is considered initialized, so the re-run short-circuits.
+      It git-clones registered business repos that are not yet cloned,
+      repairs missing .gitignore exclusions and backfills a missing layout
+      config (legacy workspaces) — nothing else is regenerated and
+      AGENTS.md is left untouched (adopted workspaces stay clean).
+    - **full flow** — any trace missing: the persisted layout is adopted,
+      missing artifacts are created, the AGENTS.md conventions block is
+      force-refreshed, and registered repos are cloned.
+
+    In both modes a failed clone only warns (``bootstrap.sh`` retries
+    later).
+
+    Advertised parameters (from arguments dict):
+        output_dir: Product-level repowiki directory
+            (default: <workspace>/repowiki).
+        layout: ``colocated`` | ``centralized`` — required on FIRST init
+            (ask the user; without it the gate returns
+            ``needs_layout_decision`` and writes nothing); on re-runs the
+            persisted layout wins and a conflicting value is an error
+            (clone-only adoption included).
+
+    Tolerated but unadvertised:
+        workspace_path: Workspace root (default: current working directory).
+        with_readme: Ignored — the README skeleton is always created when
+            missing (full flow only).
+
+    Repo registration stays with add_workspace_repo; repos already present
+    in the bootstrap registration table are cloned automatically.
+    """
+    workspace_path = (arguments.get("workspace_path") or "").strip()
+    if not workspace_path:
+        workspace_path = os.getcwd()
+    workspace_p = Path(workspace_path).resolve()
+    if not workspace_p.exists():
+        return _err(f"workspace_path does not exist: {workspace_p}")
+    if not workspace_p.is_dir():
+        return _err(f"workspace_path is not a directory: {workspace_p}")
+
+    layout_arg = (arguments.get("layout") or "").strip()
+    if layout_arg and layout_arg not in VALID_LAYOUTS:
+        return _err(f"invalid layout {layout_arg!r}: expected one of {list(VALID_LAYOUTS)}")
+
+    name = workspace_p.name
+    output_dir = (arguments.get("output_dir") or "").strip()
+    if not output_dir:
+        output_dir_p = workspace_p / "repowiki"
+    elif os.path.isabs(output_dir):
+        output_dir_p = Path(output_dir).resolve()
+    else:
+        output_dir_p = (workspace_p / output_dir).resolve()
+
+    results: dict = {
+        "workspace_path": str(workspace_p),
+        "name": name,
+        "output_dir": str(output_dir_p),
+    }
+    warnings: list[str] = []
+
+    # ── Mode dispatch: clone-only adoption vs. full skeleton flow ────────
+    # A workspace whose init traces are all present (bootstrap scripts with
+    # a parseable registration table, .gitignore, repowiki skeleton) is
+    # already initialized — a re-run must NOT walk the full flow again (no
+    # skeleton regeneration, no AGENTS.md rewrite), it only fetches the
+    # missing business-repo clones.
+    traces = _detect_init_traces(workspace_p, output_dir_p)
+    adopt = all(traces.values())
+    results["traces"] = traces
+
+    # ── Layout decision gate (first init only) ───────────────────────────
+    # A fresh init needs an explicit knowledge-layout decision.  MCP tools
+    # cannot ask the user, so the tool writes NOTHING and hands the
+    # question back to the calling agent.  Re-runs are exempt: the
+    # persisted config (or the legacy no-config = colocated convention,
+    # backfilled on adoption) already settles the layout.
+    config_path = output_dir_p / ".meta" / "workspace.json"
+    if not adopt and not config_path.exists() and not layout_arg:
+        return json.dumps(
+            {
+                "status": "needs_layout_decision",
+                "workspace_path": str(workspace_p),
+                "output_dir": str(output_dir_p),
+                "traces": traces,
+                "question": (
+                    "首次初始化多仓工作区需要选择知识布局：请先询问用户，"
+                    "得到答复后带 layout 参数重新调用 init_workspace。"
+                ),
+                "options": {
+                    LAYOUT_COLOCATED: (
+                        "各业务仓自带 repowiki，wiki 与代码同仓演进，检索两跳（先产品级、再仓库级）"
+                    ),
+                    LAYOUT_CENTRALIZED: (
+                        "知识全部集中在本工作区 repowiki，业务仓为纯代码目录，检索一跳"
+                    ),
+                },
+                "next_steps": (
+                    "Nothing was written. Present the two layouts to the user, then "
+                    "re-invoke init_workspace(layout=<choice>) with the user's answer."
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    if adopt:
+        info, err = _adopt_initialized_workspace(workspace_p, output_dir_p, layout_arg, results)
+    else:
+        missing = sorted(k for k, v in traces.items() if not v)
+        results["mode_reason"] = (
+            f"missing init traces ({', '.join(missing)}): full initialization/sync flow"
+        )
+        info, err = _run_full_skeleton_flow(workspace_p, output_dir_p, layout_arg, results)
+    if err:
+        return _err(err)
+
+    # ── Auto-clone registered repos (both modes sync missing clones) ──────
+    clones: dict = {}
+    for repo_name, url in info["sh_entries"].items():
+        clone_res = _clone_repo(workspace_p, repo_name, url, _INIT_CLONE_TIMEOUT)
+        if results["layout"] == LAYOUT_CENTRALIZED and clone_res["status"] == "ok":
+            # Business repos are pure code under centralized — strip any
+            # in-repo CodeWiki block pointing at a repowiki that must not
+            # exist there (same policy as add_workspace_repo).
+            from codewiki.mcp.tools.agents_md import remove_codewiki_block
+
+            clone_res["agents_md_codewiki_block"] = remove_codewiki_block(
+                str(workspace_p / repo_name)
+            )
+        clones[repo_name] = clone_res
+        if clone_res["status"] == "error":
+            warnings.append(
+                f"clone failed for {repo_name!r} — fix network/credentials, "
+                "then re-run init_workspace or ./bootstrap.sh"
+            )
+    results["clones"] = clones
+
     results["warnings"] = warnings
     results["status"] = "ok"
-    results["next_steps"] = (
-        "Workspace initialized. Next: "
-        "1) Register business repos with add_workspace_repo(url=<clone URL>); "
-        "2) For each business repo run init_wiki / analyze_repo with "
-        "output_dir=<workspace>/<repo>/repowiki to build its repo-level wiki; "
-        "3) Run analyze_workspace(workspace_path=<workspace root>) for cross-repo analysis; "
-        "4) On POSIX run: chmod +x bootstrap.sh"
-    )
+    if adopt:
+        next_steps = (
+            "Workspace adopted (already initialized): skeleton left untouched, "
+            "only missing business-repo clones were fetched. Register "
+            "additional repos with add_workspace_repo(url=<clone URL>)."
+        )
+    elif results["layout"] == LAYOUT_CENTRALIZED:
+        next_steps = (
+            "Workspace initialized (centralized layout). Next: "
+            "1) Register business repos with add_workspace_repo(url=<clone URL>); "
+            "2) Run analyze_workspace(workspace_path=<workspace root>) for cross-repo "
+            "analysis; 3) On POSIX run: chmod +x bootstrap.sh. "
+            "Note: layout-aware knowledge routing (per-repo modules partitions, shared "
+            "pools, one-hop query filters) lands with the follow-up tickets under "
+            ".scratch/centralized-wiki-layout/issues/."
+        )
+    else:
+        next_steps = (
+            "Workspace initialized. Next: "
+            "1) Register business repos with add_workspace_repo(url=<clone URL>); "
+            "2) For each business repo run init_wiki / analyze_repo with "
+            "output_dir=<workspace>/<repo>/repowiki to build its repo-level wiki; "
+            "3) Run analyze_workspace(workspace_path=<workspace root>) for cross-repo analysis; "
+            "4) On POSIX run: chmod +x bootstrap.sh"
+        )
+    if clones:
+        done = [n for n, r in clones.items() if r["status"] in ("ok", "skipped")]
+        pending = [n for n, r in clones.items() if r["status"] in ("error", "warn")]
+        next_steps += f" Registered repos ready: {', '.join(done) or 'none'}."
+        if pending:
+            next_steps += f" Needs attention: {', '.join(pending)} (see warnings)."
+    results["next_steps"] = next_steps
     return json.dumps(results, ensure_ascii=False, indent=2)
 
 
@@ -499,19 +857,32 @@ def handle_add_workspace_repo(arguments: dict) -> str:
 
     # All preflight checks passed — write the four artifacts.
     actions = _apply_registration(info, [(name, url)])
+    layout = read_layout(workspace_p)
     results: dict = {
         "workspace_path": str(workspace_p),
         "name": name,
         "url": url,
+        "layout": layout,
         "bootstrap_sh": actions["bootstrap_sh"][name],
         "bootstrap_ps1": actions["bootstrap_ps1"][name],
         "gitignore": _ensure_gitignore(workspace_p, [name]),
     }
 
+    # Centralized layout: business repos are pure code — scaffold the repo's
+    # modules partition in the workspace repowiki instead of any in-repo wiki.
+    if layout == LAYOUT_CENTRALIZED:
+        partition = workspace_p / "repowiki" / "wiki" / "modules" / name
+        if partition.exists():
+            results["modules_partition"] = f"kept (already present): {partition}"
+        else:
+            partition.mkdir(parents=True, exist_ok=True)
+            (partition / ".gitkeep").write_text("", encoding="utf-8")
+            results["modules_partition"] = str(partition)
+
     repo_map_path = workspace_p / "repowiki" / "wiki" / "repo-map.md"
     if repo_map_path.exists():
         text = _read_text(repo_map_path)
-        new_text, rm_status = _ensure_repo_map_entry(text, name)
+        new_text, rm_status = _ensure_repo_map_entry(text, name, layout)
         if new_text != text:
             _write_text(repo_map_path, new_text)
         results["repo_map"] = rm_status
@@ -526,18 +897,48 @@ def handle_add_workspace_repo(arguments: dict) -> str:
                 "or re-invoke with clone=true after fixing network/credentials"
             ]
 
+    # Centralized layout: the cloned repo's AGENTS.md may carry a CodeWiki
+    # usage block pointing at an in-repo repowiki that no longer exists.
+    if layout == LAYOUT_CENTRALIZED:
+        repo_dir = workspace_p / name
+        if repo_dir.is_dir():
+            from codewiki.mcp.tools.agents_md import remove_codewiki_block
+
+            results["agents_md_codewiki_block"] = remove_codewiki_block(str(repo_dir))
+        else:
+            results["agents_md_codewiki_block"] = "skipped (repo directory not present)"
+
     results["status"] = "ok"
-    results["next_steps"] = (
-        f"Repo {name!r} registered. Next: run init_wiki / analyze_repo with "
-        f"output_dir=<workspace>/{name}/repowiki, then fill its 业务概述 section in "
-        "repowiki/wiki/repo-map.md. On POSIX run: chmod +x bootstrap.sh"
-    )
+    if layout == LAYOUT_CENTRALIZED:
+        results["next_steps"] = (
+            f"Repo {name!r} registered (centralized layout; no in-repo repowiki). "
+            f"Knowledge partition scaffolded at repowiki/wiki/modules/{name}/. "
+            "Next: run analyze_repo for this repo to populate the workspace "
+            f"knowledge base, then fill its 业务概述 section in repo-map.md."
+        )
+    else:
+        results["next_steps"] = (
+            f"Repo {name!r} registered. Next: run init_wiki / analyze_repo with "
+            f"output_dir=<workspace>/{name}/repowiki, then fill its 业务概述 section in "
+            "repowiki/wiki/repo-map.md. On POSIX run: chmod +x bootstrap.sh"
+        )
     return json.dumps(results, ensure_ascii=False, indent=2)
 
 
 # ---------------------------------------------------------------------------
 # Removal primitives
 # ---------------------------------------------------------------------------
+
+
+def _rmtree_clear_readonly(func, path, exc):
+    """``shutil.rmtree(onexc=...)`` handler: clear the read-only bit, retry.
+
+    Git marks pack files read-only on Windows, which a plain ``rmtree``
+    cannot remove.  If the retry still fails, rmtree propagates the error —
+    a half-deleted clone must surface, never be reported as "deleted".
+    """
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
 
 
 def _remove_entry_from_table(
@@ -602,21 +1003,201 @@ def _remove_repo_map_entry(text: str, name: str) -> tuple[str, dict]:
     return new_text, result
 
 
+def _cleanup_centralized_knowledge(workspace_p: Path, name: str) -> dict:
+    """Remove a deregistered repo's knowledge from a centralized workspace.
+
+    Ticket 10. Two phases:
+
+    1. Delete the repo's modules partition ``wiki/modules/<name>/`` (tracked
+       by the harness git — recoverable via version control).
+    2. Scrub the repo from shared-pool provenance, page by page under a file
+       lock: pages with several sources lose just this one; pages whose ONLY
+       source was the repo keep their content but are untagged — they become
+       global/orphans that ``lint_wiki``'s layout_violations check surfaces
+       for a human decision (knowledge is never auto-deleted).
+    """
+    import shutil
+
+    from codewiki.src.locks import file_lock
+    from codewiki.mcp.tools.workspace_layout import merge_provenance, read_provenance
+
+    result: dict = {"modules_partition": "not_present", "pages_updated": 0, "pages_orphaned": 0}
+
+    partition = workspace_p / "repowiki" / "wiki" / "modules" / name
+    if partition.exists():
+        shutil.rmtree(partition, ignore_errors=True)
+        result["modules_partition"] = "deleted"
+
+    shared_dirs = [
+        workspace_p / "repowiki" / "wiki" / "entities",
+        workspace_p / "repowiki" / "wiki" / "concepts",
+        workspace_p / "repowiki" / "wiki" / "sources",
+        workspace_p / "repowiki" / "wiki" / "comparisons",
+        workspace_p / "repowiki" / "wiki" / "queries",
+        workspace_p / "repowiki" / "notes",
+    ]
+    for d in shared_dirs:
+        if not d.is_dir():
+            continue
+        for page in sorted(d.glob("*.md")):
+            try:
+                with file_lock(page) as f:
+                    text = f.read()
+                prov = read_provenance(text)
+                if name not in prov:
+                    continue
+                remaining = sorted(p for p in prov if p != name)
+                scope = remaining if remaining else "global"
+                new_text = merge_provenance(text, None, None, explicit_scope=scope)
+                if new_text == text:
+                    continue
+                with file_lock(page) as f:
+                    f.seek(0)
+                    f.write(new_text)
+                    f.truncate()
+                if remaining:
+                    result["pages_updated"] += 1
+                else:
+                    result["pages_orphaned"] += 1
+            except OSError as e:
+                logger.warning("provenance cleanup of %s failed: %s", page, e)
+
+    return result
+
+
+def _read_json(path: Path):
+    try:
+        return json.loads(_read_text(path))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _cleanup_analysis_artifacts(workspace_p: Path, name: str) -> dict:
+    """Scrub a deregistered repo from ``analyze_workspace`` artifacts.
+
+    ``analyze_workspace`` persists cross-service topology under
+    ``<workspace>/repowiki/.meta/`` (legacy: ``workspace-wiki/.meta/``) and
+    renders a generated ``repowiki/overview.md``.  These are re-derivable
+    caches, not knowledge — removal filters the repo out deterministically
+    instead of waiting for a re-analysis (``query_cross_service`` reads the
+    .meta files directly and would keep returning ghost routes):
+
+    - ``workspace_routes.json``: drop routes whose ``repo_name`` is the repo.
+    - ``cross_service_links.json``: drop links touching the repo on either
+      side (``client_repo`` / ``server_repo``).
+    - ``infra_services.json``: drop services whose ``source_path`` lives
+      inside the repo.  Entries without ``source_path`` (pre-attribution
+      caches) are kept — attribution is unknown, so they stay.
+    - ``overview.md``: drop the repo's Services row, its Service Overviews
+      bullet, and Infrastructure rows for the dropped services.
+
+    Missing files or unparseable JSON are skipped, never fatal.
+    """
+    result: dict = {"routes_removed": 0, "links_removed": 0, "infra_removed": []}
+
+    meta_dirs = [workspace_p / "repowiki" / ".meta"]
+    legacy_meta = workspace_p / "workspace-wiki" / ".meta"
+    if legacy_meta.is_dir():
+        meta_dirs.append(legacy_meta)
+
+    for meta_dir in meta_dirs:
+        routes_path = meta_dir / "workspace_routes.json"
+        routes = _read_json(routes_path) if routes_path.exists() else None
+        if isinstance(routes, list):
+            kept = [r for r in routes if not (isinstance(r, dict) and r.get("repo_name") == name)]
+            dropped = len(routes) - len(kept)
+            if dropped:
+                _write_text(routes_path, json.dumps(kept, ensure_ascii=False, indent=2))
+            result["routes_removed"] += dropped
+
+        links_path = meta_dir / "cross_service_links.json"
+        links = _read_json(links_path) if links_path.exists() else None
+        if isinstance(links, list):
+            kept = [
+                link
+                for link in links
+                if not (
+                    isinstance(link, dict)
+                    and (link.get("client_repo") == name or link.get("server_repo") == name)
+                )
+            ]
+            dropped = len(links) - len(kept)
+            if dropped:
+                _write_text(links_path, json.dumps(kept, ensure_ascii=False, indent=2))
+            result["links_removed"] += dropped
+
+        infra_path = meta_dir / "infra_services.json"
+        infra = _read_json(infra_path) if infra_path.exists() else None
+        if isinstance(infra, dict):
+            prefix = name + "/"
+            dropped_names = [
+                svc_name
+                for svc_name, svc in infra.items()
+                if isinstance(svc, dict)
+                and svc.get("source_path", "").replace("\\", "/").startswith(prefix)
+            ]
+            if dropped_names:
+                kept_infra = {k: v for k, v in infra.items() if k not in dropped_names}
+                _write_text(infra_path, json.dumps(kept_infra, ensure_ascii=False, indent=2))
+                result["infra_removed"].extend(dropped_names)
+
+    result["overview"] = _remove_repo_from_overview(
+        workspace_p / "repowiki" / "overview.md", name, result["infra_removed"]
+    )
+    return result
+
+
+def _remove_repo_from_overview(overview_path: Path, name: str, infra_removed: list) -> dict:
+    """Strip one repo's rows from the generated workspace overview.md.
+
+    Patterns mirror the generator in ``workspace_analyzer._generate_overview``:
+    ``| <name> |`` Services row, ``- [<name>](...)`` / ``- <name> —`` Service
+    Overviews bullet, and ``| <svc> |`` Infrastructure rows for services that
+    were attributed to the repo.
+    """
+    if not overview_path.exists():
+        return "skipped (overview.md not found)"
+    status = {"services_row": "not_found", "overviews_bullet": "not_found", "infra_rows": 0}
+    text = _read_text(overview_path)
+    lines = text.split("\n")
+
+    kept = [ln for ln in lines if not ln.startswith(f"| {name} |")]
+    status["services_row"] = "removed" if len(kept) != len(lines) else "not_found"
+    lines = kept
+
+    kept = [
+        ln for ln in lines if not (ln.startswith(f"- [{name}](") or ln.startswith(f"- {name} — "))
+    ]
+    status["overviews_bullet"] = "removed" if len(kept) != len(lines) else "not_found"
+    lines = kept
+
+    if infra_removed:
+        before = len(lines)
+        lines = [
+            ln for ln in lines if not any(ln.startswith(f"| {svc} |") for svc in infra_removed)
+        ]
+        status["infra_rows"] = before - len(lines)
+
+    new_text = "\n".join(lines)
+    if new_text != text:
+        _write_text(overview_path, new_text)
+    return status
+
+
 def handle_remove_workspace_repo(arguments: dict) -> str:
     """Deregister a business repo from an initialized workspace.
 
     Removes the entry from bootstrap.sh / bootstrap.ps1, the ``/<name>/``
-    line from .gitignore and the nav row + section from repo-map.md.
-    The cloned directory is kept unless ``delete_dir=true`` (irreversible).
+    line from .gitignore and the nav row + section from repo-map.md, scrubs
+    the repo from analyze_workspace's persisted artifacts (.meta topology +
+    generated overview.md), then deletes the cloned directory (irreversible).
 
     Parameters (from arguments dict):
         workspace_path: Workspace root (default: cwd).
         name: Registered subdirectory name of the business repo (required).
-        delete_dir: Also delete the cloned directory (default: false).
     """
     workspace_path = (arguments.get("workspace_path") or "").strip()
     name = (arguments.get("name") or "").strip()
-    delete_dir = bool(arguments.get("delete_dir", False))
 
     if not workspace_path:
         workspace_path = os.getcwd()
@@ -663,31 +1244,32 @@ def handle_remove_workspace_repo(arguments: dict) -> str:
     else:
         results["repo_map"] = "skipped (repowiki/wiki/repo-map.md not found)"
 
+    # Centralized layout (ticket 10): also clean the workspace knowledge base —
+    # the repo's modules partition and its shared-pool provenance. Colocated
+    # workspaces have no shared knowledge to clean.
+    if read_layout(workspace_p) == LAYOUT_CENTRALIZED:
+        results["knowledge_cleanup"] = _cleanup_centralized_knowledge(workspace_p, name)
+
+    # analyze_workspace artifacts (.meta topology + generated overview) are
+    # workspace-level, re-derivable caches under either layout — filter the
+    # repo out so query_cross_service stops returning ghost routes for it.
+    results["analysis_cleanup"] = _cleanup_analysis_artifacts(workspace_p, name)
+
     # Directory deletion happens after the registration is safely gone.
     dest = workspace_p / name
-    if delete_dir:
-        if dest.exists():
-            if dest.is_dir() and not dest.is_symlink():
-                shutil.rmtree(dest)
-                results["directory"] = "deleted"
-            else:
-                results["directory"] = "skipped (not a plain directory)"
+    if dest.exists():
+        if dest.is_dir() and not dest.is_symlink():
+            shutil.rmtree(dest, onexc=_rmtree_clear_readonly)
+            results["directory"] = "deleted"
         else:
-            results["directory"] = "not present"
+            results["directory"] = "skipped (not a plain directory)"
     else:
-        results["directory"] = (
-            "kept (delete_dir=false; the directory is no longer gitignored — "
-            "remove it manually or keep it out of the harness git)"
-            if dest.exists()
-            else "not present"
-        )
+        results["directory"] = "not present"
 
     dir_action = {
         "deleted": "deleted.",
         "skipped (not a plain directory)": "not deleted (not a plain directory).",
         "not present": "was not present.",
-        "kept (delete_dir=false; the directory is no longer gitignored — "
-        "remove it manually or keep it out of the harness git)": "kept — delete manually if no longer needed.",
     }[results["directory"]]
 
     results["status"] = "ok"

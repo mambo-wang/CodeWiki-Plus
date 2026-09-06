@@ -12,6 +12,7 @@ metadata:
   related_components: []
   related_modules: ["team-memory", "mcp", "\"\""]
   source_ref: "raw\\conv-20260808T152648Z.md"
+author: mambo-wang
 ---
 
 ## 背景

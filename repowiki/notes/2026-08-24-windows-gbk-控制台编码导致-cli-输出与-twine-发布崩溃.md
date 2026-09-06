@@ -25,6 +25,7 @@ verified:
 - by: human:wangbao
   at: '2026-08-24T03:40:50Z'
 reject_reason: 聚合进场景：发布与依赖治理方法
+author: mambo-wang
 ---
 
 ## 背景

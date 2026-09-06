@@ -735,6 +735,259 @@ def main():
     )
     check("ingest_source", "重复内容检测", r.get("status") == "duplicate", str(r)[:200])
 
+    # Name-conflict: 同名但内容不同 → conflict，且不落盘、不覆盖原登记
+    v2_file = base / "ext_spec_v2.md"
+    v2_file.write_text("# 外部规范 V2\n\n这是与既有 ext-spec 完全不同的正文。\n", encoding="utf-8")
+    r = json.loads(
+        handle_ingest_source(
+            {
+                "session_id": sid,
+                "source_ref": str(v2_file),
+                "name": "ext-spec",
+            },
+            store,
+        )
+    )
+    check(
+        "ingest_source",
+        "同名不同内容提示conflict",
+        r.get("status") == "conflict",
+        str(r)[:200],
+    )
+    check(
+        "ingest_source",
+        "conflict返回既有来源信息",
+        bool(r.get("existing", {}).get("path")),
+        str(r)[:300],
+    )
+    orig_text = (output_dir / "raw/sources/ext-spec.md").read_text(encoding="utf-8")
+    check(
+        "ingest_source",
+        "conflict后原raw文件未被覆盖",
+        "外部规范 V2" not in orig_text,
+        orig_text[:200],
+    )
+
+    # overwrite=true（用户同意）→ 旧 raw 文件移入 .trash，新文件以规范名落盘
+    r = json.loads(
+        handle_ingest_source(
+            {
+                "session_id": sid,
+                "source_ref": str(v2_file),
+                "name": "ext-spec",
+                "overwrite": True,
+            },
+            store,
+        )
+    )
+    check("ingest_source", "overwrite替换成功", r.get("status") == "ingested", str(r)[:200])
+    new_text = (output_dir / "raw/sources/ext-spec.md").read_text(encoding="utf-8")
+    check(
+        "ingest_source",
+        "overwrite后新内容已落盘",
+        "外部规范 V2" in new_text,
+        new_text[:200],
+    )
+    trash_files = list((output_dir / ".trash").glob("ext-spec*.md")) if (output_dir / ".trash").is_dir() else []
+    check(
+        "ingest_source",
+        "overwrite后旧raw文件移入.trash",
+        any(f.name.startswith("ext-spec") for f in trash_files),
+        str([f.name for f in trash_files]),
+    )
+
+    # duplicate 确认闸门：内容已登记 → 不落盘，须询问用户后重跑
+    ri_name = "ext-spec-ri"
+    r = json.loads(
+        handle_ingest_source(
+            {"session_id": sid, "source_ref": str(src_file), "name": ri_name},
+            store,
+        )
+    )
+    check("ingest_source", "duplicate场景首次登记成功", r.get("status") == "ingested", str(r)[:200])
+
+    r = json.loads(
+        handle_ingest_source(
+            {"session_id": sid, "source_ref": str(src_file), "name": ri_name},
+            store,
+        )
+    )
+    check("ingest_source", "相同内容提示duplicate", r.get("status") == "duplicate", str(r)[:200])
+    check(
+        "ingest_source",
+        "duplicate要求用户确认",
+        r.get("requires_user_confirmation") is True,
+        str(r)[:300],
+    )
+    check(
+        "ingest_source",
+        "duplicate返回既有来源信息",
+        bool(r.get("existing", {}).get("path")) and r.get("existing", {}).get("name") == ri_name,
+        str(r)[:300],
+    )
+    check("ingest_source", "duplicate给出用户选项", len(r.get("user_options", [])) >= 3, str(r)[:300])
+
+    # 异名 + overwrite → 拒绝，避免同一内容两份副本污染检索
+    r = json.loads(
+        handle_ingest_source(
+            {
+                "session_id": sid,
+                "source_ref": str(src_file),
+                "name": f"{ri_name}-copy",
+                "overwrite": True,
+            },
+            store,
+        )
+    )
+    check(
+        "ingest_source",
+        "duplicate异名overwrite被拒",
+        r.get("status") == "error" and r.get("duplicate_of") == ri_name,
+        str(r)[:300],
+    )
+
+    # 同名 + overwrite（用户确认）→ 重新落盘，旧 raw 移入 .trash
+    r = json.loads(
+        handle_ingest_source(
+            {"session_id": sid, "source_ref": str(src_file), "name": ri_name, "overwrite": True},
+            store,
+        )
+    )
+    check("ingest_source", "duplicate确认后重导成功", r.get("status") == "ingested", str(r)[:200])
+    ri_trash = (
+        list((output_dir / ".trash").glob(f"{ri_name}*.md"))
+        if (output_dir / ".trash").is_dir()
+        else []
+    )
+    check(
+        "ingest_source",
+        "duplicate重导后旧raw移入.trash",
+        bool(ri_trash),
+        str([f.name for f in ri_trash]),
+    )
+
+    # version-sibling：内容近似但名字带新版本号（改版改名）→ 确认闸门
+    rev1 = base / "rev_doc_v1.md"
+    rev1.write_text(
+        "# 知识飞轮设计\n\n"
+        "知识飞轮的运营围绕三层循环：采集、蒸馏与沉淀。采集阶段负责把分散的外部输入聚合到原始仓库；"
+        "蒸馏阶段由提取器产出结构化草案；沉淀阶段在用户确认后写入知识库。\n\n"
+        "## 采集\n外部文档、对话与网页。\n\n## 蒸馏\nprepare 到 submit 两段式。\n\n"
+        "## 沉淀\ndraft 确认后落盘。\n",
+        encoding="utf-8",
+    )
+    r = json.loads(
+        handle_ingest_source(
+            {"session_id": sid, "source_ref": str(rev1), "name": "rev-doc-v1"},
+            store,
+        )
+    )
+    check("ingest_source", "sibling场景v1首次登记成功", r.get("status") == "ingested", str(r)[:200])
+    rev2 = base / "rev_doc_v2.md"
+    rev2.write_text(
+        "# 知识飞轮设计（改）\n\n"
+        "知识飞轮的运营围绕三层循环：采集、蒸馏与沉淀。采集阶段负责把分散的外部输入聚合到原始仓库，"
+        "并做去重与去噪；蒸馏阶段由提取器产出结构化草案，先 prepare 后交推理方；"
+        "沉淀阶段在用户确认后写入知识库。\n\n"
+        "## 采集\n外部文档、对话与网页。\n\n## 蒸馏\nprepare 到 submit 两段式。\n\n"
+        "## 沉淀\ndraft 确认后落盘，确认闸门对等。\n\n## 反馈\n负反馈回流到采集。\n",
+        encoding="utf-8",
+    )
+    r = json.loads(
+        handle_ingest_source(
+            {"session_id": sid, "source_ref": str(rev2), "name": "rev-doc-v2"},
+            store,
+        )
+    )
+    check(
+        "ingest_source",
+        "改版改名触发version_sibling",
+        r.get("status") == "version_sibling",
+        str(r)[:300],
+    )
+    check(
+        "ingest_source",
+        "version_sibling要求确认",
+        r.get("requires_user_confirmation") is True,
+        str(r)[:300],
+    )
+    check(
+        "ingest_source",
+        "version_sibling返回相似源与证据",
+        r.get("existing_name") == "rev-doc-v1"
+        and bool(r.get("shared_headings"))
+        and r.get("similarity_score", 0) >= 0.25,
+        str(r)[:400],
+    )
+    reg_now = json.loads(
+        (output_dir / ".meta/source_registry.json").read_text(encoding="utf-8")
+    )["sources"]
+    check("ingest_source", "version_sibling不落盘", "rev-doc-v2" not in reg_now, str(list(reg_now)))
+    r = json.loads(
+        handle_ingest_source(
+            {
+                "session_id": sid,
+                "source_ref": str(rev2),
+                "name": "rev-doc-v2",
+                "allow_sibling": True,
+            },
+            store,
+        )
+    )
+    check("ingest_source", "allow_sibling确认后登记成功", r.get("status") == "ingested", str(r)[:200])
+
+    # 无关文档名带版本号 → 不应误报 version_sibling
+    unrelated_file = base / "annual_report_2025.md"
+    unrelated_file.write_text(
+        "# 年度技术报告\n\n本年度聚焦成本治理与稳定性建设，落地服务网格与多云容灾方案，"
+        "支撑出海业务灰度上线，关键链路 P99 时延下降 30%。\n",
+        encoding="utf-8",
+    )
+    r = json.loads(
+        handle_ingest_source(
+            {"session_id": sid, "source_ref": str(unrelated_file), "name": "annual-report-2025"},
+            store,
+        )
+    )
+    check("ingest_source", "无关文档不误报sibling", r.get("status") == "ingested", str(r)[:300])
+
+    # supersedes 声明（作者显式意图）→ 确认闸门
+    decl_file = base / "decl_supersede.md"
+    decl_file.write_text(
+        "---\nsupersedes: rev-doc-v1\n---\n\n# 订单中心设计\n\n订单中心从零重构，采用事件溯源。\n",
+        encoding="utf-8",
+    )
+    r = json.loads(
+        handle_ingest_source(
+            {"session_id": sid, "source_ref": str(decl_file), "name": "order-design"},
+            store,
+        )
+    )
+    check(
+        "ingest_source",
+        "frontmatter声明supersedes触发闸门",
+        r.get("status") == "supersede_declared",
+        str(r)[:300],
+    )
+    check(
+        "ingest_source",
+        "supersede指向既有源",
+        r.get("supersedes") == "rev-doc-v1",
+        str(r)[:300],
+    )
+    r = json.loads(
+        handle_ingest_source(
+            {
+                "session_id": sid,
+                "source_ref": str(decl_file),
+                "name": "order-design",
+                "allow_sibling": True,
+            },
+            store,
+        )
+    )
+    check("ingest_source", "supersede经allow_sibling确认后登记", r.get("status") == "ingested", str(r)[:200])
+
     # ================================================================
     print("\n[8] retract_source — dry_run与引用清理")
     r = json.loads(
@@ -904,9 +1157,13 @@ def main():
             "index", "frontmatter含okf_version", "okf_version" in read_fm(idx), read_fm(idx)[:150]
         )
         check("index", "§8 bullet格式", "* [" in it, it[:300])
-    log = output_dir / "wiki" / "log.md"
-    if log.exists():
-        lt = log.read_text(encoding="utf-8")
+    # team-layout Phase 1 (D5): 操作日志改为月度分片 log-YYYY-MM.md（纯追加），
+    # 旧版单文件 log.md 不再产生——两者取其一做 §9 格式校验
+    wiki_dir = output_dir / "wiki"
+    log = wiki_dir / "log.md"
+    shards = sorted(wiki_dir.glob("log-*.md")) if wiki_dir.is_dir() else []
+    if log.exists() or shards:
+        lt = (log if log.exists() else shards[-1]).read_text(encoding="utf-8")
         check("log", "§9日期分组", "## " in lt and "* **" in lt, lt[:300])
     else:
         check("log", "log.md存在", False, "log.md not found")

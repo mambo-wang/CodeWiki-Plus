@@ -17,18 +17,19 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 
-from codewiki.mcp.cache import (
-    _K1,
-    _B,
-    _build_indexable_text,
-    _tokenize,
-    _extract_snippet,
-    _load_ontology,
-    _expand_with_ontology,
-    _doc_authority,
+from codewiki.src.retrieval import (
+    B as _B,
+    K1 as _K1,
+    build_indexable_text as _build_indexable_text,
+    tokenize as _tokenize,
+    extract_snippet as _extract_snippet,
+    load_ontology as _load_ontology,
+    expand_with_ontology as _expand_with_ontology,
+    doc_authority as _doc_authority,
     compute_usage_heat,
-    _usage_context,
+    usage_context as _usage_context,
 )
+from codewiki.mcp.tools.injection_budget import estimate_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,65 @@ _SEARCH_INDEX_FILENAME = "search_index.json"
 _NOTES_DIR = "notes"
 _SYSTEM_FILES = {"index.md", "log.md", "overview.md"}
 _build_lock = threading.Lock()
+
+
+# ---------------------------------------------------------------------------
+# SearchIndex: the interface both retrieval adapters satisfy. The seam lives
+# here — wiki_search.search is its single owner; callers (handlers, distill
+# dedup, by_file) never pick an adapter themselves. Two adapters justify the
+# seam: AnalysisCache (SQLite) in prod/sessions, the legacy JSON index as
+# the file-based fallback. (Architecture review 2026-09, candidate #2.)
+# ---------------------------------------------------------------------------
+
+from typing import Any, List as _List, Protocol as _Protocol, runtime_checkable as _rc
+
+
+@_rc
+class SearchIndex(_Protocol):
+    """Interface of a retrieval adapter behind the wiki_search seam."""
+
+    def build(self, output_dir) -> dict: ...
+
+    def search(
+        self,
+        query: str,
+        *,
+        scope: str = "",
+        include_notes: bool = True,
+        max_results: int = 10,
+        score_threshold: float = 0.1,
+        output_dir=None,
+        type_filter=None,
+        hop: int = 0,
+        decay: float = 0.5,
+        expand_terms=None,
+        apply_authority: bool = True,
+        apply_usage: bool = True,
+        chars_per_token=None,
+    ) -> _List[dict]: ...
+
+    def update_file(self, output_dir, filepath) -> None: ...
+
+
+def _ensure_index(output_dir: Path, session=None) -> None:
+    """The single freshness gate for every retrieval through this seam.
+
+    R-05: build only when no usable index exists; otherwise let the cheap
+    three-tier freshness check decide (stale -> transparent rebuild, fresh
+    -> reuse). Previously duplicated at both query_wiki handler call sites;
+    now owned here so every caller — handler, distill dedup recall, by_file
+    pre-check — gets freshness for free. Throttled to one inventory scan
+    per output_dir per 60s by index_freshness.ensure_fresh.
+    """
+    try:
+        from codewiki.mcp.tools.index_freshness import ensure_fresh, has_search_index
+
+        if has_search_index(output_dir):
+            ensure_fresh(output_dir, session=session)
+        else:
+            build_full_index(output_dir, session=session)
+    except Exception as e:
+        logger.debug("freshness gate skipped: %s", e)
 
 
 def _resolve_db_path(output_dir: Path) -> Optional[Path]:
@@ -191,19 +251,13 @@ def _load_index(od):
 
 
 def _save_index(od, idx):
+    from codewiki.src.store import atomic_write
+
     p = _index_path(od)
-    tmp = p.with_suffix(".tmp")
     try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps(idx.to_dict(), ensure_ascii=False), encoding="utf-8")
-        os.replace(str(tmp), str(p))
+        atomic_write(p, json.dumps(idx.to_dict(), ensure_ascii=False))
     except Exception as e:
         logger.warning("Failed to save search index: %s", e)
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
 
 
 def _read_doc(fp: Path):
@@ -224,16 +278,16 @@ def _read_note(fp: Path):
 
 
 def _extract_fm(ct, key):
-    if not ct.startswith("---"):
-        return None
-    try:
-        end = ct.index("---", 3)
-        for line in ct[3:end].splitlines():
-            if line.startswith(f"{key}:"):
-                return line[len(key) + 1 :].strip().strip('"').strip("'")
-    except ValueError:
-        pass
-    return None
+    """Extract one top-level frontmatter value (title etc.).
+
+    Thin delegation to the frontmatter module's reader — json-encoded
+    scalars decode properly instead of the old quote-stripping heuristic.
+    """
+    from codewiki.src.frontmatter import parse_frontmatter
+
+    fm, _ = parse_frontmatter(ct)
+    v = fm.get(key)
+    return v if isinstance(v, str) and v else (str(v) if v else None)
 
 
 # Strip markdown links from H1 titles: "[JwtUtil](../src/JwtUtil.java)" -> "JwtUtil"
@@ -416,9 +470,11 @@ def update_file(output_dir, filepath, session=None):
             idx.upsert(fk, title, src, ct)
         else:
             idx.remove(fk)
-        # Tool-side update: align the freshness baseline (mirror of
-        # AnalysisCache.update_search_doc) so tier-3 mtime sampling in
-        # ensure_fresh doesn't flag this file as stale on the next query.
+        # JSON adapter's own freshness baseline: a content upsert advances
+        # built_at so tier-3 mtime sampling in ensure_fresh doesn't flag
+        # this file as stale on the next query. (The SQLite adapter keeps
+        # its equivalent inside AnalysisCache.update_search_doc — each
+        # adapter owns its baseline; the invariant lives behind the seam.)
         # Deletes above (ap not exists) intentionally skip this.
         idx.built_at = time.time()
         _save_index(od, idx)
@@ -458,6 +514,24 @@ def remove_file(output_dir, filepath):
             _save_index(od, idx)
 
 
+def _resolve_retrieval_cost(output_dir) -> Optional[int]:
+    """P0-1: resolve chars_per_token for est_tokens, or None when disabled.
+
+    Loaded once per search() call; the divisor is threaded down to the
+    SQLite paths and used directly in the JSON fallback path.
+    """
+    try:
+        from codewiki.mcp.tools.page_router import load_schema
+        from codewiki.mcp.tools.injection_budget import load_retrieval_cost
+
+        rc = load_retrieval_cost(load_schema(str(output_dir)))
+        if rc.get("enabled"):
+            return int(rc.get("chars_per_token") or 4)
+    except Exception as e:  # config unavailable — feature silently off
+        logger.debug("retrieval_cost config skipped: %s", e)
+    return None
+
+
 def search(
     output_dir,
     query,
@@ -473,6 +547,7 @@ def search(
     decay=0.5,
     apply_authority=True,
     apply_usage=True,
+    chars_per_token=None,
 ):
     """BM25 search. Uses SQLite cache if session available.
 
@@ -481,20 +556,24 @@ def search(
     distill dedup recall) where review status or retrieval popularity must
     not influence duplicate detection.  Result entries still carry the
     ``authority`` / ``usage`` fields for transparency.
+
+    ``chars_per_token`` (P0-1): when an int, every entry gains
+    ``est_tokens`` = ceil(len(full_text) / chars_per_token) — the estimated
+    cost of expanding that result in full. None (default) resolves the
+    ``conventions.retrieval_cost`` config once; disabled → None → legacy
+    entries without the field.
     """
     od = Path(output_dir)
     max_results = min(20, max(1, max_results))
+    if chars_per_token is None:
+        chars_per_token = _resolve_retrieval_cost(od)
+    elif int(chars_per_token) <= 0:
+        chars_per_token = None  # explicit 0 = force off (legacy, no est_tokens)
 
-    # T1a: freshness self-heal (sessionless path only — an active session
-    # holds its own cache and close_session rebuilds it). Throttled to one
-    # inventory scan per minute; a stale index triggers a transparent rebuild.
-    if session is None:
-        try:
-            from codewiki.mcp.tools.index_freshness import ensure_fresh
-
-            ensure_fresh(od)
-        except Exception as e:
-            logger.debug("freshness check skipped: %s", e)
+    # T1a freshness gate — THE single call site for every retrieval through
+    # this seam (session and sessionless alike; an active session's rebuild
+    # reuses its shared AnalysisCache connection). See _ensure_index.
+    _ensure_index(od, session=session)
 
     # Try SQLite cache first (active session)
     if session is not None and getattr(session, "cache", None) is not None:
@@ -512,6 +591,7 @@ def search(
                 expand_terms=expand_terms,
                 apply_authority=apply_authority,
                 apply_usage=apply_usage,
+                chars_per_token=chars_per_token,
             )
         except Exception as e:
             logger.warning("SQLite search failed: %s", e)
@@ -535,6 +615,7 @@ def search(
                     expand_terms=expand_terms,
                     apply_authority=apply_authority,
                     apply_usage=apply_usage,
+                    chars_per_token=chars_per_token,
                 )
                 _standalone.close()
                 return results
@@ -614,8 +695,18 @@ def search(
     out = []
     for s, fk, auth in scored:
         u_hits, u_last, u_adopted = usage_map.get(fk, (0, None, 0))
-        out.append(
-            {
+        # P0-1: est_tokens — the full text is already read for the snippet,
+        # so the length costs nothing extra. Only when the feature is on.
+        _est_tokens = None
+        if chars_per_token and (od / fk).exists():
+            try:
+                _est_tokens = estimate_tokens(
+                    len((od / fk).read_text(encoding="utf-8", errors="replace")),
+                    chars_per_token,
+                )
+            except OSError:
+                _est_tokens = None
+        entry = {
                 "file": fk,
                 "title": idx.docs.get(fk, {}).get("title", fk),
                 "source": idx.docs.get(fk, {}).get("source", "doc"),
@@ -628,8 +719,10 @@ def search(
                 "authority": round(auth, 2),
                 "matched_tokens": _matched_for_doc(idx.docs.get(fk, {}).get("term_freq", {}), qts),
                 "usage": {"hit_count": u_hits, "last_hit": u_last, "adopted_count": u_adopted},
-            }
-        )
+        }
+        if _est_tokens is not None:
+            entry["est_tokens"] = _est_tokens
+        out.append(entry)
     return out
 
 

@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import threading
 from datetime import datetime, timezone
@@ -46,6 +45,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 # V4: single source of truth is the note_types declaration table
 # (codewiki/mcp/tools/note_types.py) — the registry inputSchema enum and
 # knowledge_loop promotion routing derive from the same table.
+from codewiki.src.frontmatter import parse_frontmatter
 from codewiki.mcp.tools.note_types import valid_note_types as _nt_valid
 
 logger = logging.getLogger(__name__)
@@ -201,15 +201,9 @@ def _resolve_output_dir(
     session: Optional[Any],
     arguments: Dict[str, Any],
 ) -> Path:
-    if session:
-        return Path(session.output_dir).expanduser().resolve()
-    od = arguments.get("output_dir")
-    if od:
-        return Path(od).expanduser().resolve()
-    rp = arguments.get("repo_path")
-    if rp:
-        return Path(rp).expanduser().resolve() / "repowiki"
-    raise ValueError("output_dir or repo_path is required (or pass an active session).")
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
+
+    return resolve_output_dir(session, arguments)
 
 
 def _load_distilled_file(arguments: Dict[str, Any], output_dir: Path) -> Optional[Dict[str, Any]]:
@@ -345,32 +339,30 @@ def _iter_raw_files(raw_dir: Path) -> List[Path]:
 # Frontmatter parsing helpers
 # --------------------------------------------------------------------------- #
 def _parse_frontmatter(path: Path) -> Dict[str, str]:
+    """Read a page's frontmatter as a flat str->str mapping.
+
+    Thin delegation to the frontmatter module's reader (architecture review
+    2026-09, candidate #3): values are properly decoded there (json-encoded
+    scalars lose their quotes, so ``task_id: "foo"`` never leaks a literal
+    quote into routing keys — the bug ``_unquote_fm`` used to patch around).
+    Non-string values (lists, dicts) are stringified for this flat view;
+    callers that need structure should use ``parse_frontmatter`` directly.
+    """
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return {}
-    if not text.startswith("---"):
-        return {}
-    end = text.find("\n---", 3)
-    if end == -1:
-        return {}
-    block = text[3:end]
-    meta: Dict[str, str] = {}
-    for line in block.splitlines():
-        if ":" in line:
-            k, v = line.split(":", 1)
-            meta[k.strip()] = v.strip()
-    return meta
+    fm, _ = parse_frontmatter(text)
+    return {
+        k: v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+        for k, v in fm.items()
+    }
 
 
 def _unquote_fm(value: str) -> str:
-    """Strip JSON string quoting from a line-parsed frontmatter value.
-
-    ``inject_okf_frontmatter`` writes ``top_level_extra`` values via
-    ``json.dumps`` (e.g. ``task_id: "foo"``). The simple line parser in
-    ``_parse_frontmatter`` keeps those quotes, so a value of ``"foo"`` would
-    otherwise leak into routing keys and break task lookups.
-    """
+    """Kept for compatibility: values from ``_parse_frontmatter`` are already
+    unquoted (json-decoded in the reader). Strips only stray wrapping quotes
+    from values that predate the unified parser."""
     v = (value or "").strip()
     if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
         try:
@@ -378,6 +370,20 @@ def _unquote_fm(value: str) -> str:
         except (json.JSONDecodeError, TypeError):
             return v
     return v
+
+
+def _is_retired_note(fm: Dict[str, str]) -> bool:
+    """OKF: a note retired from the knowledge base is not knowledge.
+
+    Covers ``deprecated`` plus the legacy ``rejected`` / ``superseded``
+    vocabulary (normalized by ``note_writer._norm_status``). Dedup answers
+    "does this already exist?" — if a retired note wins, the fresh draft is
+    merged into (or suppressed by) dead knowledge. Same skip rule as the read
+    paths (query_wiki default BM25, by_file, mode=check).
+    """
+    from codewiki.mcp.tools.note_writer import _norm_status
+
+    return _norm_status(fm.get("status") or "stable") == "deprecated"
 
 
 def _extract_turns(text: str) -> str:
@@ -449,6 +455,10 @@ def _find_existing_note(
             fm = _parse_frontmatter(note_path)
         except Exception:
             continue
+        # Retired notes (deprecated / legacy rejected|superseded) are not
+        # knowledge — never a merge target (see _is_retired_note).
+        if _is_retired_note(fm):
+            continue
         # ingest_note writes the title JSON-quoted; unquote so Jaccard tokens
         # are not polluted by the surrounding quotes.
         title = _unquote_fm(fm.get("title", "")) or note_path.stem
@@ -486,29 +496,34 @@ def _merge_source_into_note(
     instead of creating duplicate drafts.
     """
     note_path = output_dir / existing_file
+
+    # Team-layout Phase 2: read + merge + write all under the sidecar lock
+    # (locked_rmw) — a read outside the lock could lose a concurrent
+    # distillation's source_conversations entry.
+    from codewiki.src.store import locked_rmw
+    from codewiki.src.frontmatter import parse_frontmatter
+
+    def _merge(text: str):
+        if not text.startswith("---"):
+            return None
+        end = text.find("\n---", 3)
+        if end == -1:
+            return None
+        block = text[3:end]
+        m = re.search(r"^source_conversations:\s*\[(.*)\]", block, re.MULTILINE)
+        if m:
+            items = [x.strip().strip("'\"") for x in m.group(1).split(",") if x.strip()]
+            if new_source_ref in items:
+                return None
+            items.append(new_source_ref)
+            new_list = "[" + ", ".join(f"'{x}'" for x in items) + "]"
+            new_block = block[: m.start()] + "source_conversations: " + new_list + block[m.end() :]
+        else:
+            new_block = block.rstrip() + f"\nsource_conversations: ['{new_source_ref}']\n"
+        return "---" + new_block + text[end:]
+
     try:
-        text = note_path.read_text(encoding="utf-8")
-    except OSError:
-        return
-    if not text.startswith("---"):
-        return
-    end = text.find("\n---", 3)
-    if end == -1:
-        return
-    block = text[3:end]
-    m = re.search(r"^source_conversations:\s*\[(.*)\]", block, re.MULTILINE)
-    if m:
-        items = [x.strip().strip("'\"") for x in m.group(1).split(",") if x.strip()]
-        if new_source_ref in items:
-            return
-        items.append(new_source_ref)
-        new_list = "[" + ", ".join(f"'{x}'" for x in items) + "]"
-        new_block = block[: m.start()] + "source_conversations: " + new_list + block[m.end() :]
-    else:
-        new_block = block.rstrip() + f"\nsource_conversations: ['{new_source_ref}']\n"
-    new_text = "---" + new_block + text[end:]
-    try:
-        note_path.write_text(new_text, encoding="utf-8")
+        locked_rmw(note_path, _merge)
     except OSError:
         pass
 
@@ -520,22 +535,22 @@ def _patch_note_origin(note_path: Path) -> None:
     conversation must carry origin: conversation). The source_conversation
     reference is already stored via handle_ingest_note's source_ref field.
     """
+    from codewiki.src.store import locked_rmw
+
+    def _patch(text: str):
+        if not text.startswith("---"):
+            return None
+        end = text.find("\n---", 3)
+        if end == -1:
+            return None
+        block = text[3:end]
+        if re.search(r"^origin:", block, re.MULTILINE):
+            return None  # already present
+        new_block = block.rstrip() + "\norigin: conversation\n"
+        return "---" + new_block + text[end:]
+
     try:
-        text = note_path.read_text(encoding="utf-8")
-    except OSError:
-        return
-    if not text.startswith("---"):
-        return
-    end = text.find("\n---", 3)
-    if end == -1:
-        return
-    block = text[3:end]
-    if re.search(r"^origin:", block, re.MULTILINE):
-        return  # already present
-    new_block = block.rstrip() + "\norigin: conversation\n"
-    new_text = "---" + new_block + text[end:]
-    try:
-        note_path.write_text(new_text, encoding="utf-8")
+        locked_rmw(note_path, _patch)
     except OSError:
         pass
 
@@ -596,6 +611,15 @@ def _bm25_recall_candidates(
         return []
     out: List[Dict[str, Any]] = []
     for h in hits or []:
+        # Retired notes (deprecated / legacy rejected|superseded) are not
+        # knowledge: exclude them from dedup recall, same rule as the
+        # title-sim band and the query_wiki read paths. Best-effort — a
+        # malformed note must never block distillation.
+        try:
+            if h.get("file") and _is_retired_note(_parse_frontmatter(output_dir / h["file"])):
+                continue
+        except Exception:
+            pass
         score = float(h.get("relevance_score") or 0.0)
         if score < _CONFLICT_BM25_FLOOR:
             continue
@@ -610,19 +634,30 @@ def _bm25_recall_candidates(
     return out
 
 
-def _find_weak_conflicts(
+def _find_conflict_candidates(
     candidate_title: str,
     candidate_content: str,
     candidate_type: str,
     output_dir: Path,
+    *,
+    include_strong: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Detect WEAK duplicate signals that warrant agent adjudication.
+    """Ranked near-duplicate candidates for a candidate note (two signals).
 
-    Strong duplicates are already handled by ``_find_existing_note`` (and keep
-    the legacy dedup= semantics for idempotent re-distillation). This function
-    only returns the weak band: title similarity in
-    [_CONFLICT_TITLE_FLOOR, strong-threshold) plus BM25 recall hits. An empty
-    list means "no conflict — ingest directly".
+    Default (``include_strong=False``) returns the **weak band** only: title
+    similarity in [_CONFLICT_TITLE_FLOOR, strong-threshold) plus BM25 recall
+    hits. Strong duplicates are already handled by ``_find_existing_note``
+    (and keep the legacy dedup= semantics for idempotent re-distillation), so
+    the distillation pipeline excludes them here. An empty list means
+    "no conflict — ingest directly".
+
+    ``include_strong=True`` additionally keeps the strong band — the
+    "this is an update of an existing note, not new knowledge" case. Advisory
+    consumers (``ingest_note``'s conflict hint) need it: that band is exactly
+    what they must surface to the caller.
+
+    Retired notes (deprecated / legacy rejected|superseded) are never
+    candidates — see ``_is_retired_note``.
     """
     candidates: List[Dict[str, Any]] = []
     notes_dir = output_dir / "notes"
@@ -632,6 +667,8 @@ def _find_weak_conflicts(
                 fm = _parse_frontmatter(note_path)
             except Exception:
                 continue
+            if _is_retired_note(fm):
+                continue  # retired notes are not conflict candidates
             title = _unquote_fm(fm.get("title", "")) or note_path.stem
             note_type = fm.get("type") or fm.get("note_type") or ""
             sim = _title_similarity(candidate_title, title)
@@ -643,7 +680,7 @@ def _find_weak_conflicts(
                 or (sim >= _DEDUP_THRESHOLD * 0.8 and same_type)
                 or (sim >= _TITLE_SIMILARITY_THRESHOLD and same_type)
             )
-            if is_strong:
+            if is_strong and not include_strong:
                 continue  # handled by _find_existing_note, not a "conflict"
             rel = str(note_path.relative_to(output_dir))
             candidates.append(
@@ -652,6 +689,7 @@ def _find_weak_conflicts(
                     "title": title,
                     "score": round(sim, 3),
                     "signal": "title_sim",
+                    "strong": is_strong,
                 }
             )
     for hit in _bm25_recall_candidates(candidate_title, candidate_content, output_dir):
@@ -716,29 +754,29 @@ def _apply_dedup_action(
     note_path = (output_dir / target) if not Path(target).is_absolute() else Path(target)
     if not note_path.is_file():
         return {"status": "target_not_found", "target": target}
-    try:
-        text = note_path.read_text(encoding="utf-8")
-    except OSError:
-        return {"status": "target_not_found", "target": target}
 
-    head, body = "", text
-    if text.startswith("---"):
-        end = text.find("\n---", 3)
-        if end != -1:
-            head, body = text[: end + 4], text[end + 4 :]
+    # Team-layout Phase 2: read + adjudicated rewrite under the sidecar lock
+    # (locked_rmw) — the dedup adjudication must not race another writer.
+    from codewiki.src.store import locked_rmw
 
-    if action == "update":
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        new_head = re.sub(
-            r"(generated:\s*\{[^}]*at:\s*)\d{4}-\d{2}-\d{2}T[\d:]+Z",
-            lambda m: m.group(1) + now,
-            head,
-            count=1,
-        )
-        new_text = new_head + "\n\n" + content.strip() + "\n"
-    else:  # merge
-        # V6 (note_merge 字段策略): merge 不再是裸 H2 追加——frontmatter 的
-        # tags / related_modules 按策略并集（union），正文追加段带来源标记。
+    def _rewrite(text: str):
+        head, body = "", text
+        if text.startswith("---"):
+            end = text.find("\n---", 3)
+            if end != -1:
+                head, body = text[: end + 4], text[end + 4 :]
+
+        if action == "update":
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            new_head = re.sub(
+                r"(generated:\s*\{[^}]*at:\s*)\d{4}-\d{2}-\d{2}T[\d:]+Z",
+                lambda m: m.group(1) + now,
+                head,
+                count=1,
+            )
+            return new_head + "\n\n" + content.strip() + "\n"
+        # merge: V6 (note_merge 字段策略) — merge 不再是裸 H2 追加：frontmatter
+        # 的 tags / related_modules 按策略并集（union），正文追加段带来源标记。
         # 策略从 note_types 权威表读（默认 union/append），借的是 OpenViking
         # merge_op 的字段粒度，闸门语义不变（合并结果仍是既有笔记的更新）。
         try:
@@ -761,10 +799,12 @@ def _apply_dedup_action(
         body_md = body.strip()
         marker = f"> 合并自蒸馏候选：{title}\n\n" if strategies.get("body") == "append" else ""
         section = f"\n\n## {title}\n\n{marker}{content.strip()}\n"
-        new_text = head + ("\n\n" + body_md if body_md else "") + section
+        return head + ("\n\n" + body_md if body_md else "") + section
 
     try:
-        note_path.write_text(new_text, encoding="utf-8")
+        result_text = locked_rmw(note_path, _rewrite)
+        if result_text is None:
+            return {"status": "write_failed", "target": target}
     except OSError:
         return {"status": "write_failed", "target": target}
     # Provenance: accumulate the raw conversation that fed this change.
@@ -1032,7 +1072,7 @@ def _process_llm_output(
                         }
                     )
                 continue
-            weak = _find_weak_conflicts(title, content, note_type, output_dir)
+            weak = _find_conflict_candidates(title, content, note_type, output_dir)
             if weak:
                 if conflict_policy == "hold":
                     # WEAK conflict (Mode C): do NOT ingest yet — report the
@@ -1231,12 +1271,17 @@ async def _distill_one(
 
 
 def _mark_distilled(raw_path: Path) -> None:
-    try:
-        text = raw_path.read_text(encoding="utf-8")
+    # Team-layout Phase 2: regex status flip under the sidecar lock
+    from codewiki.src.store import locked_rmw
+
+    def _flip(text: str):
         new_text = re.sub(r"^status:\s*\w+", "status: distilled", text, count=1, flags=re.MULTILINE)
         if new_text == text and "status:" not in text:
             new_text = text.replace("---", "---\nstatus: distilled", 1)
-        raw_path.write_text(new_text, encoding="utf-8")
+        return new_text
+
+    try:
+        locked_rmw(raw_path, _flip)
     except OSError:
         pass
 
@@ -1244,39 +1289,14 @@ def _mark_distilled(raw_path: Path) -> None:
 def _sync_raw_index_on_distill(raw_dir: Path, raw_path: Path, deleted: bool) -> None:
     """Keep repowiki/raw/.index.json consistent after distillation.
 
-    capture_conversation maintains this index so that dedup/supersede stay O(1)
-    regardless of how many pending raw files accumulate. When distillation
-    finishes we must remove the entry (deleted) or flip it to status=distilled
-    (kept via keep_raw), otherwise the index would keep pointing at files that
-    no longer exist / no longer match pending supersede. Best-effort: a failed
-    index update must never block or fail distillation.
+    Delegates to ``KnowledgeStore.sync_raw_index`` — the store owns the index
+    format + atomic write; this wrapper only adapts the distill call shape
+    (raw_dir + raw_path + deleted flag) to it. Best-effort: a failed index
+    update must never block or fail distillation.
     """
-    idx = raw_dir / ".index.json"
-    if not idx.is_file():
-        return
-    try:
-        data = json.loads(idx.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return
-    name = raw_path.name
-    files = data.get("files", [])
-    if deleted:
-        files = [e for e in files if e.get("relpath") != name]
-    else:
-        for e in files:
-            if e.get("relpath") == name:
-                e["status"] = "distilled"
-                break
-    tmp = raw_dir / (".index.tmp." + str(os.getpid()))
-    try:
-        tmp.write_text(json.dumps({"files": files}, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, idx)
-    except OSError:
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except OSError:
-            pass
+    from codewiki.src.store import KnowledgeStore
+
+    KnowledgeStore(raw_dir.parent).sync_raw_index(raw_path.name, removed=deleted)
 
 
 # --------------------------------------------------------------------------- #
@@ -1334,19 +1354,20 @@ def _rewrite_source_refs_after_archive(output_dir: Path, raw_name: str, archive_
     target = archive_rel.replace("\\", "/")
     updated = 0
     for p in notes_dir.glob("*.md"):
+        # Team-layout Phase 2: read + repoint under the sidecar lock
+        from codewiki.src.store import locked_rmw
+
+        def _repoint(text: str):
+            if raw_name not in text:
+                return None
+            new_text = pattern.sub(target, text)
+            return new_text if new_text != text else None
+
         try:
-            text = p.read_text(encoding="utf-8")
+            if locked_rmw(p, _repoint) is not None:
+                updated += 1
         except OSError:
             continue
-        if raw_name not in text:
-            continue
-        new_text = pattern.sub(target, text)
-        if new_text != text:
-            try:
-                p.write_text(new_text, encoding="utf-8")
-                updated += 1
-            except OSError:
-                pass
     return updated
 
 
@@ -1359,15 +1380,24 @@ def _job_status_path(output_dir: Path) -> Path:
 
 def _write_job_status(output_dir: Path, job_id: str, state: Dict[str, Any]) -> None:
     path = _job_status_path(output_dir)
-    jobs: Dict[str, Any] = {}
-    if path.exists():
+
+    # Team-layout Phase 2: Mode B background jobs from multiple processes
+    # must not lose each other's state entries — the JSON read-modify-write
+    # (read + merge + write) runs entirely under the sidecar lock.
+    from codewiki.src.store import locked_rmw
+
+    def _merge_state(text: str):
         try:
-            jobs = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            jobs = json.loads(text)
+            if not isinstance(jobs, dict):
+                raise ValueError("not a mapping")
+        except (json.JSONDecodeError, ValueError):
             jobs = {}
-    jobs[job_id] = state
+        jobs[job_id] = state
+        return json.dumps(jobs, indent=2, ensure_ascii=False)
+
     try:
-        path.write_text(json.dumps(jobs, indent=2, ensure_ascii=False), encoding="utf-8")
+        locked_rmw(path, _merge_state)
     except OSError:
         pass
 
@@ -1496,7 +1526,7 @@ def handle_distill_conversation(
     # source of truth get_task_context uses for pending_raw_count.
     task_filter = str(arguments.get("task_id") or "").strip()
     if task_filter:
-        from codewiki.mcp.tools.capture_conversation import pending_raws_by_task
+        from codewiki.mcp.tools.store_bridge import pending_raws_by_task
 
         allowed = {
             str((raw_dir / e["relpath"]).resolve())
@@ -1683,18 +1713,25 @@ def handle_distill_conversation(
             results.append(res)
         n_notes = sum(len(r.get("notes", [])) for r in results)
         n_conflicts = sum(len(r.get("conflicts", [])) for r in results)
-        return json.dumps(
-            {
-                "status": "completed",
-                "mode": "submit",
-                "distilled": results,
-                "raw_processed": len(results),
-                "notes_created": n_notes,
-                "conflicts_pending": n_conflicts,
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
+        ret: Dict[str, Any] = {
+            "status": "completed",
+            "mode": "submit",
+            "distilled": results,
+            "raw_processed": len(results),
+            "notes_created": n_notes,
+            "conflicts_pending": n_conflicts,
+        }
+        # Phase 4 second slice: submit is a batch boundary → auto-push when
+        # enabled and gated (D17). Best-effort, never blocks the result.
+        try:
+            from codewiki.src.git_sync import auto_push
+
+            _push = auto_push(output_dir, "distill_submit")
+            if _push:
+                ret["git_sync"] = _push
+        except Exception as e:
+            logger.debug("auto_push skipped: %s", e)
+        return json.dumps(ret, indent=2, ensure_ascii=False)
 
     # Mode B: background
     if arguments.get("run_in_background") and not arguments.get("llm"):

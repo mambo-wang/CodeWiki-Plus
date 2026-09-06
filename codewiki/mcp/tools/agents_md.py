@@ -78,6 +78,46 @@ def write_agents_md(*, repo_path: str, output_dir: str, module_tree: dict | None
     _write_agents_md(repo_path, output_dir, module_tree or {})
 
 
+def remove_codewiki_block(repo_path: str) -> str:
+    """Remove the CodeWiki usage block from ``<repo_path>/AGENTS.md``.
+
+    Centralized workspaces keep business repos pure-code — there is no
+    in-repo ``repowiki/`` for the block to point at, so the block is a dead
+    reference and is removed when the repo is registered (ticket 03).  All
+    content outside the markers (the repo's own conventions) is preserved.
+
+    Returns ``"removed"`` | ``"kept (no block)"`` | ``"kept (no AGENTS.md)"``.
+    Failures are logged and swallowed — this must never block registration.
+    """
+    repo_path_p = Path(repo_path)
+    agents_path = repo_path_p / "AGENTS.md"
+    if not agents_path.exists():
+        return "kept (no AGENTS.md)"
+
+    try:
+        content = agents_path.read_text(encoding="utf-8")
+        begin_idx = content.find(_BEGIN_MARKER)
+        end_idx = content.find(_END_MARKER)
+        if begin_idx == -1 or end_idx == -1 or end_idx <= begin_idx:
+            return "kept (no block)"
+
+        before = content[:begin_idx]
+        after = content[end_idx + len(_END_MARKER) :]
+        # Avoid leaving a double blank seam where the block used to be.
+        before = before.rstrip("\n")
+        after = after.lstrip("\n")
+        if before and after:
+            new_content = before + "\n\n" + after
+        else:
+            new_content = before + after
+        agents_path.write_text(new_content, encoding="utf-8")
+        logger.info("Removed CodeWiki block from %s", agents_path)
+        return "removed"
+    except Exception as e:  # must never block registration
+        logger.warning("Failed to remove CodeWiki block from %s: %s", agents_path, e)
+        return f"kept (error: {e})"
+
+
 def _write_agents_md(repo_path: str, output_dir: str, module_tree: dict) -> None:
     """Internal implementation of write_agents_md."""
     repo_path_p = Path(repo_path)
@@ -101,30 +141,35 @@ def _write_agents_md(repo_path: str, output_dir: str, module_tree: dict) -> None
 
 
 def write_workspace_conventions(
-    *, workspace_path: str, workspace_name: str, refresh: bool = False
+    *,
+    workspace_path: str,
+    workspace_name: str,
+    layout: str = "colocated",
 ) -> str:
     """Write the multi-repo workspace conventions section into AGENTS.md.
 
-    Deliberately different overwrite policy from the CodeWiki usage block:
-    the conventions are a team contract that users hand-evolve, so an
-    existing marked block is kept as-is unless ``refresh=True``.
+    The marked block is tool-maintained: it is always overwritten on every
+    run, so customizations belong outside the markers (they survive; the
+    block content itself does not).
 
-    Returns ``"created"`` | ``"kept"`` | ``"refreshed"``.
+    ``layout`` selects the conventions variant: ``colocated`` (two-hop
+    routing, per-repo repowikis) or ``centralized`` (one-hop routing,
+    single workspace repowiki).
+
+    Returns ``"created"`` | ``"refreshed"``.
     """
     workspace_path_p = Path(workspace_path)
     agents_path = workspace_path_p / "AGENTS.md"
 
-    if agents_path.exists() and not refresh:
-        content = agents_path.read_text(encoding="utf-8")
-        begin_idx = content.find(_WORKSPACE_BEGIN_MARKER)
-        end_idx = content.find(_WORKSPACE_END_MARKER)
-        if begin_idx != -1 and end_idx != -1 and end_idx > begin_idx:
-            logger.info("Workspace conventions already present in %s, kept", agents_path)
-            return "kept"
+    from codewiki.mcp.tools.workspace_layout import LAYOUT_CENTRALIZED
 
-    body = _WORKSPACE_TEMPLATE.read_text(encoding="utf-8").replace(
-        "{{WORKSPACE_NAME}}", workspace_name
+    template_name = (
+        "agents-md-workspace-centralized.md.tpl"
+        if layout == LAYOUT_CENTRALIZED
+        else "agents-md-workspace.md.tpl"
     )
+    template_path = _WORKSPACE_TEMPLATE.parent / template_name
+    body = template_path.read_text(encoding="utf-8").replace("{{WORKSPACE_NAME}}", workspace_name)
     section = f"{_WORKSPACE_BEGIN_MARKER}\n\n{body}\n{_WORKSPACE_END_MARKER}"
     action = _upsert_marked_section(
         agents_path, _WORKSPACE_BEGIN_MARKER, _WORKSPACE_END_MARKER, section
@@ -197,6 +242,16 @@ def _build_section(rel_path: str, modules: list[str], output_dir_p: Path) -> str
 2. **做决策时**：用 `query_wiki` 搜索已有的 `decision` 类型笔记，避免重复讨论
 3. **完成重要决策后**：用 `ingest_note` 归档，让未来的 Agent 和团队成员都能查到
 4. **定期维护**：用 `lint_wiki` 检查文档是否过时，保持文档与代码同步
+
+### 回答时显式标注依据
+
+回答涉及本仓库的知识或代码时，在**关键论断处直接标注来源**，不要只写"根据文档/代码"却不给名字：
+
+- 引用 `query_wiki` 检索到的文档/笔记 → 标注 `（依据：<file>）`，`<file>` 必须与检索结果返回的 `file` 字段完全一致（如 `notes/xxx.md`、`wiki/modules/yyy.md`）；
+- 引用代码事实（函数/类/配置/行为断言） → 标注 `<代码文件>:<行号>`（如 `codewiki/mcp/tools/adoption.py:32`）。行号以你实际读取代码/检索结果所见为准，**不要照抄文档里可能已过时的行号**；
+- 依据来自本次代码核对而非文档 → 明说来源，如 `依据本次代码核对：<代码文件>:<行号>`。
+
+正文标注是给人读的溯源承诺；行尾的 `codewiki:referenced-docs` 注释仍是机器采纳信号，两者并存、互不影响。
 
 ### 采纳声明（检索反馈）
 

@@ -23,6 +23,7 @@ verified:
 - by: codewiki/5.4.2
   at: '2026-08-24T15:30:14Z'
 reject_reason: 聚合进场景：任务记忆系统设计方法
+author: mambo-wang
 ---
 
 ## 背景

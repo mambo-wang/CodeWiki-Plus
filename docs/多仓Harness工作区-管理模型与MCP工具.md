@@ -99,26 +99,32 @@ CodeWiki-Plus-Harness/          ← harness 主仓库（独立 git，提交稳�
 
 CodeWiki v5.5.0 为这个模型提供了三个开箱即用的 MCP 工具与配套工作流 Prompt。
 
-### 4.1 `init_workspace` — 初始化工作区
+### 4.1 `init_workspace` — 初始化（或重新同步）工作区
 
-把**当前目录**（或显式 `workspace_path`）初始化为多仓 harness 工作区，只建骨架、不做业务仓登记：
+把**当前目录**初始化（或重新同步）为多仓 harness 工作区。**首次初始化必须先显式选择知识布局**：不传 `layout` 且尚无已持久化的布局配置时，工具**不写任何产物**，返回 `status="needs_layout_decision"` 与两个选项（`colocated`/`centralized`）——调用方 Agent 应把差异讲给用户、征询后带 `layout` 重新调用。**重跑零配置幂等**，按初始化痕迹分两种模式（返回的 `mode` / `mode_reason` / `traces` 字段标明走了哪条）：
+
+- **痕迹齐备 → clone-only 接管**：`bootstrap.sh` / `bootstrap.ps1`（登记表可解析）+ `.gitignore` + `repowiki/` 骨架（`wiki/` + `schema.yaml`）都在，就视为工作区已初始化——重跑**只克隆登记表中尚未克隆的业务仓**（顺带补齐缺失的 `.gitignore` 排除行、为无布局配置的存量工作区补写配置），不重新生成骨架、不改写 AGENTS.md。典型场景：harness 仓在新机器上克隆后直接重跑，只需把业务仓拉下来。该场景也可直接执行 bootstrap 脚本补克隆（脚本与工具读同一张登记表），无需经过本工具；clone-only 是误调用的兜底。
+- **骨架有缺失 → 完整同步修复**：自动沿用已保存的布局、补齐缺失产物、强制刷新约定块，并补克隆（克隆失败只警告，可稍后 `./bootstrap.sh` 或再次重跑补克隆）。
 
 | 参数 | 必填 | 默认 | 说明 |
 |------|------|------|------|
-| `workspace_path` | 否 | 当前目录 | 工作区根目录（必须已存在，不代建） |
 | `output_dir` | 否 | `<workspace>/repowiki` | 产品级 repowiki 目录 |
-| `refresh_conventions` | 否 | `false` | 强制刷新 AGENTS.md 工作区约定块 |
-| `with_readme` | 否 | `true` | 无 README.md 时生成骨架 |
+| `layout` | 首次初始化必传 | — | `colocated`（各业务仓自带 repowiki，两跳检索）或 `centralized`（知识集中于工作区 repowiki，一跳检索）。首次初始化前须征询用户；重跑可省略（自动沿用持久化布局），传冲突值报错 |
 
 **产物**：
 
-- `bootstrap.sh` / `bootstrap.ps1`：幂等克隆脚本（空登记表，登记走 `add_workspace_repo`）
+- `bootstrap.sh` / `bootstrap.ps1`：幂等克隆脚本（登记表，登记走 `add_workspace_repo`）
 - `.gitignore`：业务仓目录 + 通用忽略（**不忽略** `repowiki/`——产品级知识与跨仓分析产物入库）
+- `repowiki/.meta/workspace.json`：知识布局记录（**两种布局都写入**，布局决策显式可审计，也是集中式路由的探测锚点）
 - `repowiki/wiki/repo-map.md`：仓库导航骨架
 - `AGENTS.md`：工作区约定块（两跳检索路由、提交纪律、分支策略、知识写入路由、新仓接入清单）
 - 产品级 repowiki 目录结构与 `schema.yaml` 等模板（复用 `init_wiki` 能力）
 
-**幂等语义**：bootstrap 脚本、repo-map、README、schema.yaml 重跑不覆盖；约定块默认保留（`refresh_conventions=true` 才刷新）。
+**幂等语义**：
+
+- 知识布局（`colocated`/`centralized`）首次初始化时由用户显式选择并持久化到 `repowiki/.meta/workspace.json`（两种布局都写）；两种重跑模式都自动沿用，显式传入冲突值才报错（布局切换是手工迁移）。存量工作区（v5.6 之前初始化、无配置文件）按约定视为 `colocated`，重跑接管时补写配置。
+- clone-only 接管模式不触碰任何骨架文件与 AGENTS.md；完整同步修复模式下，bootstrap 脚本、repo-map、README、schema.yaml 也只补缺不覆盖，唯约定块**强制刷新**（该块由工具维护，自定义内容请写在标记块外）。
+- 登记表中已登记但未克隆的业务仓会被自动 `git clone`（两种模式均执行；逐个执行，单仓超时 600s；失败仅警告不中断）。
 
 ### 4.2 `add_workspace_repo` — 登记并克隆业务仓
 
@@ -148,9 +154,13 @@ CodeWiki v5.5.0 为这个模型提供了三个开箱即用的 MCP 工具与配�
 |------|------|------|------|
 | `workspace_path` | 否 | 当前目录 | 工作区根目录 |
 | `name` | 是 | — | 业务仓子目录名 |
-| `delete_dir` | 否 | `false` | 同时删除本地 clone 目录（不可恢复） |
 
-同样事务式清理四处登记；**默认保留本地目录**——注意目录被移除 `.gitignore` 条目后，harness 仓 `git status` 会看到它，需手动删除或重新忽略。未登记的 name 是安全错误，不影响其他业务仓。
+同样事务式清理四处登记，并**删除本地 clone 目录**（不可恢复）——用户要求移除该仓即视为同意删除其本地克隆，工具不再单独确认。未登记的 name 是安全错误，不影响其他业务仓。
+
+登记之外还有两类清理：
+
+- **集中模式知识清理**：删除该仓的 `wiki/modules/<name>/` 分区；共享池页面按来源标逐页处理——多来源页只移除该仓来源标，唯一来源页保留内容但解除标注，成为孤儿由 `lint_wiki` 的 layout_violations 报告、交人工裁决（工具不静默删知识）。
+- **分析产物清理**：`analyze_workspace` 落在 `repowiki/.meta/` 的缓存按仓归属过滤——`workspace_routes.json` 按 `repo_name`、`cross_service_links.json` 按 `client_repo`/`server_repo`、`infra_services.json` 按 `source_path`（compose 文件相对工作区路径，无该字段的旧缓存条目不动），生成的 `overview.md` 同步删除该仓服务行与链接。这些是可再生的缓存而非知识，过滤后 `query_cross_service` 不再返回已移除仓的幽灵路由。
 
 ### 4.4 配套工作流 Prompt
 
@@ -158,15 +168,15 @@ MCP Server 内置三个 Prompt（IDE Prompt 面板可直接触发）：
 
 | Prompt | 场景 |
 |--------|------|
-| `init-workspace` | 初始化工作区 → 逐个登记业务仓 → 逐仓建 Wiki → 跨仓分析 |
+| `init-workspace` | 初始化（或重跑同步：痕迹齐备时 clone-only 接管补克隆 / 骨架缺失时补齐产物）→ 逐个登记业务仓 → 逐仓建 Wiki → 跨仓分析 |
 | `add-workspace-repo` | 按 URL 登记 + 克隆业务仓 → 校验四处同步 → 建该仓 Wiki |
-| `remove-workspace-repo` | 确认删除范围 → 移除登记 → 校验清理结果 |
+| `remove-workspace-repo` | 移除登记并删除本地目录 → 校验清理结果 |
 
 ## 5. 典型使用流程
 
 ```text
 1. 新建一个空目录（或空 git 仓库）作为 harness 仓
-2. 调用 init_workspace                          # 建骨架
+2. 调用 init_workspace(layout=<colocated|centralized>)  # 先征询用户选布局，再建骨架
 3. 对每个业务仓调用 add_workspace_repo(url=...) # 登记 + 克隆
 4. 对每个业务仓调用 init_wiki / analyze_repo    # 建仓库级 Wiki
 5. 调用 analyze_workspace(workspace_path=...)   # 跨仓分析 → repowiki/overview.md
@@ -175,12 +185,18 @@ MCP Server 内置三个 Prompt（IDE Prompt 面板可直接触发）：
    - query_wiki(output_dir=<harness根>/<业务仓>/repowiki)  # 第二跳：仓库级
    - query_cross_service(workspace_path=<harness根>)       # 跨服务调用
 7. 移除业务仓时调用 remove_workspace_repo(name=...)
+8. 增量同步（代码变更后）：直接重跑 analyze_workspace，按返回的 per-repo `mode` 分派——
+   - `skipped`：未变更仓，不碰；
+   - `incremental` / `full`：对该仓按 `changes.affected_modules` 逐仓执行 `incremental-update`
+     prompt 流程增量改写（只改清单内模块页，未列出的不碰）；
+   - `deferred`：centralized 首跑未开 generate_repo_wikis 的仓（仅跨仓分析，现状闸门）。
+   详见《多仓Harness工作区-Wiki增量更新设计方案》。
 ```
 
 ## 6. 与既有能力的协同
 
 - **`init_wiki`**：单仓 Wiki 初始化，被 `init_workspace` 复用（产品级 repowiki 目录结构 + 模板）；每个业务仓各自跑自己的 `init_wiki`。
-- **`analyze_workspace`**：默认输出目录已统一为 `<workspace>/repowiki`，工作区总览（含 Mermaid 跨服务拓扑）与 `.meta/` 跨仓产物直接落入产品级 repowiki，随 harness 仓提交。
+- **`analyze_workspace`**：默认输出目录已统一为 `<workspace>/repowiki`，工作区总览（含 Mermaid 跨服务拓扑）与 `.meta/` 跨仓产物直接落入产品级 repowiki，随 harness 仓提交。默认增量：按 `metadata.json` 的 `generation_info.commit_id` 锚点三档分派（未变更跳过 / 变更增量 / 无锚点全量），centralized 下 per-repo 分析状态按仓命名空间存放（`<ws>/.codewiki/<仓名>/`），见《多仓Harness工作区-Wiki增量更新设计方案》。
 - **`query_cross_service`**：自动从 `<workspace>/repowiki/.meta/` 读取跨仓匹配结果（兼容旧的 `workspace-wiki/.meta/` 数据）。
 - **`query_wiki`**：两跳检索的检索层，产品级与仓库级 repowiki 均可搜。
 

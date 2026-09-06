@@ -16,6 +16,8 @@ metadata:
   - codewiki/mcp/tools/analysis.py
   severity: medium
   root_cause: 新文件未纳入分析图谱（analyze_repo 增量），prepare 无法对其做变更函数切片
+  consolidated_into:
+  - wiki/scenarios/代码评审与分析工具方法.md
 status: stable
 generated:
   by: codewiki/5.4.3
@@ -24,6 +26,7 @@ stale_after: '2027-02-21'
 verified:
 - by: human:mambo-wang
   at: '2026-08-25T15:55:20Z'
+author: wandering-bug
 ---
 
 ## 背景

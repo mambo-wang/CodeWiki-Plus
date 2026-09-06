@@ -9,6 +9,8 @@ metadata:
   - knowledge_loop
   - wiki_search
   source_ref: conversations/conv-@command-codewiki-变更评估与代码评审（修改后）.md
+  consolidated_into:
+  - wiki/scenarios/MCP-Server薄壳架构与参数约定.md
 status: stable
 generated:
   by: codewiki/5.4.3
@@ -18,6 +20,7 @@ origin: conversation
 verified:
 - by: human:mambo-wang
   at: '2026-08-25T17:03:46Z'
+author: wandering-bug
 ---
 
 ## 背景

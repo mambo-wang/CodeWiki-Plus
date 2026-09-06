@@ -37,6 +37,8 @@
 - [第 6 篇：借助 HOOKS 机制实现跨会话记忆和任务管理](https://mp.weixin.qq.com/s/flsqORauNo0Th1v8G4Ceng)（2026-08）
 - [第 7 篇：记忆/经验分层提取——自生长的团队知识库](https://mp.weixin.qq.com/s/s253xe5LiUmgdfDo3XxAbg)（2026-08）
 - [第 8 篇：四维代码评审——让踩过的坑自动变成 CHECKLIST](https://mp.weixin.qq.com/s/wH_mjG5IL-0qo_qDFpODuw)（2026-08）
+- [第 9 篇：多仓Harness集中式管理方案](https://mp.weixin.qq.com/s/pA1CsLSAIqbeVqFV4-kVQQ)（2026-09）
+
 
 
 
@@ -208,7 +210,7 @@ repowiki/
 | 工具 | 用途 |
 |------|------|
 | `analyze_repo` | 分析仓库，构建依赖图，返回组件索引；支持 SHA256 增量 + 方法级 content_hash 精确检测；自动检测 monorepo 子服务 |
-| `analyze_workspace` | 扫描多仓库工作区，为每个子仓库独立生成 Wiki，顶层生成跨服务总览 |
+| `analyze_workspace` | 扫描多仓库工作区，为每个子仓库独立生成 Wiki，顶层生成跨服务总览；默认增量：未变更仓跳过、变更仓返回受影响模块清单、新仓全量 |
 | `list_components` | 组件索引查询，支持摘要模式和前缀过滤 |
 | `list_dependencies` | 查询组件/模块依赖关系，支持分页、方向过滤、高影响力组件排名 |
 | `read_code_components` | 根据组件 ID 读取源码 |
@@ -257,9 +259,9 @@ repowiki/
 
 | 工具 | 用途 |
 |------|------|
-| `init_workspace` | 把当前目录（或 workspace_path）初始化为多仓 harness 工作区：生成 bootstrap 克隆脚本（空登记表）、.gitignore、repo-map 导航骨架、AGENTS.md 工作区约定（两跳检索路由、提交纪律）与产品级 repowiki；幂等，重跑不冲刷用户内容；业务仓登记走 add_workspace_repo |
+| `init_workspace` | 把当前目录初始化（或重新同步）为多仓 harness 工作区：生成 bootstrap 克隆脚本（登记表）、.gitignore、repo-map 导航骨架、AGENTS.md 工作区约定（两跳检索路由、提交纪律）与产品级 repowiki；首次初始化必须先征询用户选择知识布局（colocated/centralized）再带 layout 调用——不传时返回 needs_layout_decision 且不写任何产物，布局持久化到 repowiki/.meta/workspace.json（两种布局都写）；重跑零配置幂等——痕迹齐备（bootstrap 脚本 + .gitignore + repowiki 骨架）时为 clone-only 接管：只补克隆未克隆的业务仓（存量缺配置顺带补写）、不触碰其他文件；骨架有缺失才补齐产物并强制刷新约定块；业务仓登记走 add_workspace_repo |
 | `add_workspace_repo` | 按克隆 URL 向工作区登记业务仓（目录名自动取仓库名）：事务式同步 bootstrap.sh/ps1 登记表、.gitignore、repo-map.md 四处，默认顺带 git clone（失败只警告、不回滚登记）；同名同 URL 重登记为空操作 |
-| `remove_workspace_repo` | 按子目录名移除业务仓登记（bootstrap 表、.gitignore、repo-map.md 四处）；默认保留本地目录，delete_dir=true 才删除（不可恢复） |
+| `remove_workspace_repo` | 按子目录名移除业务仓登记（bootstrap 表、.gitignore、repo-map.md 四处），按仓归属过滤 analyze_workspace 的跨仓分析缓存（.meta routes/links/infra 与生成的 overview），并删除本地目录（不可恢复） |
 
 **团队记忆融合（2 个）：**
 
@@ -402,7 +404,7 @@ LLM 发现跨功能约束
 - 自动采集 Hook 只落 raw，永不自动蒸馏；蒸馏须显式调用 `distill_conversation`。
 - `repowiki/raw/` 是暂存区，不进 `query_wiki` 检索；蒸馏完成后由工具自动清理（除非 `keep_raw`）。
 - 触发形态为 **both**：手动命令（主）+ IDE Hook（可选）。
-- 自动采集/任务引导 Hook 接线支持 **CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`）**，启用时运行 `codewiki install-hooks --repo-path <repo>` 自动检测项目根目录存在哪些 IDE 配置目录，检测到哪些就为哪些接线（拷贝 hook 脚本与 distill-worker subagent、幂等合并 settings.json、写入 AGENTS.md 引导段）；采集脚本对事件载荷做了通用化处理。显式 `--ide <name>` 默认要求该 IDE 配置目录已存在——仓库只为实际在用的工具接线；确需为尚未初始化的工具创建配置目录时，须显式加 `--create-dir`（防止 Agent 代跑命令时越权新建 `.qoder`/`.claude` 等目录）。
+- 自动采集/任务引导 Hook 接线支持 **CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`）**，启用时运行 `codewiki install-hooks --repo-path <repo>` 自动检测项目根目录存在哪些 IDE 配置目录，检测到哪些就为哪些接线（拷贝 hook 脚本与 distill-worker subagent、幂等合并 settings.json、写入 AGENTS.md 引导段）；采集脚本对事件载荷做了通用化处理。settings.json 中的命令路径按 IDE 生成**可移植形式**（CodeBuddy 用 `$CODEBUDDY_PROJECT_DIR/...`、Qoder 用仓库相对路径、Claude Code 用 `${CLAUDE_PROJECT_DIR}/...`），不写机器相关绝对路径——文件随仓库共享，队友克隆到任意目录都能工作；历史遗留的绝对路径条目重跑 install-hooks 会原地升级。显式 `--ide <name>` 默认要求该 IDE 配置目录已存在——仓库只为实际在用的工具接线；确需为尚未初始化的工具创建配置目录时，须显式加 `--create-dir`（防止 Agent 代跑命令时越权新建 `.qoder`/`.claude` 等目录）。
 
 **隐私语义（T2 团队遥测）：** `query_wiki` 的检索命中与 `capture_conversation` 的采纳记录会以 `user_id`（优先 `CODEWIKI_USER` 环境变量，回退 `git config user.name` / 系统登录名）署名写入 `repowiki/.meta/telemetry/<user_id>.jsonl` 并随仓库共享——此前这是 gitignore 的本机私有数据。`user_id` 不做鉴权（信任模型与 confirm 闸门一致：能提交即团队可信成员），仅作命名空间；不愿以 git 真名署名的成员可用 `CODEWIKI_USER` 设置花名，或在 `schema.yaml` 中设 `conventions.telemetry.enabled: false` 退回纯本机模式（写入 `repowiki/.meta/telemetry-local/`，已 gitignore，聚合逻辑不变）。
 
@@ -615,7 +617,7 @@ MCP Server 内置 **20 个工作流 Prompt**，在 AI IDE 中通过 Prompt 面�
 | Prompt 名称 | 面向场景 | 核心步骤 |
 |-------------|----------|----------|
 | `init-wiki` | 新项目初始化 Wiki 工作区 | init_wiki 创建目录 + schema.yaml → 自定义 purpose → 验证 AGENTS.md |
-| `init-workspace` | 初始化多仓 harness 工作区 | init_workspace 生成 bootstrap 脚本 + .gitignore + repo-map + 工作区约定 → 克隆业务仓 → 逐个 init_wiki/analyze_repo → analyze_workspace |
+| `init-workspace` | 初始化多仓 harness 工作区 | 询问用户选知识布局 → init_workspace(layout=...) 生成 bootstrap 脚本 + .gitignore + repo-map + 工作区约定 → 克隆业务仓 → 逐个登记后按需 init_wiki/analyze_repo → analyze_workspace |
 | `add-workspace-repo` | 登记业务仓到工作区 | add_workspace_repo 事务式同步 bootstrap 登记表/.gitignore/repo-map → git clone → 建仓库级 Wiki |
 | `generate-wiki` | 完整文档生成流水线 | analyze_repo → 聚类 save_module_tree → 逐模块 write_doc → overview → lint → close_session |
 | `code-analysis` | 仅分析代码结构，不生成文档 | analyze_repo → list_components → list_dependencies → 缓存到 SQLite |
@@ -908,7 +910,7 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP. The serve
 | Tool | Purpose |
 |------|---------|
 | `analyze_repo` | Parse repo, build dependency graph; SHA256 incremental + method-level content_hash; monorepo sub-service detection |
-| `analyze_workspace` | Scan multi-repo workspace, generate per-repo Wikis with cross-service overview |
+| `analyze_workspace` | Scan multi-repo workspace, generate per-repo Wikis with cross-service overview; incremental by default: unchanged repos skipped, changed repos return an affected-modules list, new repos run full |
 | `list_components` | Component index query with summary mode and prefix filtering |
 | `list_dependencies` | Query dependencies with pagination, direction filtering, high-impact ranking |
 | `read_code_components` | Read source code by component ID |
@@ -957,9 +959,9 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP. The serve
 
 | Tool | Purpose |
 |------|---------|
-| `init_workspace` | Initialize the current directory (or workspace_path) as a multi-repo harness workspace: generates bootstrap clone scripts (empty registration table), .gitignore, repo-map navigation skeleton, workspace conventions in AGENTS.md (two-hop retrieval routing, commit discipline) and the product-level repowiki. Idempotent — re-runs never clobber user content. Register business repos via add_workspace_repo |
+| `init_workspace` | Initialize (or re-sync) the current directory as a multi-repo harness workspace: generates bootstrap clone scripts (registration table), .gitignore, repo-map navigation skeleton, workspace conventions in AGENTS.md (two-hop retrieval routing, commit discipline) and the product-level repowiki. FIRST init requires an explicit knowledge-layout choice (colocated/centralized) — ask the user, then pass layout=<choice>; without it the tool returns needs_layout_decision and writes nothing. The layout is persisted to repowiki/.meta/workspace.json for BOTH layouts. Re-runs are zero-config and idempotent — when every init trace is present (bootstrap scripts + .gitignore + repowiki skeleton) a re-run is clone-only: it fetches just the uncloned business repos (backfilling a missing layout config) and touches nothing else; missing skeletons are repaired and the conventions block refreshed only in that case. Register business repos via add_workspace_repo |
 | `add_workspace_repo` | Register a business repo by clone URL (directory name derived from the repo name): transactionally updates the bootstrap.sh/ps1 tables, .gitignore and repo-map.md, then git-clones by default (clone failure only warns, registration is kept). Re-registering the same name+URL is a no-op |
-| `remove_workspace_repo` | Deregister a business repo by subdirectory name (bootstrap tables, .gitignore, repo-map.md). The local clone is kept by default; delete_dir=true removes it irreversibly |
+| `remove_workspace_repo` | Deregister a business repo by subdirectory name (bootstrap tables, .gitignore, repo-map.md), scrub the repo from analyze_workspace caches (.meta routes/links/infra and the generated overview), and delete the local clone directory (irreversible) |
 
 **Team Memory Fusion (2):**
 
@@ -1057,7 +1059,7 @@ Inspired by Team-Agent-Memory's "extract retrievable experience from conversatio
 - The automatic capture hook only writes raw; it never distills. Distillation must be invoked explicitly via `distill_conversation`.
 - `repowiki/raw/` is a staging area excluded from `query_wiki`; it is cleaned up after distillation automatically (unless `keep_raw`).
 - Trigger form is **both**: manual command (primary) + IDE hook (optional).
-- The capture / task-guidance hooks are wired for **CodeBuddy (`.codebuddy/`), Qoder (`.qoder/`) and Claude Code (`.claude/`)**. To enable, run `codewiki install-hooks --repo-path <repo>`: it auto-detects which IDE config dirs exist in the project root and wires each one found (copies the hook scripts and the distill-worker subagent, idempotently merges `settings.json` hook registrations, and upserts the AGENTS.md task-guidance section). The capture script parses generic event payloads. Explicit `--ide <name>` requires that IDE's config dir to already exist — a repo is wired only for tools actually used in it; to deliberately create a not-yet-initialised config dir you must pass `--create-dir` (guards against agents conjuring `.qoder`/`.claude` dirs in repos that never used those tools).
+- The capture / task-guidance hooks are wired for **CodeBuddy (`.codebuddy/`), Qoder (`.qoder/`) and Claude Code (`.claude/`)**. To enable, run `codewiki install-hooks --repo-path <repo>`: it auto-detects which IDE config dirs exist in the project root and wires each one found (copies the hook scripts and the distill-worker subagent, idempotently merges `settings.json` hook registrations, and upserts the AGENTS.md task-guidance section). The capture script parses generic event payloads. Hook command paths are emitted in a **portable per-IDE form** (CodeBuddy `$CODEBUDDY_PROJECT_DIR/...`, Qoder repo-relative, Claude Code `${CLAUDE_PROJECT_DIR}/...`) — never a machine-specific absolute path — so the committed `settings.json` works from any teammate's checkout location; pre-existing absolute-path entries are upgraded in place on re-run. Explicit `--ide <name>` requires that IDE's config dir to already exist — a repo is wired only for tools actually used in it; to deliberately create a not-yet-initialised config dir you must pass `--create-dir` (guards against agents conjuring `.qoder`/`.claude` dirs in repos that never used those tools).
 
 **Privacy semantics (T2 team telemetry):** `query_wiki` retrieval hits and `capture_conversation` adoption records are written to `repowiki/.meta/telemetry/<user_id>.jsonl` (committed to the repo) under a `user_id` resolved from the `CODEWIKI_USER` env var, falling back to `git config user.name` / the OS login name — this data used to be a gitignored local file. The `user_id` is not an auth mechanism (trust model equals the confirm gate: anyone who can commit is a trusted teammate), it is a namespace only. Members who prefer not to sign telemetry with their git name can set a pseudonym via `CODEWIKI_USER`, or set `conventions.telemetry.enabled: false` in `schema.yaml` to fall back to local-only mode (written to `repowiki/.meta/telemetry-local/`, gitignored; aggregation is unchanged).
 
@@ -1116,7 +1118,7 @@ The MCP server includes **21 built-in workflow prompts** that can be triggered f
 | Prompt | Scenario | Core Steps |
 |--------|----------|------------|
 | `init-wiki` | Initialize Wiki workspace for a new project | init_wiki (dirs + schema.yaml) → customize purpose → verify AGENTS.md |
-| `init-workspace` | Initialize a multi-repo harness workspace | init_workspace (bootstrap scripts + .gitignore + repo-map + conventions) → clone repos → per-repo init_wiki/analyze_repo → analyze_workspace |
+| `init-workspace` | Initialize a multi-repo harness workspace | Ask the user for the knowledge layout → init_workspace(layout=...) (bootstrap scripts + .gitignore + repo-map + conventions) → clone repos → register each repo, then init_wiki/analyze_repo on demand → analyze_workspace |
 | `add-workspace-repo` | Register a business repo into a workspace | add_workspace_repo (transactional sync of bootstrap tables/.gitignore/repo-map) → git clone → build repo-level Wiki |
 | `generate-wiki` | Full documentation generation pipeline | analyze_repo → cluster → per-module write_doc → overview → lint → close_session |
 | `code-analysis` | Analyze code structure only (no docs) | analyze_repo → list_components → list_dependencies → cache to SQLite |

@@ -48,7 +48,7 @@ _TASK_MEMORY_AGENTS_SECTION = f"""{_TASK_MEMORY_AGENTS_START}
    - **跳过**：本次会话不做任务关联
    新建任务两步弹框：选择「新建任务」后**必须**再次调用 `ask_followup_question` 弹出第二个输入框（标题「新建任务」，问题「请输入新任务名称」，带 2 个占位选项）。弹框自带输入框，用户可自由输入任务名后回车；以输入文字为准，立即调用 `create_task(title=<任务名>)` 创建并关联。若用户只点了占位选项，用文字追问确认真实任务名
 3. `get_task_context(task_id=<任务id>)` 拉取任务描述 + 记忆 + 关联笔记，作为继续工作的上下文
-4. **补蒸馏（委托 subagent，不阻塞）**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn「蒸馏 worker」subagent（`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP）后台执行：`distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)`，然后**直接开始回答用户提问**。在自然停顿点（任务告一段落/用户空闲）重新 `get_task_context` 拉取最新上下文（任务记忆已直写落盘，`memories_written` 报告条数）→ 只向用户展示待确认的草稿笔记（`confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、草稿笔记在会话结束前展示确认即可
+4. **补蒸馏（委托 subagent，不阻塞）**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn 蒸馏子代理后台执行（CodeBuddy：spawn「蒸馏 worker」subagent，`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP；claude 家族 Qoder/Claude Code/Gemini CLI：**自定义子代理拿不到 MCP 权限**，改 spawn 内置 general-purpose 子代理，让它先读对应 `.qoder|.claude|.gemini/agents/distill-worker.md` 作为剧本）：`distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)`，然后**直接开始回答用户提问**。在自然停顿点（任务告一段落/用户空闲）重新 `get_task_context` 拉取最新上下文（任务记忆已直写落盘，`memories_written` 报告条数）→ 只向用户展示待确认的草稿笔记（`confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、草稿笔记在会话结束前展示确认即可
 
 **工具入口：**
 - `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context` / `compact_task_memories`
@@ -101,7 +101,7 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
         hook_block = f"""## 步骤 2: 启用任务管理（跨会话任务记忆 + 对话采集）
 为支持跨会话任务记忆，启用 SessionEnd hook 使会话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成），并向 AGENTS.md 写入任务引导段，使新建会话时 Agent 提示用户关联已有任务或输入任务名新建。
 
-**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionStart/SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本与 distill-worker subagent 定义到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。接线支持 CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`），三个 IDE 的 settings.json 结构与事件注册完全一致，仅配置目录不同。**只为项目根目录已存在配置目录的智能体接线（自动检测到哪些目录才为哪些接线），绝不主动新建 `.qoder`/`.claude` 等配置目录**——用户明确点名要接未检测到的智能体时，先向用户确认，并提示需先初始化该工具的配置目录。
+**本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionStart/SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本与 distill-worker subagent 定义到目标项目。**每次都强制覆盖拷贝**，不要因为目标已存在就跳过。接线支持 CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`）、Gemini CLI（`.gemini/`），四个 IDE 的 settings.json 结构与事件注册完全一致，仅配置目录不同。**只为项目根目录已存在配置目录的智能体接线（自动检测到哪些目录才为哪些接线），绝不主动新建 `.qoder`/`.claude` 等配置目录**——用户明确点名要接未检测到的智能体时，先向用户确认，并提示需先初始化该工具的配置目录。
 
 **首选路径：运行 CLI 自动检测接线（推荐）**
 
@@ -109,7 +109,7 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 codewiki install-hooks --repo-path {repo_path}
 ```
 
-CLI 自动检测项目根目录存在哪些 IDE 配置目录（`.codebuddy/` / `.qoder/` / `.claude/`），检测到哪些就为哪些自动完成全部接线（拷贝脚本与 distill-worker、幂等合并 settings.json、upsert AGENTS.md 引导段）。CLI 不可用时回退到下方手动步骤，Qoder/Claude Code 仅需把 `.codebuddy` 目录换成 `.qoder` / `.claude`。**手动接线同样只为已检测到（目录已存在）的智能体执行；未检测到的一律不接、绝不创建其目录，除非用户明确点名并确认。**
+CLI 自动检测项目根目录存在哪些 IDE 配置目录（`.codebuddy/` / `.qoder/` / `.claude/` / `.gemini/`），检测到哪些就为哪些自动完成全部接线（拷贝脚本与 distill-worker、幂等合并 settings.json、upsert AGENTS.md 引导段）。CLI 不可用时回退到下方手动步骤，Qoder/Claude Code/Gemini CLI 仅需把 `.codebuddy` 目录换成 `.qoder` / `.claude` / `.gemini`。**手动接线同样只为已检测到（目录已存在）的智能体执行；未检测到的一律不接、绝不创建其目录，除非用户明确点名并确认。**
 
 1. **确保两个 hook 脚本与 distill-worker subagent 就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。用以下命令解析 CodeWiki 自带的源文件路径，并**强制复制**到目标目录（务必复制，不要凭记忆重写，以免与 `codewiki` 包行为不一致）：
 
@@ -128,16 +128,16 @@ CLI 自动检测项目根目录存在哪些 IDE 配置目录（`.codebuddy/` / `
 
    若 `import codewiki` 失败（未 pip 安装且不在源码 checkout 内），回退：从 `CODEWIKI_HOME` 环境变量指向的 checkout 取 `$env:CODEWIKI_HOME/codewiki/hooks/` 下的两个脚本与 `$env:CODEWIKI_HOME/codewiki/agents/distill-worker.md`，同样 Copy-Item 到 `$destDir` / `$agentDir`。兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。**为 Qoder/Claude Code 接线时，把 `$destDir` / `$agentDir` 中的 `.codebuddy` 换成 `.qoder` / `.claude` 即可。**
 
-2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置；Qoder/Claude Code 写入 `.qoder/settings.json` / `.claude/settings.json`，command 中路径随目录变化）：
+2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置；Qoder/Claude Code/Gemini CLI 写入 `.qoder/settings.json` / `.claude/settings.json` / `.gemini/settings.json`，command 中目录名随配置目录变化，其余完全一致）。**command 用项目相对路径（宿主以项目根为工作目录执行命令），不写机器相关绝对路径、也不用 `$*_PROJECT_DIR` 变量（各宿主变量展开经实测不可靠）**——settings.json 随仓库共享，绝对路径提交后队友克隆到其他目录即失效：
 
 ```json
 {{
   "hooks": {{
     "SessionStart": [
-      {{ "matcher": "startup", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/task_session_start.py\\"", "timeout": 15 }} ] }}
+      {{ "matcher": "startup", "hooks": [ {{ "type": "command", "command": "python \\".codebuddy/hooks/task_session_start.py\\"", "timeout": 15 }} ] }}
     ],
     "SessionEnd": [
-      {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
+      {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\".codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
     ]
   }}
 }}
@@ -207,32 +207,34 @@ CLI 自动检测项目根目录存在哪些 IDE 配置目录（`.codebuddy/` / `
 
 
 def _prompt_init_workspace(args: dict[str, str]) -> str:
-    workspace_path = _resolve_path(args.get("workspace_path", ""))
-    return f"""请把指定目录初始化为多仓 harness 工作区。按以下步骤执行：
+    return """请把当前工作目录初始化（或重新同步）为多仓 harness 工作区。按以下步骤执行：
 
-## 步骤 1: 确认工作区根目录
-- **workspace_path**：{workspace_path}
-- 若用户未指定目录，则使用当前工作目录（init_workspace 的默认值），不要额外询问。
+## 步骤 1: 判断目录现状
+- init_workspace 作用于当前工作目录；若用户提到的工作区不是当前目录，先与用户确认
+- **全新目录**（无 `bootstrap.sh` / `bootstrap.ps1`、无 `repowiki/`）：**先询问用户选择知识布局**——`colocated`（各业务仓自带 repowiki，wiki 与代码同仓演进，两跳检索）还是 `centralized`（知识全部集中在工作区 repowiki，业务仓为纯代码目录，一跳检索）；向用户说明两者差异，拿到答复后才进入步骤 2，不要替用户默认
+- **已是工作区且骨架齐备**（`bootstrap.sh` / `bootstrap.ps1` + `.gitignore` + `repowiki/` 骨架齐备）：**不要调用 init_workspace**——缺的只是业务仓克隆，直接补克隆即可：执行 bootstrap 脚本（Windows：`powershell -ExecutionPolicy Bypass -File .\\bootstrap.ps1`；POSIX：`bash bootstrap.sh`），脚本按登记表克隆缺失业务仓、跳过已克隆的。误调 init_workspace 也安全（clone-only 接管，只补克隆、不触碰骨架与 AGENTS.md），但该场景没必要经过它
+- **骨架痕迹部分存在但不齐备**（如有 bootstrap 脚本但缺 `repowiki/`，或反之）：调用 init_workspace() 走完整同步修复流程——自动沿用已保存的布局、补齐缺失产物、强制刷新约定块、补克隆
 
-## 步骤 2: 初始化
-调用 init_workspace(workspace_path="{workspace_path}")
-- 生成 `bootstrap.sh` / `bootstrap.ps1`（空登记表：目录名 -> 仓库 URL）
-- 生成/更新 `.gitignore`（业务仓目录 + 通用忽略；产品级 repowiki 与跨仓分析产物入库，不忽略）
-- 生成 `repowiki/wiki/repo-map.md` 导航骨架与 README.md 骨架
-- 向 AGENTS.md 写入工作区约定块（两跳检索路由、提交纪律、知识写入路由、新仓接入清单）
-- 复用 init_wiki 建产品级 repowiki 目录结构与 schema.yaml
+## 步骤 2: 初始化（仅全新目录 / 骨架部分缺失）
+- 全新目录：按用户选择调用 init_workspace(layout="colocated") 或 init_workspace(layout="centralized")
+- 骨架部分缺失：调用 init_workspace()（自动沿用已保存布局）
+- 若工具返回 `status="needs_layout_decision"`：说明是首次初始化且尚未选择布局，未写入任何产物——回到步骤 1 询问用户后，带 layout 参数重新调用
+- 产物：`bootstrap.sh` / `bootstrap.ps1`（登记表：目录名 -> 仓库 URL）、`.gitignore`、`repowiki/wiki/repo-map.md`、`repowiki/.meta/workspace.json`（布局记录，两种布局都会写入）、AGENTS.md 约定块、产品级 repowiki
 
-## 步骤 3: 校验产物
-- `bootstrap.sh` / `bootstrap.ps1` 存在且登记表结构完好（`declare -A repos=(` / `$repos = [ordered]@{{`）
+## 步骤 3: 校验产物与克隆结果
+- 直接补克隆的场景：确认每个登记目录含 `.git`，且 harness 仓 `git status` 保持干净（.gitignore 生效）；克隆失败时把原因告知用户，修好网络/凭据后重跑 bootstrap 脚本
+- 调用了 init_workspace 的场景：先看返回的 `mode` 字段——`clone-only`（接管）说明骨架已就位且未被触碰，只需校验 `clones`；`full`（完整流程）才需要校验下列产物
+- `bootstrap.sh` / `bootstrap.ps1` 存在且登记表结构完好（`declare -A repos=(` / `$repos = [ordered]@{`）
 - `AGENTS.md` 同时含 `<!-- CodeWiki Workspace Conventions -->` 与 `<!-- CodeWiki LLM Wiki -->` 两个标记块
-- `repowiki/wiki/repo-map.md` 已生成
 
-## 步骤 4: 登记业务仓并建仓库级 Wiki
+## 步骤 4: 登记业务仓（仅新工作区需要）
 - 对用户提到的每个业务仓，用 add_workspace_repo(url=<克隆URL>) 逐个登记（目录名自动取仓库名）；用户没给 URL 就先询问，不要凭记忆猜测
-- 对每个业务仓调用 init_wiki / analyze_repo（output_dir=<workspace>/<name>/repowiki），再在工作区根跑 analyze_workspace(workspace_path="{workspace_path}") 生成跨服务总览
+- 登记完成后**不要自动生成 wiki**：不调用 init_wiki / analyze_repo / analyze_workspace，等用户显式要求时再生成
+- 生成时按布局选工具：**centralized** 下 `init_wiki` 不适用于仓库级（知识统一汇入工作区 repowiki，无独立仓库 wiki）——单仓代码知识用 `analyze_repo(<repo_path>)`（不传 output_dir 自动路由到 `wiki/modules/<名>/` 分区），跨仓拓扑与工作区总览用 `analyze_workspace(workspace_path=<工作区根>)`；**colocated** 下按既有流程 `init_wiki` + `analyze_repo`（各仓 wiki 位于 `<repo>/repowiki/`）
 
 ## 注意事项
-- init_workspace 幂等：重跑不覆盖 bootstrap 脚本、repo-map、README、schema.yaml；约定块默认保留（refresh_conventions=true 才强制刷新）
+- 首次初始化必须显式选择布局：不传 layout 时工具返回 needs_layout_decision 且不写任何产物；重跑自动沿用 `repowiki/.meta/workspace.json` 中持久化的布局（显式传冲突值才报错）
+- init_workspace 幂等：痕迹齐备时重跑为 clone-only 接管（只补缺克隆、不触碰骨架与 AGENTS.md，布局配置缺失会补写）——因此该场景优先直接跑 bootstrap 脚本补克隆，无需经过 MCP；骨架有缺失时才调用 init_workspace 补齐产物并强制刷新约定块
 - 后续新增/移除业务仓分别用 `add_workspace_repo` / `remove_workspace_repo` prompt 或工具，不要手工改四个文件"""
 
 
@@ -257,8 +259,8 @@ def _prompt_add_workspace_repo(args: dict[str, str]) -> str:
 - `repo-map.md` 有该仓的导航行与 `## <name>` 小节
 - `clone.status` 为 ok；若为 error，登记已保留，提示用户稍后跑 `./bootstrap.sh` 或用 clone=true 重试
 
-## 步骤 4: 后续（可选但推荐）
-- 为该业务仓建仓库级 Wiki：init_wiki / analyze_repo（output_dir=<workspace>/<name>/repowiki）
+## 步骤 4: 后续
+- 登记完成后**不要自动生成 wiki**，等用户显式要求时再生成：**centralized** 下 `init_wiki` 不适用于仓库级（知识统一汇入工作区 repowiki）——该仓代码知识用 `analyze_repo(<repo_path>)`（自动路由到 `wiki/modules/<名>/` 分区），跨仓总览用 `analyze_workspace(workspace_path=<工作区根>)`；**colocated** 下按既有流程 `init_wiki` + `analyze_repo`（`<repo>/repowiki/`）
 - 在 repo-map.md 该仓小节填写"业务概述"（替换 <!-- TODO --> 占位）
 
 ## 注意事项
@@ -278,21 +280,19 @@ def _prompt_remove_workspace_repo(args: dict[str, str]) -> str:
 - **name**：业务仓在 workspace 下的子目录名（登记时的目录名，不是完整 URL）
 - 若用户没指定 name，先查看 bootstrap.sh 登记表或询问用户，不要猜。
 
-## 步骤 2: 确认删除范围（重要）
-- 向用户确认是否同时删除该仓的本地 clone 目录 `<workspace>/<name>/`：
-  - 默认只移除登记（bootstrap 表、.gitignore、repo-map.md），保留本地目录
-  - 只有用户明确要求删除本地代码时，才传 delete_dir=true（删除不可恢复）
-
-## 步骤 3: 移除登记
-调用 remove_workspace_repo(workspace_path="{workspace_path}", name="<目录名>", delete_dir=<true|false>)
+## 步骤 2: 移除登记与本地目录
+调用 remove_workspace_repo(workspace_path="{workspace_path}", name="<目录名>")
 - 事务式移除四处：bootstrap.sh 登记行、bootstrap.ps1 登记行、.gitignore 的 `/<name>/`、repo-map.md 的导航行与小节
+- 同步清理 analyze_workspace 产物：repowiki/.meta/ 下的 workspace_routes.json / cross_service_links.json / infra_services.json 按仓归属过滤，生成的 overview.md 删除该仓服务行与链接
+- 本地 clone 目录 `<workspace>/<name>/` 会一并删除（不可恢复），无需再向用户确认——用户要求移除该仓即已表达删除意图
 - 若该仓未登记会直接报错（安全无操作）
 
-## 步骤 4: 校验结果
+## 步骤 3: 校验结果
 - 两个 bootstrap 脚本的登记表已无该仓
 - `.gitignore` 无 `/<name>/`
 - `repo-map.md` 无该仓导航行与小节
-- 若保留目录：确认 `<workspace>/<name>/` 仍在，并提醒用户该目录现在**不再被 .gitignore 排除**——harness 仓 `git status` 会看到它，切勿 `git add .` 把业务代码提交进 harness（必要时手动删除或重新加回 .gitignore）
+- `<workspace>/<name>/` 目录已不存在
+- 查看返回的 `analysis_cleanup`：routes/links/infra 过滤数与 overview 行清理状态符合预期（无产物时为 0 / skipped）
 
 ## 注意事项
 - 移除登记不影响其他业务仓
@@ -1033,11 +1033,11 @@ def _prompt_team_memory_hook(args: dict[str, str]) -> str:
 
 **当前项目探测结果**：`{repo_path}` 下检测到的智能体配置目录：{_detected_str}。**只为探测到的智能体接线**——探测不凭空创建任何目录；用户想接未探测到的智能体时，由用户自行初始化该工具的配置目录后重跑本流程。
 
-claude 家族（CodeBuddy/Qoder/Claude Code 及理论支持工具）接线格式一致（各自 `settings.json`，事件 SessionStart/SessionEnd），仅配置目录不同。cursor 家族（`hooks.json` + 事件名 sessionStart/stop）与 codex 家族（`hooks.json` 嵌套结构）格式不同，且 **cursor 家族采集降级**：stop 事件不携带 transcript_path，只能落事件信封、无法完整蒸馏对话——为 cursor 家族接线前须向用户说明此限制。
+claude 家族（CodeBuddy/Qoder/Claude Code/Gemini CLI 及理论支持工具）接线格式一致（各自 `settings.json`，事件 SessionStart/SessionEnd），仅配置目录不同。cursor 家族（`hooks.json` + 事件名 sessionStart/stop）与 codex 家族（`hooks.json` 嵌套结构）格式不同，且 **cursor 家族采集降级**：stop 事件不携带 transcript_path，只能落事件信封、无法完整蒸馏对话——为 cursor 家族接线前须向用户说明此限制。
 
 ## 步骤 1: 检查当前状态
 依次检查项目根目录下**探测到的**每个智能体配置目录（如 `{repo_path}/.codebuddy/`、`{repo_path}/.qoder/`、`{repo_path}/.claude/` 等，以探测结果为准）：
-- 每个目录下读取家族对应的配置文件（claude 家族 `settings.json`；cursor/codex 家族 `hooks.json`）：**已启用** = 存在 SessionEnd 与 SessionStart（或家族对应事件名）两个条目，且对应目录 `hooks/` 下 `capture_session_end.py` 与 `task_session_start.py` 两个脚本文件都物理存在（注意：hooks 不展开环境变量，命令中必须写脚本的绝对路径，不能用 `$CODEBUDDY_PROJECT_DIR` / `$CLAUDE_PROJECT_DIR`）
+- 每个目录下读取家族对应的配置文件（claude 家族 `settings.json`；cursor/codex 家族 `hooks.json`）：**已启用** = 存在 SessionEnd 与 SessionStart（或家族对应事件名）两个条目，且对应目录 `hooks/` 下 `capture_session_end.py` 与 `task_session_start.py` 两个脚本文件都物理存在（claude 家族 command 用项目相对路径如 `python ".qoder/hooks/task_session_start.py"`——宿主以项目根为工作目录执行命令；不写机器相关绝对路径、也不用 `$*_PROJECT_DIR` 变量（实测不可靠）；历史绝对路径条目可视为已启用，但建议重跑接线迁移为相对路径形式）
 - 向用户报告哪些智能体已启用、哪些未启用
 
 ## 步骤 2A: 启用
@@ -1048,11 +1048,11 @@ codewiki install-hooks --repo-path {repo_path}
 ```
 
 CLI 会自动检测项目根目录下存在哪些智能体配置目录（按 `codewiki/hooks.yaml` 注册表探测），检测到哪些就为哪些自动完成全部接线：
-- 强制拷贝 hook 脚本与 `distill-worker.md` 到对应 `.codebuddy|.qoder|.claude/hooks/` 与 `agents/`
+- 强制拷贝 hook 脚本与 `distill-worker.md` 到对应 `.codebuddy|.qoder|.claude|.gemini/hooks/` 与 `agents/`
 - 幂等合并 `settings.json` 的 SessionStart/SessionEnd 注册（保留已有无关配置，重复运行不产生重复条目）
 - 向 `AGENTS.md` upsert 任务记忆引导段（多 IDE 共享一份，只写一次）
 
-CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤。手动接线时以 `.codebuddy` 为例，**Qoder 与 Claude Code 仅目标目录不同**：`.codebuddy/` ↔ `.qoder/` ↔ `.claude/`（settings.json、hooks/、agents/ 的相对位置与内容完全一致）。**仅为步骤 1 探测到的智能体执行手动接线；未探测到的智能体一律不接、不创建其目录**——本机安装了某工具不等于本仓库在用它，除非用户明确点名并确认。
+CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤。手动接线时以 `.codebuddy` 为例，**Qoder / Claude Code / Gemini CLI 仅目标目录不同**：`.codebuddy/` ↔ `.qoder/` ↔ `.claude/` ↔ `.gemini/`（settings.json、hooks/、agents/ 的相对位置与内容完全一致，command 均为项目相对路径）。**仅为步骤 1 探测到的智能体执行手动接线；未探测到的智能体一律不接、不创建其目录**——本机安装了某工具不等于本仓库在用它，除非用户明确点名并确认。
 
 ### 手动兜底步骤
 1. **确保两个 hook 脚本与 distill-worker subagent 就位（每次都强制覆盖拷贝）**。脚本必须物理存在于目标项目，IDE 不会自动创建它们。
@@ -1080,16 +1080,16 @@ CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤�
      `$env:CODEWIKI_HOME/codewiki/agents/distill-worker.md`，同样 Copy-Item 到 `$destDir` / `$agentDir`。
      兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
      **为 Qoder/Claude Code 接线时，把上面 `$destDir` / `$agentDir` 中的 `.codebuddy` 换成 `.qoder` / `.claude` 即可。**
-2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置；Qoder/Claude Code 请写入 `.qoder/settings.json` / `.claude/settings.json`，command 中的路径随目录变化）：
+2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置；Qoder/Claude Code/Gemini CLI 写入 `.qoder/settings.json` / `.claude/settings.json` / `.gemini/settings.json`，command 中目录名随配置目录变化，其余完全一致）。**command 用项目相对路径（宿主以项目根为工作目录执行命令），不写机器相关绝对路径、也不用 `$*_PROJECT_DIR` 变量（各宿主变量展开经实测不可靠）**——settings.json 随仓库共享，绝对路径提交后队友克隆到其他目录即失效：
 
 ```json
 {{
   "hooks": {{
     "SessionStart": [
-      {{ "matcher": "startup", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/task_session_start.py\\"", "timeout": 15 }} ] }}
+      {{ "matcher": "startup", "hooks": [ {{ "type": "command", "command": "python \\".codebuddy/hooks/task_session_start.py\\"", "timeout": 15 }} ] }}
     ],
     "SessionEnd": [
-      {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\"{repo_path}/.codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
+      {{ "matcher": "other", "hooks": [ {{ "type": "command", "command": "python \\".codebuddy/hooks/capture_session_end.py\\"", "timeout": 30 }} ] }}
     ]
   }}
 }}
@@ -1122,7 +1122,7 @@ CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤�
 
 ## 步骤 2B: 关闭
 **首选路径：运行 `codewiki install-hooks --repo-path {repo_path} --ide <name>` 可重新接线；关闭采集时**：
-1. 依次检查三个 IDE 目录（`.codebuddy/`、`.qoder/`、`.claude/`），从对应 `settings.json` 移除 SessionStart 与 SessionEnd 两个条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
+1. 依次检查探测到的各智能体目录（`.codebuddy/`、`.qoder/`、`.claude/`、`.gemini/` 等），从对应 `settings.json` 移除 SessionStart 与 SessionEnd 两个条目（其他 hook 保持不变；`"hooks": {{}}` 留空也可以）
 2. 从 `{repo_path}/AGENTS.md` 移除任务记忆会话引导段：删除 `{_TASK_MEMORY_AGENTS_START}` 到 `{_TASK_MEMORY_AGENTS_END}` 之间的整段（含两行注释标记本身）；若不存在该标记块则无需处理，其余内容保持不动
 3. 已采集的 raw 文件保留在 `repowiki/raw/`，之后仍可蒸馏；关闭采集不会删除它们
 4. hook 脚本 `capture_session_end.py`、`task_session_start.py` 与 subagent 定义 `distill-worker.md` 可保留也可删除；重新启用时步骤 2A 会自动补回
@@ -1200,7 +1200,7 @@ def _prompt_task_workflow(args: dict[str, str]) -> str:
    - **新建任务**：先调用 `ask_followup_question` 弹出输入框（标题「新建任务」，问题「请输入新任务名称」）让用户输入任务名（可再补充一句描述），调用 `create_task(title=<新任务名>, description=<可选>)` 创建后即关联该新任务
 3. 关联后：`set_session_task(source_session_id=<当前会话id>, task_id=<选中任务>)` 建立绑定，之后本会话采集的对话会自动带上 task_id
 4. `get_task_context(task_id=<选中任务>)` 拉取该任务的描述 + 记忆 + 关联笔记，作为继续工作的上下文
-5. **补蒸馏（委托 subagent，不阻塞）**：检查返回的 `pending_raw_count`（本任务未蒸馏的历史对话数）。若 > 0，**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn「蒸馏 worker」subagent（`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP）后台执行：
+5. **补蒸馏（委托 subagent，不阻塞）**：检查返回的 `pending_raw_count`（本任务未蒸馏的历史对话数）。若 > 0，**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn 蒸馏子代理后台执行（CodeBuddy：spawn「蒸馏 worker」subagent，`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP；claude 家族 Qoder/Claude Code/Gemini CLI：**自定义子代理拿不到 MCP 权限**，改 spawn 内置 general-purpose 子代理，让它先读对应 `.qoder|.claude|.gemini/agents/distill-worker.md` 作为剧本再执行）：
    - subagent 执行：`distill_conversation(mode="prepare", task_id=<选中任务>)` 获取该任务的积压对话清单 → 按清单逐条 read_file 阅读 raw 文件，提取 `notes`（通用经验）与 `memories`（任务进度）→ `distill_conversation(mode="submit", distilled=<提取结果>)` 提交（产出草稿笔记 + 直写落盘的任务记忆）
    - 主 Agent **不等蒸馏完成，直接开始回答用户提问**
    - 在自然停顿点（任务告一段落/用户空闲时）重新 `get_task_context` 拉取最新上下文（新落盘的任务记忆/待确认草稿笔记会一并注入）
@@ -1333,7 +1333,7 @@ def register(server):
         return [
             Prompt(
                 name="init-wiki",
-                title="初始化 Wiki 工作区",
+                title="初始化单仓Wiki工作区",
                 description=(
                     "零配置初始化：创建目录结构、拷贝带注释的 schema.yaml 模板、"
                     "写入 AGENTS.md（含使用建议和自我反思协议）。"
@@ -1359,39 +1359,26 @@ def register(server):
             ),
             Prompt(
                 name="init-workspace",
-                title="初始化多仓 harness 工作区",
+                title="初始化多仓WIKI工作区",
                 description=(
-                    "把当前目录（或 workspace_path）初始化为多仓工作区：生成 bootstrap 克隆脚本"
-                    "（空登记表）、.gitignore、repo-map 导航骨架、AGENTS.md 工作区约定"
-                    "（两跳检索路由、提交纪律）与产品级 repowiki。幂等，重跑不冲刷用户内容；"
-                    "业务仓登记走 add_workspace_repo。"
+                    "把当前工作目录初始化（或重新同步）为多仓工作区：生成 bootstrap 克隆脚本、"
+                    ".gitignore、repo-map 导航骨架、AGENTS.md 工作区约定与产品级 repowiki。"
+                    "首次初始化必须先询问用户知识布局（colocated/centralized）再带 layout 调用，"
+                    "布局记录写入 repowiki/.meta/workspace.json；重跑零配置幂等——痕迹齐备时"
+                    "为 clone-only 接管（只补缺业务仓克隆，不触碰骨架与 AGENTS.md），骨架有"
+                    "缺失才补齐产物并强制刷新约定块。业务仓登记走 add_workspace_repo。"
                 ),
                 arguments=[
                     PromptArgument(
-                        name="workspace_path",
-                        description="工作区根目录（必须已存在；相对路径基于当前工作目录；默认当前目录）",
-                        required=False,
-                    ),
-                    PromptArgument(
                         name="output_dir",
                         description="产品级 repowiki 目录（默认: <workspace>/repowiki）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="refresh_conventions",
-                        description="强制刷新 AGENTS.md 工作区约定块（默认 false，保留已有块）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="with_readme",
-                        description="无 README.md 时生成骨架（默认 true）",
                         required=False,
                     ),
                 ],
             ),
             Prompt(
                 name="add-workspace-repo",
-                title="登记业务仓到工作区",
+                title="登记业务仓到多仓工作区",
                 description=(
                     "按克隆 URL 把业务代码仓库登记进已初始化的 harness 工作区：目录名自动取仓库名，"
                     "事务式同步 bootstrap.sh/ps1 登记表、.gitignore、repo-map.md，并默认克隆。"
@@ -1417,11 +1404,10 @@ def register(server):
             ),
             Prompt(
                 name="remove-workspace-repo",
-                title="移除业务仓",
+                title="从多仓工作区移除业务仓",
                 description=(
                     "按子目录名把业务代码仓库从 harness 工作区移除：事务式清理 bootstrap.sh/ps1 "
-                    "登记表、.gitignore、repo-map.md。默认保留本地 clone 目录，"
-                    "delete_dir=true 才删除（不可恢复）。"
+                    "登记表、.gitignore、repo-map.md，并删除本地 clone 目录（不可恢复）。"
                 ),
                 arguments=[
                     PromptArgument(
@@ -1434,16 +1420,11 @@ def register(server):
                         description="业务仓子目录名（登记时的目录名，必填）",
                         required=True,
                     ),
-                    PromptArgument(
-                        name="delete_dir",
-                        description="同时删除本地 clone 目录（默认 false，删除不可恢复）",
-                        required=False,
-                    ),
                 ],
             ),
             Prompt(
                 name="generate-wiki",
-                title="生成代码 Wiki",
+                title="生成单仓代码 Wiki",
                 description="完整的代码仓库 Wiki 生成流水线：分析→聚类→逐模块撰写→总览→质检→关闭会话",
                 arguments=[
                     PromptArgument(
@@ -1460,7 +1441,7 @@ def register(server):
             ),
             Prompt(
                 name="incremental-update",
-                title="增量更新 Wiki",
+                title="更新单仓代码 Wiki",
                 description="检测代码变更并增量更新受影响的 Wiki 模块文档",
                 arguments=[
                     PromptArgument(
@@ -1471,23 +1452,54 @@ def register(server):
                 ],
             ),
             Prompt(
-                name="extract-knowledge",
-                title="外部文档知识抽取",
-                description="导入外部文档并从中抽取实体和概念，生成结构化知识页面并构建 wikilink 图谱。两阶段流程：骨架提取→去重检查→证据校验→页面撰写。",
+                name="code-analysis",
+                title="单仓代码结构分析（不生成 Wiki）",
+                description=(
+                    "仅解析代码结构、构建函数级调用图、查询依赖和评估修改影响范围，"
+                    "不生成任何 Wiki 文档。分析结果缓存在 SQLite 中，后续可随时继续生成 Wiki。"
+                ),
                 arguments=[
                     PromptArgument(
-                        name="source_path",
-                        description="要导入并提取知识的外部文档的绝对路径（支持 PDF/MD/DOCX/HTML）",
+                        name="repo_path",
+                        description="要分析的代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                ],
+            ),
+            Prompt(
+                name="workspace-analysis",
+                title="生成/更新多仓代码Wiki（含跨服务拓扑）",
+                description=(
+                    "扫描父目录下的多个 git 仓库，为每个生成独立 Wiki 并自动执行跨服务分析："
+                    "RouteNode 匹配（HTTP+MQ，覆盖 Py/Java/JS/TS/Go）、Mermaid 服务拓扑图、"
+                    "基础设施扫描（docker-compose/.env/application.yml）。可搭配 codebase-memory-mcp "
+                    "做语义级深度追踪。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="workspace_path",
+                        description="包含多个 git 仓库的父目录路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                ],
+            ),
+            Prompt(
+                name="cross-service-trace",
+                title="跨服务调用链追踪",
+                description=(
+                    "对指定根服务执行跨服务调用链分析：先走 CodeWiki RouteNode 静态匹配（HTTP 路由 + "
+                    "MQ 生产者/消费者），再用 codebase-memory-mcp trace_path(mode='cross_service') "
+                    "做多跳语义追踪，产出调用链图 + 架构诊断（循环依赖/扇入热点/未匹配路由）。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="workspace_path",
+                        description="包含多个 git 仓库的工作区根目录（相对路径基于当前工作目录，默认当前目录；须已执行过 analyze_workspace）",
                         required=False,
                     ),
                     PromptArgument(
-                        name="output_dir",
-                        description="Wiki 输出目录（默认: <cwd>/repowiki）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="granularity",
-                        description="提取粒度：focused（3-7 核心项）| standard（适中覆盖）| exhaustive（应提尽提）。缺省遵循 schema.yaml 的 extraction_granularity",
+                        name="filter_value",
+                        description="追踪起点：服务名 / HTTP 方法 / URL 子串 / 路径前缀（可在对话中补充）",
                         required=False,
                     ),
                 ],
@@ -1517,21 +1529,6 @@ def register(server):
                 ],
             ),
             Prompt(
-                name="code-analysis",
-                title="代码结构分析（不生成 Wiki）",
-                description=(
-                    "仅解析代码结构、构建函数级调用图、查询依赖和评估修改影响范围，"
-                    "不生成任何 Wiki 文档。分析结果缓存在 SQLite 中，后续可随时继续生成 Wiki。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="要分析的代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
                 name="impact-review",
                 title="修改影响范围评估",
                 description=(
@@ -1554,7 +1551,7 @@ def register(server):
             ),
             Prompt(
                 name="change-review",
-                title="变更评估与代码评审（修改后）",
+                title="变更评估与代码评审",
                 description=(
                     "对最近代码变更（commit 范围或未提交变更）执行影响范围分析与代码评审："
                     "git diff 行级解析定位变更函数，传递性影响半径 + 回归测试建议；"
@@ -1592,39 +1589,23 @@ def register(server):
                 ],
             ),
             Prompt(
-                name="workspace-analysis",
-                title="多仓库工作区分析（含跨服务拓扑）",
-                description=(
-                    "扫描父目录下的多个 git 仓库，为每个生成独立 Wiki 并自动执行跨服务分析："
-                    "RouteNode 匹配（HTTP+MQ，覆盖 Py/Java/JS/TS/Go）、Mermaid 服务拓扑图、"
-                    "基础设施扫描（docker-compose/.env/application.yml）。可搭配 codebase-memory-mcp "
-                    "做语义级深度追踪。"
-                ),
+                name="extract-knowledge",
+                title="外部文档知识抽取",
+                description="导入外部文档并从中抽取实体和概念，生成结构化知识页面并构建 wikilink 图谱。两阶段流程：骨架提取→去重检查→证据校验→页面撰写。",
                 arguments=[
                     PromptArgument(
-                        name="workspace_path",
-                        description="包含多个 git 仓库的父目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="cross-service-trace",
-                title="跨服务调用链追踪",
-                description=(
-                    "对指定根服务执行跨服务调用链分析：先走 CodeWiki RouteNode 静态匹配（HTTP 路由 + "
-                    "MQ 生产者/消费者），再用 codebase-memory-mcp trace_path(mode='cross_service') "
-                    "做多跳语义追踪，产出调用链图 + 架构诊断（循环依赖/扇入热点/未匹配路由）。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="workspace_path",
-                        description="包含多个 git 仓库的工作区根目录（相对路径基于当前工作目录，默认当前目录；须已执行过 analyze_workspace）",
+                        name="source_path",
+                        description="要导入并提取知识的外部文档的绝对路径（支持 PDF/MD/DOCX/HTML）",
                         required=False,
                     ),
                     PromptArgument(
-                        name="filter_value",
-                        description="追踪起点：服务名 / HTTP 方法 / URL 子串 / 路径前缀（可在对话中补充）",
+                        name="output_dir",
+                        description="Wiki 输出目录（默认: <cwd>/repowiki）",
+                        required=False,
+                    ),
+                    PromptArgument(
+                        name="granularity",
+                        description="提取粒度：focused（3-7 核心项）| standard（适中覆盖）| exhaustive（应提尽提）。缺省遵循 schema.yaml 的 extraction_granularity",
                         required=False,
                     ),
                 ],
@@ -1651,7 +1632,7 @@ def register(server):
             ),
             Prompt(
                 name="team-memory-hook",
-                title="任务管理（跨会话任务记忆）",
+                title="启用/禁用任务管理（跨会话任务记忆）",
                 description=(
                     "管理跨会话任务记忆：启用时注册 SessionEnd 采集 Hook 并向 AGENTS.md "
                     "写入任务引导段（新建会话时提示用户关联已有任务或输入任务名新建），"

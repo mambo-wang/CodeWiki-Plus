@@ -9,6 +9,8 @@ metadata:
   - change_analysis
   - review_changes
   source_ref: conversations/conv-@command-codewiki-变更评估与代码评审（修改后）.md
+  consolidated_into:
+  - wiki/scenarios/代码评审与分析工具方法.md
 status: stable
 generated:
   by: codewiki/5.4.3
@@ -18,6 +20,7 @@ origin: conversation
 verified:
 - by: human:mambo-wang
   at: '2026-08-25T17:03:47Z'
+author: wandering-bug
 ---
 
 ## 背景

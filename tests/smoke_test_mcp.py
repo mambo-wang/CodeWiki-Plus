@@ -893,8 +893,8 @@ def main():
     ids = {c.get("conversation_id") for c in prep.get("captures", [])}
     check("prepare lists both captures", {cid1, cid2} <= ids, str(ids))
     check(
-        "prepare carries transcripts",
-        any("stdin=DEVNULL" in c.get("transcript", "") for c in prep.get("captures", [])),
+        "prepare carries preview transcripts",
+        any("stdin=DEVNULL" in c.get("preview", "") for c in prep.get("captures", [])),
         "",
     )
 

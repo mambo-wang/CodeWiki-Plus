@@ -54,6 +54,9 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]  # <repo>/.codebuddy/hooks/ -> <repo>
+# 本副本安装所在的 IDE 配置目录名（".codebuddy"/".qoder"/…）；
+# 包内源副本位于 codewiki/hooks/，取值为 "codewiki"。
+IDE_DIR_NAME = Path(__file__).resolve().parents[1].name
 
 
 def _read_event() -> dict:
@@ -79,12 +82,16 @@ def _read_event() -> dict:
 def _resolve_repo_path(event: dict) -> str:
     """Resolve the repo root, preferring authoritative sources.
 
-    Priority: CODEBUDDY_PROJECT_DIR env var (CodeBuddy-specific) >
-    CLAUDE_PROJECT_DIR (compat) > event's cwd > this script's repo location.
-    Candidates that don't exist on disk are skipped.
+    Priority: the host's *_PROJECT_DIR env var (each host injects its own:
+    CODEBUDDY/QODER/GEMINI/TRAE, plus CLAUDE_PROJECT_DIR compat) > event's
+    cwd > this script's repo location. Candidates that don't exist on disk
+    are skipped.
     """
     candidates = [
         os.environ.get("CODEBUDDY_PROJECT_DIR"),
+        os.environ.get("QODER_PROJECT_DIR"),
+        os.environ.get("GEMINI_PROJECT_DIR"),
+        os.environ.get("TRAE_PROJECT_DIR"),
         os.environ.get("CLAUDE_PROJECT_DIR"),
         event.get("cwd"),
         str(REPO),
@@ -253,6 +260,44 @@ def _load_doctrine(repo_path: str) -> str:
     )
 
 
+def _load_knowledge_overview(repo_path: str) -> str:
+    """One-paragraph knowledge-base overview for the fresh session (P2-2 thin).
+
+    claude-mem borrowing: SessionStart is the "visible before work starts"
+    channel — the tool description (P0-3) only fires when the agent already
+    thinks of calling query_wiki. This section says the knowledge base EXISTS
+    (N notes / recent key decisions) and carries the one-line four-layer
+    retrieval strategy, so agents that never thought to search still do.
+
+    Deliberately thin: counts files and reads only the 3 newest note titles
+    (stdlib-only line scan of ``metadata.date``-style filename prefixes —
+    note filenames start with YYYY-MM-DD). Degrades to "" when repowiki/
+    notes is absent or empty; never breaks the task prompt.
+    """
+    try:
+        notes_dir = Path(repo_path) / "repowiki" / "notes"
+        if not notes_dir.is_dir():
+            return ""
+        notes = sorted(
+            (p for p in notes_dir.glob("*.md") if p.is_file()),
+            key=lambda p: p.name,
+            reverse=True,
+        )
+        if not notes:
+            return ""
+        recent = [p.name[:-3] for p in notes[:3]]
+        lines = [
+            "【知识库提示】本仓库有 repowiki 知识库"
+            f"（{len(notes)} 条笔记），改文件/做设计前先查：",
+            "- 改某文件前：query_wiki(by_file=<路径>) 查该文件的历史决策与教训；",
+            "- 主题检索：query_wiki(mode='check') 先轻量预检，再全文检索（结果带 est_tokens 成本）；",
+            f"- 最新笔记：{ '；'.join(recent) }",
+        ]
+        return "\n".join(lines)
+    except OSError:
+        return ""
+
+
 def _build_message(event: dict, repo_path: str) -> str:
     """Build the guidance injected into the fresh session.
 
@@ -318,12 +363,23 @@ def _build_message(event: dict, repo_path: str) -> str:
         for tid, n in sorted(pending_counts.items()):
             label = f"任务 {tid}" if tid else "未关联任务"
             lines.append(f"  - {label}: {n} 条")
-        lines.append(
-            "绑定任务之后，立即用 Task 工具 spawn「蒸馏 worker」subagent "
-            "（.codebuddy/agents/distill-worker.md，已授权 codewiki MCP）后台执行补蒸馏；"
-            "主 Agent 不要亲自 read_file raw 原文、也不等蒸馏完成，直接开始回答用户提问。"
-            "蒸馏 worker 走 Mode C（纯 MCP JSON）流程："
-        )
+        if IDE_DIR_NAME == ".codebuddy":
+            lines.append(
+                "绑定任务之后，立即用 Task 工具 spawn「蒸馏 worker」subagent "
+                "（.codebuddy/agents/distill-worker.md，已授权 codewiki MCP）后台执行补蒸馏；"
+                "主 Agent 不要亲自 read_file raw 原文、也不等蒸馏完成，直接开始回答用户提问。"
+            )
+        else:
+            # claude 家族（Qoder/Claude Code/Gemini CLI）：自定义子代理拿不到
+            # MCP 权限（实测），委托改走内置 general-purpose 子代理，
+            # 以 distill-worker.md 正文为剧本。包内源副本同走此分支。
+            lines.append(
+                "绑定任务之后，立即用 Task 工具 spawn 内置 general-purpose 子代理后台执行补蒸馏："
+                f"让它先读 {IDE_DIR_NAME}/agents/distill-worker.md（蒸馏 worker 剧本），"
+                "再按其中 Mode C 流程执行（本宿主自定义子代理拿不到 MCP 权限，须用内置子代理）；"
+                "主 Agent 不要亲自 read_file raw 原文、也不等蒸馏完成，直接开始回答用户提问。"
+            )
+        lines.append("蒸馏子代理走 Mode C（纯 MCP JSON）流程：")
         lines.append(
             '  1. distill_conversation(mode="prepare", task_id=<绑定的任务id>) '
             "获取该任务的积压对话清单"
@@ -360,6 +416,14 @@ def _build_message(event: dict, repo_path: str) -> str:
     if doctrine:
         lines.append("")
         lines.append(doctrine)
+
+    # P2-2 (claude-mem borrowing, thin): knowledge-base overview — make the
+    # KB's existence and the cheapest retrieval entries visible before work
+    # starts, complementing P0-3's call-time tool description.
+    overview = _load_knowledge_overview(repo_path)
+    if overview:
+        lines.append("")
+        lines.append(overview)
 
     return "\n".join(lines)
 

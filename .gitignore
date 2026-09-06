@@ -53,9 +53,26 @@ repowiki/.meta/retrieval_stats.db
 # T2 (团队方案): 共享遥测事件流 .meta/telemetry/ 默认入库；本机退化模式
 # (conventions.telemetry.enabled: false) 的写入位置不入库
 repowiki/.meta/telemetry-local/
+# P2-3: 原子写残留（崩溃/被杀时 .tmp.<pid>.<tid> 不及清理）与 sidecar 锁文件
+# 是本机瞬态产物，永远不入库（历史误提交的 Administrator.jsonl.tmp.19748 即此类残留）
+repowiki/.meta/telemetry/*.tmp.*
+repowiki/.meta/telemetry/*.lck
 # T3 (团队方案): search_index.json 是秒级可重建的本机派生索引——
 # 入库只会制造最大的全量重写冲突面，且可能固化过期索引（T1 自愈兜底重建）
 repowiki/.meta/search_index.json
+# Team-layout Phase 1 (D1): 可重建派生物不入库（详见 docs/团队化文件冲突治理与同步策略设计方案.md）
+repowiki/wiki/index.md
+repowiki/.meta/edit_history.json
+repowiki/.meta/metadata.json
+repowiki/.meta/module_tree.json
+repowiki/.meta/symbol_map.json
+repowiki/.meta/project.json
+repowiki/.meta/overview_refs.json
+repowiki/.meta/aggregate_state.json
+repowiki/.meta/source_registry.json
+repowiki/.meta/task_bindings/
+repowiki/tasks/.index.json
+repowiki/distill-jobs.json
 # team-memory fusion: raw/ is a transient staging area for captured
 # conversations (deleted after distillation) — never commit it.
 repowiki/raw/
@@ -81,6 +98,10 @@ Thumbs.db
 *.tmp
 *.log
 *.bak
+# KnowledgeStore lock files (centralized under repowiki/.meta/locks/; *.lck
+# also covers legacy co-located sidecars)
+repowiki/.meta/locks/
+*.lck
 .trash/
 .codewiki/
 .workbuddy/

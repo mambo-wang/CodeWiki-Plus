@@ -10,6 +10,8 @@ metadata:
   severity: medium
   source_ref: conversations/conv-@d-repos-CodeWiki-CN-repowiki-.meta-telemetry-Administrator..md
   scene: telemetry 统计修复
+  consolidated_into:
+  - wiki/scenarios/代码评审与分析工具方法.md
 status: stable
 generated:
   by: codewiki/5.4.3
@@ -19,6 +21,7 @@ origin: conversation
 verified:
 - by: human:Administrator
   at: '2026-08-26T04:31:04Z'
+author: mambo-wang
 ---
 
 ## Background

@@ -12,10 +12,32 @@
 
 ### 使用建议
 
-1. **编码前**：先用 `query_wiki` 搜索相关模块文档和公共知识（如 `query_wiki(query="编码规范")`、`query_wiki(query="日志约定")`），了解架构约定、编码规范和依赖关系。不仅限于模块文档，编码规范、命名约定、项目约定等跨模块公共知识同样存储在 `notes/` 中，必须主动检索。
+1. **编码前**：先用 `query_wiki` 搜索相关模块文档，了解架构约定和依赖关系
 2. **做决策时**：用 `query_wiki` 搜索已有的 `decision` 类型笔记，避免重复讨论
 3. **完成重要决策后**：用 `ingest_note` 归档，让未来的 Agent 和团队成员都能查到
 4. **定期维护**：用 `lint_wiki` 检查文档是否过时，保持文档与代码同步
+
+### 回答时显式标注依据
+
+回答涉及本仓库的知识或代码时，在**关键论断处直接标注来源**，不要只写"根据文档/代码"却不给名字：
+
+- 引用 `query_wiki` 检索到的文档/笔记 → 标注 `（依据：<file>）`，`<file>` 必须与检索结果返回的 `file` 字段完全一致（如 `notes/xxx.md`、`wiki/modules/yyy.md`）；
+- 引用代码事实（函数/类/配置/行为断言） → 标注 `<代码文件>:<行号>`（如 `codewiki/mcp/tools/adoption.py:32`）。行号以你实际读取代码/检索结果所见为准，**不要照抄文档里可能已过时的行号**；
+- 依据来自本次代码核对而非文档 → 明说来源，如 `依据本次代码核对：<代码文件>:<行号>`。
+
+正文标注是给人读的溯源承诺；行尾的 `codewiki:referenced-docs` 注释仍是机器采纳信号，两者并存、互不影响。
+
+### 采纳声明（检索反馈）
+
+当你通过 `query_wiki` 检索并**实际使用了**某条结果（作为决策依据、修改参照或答案来源）时，在最终回复中附带一行声明注释：
+
+```
+<!-- codewiki:referenced-docs: ["notes/pitfall-xxx.md", "wiki/modules/yyy.md"] -->
+```
+
+路径必须与 query_wiki 返回的 `file` 字段完全一致。声明过的文档会获得采纳计数（`usage.adopted_count`），在未来检索中排序提升（采纳权重是单纯召回的 2 倍）；长期高频召回却零采纳的笔记会被 `lint_wiki` 的 `low_adoption` 检查标记为"需要重写得更可操作"。
+
+**注意**：只声明真正用到的文档——这是帮助知识库学习"什么内容真正有用"的信号，不是礼貌性致谢。忘了声明没关系（漏报可容忍），但不要声明没用过的（误报不可容忍）。
 
 ### 纠正识别与经验沉淀
 
@@ -139,8 +161,6 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
 跨会话延续长线工作上下文。任务记忆是**任务范围内的进度知识**(本次做了什么、下一步、待办)，与 Wiki 笔记(**跨任务的通用经验**)互补。
 
 **会话开始时(推荐)：**
-0. **项目定向（必做，独立于任务关联）**：`query_wiki(mode="overview", output_dir=<repo>/repowiki)` 拉取 Team Doctrine 全文 + 场景导航——成本约 1.5K 字符，换来第一句话起就带着团队的做事方式，避免开场跑偏
-   **按需下钻原则**：场景块只注入导航、不预载全文——场景是跨任务的经验卷宗（不绑定任务），预载全文只会烧上下文预算；工作中撞上某条导航对应的领域时，再用 `view_repo_file` 读取该场景全文。Doctrine 是常驻层全文注入，场景是参考资料按需下钻
 1. `list_tasks(status="active")` 列出进行中的任务
 2. **必须用 `ask_followup_question` 工具弹出结构化选择框**（IDE 原生弹框 UI，用户可直接点击），不要用纯文本输出一段话让用户自行回复。选项二选一（加一个"跳过"）：
    - **关联已有任务**：用户从列表中选择，用 `set_session_task(source_session_id=<会话id>, task_id=<任务id>)` 建立绑定，本会话采集的对话会自动带上 `task_id`
@@ -148,7 +168,7 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
    - **跳过**：本次会话不做任务关联
    新建任务两步弹框：选择「新建任务」后**必须**再次调用 `ask_followup_question` 弹出第二个输入框（标题「新建任务」，问题「请输入新任务名称」，带 2 个占位选项）。弹框自带输入框，用户可自由输入任务名后回车；以输入文字为准，立即调用 `create_task(title=<任务名>)` 创建并关联。若用户只点了占位选项，用文字追问确认真实任务名
 3. `get_task_context(task_id=<任务id>)` 拉取任务描述 + 记忆 + 关联笔记，作为继续工作的上下文
-4. **补蒸馏（委托 subagent，不阻塞）**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn「蒸馏 worker」subagent（`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP）后台执行：`distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)`，然后**直接开始回答用户提问**。在自然停顿点（任务告一段落/用户空闲）重新 `get_task_context` 拉取最新上下文（任务记忆已直写落盘，`memories_written` 报告条数）→ 只向用户展示待确认的草稿笔记（`confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、草稿笔记在会话结束前展示确认即可
+4. **补蒸馏（委托 subagent，不阻塞）**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn 蒸馏子代理后台执行（CodeBuddy：spawn「蒸馏 worker」subagent，`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP；claude 家族 Qoder/Claude Code/Gemini CLI：**自定义子代理拿不到 MCP 权限**，改 spawn 内置 general-purpose 子代理，让它先读对应 `.qoder|.claude|.gemini/agents/distill-worker.md` 作为剧本）：`distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)`，然后**直接开始回答用户提问**。在自然停顿点（任务告一段落/用户空闲）重新 `get_task_context` 拉取最新上下文（任务记忆已直写落盘，`memories_written` 报告条数）→ 只向用户展示待确认的草稿笔记（`confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、草稿笔记在会话结束前展示确认即可
 
 **工具入口：**
 - `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context` / `compact_task_memories`

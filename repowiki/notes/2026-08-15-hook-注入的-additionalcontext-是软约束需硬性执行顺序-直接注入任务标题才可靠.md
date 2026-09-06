@@ -21,6 +21,7 @@ verified:
 - by: codewiki/5.2.2
   at: '2026-08-15T15:08:30Z'
 reject_reason: consolidated into IDE-Hook采集链路方法
+author: mambo-wang
 ---
 
 ## 背景

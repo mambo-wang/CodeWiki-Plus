@@ -37,6 +37,8 @@ _ALL_CHECKS = {
     "unsupported_claims",
     "isolated_components",
     "stale_notes",
+    # P0 (openwiki 借鉴): content-hashed repo:// code evidence drift detection
+    "stale_evidence",
     "note_clusters",
     "okf_conformance",
     # P2 (team-memory fusion): L2 scene block hygiene
@@ -44,6 +46,10 @@ _ALL_CHECKS = {
     "scenario_orphan",
     # P1 B-line: hot-but-never-adopted notes (usage utility dimension)
     "low_adoption",
+    # Centralized-layout discipline (ticket 09)
+    "layout_violations",
+    # Team-layout Phase 1 (D1): rebuildable derived files must not be tracked
+    "team_layout_gitignore",
 }
 
 # 归档/调试暂存目录不参与 wiki 一致性审计：.trash/（deprecated 笔记归档区，
@@ -75,6 +81,9 @@ _OKF_TOP_LEVEL_KEYS = frozenset(
         "tags",
         "sources",
         "metadata",
+        # Team-layout Phase 3 (D16): author provenance, write-only — the
+        # data foundation for multi-user governance (no edit-gating).
+        "author",
     }
 )
 # Legacy top-level extensions that may still appear on older pages.  They are
@@ -224,11 +233,13 @@ def _get_output_dir(session: Optional[SessionState], arguments: Dict) -> Optiona
         p = Path(output_dir).expanduser().resolve()
         p.mkdir(parents=True, exist_ok=True)
         return p
-    # Fallback: derive from repo_path
+    # Fallback: derive from repo_path (layout-aware, ticket 09: centralized
+    # members lint the workspace knowledge base).
     rp = arguments.get("repo_path")
     if rp:
-        p = Path(rp).expanduser().resolve()
-        return p / "repowiki"
+        from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+        return default_output_dir(Path(rp).expanduser().resolve())
     return None
 
 
@@ -990,6 +1001,101 @@ def _check_unsupported_claims(
     return issues
 
 
+def _check_stale_evidence(output_dir: Path) -> List[Dict[str, Any]]:
+    """Flag pages whose ``repo://`` code evidence no longer matches source.
+
+    Reads each page's ``sources`` list for entries carrying a ``content_hash``
+    (stamped by ``stamp_evidence``), re-reads the referenced region, and reports
+    ``stale`` (code drifted) or ``missing`` (file gone) entries.  Evidence
+    drives review only — this check never rewrites content.
+    """
+    from codewiki.mcp.tools.evidence import evidence_roots
+    from codewiki.src.evidence import verify_entry
+
+    # Centralized workspaces keep the code in <ws>/<repo>/ while the corpus is
+    # <ws>/repowiki, so output_dir.parent (the status-quo repo root) resolves
+    # nothing — try every plausible root instead. An entry's own `repo` field
+    # (recorded by stamp_evidence) narrows it to the owning repo.
+    base_roots = evidence_roots(output_dir)
+    issues: List[Dict[str, Any]] = []
+
+    for md_file in output_dir.rglob("*.md"):
+        if not md_file.is_file():
+            continue
+        parts = set(md_file.relative_to(output_dir).parts)
+        if parts & _SCRATCH_DIR_NAMES or "raw" in parts:
+            continue
+        try:
+            content = md_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if not content.startswith("---"):
+            continue
+        end = content.find("---", 3)
+        if end < 0:
+            continue
+        try:
+            import yaml
+
+            data = yaml.safe_load(content[3:end]) or {}
+        except Exception:  # noqa: BLE001 - malformed FM is other checks' concern
+            continue
+        if not isinstance(data, dict):
+            continue
+        sources = data.get("sources")
+        if isinstance(sources, dict):
+            sources = [sources]
+        if not isinstance(sources, list):
+            continue
+
+        rel_path = str(md_file.relative_to(output_dir)).replace("\\", "/")
+        for entry in sources:
+            if not isinstance(entry, dict) or "content_hash" not in entry:
+                continue
+            roots = (
+                evidence_roots(output_dir, entry.get("repo"))
+                if entry.get("repo")
+                else base_roots
+            )
+            statuses = [verify_entry(entry, root) for root in roots]
+            if "ok" in statuses:
+                continue
+            # Only report the most actionable verdict: drift > gone > broken URI.
+            if "stale" in statuses:
+                status = "stale"
+            elif "missing" in statuses:
+                status = "missing"
+            else:
+                status = "unresolvable"
+            resource = str(entry.get("resource", "<unknown>"))
+            if status == "stale":
+                message = f"code evidence drifted: {resource}"
+                suggestion = (
+                    "Source changed since this page was grounded. Re-verify the "
+                    "claim, then re-stamp via stamp_evidence or edit_doc_file."
+                )
+            elif status == "missing":
+                message = f"evidence file disappeared: {resource}"
+                suggestion = (
+                    "Referenced source no longer exists under the repo root. "
+                    "Re-check the page and re-stamp or remove the entry."
+                )
+            else:
+                message = f"unresolvable evidence resource: {resource}"
+                suggestion = "Malformed repo:// resource; re-stamp with a valid URI."
+            issues.append(
+                {
+                    "check": "stale_evidence",
+                    "severity": "warning",
+                    "message": message,
+                    "file": rel_path,
+                    "suggestion": suggestion,
+                }
+            )
+
+    return issues
+
+
 # ---------------------------------------------------------------------------
 #  Note lifecycle checks (staleness + clustering)
 # ---------------------------------------------------------------------------
@@ -1573,8 +1679,11 @@ def _check_okf_conformance(
     today_str = date.today().isoformat()
 
     for md_file in sorted(targets):
-        # §4/§11: index.md and log.md are reserved system files
-        if md_file.name in ("index.md", "log.md"):
+        # §4/§11: index.md, log.md and its monthly shards (log-YYYY-MM.md)
+        # are reserved system files
+        if md_file.name in ("index.md", "log.md") or (
+            md_file.name.startswith("log-") and md_file.name.endswith(".md")
+        ):
             continue
 
         rel_path = md_file.relative_to(output_dir).as_posix()
@@ -1766,6 +1875,132 @@ def _check_okf_conformance(
     return issues
 
 
+def _check_layout_violations(output_dir: Path) -> List[Dict[str, Any]]:
+    """Centralized-layout discipline (ticket 09).
+
+    Two rules, only meaningful under a centralized workspace (the dispatcher
+    gates on ``is_centralized_corpus``):
+
+    * **knowledge leak** — a registered business repo's directory contains a
+      ``repowiki/``; centralized keeps business repos pure-code, so knowledge
+      has leaked back into the repo. Severity ``warning``.
+    * **missing provenance** — a shared-pool page carries no ``repo:``/
+      ``repos:`` tag. Untagged means "global," which is legitimate, so this
+      is an ``info`` advisory asking the reader to confirm intent; its real
+      job is surfacing orphans whose sole source was stripped by a
+      ``remove_workspace_repo`` cleanup (ticket 10) for a human decision.
+
+    Module partitions are exempt: their location IS their provenance.
+    """
+    from codewiki.mcp.tools.workspace_bootstrap import read_registration_table_names
+    from codewiki.mcp.tools.workspace_layout import read_provenance
+
+    issues: List[Dict[str, Any]] = []
+    workspace_root = output_dir.parent
+
+    # Rule 1: knowledge leaked back into a business repo
+    for name in sorted(read_registration_table_names(workspace_root)):
+        leaked = workspace_root / name / "repowiki"
+        if leaked.exists():
+            issues.append(
+                {
+                    "check": "layout_violations",
+                    "severity": "warning",
+                    "message": (
+                        f"business repo '{name}' contains a repowiki/ directory; "
+                        "centralized layout keeps business repos pure-code."
+                    ),
+                    "file": f"{name}/repowiki",
+                    "line": 1,
+                    "suggestion": (
+                        "Merge the leaked knowledge into the workspace repowiki "
+                        "(modules → wiki/modules/<repo>/, the rest → shared pools "
+                        "with repo: tags), then remove the in-repo repowiki."
+                    ),
+                }
+            )
+
+    # Rule 2: shared-pool pages without provenance (advisory)
+    shared_dirs = [
+        output_dir / "wiki" / "entities",
+        output_dir / "wiki" / "concepts",
+        output_dir / "wiki" / "sources",
+        output_dir / "wiki" / "comparisons",
+        output_dir / "wiki" / "queries",
+        output_dir / "notes",
+    ]
+    for d in shared_dirs:
+        if not d.is_dir():
+            continue
+        for page in sorted(d.glob("*.md")):
+            try:
+                text = page.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if read_provenance(text):
+                continue
+            try:
+                rel = page.relative_to(output_dir).as_posix()
+            except ValueError:
+                rel = page.name
+            issues.append(
+                {
+                    "check": "layout_violations",
+                    "severity": "info",
+                    "message": (
+                        "shared-pool page has no repo:/repos: provenance — "
+                        "confirm it is intentionally product-line (global)."
+                    ),
+                    "file": rel,
+                    "line": 1,
+                    "suggestion": (
+                        "If it belongs to specific repo(s), add a repo:/repos: tag; "
+                        "if it is an orphan left by remove_workspace_repo, keep or "
+                        "delete it deliberately."
+                    ),
+                }
+            )
+
+    return issues
+
+
+def _check_team_layout_gitignore(output_dir: Path) -> List[Dict[str, Any]]:
+    """Team-layout Phase 1 (D1): rebuildable derived files must not be tracked.
+
+    Every file in ``TEAM_LAYOUT_REBUILDABLE_FILES`` has a local rebuild path
+    (directory scan / re-analysis / rebuild_index); committing it only creates
+    merge conflicts.  This check reports the ones still tracked by git so a
+    team migrating to the layout sees exactly what ``codewiki
+    migrate-team-layout`` will fix.  Skipped silently when output_dir is not
+    inside a git repository (nothing to untrack).
+    """
+    from codewiki.mcp.tools.team_layout import find_repo_root, list_tracked_rebuildables
+
+    issues: List[Dict[str, Any]] = []
+    repo_root = find_repo_root(output_dir)
+    if repo_root is None:
+        return issues  # not a git repo — nothing to check
+    for rel in list_tracked_rebuildables(repo_root, output_dir):
+        issues.append(
+            {
+                "check": "team_layout_gitignore",
+                "severity": "warning",
+                "message": (
+                    f"'{rel}' is a rebuildable derived file tracked by git — "
+                    "in team use it becomes a recurring merge-conflict source."
+                ),
+                "file": rel,
+                "line": 1,
+                "suggestion": (
+                    "Run `codewiki migrate-team-layout` (untracks via "
+                    "git rm --cached, files stay on disk) or add the "
+                    "team-layout block to .gitignore manually."
+                ),
+            }
+        )
+    return issues
+
+
 # ---------------------------------------------------------------------------
 #  Main handler
 # ---------------------------------------------------------------------------
@@ -1810,6 +2045,18 @@ def handle_lint_wiki(
         module_tree = _load_module_tree(output_dir)
 
     all_issues: List[Dict[str, Any]] = []
+
+    # Team-layout Phase 1 (D7): wiki/index.md is a rebuildable derived file
+    # no longer committed — a fresh clone has no copy.  Materialise it
+    # transparently before the checks run (seconds-cheap, byte-stable, no-op
+    # when present) so index-referencing checks never report its absence.
+    if output_dir:
+        try:
+            from codewiki.mcp.tools.wiki_index import ensure_index
+
+            ensure_index(output_dir)
+        except Exception:  # self-heal must never block lint
+            pass
 
     # Self-heal stale index references when fix=true.  Rebuild the index only
     # when every stale_ref points at wiki/index.md (a stale generated index),
@@ -1898,6 +2145,9 @@ def handle_lint_wiki(
     if "unsupported_claims" in checks and output_dir:
         all_issues.extend(_check_unsupported_claims(output_dir))
 
+    if "stale_evidence" in checks and output_dir:
+        all_issues.extend(_check_stale_evidence(output_dir))
+
     if "stale_notes" in checks and output_dir:
         # Config (type-aware windows + retrieval-defer) is read from
         # schema.yaml inside the check; dispatch passes no hardcoded values.
@@ -1924,6 +2174,18 @@ def handle_lint_wiki(
                 skip_notes_staleness=("stale_notes" in checks),
             )
         )
+
+    # Centralized-layout discipline (ticket 09): gated so non-centralized
+    # corpora never see these checks.
+    if "layout_violations" in checks and output_dir:
+        from codewiki.mcp.tools.workspace_layout import is_centralized_corpus
+
+        if is_centralized_corpus(output_dir):
+            all_issues.extend(_check_layout_violations(output_dir))
+
+    # Team-layout Phase 1 (D1): rebuildable derived files must stay untracked.
+    if "team_layout_gitignore" in checks and output_dir:
+        all_issues.extend(_check_team_layout_gitignore(output_dir))
 
     # Deduplicate: if a link is already reported as stale_refs, don't also
     # report it as broken_links (same file + line = same underlying problem).

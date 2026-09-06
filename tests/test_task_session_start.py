@@ -15,6 +15,7 @@ Covered:
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -31,13 +32,13 @@ EVENT = json.dumps(
 )
 
 
-def _run_hook(repo: Path) -> dict:
+def _run_hook(repo: Path, hook: Path = HOOK) -> dict:
     env = dict(os.environ)
     env["CODEBUDDY_PROJECT_DIR"] = str(repo)
     # Deterministic UTF-8 stdout regardless of the Windows console code page.
     env["PYTHONUTF8"] = "1"
     proc = subprocess.run(
-        [sys.executable, str(HOOK)],
+        [sys.executable, str(hook)],
         input=EVENT,
         capture_output=True,
         text=True,
@@ -159,3 +160,70 @@ def test_doctrine_injected_when_present(tmp_path):
 def test_doctrine_absent_no_section(tmp_path):
     ctx = _context(_run_hook(tmp_path))
     assert "【项目定向】" not in ctx
+
+
+# ---------------------------------------------------------------------------
+# P2-2 (claude-mem borrowing, thin): knowledge-base overview — the KB's
+# existence and the cheapest retrieval entries surface before work starts.
+# ---------------------------------------------------------------------------
+
+
+def test_knowledge_overview_injected_when_notes_present(tmp_path):
+    notes = tmp_path / "repowiki" / "notes"
+    notes.mkdir(parents=True, exist_ok=True)
+    for name in ("2026-08-01-old.md", "2026-08-20-newer.md", "2026-09-01-newest.md"):
+        (notes / name).write_text("---\ntype: lesson\n---\nbody", encoding="utf-8")
+
+    ctx = _context(_run_hook(tmp_path))
+    assert "【知识库提示】" in ctx
+    assert "3 条笔记" in ctx
+    # newest-first: the newest filename rides along
+    assert "2026-09-01-newest" in ctx
+    # retrieval strategy pointers (P0-3's call-time channel, mirrored here)
+    assert "by_file" in ctx
+    assert "mode='check'" in ctx
+
+
+def test_knowledge_overview_absent_when_no_notes(tmp_path):
+    # repowiki exists but notes/ empty → no section (don't disturb)
+    (tmp_path / "repowiki").mkdir(parents=True, exist_ok=True)
+    ctx = _context(_run_hook(tmp_path))
+    assert "【知识库提示】" not in ctx
+
+
+def test_knowledge_overview_absent_when_no_repowiki(tmp_path):
+    ctx = _context(_run_hook(tmp_path))
+    assert "【知识库提示】" not in ctx
+
+
+# ---------------------------------------------------------------------------
+# 补蒸馏委托按宿主家族分支：claude 家族自定义子代理拿不到 MCP 权限（实测），
+# 改委托内置 general-purpose 子代理；CodeBuddy 保留自定义「蒸馏 worker」。
+# ---------------------------------------------------------------------------
+
+
+def test_qoder_copy_delegates_to_general_purpose(tmp_path):
+    _write_raw_file(tmp_path, "conv-a.md", "task-one")
+    hook = tmp_path / ".qoder" / "hooks" / "task_session_start.py"
+    hook.parent.mkdir(parents=True)
+    shutil.copy(HOOK, hook)
+
+    ctx = _context(_run_hook(tmp_path, hook=hook))
+    assert "【补蒸馏】" in ctx
+    assert "general-purpose" in ctx
+    assert ".qoder/agents/distill-worker.md" in ctx  # host-aware playbook path
+    assert "拿不到 MCP 权限" in ctx
+    assert "「蒸馏 worker」subagent" not in ctx  # custom-agent wording must not leak
+
+
+def test_codebuddy_copy_keeps_worker_delegation(tmp_path):
+    _write_raw_file(tmp_path, "conv-a.md", "task-one")
+    hook = tmp_path / ".codebuddy" / "hooks" / "task_session_start.py"
+    hook.parent.mkdir(parents=True)
+    shutil.copy(HOOK, hook)
+
+    ctx = _context(_run_hook(tmp_path, hook=hook))
+    assert "【补蒸馏】" in ctx
+    assert "「蒸馏 worker」subagent" in ctx
+    assert ".codebuddy/agents/distill-worker.md" in ctx
+    assert "general-purpose" not in ctx

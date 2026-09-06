@@ -21,6 +21,7 @@ verified:
 - by: codewiki/5.2.2
   at: '2026-08-15T13:26:12Z'
 reject_reason: consolidated into Wiki页面生成约定与数据结构
+author: mambo-wang
 ---
 
 ## 背景

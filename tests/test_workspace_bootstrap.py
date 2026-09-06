@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import importlib
 import json
+import shutil
+from pathlib import Path
 
 import pytest
 
 from codewiki.mcp.tools import workspace_bootstrap as wb
 from codewiki.mcp.tools.agents_md import (
     _BEGIN_MARKER,
+    _END_MARKER,
     _WORKSPACE_BEGIN_MARKER,
 )
 
@@ -22,8 +25,11 @@ URL_B = "https://example.com/b.git"  # derived name: b
 URL_C = "https://example.com/repo-c.git"  # derived name: repo-c
 
 
-def _init(tmp_path, **extra):
+def _init(tmp_path, layout="colocated", **extra):
+    # layout=None omits the argument entirely (decision-gate / adopt paths).
     args = {"workspace_path": str(tmp_path)}
+    if layout is not None:
+        args["layout"] = layout
     args.update(extra)
     return json.loads(wb.handle_init_workspace(args))
 
@@ -34,11 +40,9 @@ def _add(tmp_path, url, clone=False, **extra):
     return json.loads(wb.handle_add_workspace_repo(args))
 
 
-def _remove(tmp_path, name, delete_dir=False):
+def _remove(tmp_path, name):
     return json.loads(
-        wb.handle_remove_workspace_repo(
-            {"workspace_path": str(tmp_path), "name": name, "delete_dir": delete_dir}
-        )
+        wb.handle_remove_workspace_repo({"workspace_path": str(tmp_path), "name": name})
     )
 
 
@@ -102,42 +106,85 @@ class TestFreshInit:
 
 
 # ---------------------------------------------------------------------------
+# bootstrap.ps1 UTF-8 BOM (PowerShell 5.1 misdetects BOM-less files as GBK)
+# ---------------------------------------------------------------------------
+class TestPs1Bom:
+    def test_fresh_init_writes_bom(self, tmp_path):
+        _init(tmp_path)
+        assert (tmp_path / "bootstrap.ps1").read_bytes().startswith(wb._UTF8_BOM)
+        assert not (tmp_path / "bootstrap.sh").read_bytes().startswith(wb._UTF8_BOM)
+
+    def test_add_repo_keeps_bom(self, tmp_path):
+        _init(tmp_path)
+        _add(tmp_path, URL_A)
+        assert (tmp_path / "bootstrap.ps1").read_bytes().startswith(wb._UTF8_BOM)
+        assert not (tmp_path / "bootstrap.sh").read_bytes().startswith(wb._UTF8_BOM)
+
+    def test_rerun_repairs_missing_bom(self, tmp_path):
+        _init(tmp_path)
+        ps_path = tmp_path / "bootstrap.ps1"
+        original = ps_path.read_bytes()
+        ps_path.write_bytes(original[len(wb._UTF8_BOM) :])  # simulate pre-fix file
+
+        res = _init(tmp_path)
+        assert res["mode"] == "clone-only"
+        assert res["bootstrap_ps1_bom"].startswith("repaired")
+        assert ps_path.read_bytes() == original  # content untouched, BOM restored
+
+        res = _init(tmp_path)  # idempotent
+        assert "bootstrap_ps1_bom" not in res
+
+
+# ---------------------------------------------------------------------------
 # 2/3. Idempotency and refresh semantics
 # ---------------------------------------------------------------------------
 class TestIdempotency:
-    def test_rerun_preserves_user_content(self, tmp_path):
+    def test_rerun_with_traces_is_clone_only(self, tmp_path):
         _init(tmp_path)
-
         agents_path = tmp_path / "AGENTS.md"
-        custom = _read(agents_path).replace("## 分支策略", "## 分支策略（团队定制版）")
-        agents_path.write_text(custom, encoding="utf-8")
-
-        schema_path = tmp_path / "repowiki" / "schema.yaml"
-        schema_path.write_text("purpose: customized\n", encoding="utf-8")
-
+        customized = _read(agents_path).replace("## 分支策略", "## 分支策略（团队定制版）")
+        agents_path.write_text(customized, encoding="utf-8")
         sh_before = (tmp_path / "bootstrap.sh").read_bytes()
 
         res = _init(tmp_path)
         assert res["status"] == "ok"
-        assert res["agents_md_conventions"] == "kept"
+        assert res["mode"] == "clone-only"
+        # skeleton untouched — even in-block customizations survive (no refresh)
         assert "团队定制版" in _read(agents_path)
-        assert _read(schema_path) == "purpose: customized\n"
         assert (tmp_path / "bootstrap.sh").read_bytes() == sh_before
+        assert "agents_md_conventions" not in res
 
-    def test_refresh_conventions_replaces_block_keeps_rest(self, tmp_path):
+    def test_full_flow_rerun_refreshes_conventions_block(self, tmp_path):
         _init(tmp_path)
         agents_path = tmp_path / "AGENTS.md"
-        text = _read(agents_path)
         customized = (
-            text.replace("## 分支策略", "## 分支策略（团队定制版）") + "\n用户自己追加的尾部内容\n"
+            _read(agents_path).replace("## 分支策略", "## 分支策略（团队定制版）")
+            + "\n用户自己追加的尾部内容\n"
         )
         agents_path.write_text(customized, encoding="utf-8")
+        shutil.rmtree(tmp_path / "repowiki")  # break the skeleton trace -> full flow
 
-        res = _init(tmp_path, refresh_conventions=True)
+        res = _init(tmp_path)
+        assert res["status"] == "ok"
+        assert res["mode"] == "full"
         assert res["agents_md_conventions"] == "refreshed"
         new_text = _read(agents_path)
-        assert "团队定制版" not in new_text  # block content replaced
+        assert "团队定制版" not in new_text  # in-block edits clobbered
         assert "用户自己追加的尾部内容" in new_text  # outside block kept
+        assert (tmp_path / "repowiki" / "schema.yaml").exists()  # skeleton repaired
+
+    def test_rerun_preserves_other_artifacts(self, tmp_path):
+        _init(tmp_path)
+
+        schema_path = tmp_path / "repowiki" / "schema.yaml"
+        schema_path.write_text("purpose: customized\n", encoding="utf-8")
+        sh_before = (tmp_path / "bootstrap.sh").read_bytes()
+
+        res = _init(tmp_path)
+        assert res["status"] == "ok"
+        assert res["mode"] == "clone-only"
+        assert _read(schema_path) == "purpose: customized\n"
+        assert (tmp_path / "bootstrap.sh").read_bytes() == sh_before
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +204,7 @@ class TestInvalidWorkspace:
 
     def test_workspace_path_defaults_to_cwd(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        res = json.loads(wb.handle_init_workspace({}))
+        res = json.loads(wb.handle_init_workspace({"layout": "colocated"}))
         assert res["status"] == "ok"
         assert res["workspace_path"] == str(tmp_path)
         assert (tmp_path / "bootstrap.sh").exists()
@@ -272,7 +319,7 @@ class TestAddRepo:
 # 8. remove_workspace_repo flows
 # ---------------------------------------------------------------------------
 class TestRemoveRepo:
-    def test_remove_keeps_directory(self, tmp_path):
+    def test_remove_deletes_directory(self, tmp_path):
         _init(tmp_path)
         _add(tmp_path, URL_A)
         clone_dir = tmp_path / "a"
@@ -286,10 +333,7 @@ class TestRemoveRepo:
         assert res["gitignore"]["status"] == "removed"
         assert res["repo_map"]["nav_row"] == "removed"
         assert res["repo_map"]["section"] == "removed"
-        assert res["directory"] == (
-            "kept (delete_dir=false; the directory is no longer gitignored — "
-            "remove it manually or keep it out of the harness git)"
-        )
+        assert res["directory"] == "deleted"
 
         assert '["a"]="https://example.com/a.git"' not in _read(tmp_path / "bootstrap.sh")
         assert '"a" = "https://example.com/a.git"' not in _read(tmp_path / "bootstrap.ps1")
@@ -297,19 +341,16 @@ class TestRemoveRepo:
         repo_map = _read(tmp_path / "repowiki" / "wiki" / "repo-map.md")
         assert "| a | `a/`" not in repo_map
         assert "## a（`a/`）" not in repo_map
-        assert clone_dir.exists()  # directory preserved
+        assert not clone_dir.exists()  # directory deleted
 
-    def test_remove_deletes_directory(self, tmp_path):
+    def test_remove_absent_directory_ok(self, tmp_path):
         _init(tmp_path)
         _add(tmp_path, URL_A)
-        clone_dir = tmp_path / "a"
-        clone_dir.mkdir()
-        (clone_dir / "README.md").write_text("clone", encoding="utf-8")
-
-        res = _remove(tmp_path, "a", delete_dir=True)
+        # never cloned — removal must still succeed
+        res = _remove(tmp_path, "a")
         assert res["status"] == "ok"
-        assert res["directory"] == "deleted"
-        assert not clone_dir.exists()
+        assert res["directory"] == "not present"
+        assert not (tmp_path / "a").exists()
 
     def test_remove_not_registered_is_safe_error(self, tmp_path):
         _init(tmp_path)
@@ -405,7 +446,186 @@ class TestClone:
 
 
 # ---------------------------------------------------------------------------
-# 10. Hand-built workspace adoption
+# 10. init_workspace re-sync auto-clone
+# ---------------------------------------------------------------------------
+class TestInitAutoClone:
+    def test_rerun_clones_registered_repo(self, tmp_path, monkeypatch):
+        _init(tmp_path)
+        _add(tmp_path, URL_C, clone=False)  # registered, not cloned
+        calls = []
+        monkeypatch.setattr(
+            wb.subprocess,
+            "run",
+            lambda cmd, **kw: (calls.append(cmd), _FakeProc(0))[1],
+        )
+        res = _init(tmp_path)  # re-run must auto-clone
+        assert res["status"] == "ok"
+        assert res["mode"] == "clone-only"
+        assert res["clones"]["repo-c"]["status"] == "ok"
+        assert calls and calls[0][:2] == ["git", "clone"]
+        assert calls[0][3] == str(tmp_path / "repo-c")
+
+    def test_rerun_skips_already_cloned(self, tmp_path, monkeypatch):
+        _init(tmp_path)
+        _add(tmp_path, URL_C, clone=False)
+        (tmp_path / "repo-c" / ".git").mkdir(parents=True)  # already cloned
+        monkeypatch.setattr(wb.subprocess, "run", lambda cmd, **kw: _FakeProc(0))
+        res = _init(tmp_path)
+        assert res["clones"]["repo-c"]["status"] == "skipped"
+
+    def test_clone_failure_warns_not_errors(self, tmp_path, monkeypatch):
+        _init(tmp_path)
+        _add(tmp_path, URL_C, clone=False)
+        monkeypatch.setattr(
+            wb.subprocess, "run", lambda cmd, **kw: _FakeProc(128, "fatal: network")
+        )
+        res = _init(tmp_path)
+        assert res["status"] == "ok"  # a failed clone never fails the init
+        assert res["clones"]["repo-c"]["status"] == "error"
+        assert any("repo-c" in w for w in res["warnings"])
+
+    def test_empty_table_clones_nothing(self, tmp_path):
+        res = _init(tmp_path)
+        assert res["clones"] == {}
+
+    def test_centralized_clone_strips_codewiki_block(self, tmp_path, monkeypatch):
+        _init(tmp_path, layout="centralized")
+        _add(tmp_path, URL_C, clone=False)
+
+        def fake_clone(cmd, **kw):
+            dest = Path(cmd[3])
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / "AGENTS.md").write_text(
+                f"own content\n{_BEGIN_MARKER}\nwiki usage\n{_END_MARKER}\ntail\n",
+                encoding="utf-8",
+            )
+            return _FakeProc(0)
+
+        monkeypatch.setattr(wb.subprocess, "run", fake_clone)
+        res = _init(tmp_path, layout=None)
+        assert res["clones"]["repo-c"]["status"] == "ok"
+        cloned_agents = _read(tmp_path / "repo-c" / "AGENTS.md")
+        assert _BEGIN_MARKER not in cloned_agents  # block stripped
+        assert "own content" in cloned_agents
+
+
+# ---------------------------------------------------------------------------
+# 10b. Clone-only adoption (init traces present -> no full-flow re-run)
+# ---------------------------------------------------------------------------
+class TestAdoptShortCircuit:
+    def test_clone_only_fetches_missing_clones(self, tmp_path, monkeypatch):
+        _init(tmp_path)
+        _add(tmp_path, URL_C, clone=False)
+        agents_before = (tmp_path / "AGENTS.md").read_bytes()
+        repo_map_before = (tmp_path / "repowiki" / "wiki" / "repo-map.md").read_bytes()
+        calls = []
+        monkeypatch.setattr(
+            wb.subprocess,
+            "run",
+            lambda cmd, **kw: (calls.append(cmd), _FakeProc(0))[1],
+        )
+
+        res = _init(tmp_path)
+        assert res["status"] == "ok"
+        assert res["mode"] == "clone-only"
+        assert res["clones"]["repo-c"]["status"] == "ok"
+        assert calls and calls[0][:2] == ["git", "clone"]
+        # skeleton untouched
+        assert (tmp_path / "AGENTS.md").read_bytes() == agents_before
+        assert (tmp_path / "repowiki" / "wiki" / "repo-map.md").read_bytes() == repo_map_before
+
+    def test_missing_gitignore_line_repaired(self, tmp_path):
+        _init(tmp_path)
+        _add(tmp_path, URL_C, clone=False)
+        gi_path = tmp_path / ".gitignore"
+        gi_path.write_text(
+            "\n".join(line for line in _read(gi_path).splitlines() if line != "/repo-c/") + "\n",
+            encoding="utf-8",
+        )
+
+        res = _init(tmp_path)
+        assert res["mode"] == "clone-only"
+        assert res["gitignore"]["added"] == ["/repo-c/"]
+        assert "/repo-c/" in _read(gi_path)
+
+    def test_missing_skeleton_falls_back_to_full(self, tmp_path):
+        _init(tmp_path)
+        shutil.rmtree(tmp_path / "repowiki")
+
+        res = _init(tmp_path)
+        assert res["mode"] == "full"
+        assert (tmp_path / "repowiki" / "wiki").is_dir()
+        assert (tmp_path / "repowiki" / "schema.yaml").exists()
+
+    def test_missing_gitignore_falls_back_to_full(self, tmp_path):
+        _init(tmp_path)
+        (tmp_path / ".gitignore").unlink()
+
+        res = _init(tmp_path)
+        assert res["mode"] == "full"
+        assert (tmp_path / ".gitignore").exists()
+
+    def test_layout_conflict_refused_with_persisted_config(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        res = _init(tmp_path, layout="colocated")
+        assert "error" in res
+        assert "layout" in res["error"]
+
+    def test_adopted_colocated_refuses_centralized_arg(self, tmp_path):
+        _init(tmp_path)  # colocated -> workspace.json persisted with colocated
+        config = tmp_path / "repowiki" / ".meta" / "workspace.json"
+        assert json.loads(_read(config)) == {"wiki_layout": "colocated"}
+        res = _init(tmp_path, layout="centralized")
+        assert "error" in res
+        assert "layout" in res["error"]
+
+
+# ---------------------------------------------------------------------------
+# 10c. Layout decision gate + unconditional layout config
+# ---------------------------------------------------------------------------
+class TestLayoutDecisionGate:
+    def test_first_init_without_layout_writes_nothing(self, tmp_path):
+        res = _init(tmp_path, layout=None)
+        assert res["status"] == "needs_layout_decision"
+        assert set(res["options"]) == {"colocated", "centralized"}
+        assert "layout" in res["question"]
+        # Nothing was written — the decision belongs to the user.
+        assert not (tmp_path / "bootstrap.sh").exists()
+        assert not (tmp_path / ".gitignore").exists()
+        assert not (tmp_path / "repowiki").exists()
+        assert not (tmp_path / "AGENTS.md").exists()
+
+    def test_first_init_with_layout_proceeds(self, tmp_path):
+        res = _init(tmp_path, layout="colocated")
+        assert res["status"] == "ok"
+        assert (tmp_path / "bootstrap.sh").exists()
+
+    def test_rerun_without_layout_is_exempt(self, tmp_path):
+        _init(tmp_path, layout="centralized")
+        res = _init(tmp_path, layout=None)  # persisted layout wins, no gate
+        assert res["status"] == "ok"
+        assert res["layout"] == "centralized"
+
+    def test_colocated_init_persists_config(self, tmp_path):
+        res = _init(tmp_path)  # helper default: colocated
+        assert res["status"] == "ok"
+        config = tmp_path / "repowiki" / ".meta" / "workspace.json"
+        assert json.loads(_read(config)) == {"wiki_layout": "colocated"}
+
+    def test_adoption_backfills_missing_config(self, tmp_path):
+        _init(tmp_path)  # colocated
+        config = tmp_path / "repowiki" / ".meta" / "workspace.json"
+        config.unlink()  # simulate a legacy pre-config workspace
+
+        res = _init(tmp_path, layout=None)
+        assert res["status"] == "ok"
+        assert res["mode"] == "clone-only"
+        assert res["workspace_config"].startswith("backfilled")
+        assert json.loads(_read(config)) == {"wiki_layout": "colocated"}
+
+
+# ---------------------------------------------------------------------------
+# 11. Hand-built workspace adoption
 # ---------------------------------------------------------------------------
 class TestHandBuiltAdoption:
     def test_adopt_reference_style_scripts(self, tmp_path):
@@ -466,7 +686,10 @@ class TestRegistryWiring:
         tool_def = registry.REGISTRY["init_workspace"]
         props = tool_def.schema.inputSchema["properties"]
         assert tool_def.schema.inputSchema["required"] == []
-        assert set(props) == {"workspace_path", "output_dir", "refresh_conventions", "with_readme"}
+        assert set(props) == {"output_dir", "layout"}
+        assert props["layout"]["enum"] == ["colocated", "centralized"]
+        assert "workspace_path" not in props
+        assert "with_readme" not in props
         assert "repos" not in props
         assert "name" not in props
         assert "clone_repos" not in props
@@ -483,4 +706,4 @@ class TestRegistryWiring:
         rm_props = rm_def.schema.inputSchema["properties"]
         assert rm_def.schema.inputSchema["required"] == ["name"]
         assert "url" not in rm_props
-        assert "delete_dir" in rm_props
+        assert "delete_dir" not in rm_props

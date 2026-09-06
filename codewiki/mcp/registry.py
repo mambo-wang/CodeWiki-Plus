@@ -20,6 +20,8 @@ import dataclasses
 import importlib
 import json
 import logging
+import os
+from pathlib import Path
 from typing import Any
 
 from mcp.types import TextContent, Tool
@@ -29,6 +31,7 @@ from mcp.types import TextContent, Tool
 # 项目 schema 的自定义类型受 MCP 静态校验所限仍走包内默认表（重启生效），
 # 已知约束记录于 docs/OpenViking借鉴详细设计方案-P3四项.md §1.2。
 from codewiki.mcp.tools.note_types import DEFAULT_NOTE_TYPES as _NOTE_TYPES
+from codewiki.mcp.tools.workspace_layout import VALID_LAYOUTS
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +215,15 @@ _register(
                         "scenario",
                     ],
                     "description": "LLM Wiki page type. Determines subdirectory routing (default: module → wiki/modules/)",
+                },
+                "scope": {
+                    "description": (
+                        "Centralized-layout shared-pool scope for non-module pages. "
+                        "Omit to auto-stamp the writing repo; 'global' for product-line "
+                        "knowledge applicable to every repo (no provenance tag); or a list "
+                        "of repo names (or comma-separated string) to tag exactly those. "
+                        "Ignored outside centralized workspaces and for module pages."
+                    ),
                 },
                 "frontmatter_extra": {
                     "type": "object",
@@ -774,7 +786,7 @@ _register(
         name="lint_wiki",
         description=(
             "Check documentation-code consistency. Works with or without an active session. "
-            "Runs 18 available checks: stale_refs (docs reference deleted components), "
+            "Runs 22 available checks: stale_refs (docs reference deleted components), "
             "broken_links (markdown links to non-existent pages), "
             "undocumented (high-impact components without docs), "
             "cycles (circular module dependencies), coverage (documentation coverage gaps), "
@@ -784,6 +796,8 @@ _register(
             "isolated_components (components with zero dependencies and zero dependents), "
             "overview_stale (overview.md references modules that have changed), "
             "unsupported_claims (business assertions lacking code evidence), "
+            "stale_evidence (repo:// code evidence whose content hash drifted or whose "
+            "file disappeared — re-verify the fact and re-stamp via stamp_evidence), "
             "stale_notes (stable/confirmed notes whose type-aware stale_after review "
             "deadline has passed without a recent retrieval; confirm_note renews), "
             "note_clusters (modules with 3+ same-type notes suggesting consolidation), "
@@ -832,12 +846,15 @@ _register(
                             "isolated_components",
                             "overview_stale",
                             "unsupported_claims",
+                            "stale_evidence",
                             "stale_notes",
                             "note_clusters",
                             "low_adoption",
                             "okf_conformance",
                             "scenario_capacity",
                             "scenario_orphan",
+                            "layout_violations",
+                            "team_layout_gitignore",
                         ],
                     },
                     "description": 'Which checks to run (default: ["all"])',
@@ -866,6 +883,55 @@ _register(
 
 _register(
     Tool(
+        name="stamp_evidence",
+        description=(
+            "Attach content-hashed code evidence to a wiki page's OKF sources list. "
+            "Each evidence item names a repo:// code region (e.g. repo://src/x.py#L10-L40, "
+            "or a whole file with no #L range); the tool records the region's current "
+            "content hash so lint_wiki's stale_evidence check can later flag drifted "
+            "facts. Evidence only drives review reminders — it never rewrites content. "
+            "Call this after write_doc_file/edit_doc_file when a page asserts facts about "
+            "specific code locations."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "page": {
+                    "type": "string",
+                    "description": "Page path relative to output_dir (e.g. 'wiki/modules/auth.md').",
+                },
+                "evidence": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "resource": {
+                                "type": "string",
+                                "description": "repo:// resource URI: 'repo://<rel-path>' (whole file) or 'repo://<rel-path>#L<start>-L<end>' (line range).",
+                            }
+                        },
+                        "required": ["resource"],
+                    },
+                    "description": "Code regions this page's facts are grounded in.",
+                },
+                "output_dir": {
+                    "type": "string",
+                    "description": "Output directory for wiki pages.",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path; evidence resources resolve against this root.",
+                },
+            },
+            "required": ["page", "evidence"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.evidence:handle_stamp_evidence",
+    mode="thread",
+)
+
+_register(
+    Tool(
         name="ingest_note",
         description=(
             "File a structured note into the knowledge base for future retrieval via query_wiki. "
@@ -877,7 +943,13 @@ _register(
             "architecture (system design rationale), bug_fix (how we fixed Y), "
             "pitfall (gotcha with root cause), known_issue (tracked problem), "
             "workaround (temporary solution), general (free-form knowledge). "
-            "Can be used with or without an active session — just provide output_dir."
+            "Can be used with or without an active session — just provide output_dir. "
+            "CONFLICT AWARENESS: before writing it scans notes/ for existing notes that look "
+            "like the same knowledge and returns them in 'similar_notes' with a hint "
+            "(set detect_conflicts=false to skip). It never overwrites or auto-merges — if the "
+            "new note refutes an existing one, retiring the old note is the caller's call "
+            "(reject_note / batch_set_status status='deprecated'). Leaving both live lets a "
+            "refuted conclusion keep ranking in query_wiki."
         ),
         inputSchema={
             "type": "object",
@@ -889,6 +961,15 @@ _register(
                 "repo_path": {
                     "type": "string",
                     "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
+                },
+                "scope": {
+                    "description": (
+                        "Centralized-layout shared-pool scope. Omit to auto-stamp the "
+                        "writing repo; 'global' for product-line knowledge applicable to "
+                        "every repo (no provenance tag); or a list of repo names (or "
+                        "comma-separated string) to tag exactly those. Ignored outside "
+                        "centralized workspaces."
+                    ),
                 },
                 "note_type": {
                     "type": "string",
@@ -943,28 +1024,48 @@ _register(
                     "type": "string",
                     "description": "Optional task id to route this note to (surfaced by query_wiki task_id filter and get_task_context).",
                 },
+                "detect_conflicts": {
+                    "type": "boolean",
+                    "description": (
+                        "Pre-write advisory: look for existing notes that look like the "
+                        "same knowledge and return them in 'similar_notes' with a hint "
+                        "to update/merge/retire instead (default true). Never blocks the "
+                        "write. Set false for bulk ingest where the corpus is known-clean."
+                    ),
+                },
             },
             "required": ["title", "content"],
         },
     ),
-    handler_path="codewiki.mcp.tools.knowledge_loop:handle_ingest_note",
+    handler_path="codewiki.mcp.tools.note_ingest:handle_ingest_note",
     mode="thread",
 )
 
 _register(
     Tool(
         name="query_wiki",
+        # P0-3 (claude-mem borrowing): workflow built into the tool
+        # description — Rev.2 verbatim copy, do not paraphrase. The
+        # four-layer strategy only works if every invocation sees it.
         description=(
-            "Search across generated documentation and ingested notes. "
-            "Returns ranked results with snippets and a context_package summary "
-            "for IDE agents to use as development context. "
-            "Three-layer search strategy: "
-            "1) BM25 full-text search (default) — returns snippets, "
-            "2) Graph expansion (hop=1-3) — follows wikilinks to find related pages "
-            "with score decay (0.5x per hop), "
-            "3) Deep reading (expand=true) — returns full page content (up to 3000 chars). "
-            "Supports filtering by page type (type_filter) and scope directory prefixes. "
-            "Best for: why decisions were made, lessons learned, architecture rationale. "
+            "Search across generated documentation and ingested notes.\n"
+            "\n"
+            "RETRIEVAL STRATEGY (cheapest first):\n"
+            "1) mode=check — titles only, no snippets. Use FIRST to decide whether a full\n"
+            "   search is worth the tokens. Does NOT pollute usage/heat ranking signals.\n"
+            "2) BM25 search (default) — returns snippets + est_tokens per result.\n"
+            "   est_tokens = estimated cost of expanding that result in full.\n"
+            "3) by_file=<path> — file-scoped knowledge timeline (ingested notes only):\n"
+            "   titles + est_tokens + status, no bodies, sorted by specificity. Check it\n"
+            "   before reading or editing a file to surface prior decisions and lessons.\n"
+            "   Add query=<keyword> to hard-filter within that file's knowledge.\n"
+            "4) expand=true — full page content (up to max_chars, default 3000, max 20000).\n"
+            "   LAST RESORT. Check est_tokens first: 10 results at max_chars=20000 is ~50k\n"
+            "   tokens. Prefer expanding only the 2-3 results you actually need.\n"
+            "\n"
+            "Supports filtering by page type (type_filter), scope, repo (centralized layout),\n"
+            "and task_id. Graph expansion (hop=1-3) follows wikilinks with 0.5x decay per hop.\n"
+            "Best for: why decisions were made, lessons learned, architecture rationale.\n"
             "For code implementation details (function signatures, call chains), use grep instead."
         ),
         inputSchema={
@@ -974,13 +1075,45 @@ _register(
                     "type": "string",
                     "description": "Output directory for wiki pages",
                 },
+                "repo_path": {
+                    "type": "string",
+                    "description": (
+                        "Repository root used to locate the knowledge base when output_dir "
+                        "is absent (derives <repo_path>/repowiki; layout-aware in "
+                        "centralized workspaces). Pass repo_path OR output_dir."
+                    ),
+                },
                 "query": {
                     "type": "string",
-                    "description": "Search query in natural language",
+                    "description": "Search query in natural language (required unless by_file is given)",
+                },
+                "by_file": {
+                    "type": "string",
+                    "description": (
+                        "File-scoped knowledge timeline: pass a target source file "
+                        "path (repo-root relative or absolute) to list the ingested "
+                        "notes (decisions/lessons) attached to it — titles + "
+                        "est_tokens + status + possibly_stale only, no bodies, "
+                        "sorted by specificity. Check it BEFORE reading or editing "
+                        "a file to surface prior knowledge. Optional query=<keyword> "
+                        "hard-filters within that file's knowledge. Notes only; "
+                        "mode= params take precedence over by_file."
+                    ),
                 },
                 "scope": {
                     "type": "string",
                     "description": "Limit search to a module name or directory prefix (e.g. 'modules', 'entities', 'notes')",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": (
+                        "Centralized-layout scope filter: narrow results to the knowledge "
+                        "applicable to one business repo = its wiki/modules/<repo>/ partition "
+                        "+ shared-pool pages tagged with it + untagged product-line (global) "
+                        "pages. Omit for a one-hop search across the whole workspace. "
+                        "Combined with output_dir, the filter applies within that corpus. "
+                        "Ignored outside centralized workspaces."
+                    ),
                 },
                 "type_filter": {
                     "type": "string",
@@ -1034,9 +1167,11 @@ _register(
                     "type": "boolean",
                     "description": (
                         "When true, return full page content (up to max_chars, "
-                        "default 3000) in a 'content' field instead of just snippets. "
-                        "Use for deep reading after identifying relevant pages with "
-                        "a normal search."
+                        "default 3000) in a 'content' field instead of just "
+                        "snippets, plus content_tokens (what this response "
+                        "returned). LAST RESORT: check each result's est_tokens "
+                        "first and expand only the 2-3 results you actually "
+                        "need — 10 results at max_chars=20000 is ~50k tokens."
                     ),
                 },
                 "max_chars": {
@@ -1045,7 +1180,9 @@ _register(
                         "Content budget in characters for expand=true "
                         "(default: 3000, max: 20000). Use 12000-20000 for "
                         "full-page deep reading of complex pages; keep 3000 "
-                        "for quick verification."
+                        "for quick verification. Every expand result carries "
+                        "est_tokens (full-page cost) and content_tokens "
+                        "(what was actually returned)."
                     ),
                 },
                 "mode": {
@@ -1057,8 +1194,8 @@ _register(
                         "'directory': returns Component Constraint Index sections from matching pages. "
                         "'detail': returns full content of a specific page/section (requires 'page' param). "
                         "'check': lightweight relevance pre-check — returns relevant flag, top score "
-                        "and top-3 titles WITHOUT snippets or stats recording. Use it before deciding "
-                        "whether a full search is worth the tokens. "
+                        "and top-3 titles WITHOUT snippets or stats recording. Use it FIRST, before "
+                        "deciding whether a full search is worth the tokens. "
                         "Omit for standard BM25 search."
                     ),
                 },
@@ -1075,10 +1212,13 @@ _register(
                     "description": "Optional task id to filter notes by (note-scoped; docs/sources are unaffected). Never validates task existence.",
                 },
             },
-            "required": ["query"],
+            # P0-2 (claude-mem borrowing): query is no longer MCP-level
+            # required — by_file alone is a valid invocation. The handler
+            # keeps its own "query is required (or pass by_file)" check.
+            "required": [],
         },
     ),
-    handler_path="codewiki.mcp.tools.knowledge_loop:handle_query_wiki",
+    handler_path="codewiki.mcp.tools.note_query:handle_query_wiki",
     mode="thread",
 )
 
@@ -1121,7 +1261,7 @@ _register(
             "required": ["note_file"],
         },
     ),
-    handler_path="codewiki.mcp.tools.knowledge_loop:handle_confirm_note",
+    handler_path="codewiki.mcp.tools.note_lifecycle:handle_confirm_note",
     mode="thread",
 )
 
@@ -1185,7 +1325,7 @@ _register(
             "required": ["repo_path"],
         },
     ),
-    handler_path="codewiki.mcp.tools.knowledge_loop:handle_batch_set_status",
+    handler_path="codewiki.mcp.tools.note_lifecycle:handle_batch_set_status",
     mode="thread",
 )
 
@@ -1221,7 +1361,7 @@ _register(
             "required": ["note_file"],
         },
     ),
-    handler_path="codewiki.mcp.tools.knowledge_loop:handle_reject_note",
+    handler_path="codewiki.mcp.tools.note_lifecycle:handle_reject_note",
     mode="thread",
 )
 
@@ -1236,6 +1376,30 @@ _register(
             "Import a third-party document (PDF, MD, DOCX, HTML) into the "
             "knowledge base. The file is stored in raw/sources/ and registered "
             "in source_registry.json for tracking and search indexing. "
+            "CONFIRMATION GATE — read first: when the import clashes with anything "
+            "already registered, the tool stores nothing and returns either "
+            "status='duplicate' (identical content already registered, under any "
+            "name) or status='conflict' (this 'name' already registered to a "
+            "DIFFERENT document). Both responses carry "
+            "requires_user_confirmation=true, the 'existing' entry and a "
+            "'user_options' list. You MUST stop and ask the user which option to "
+            "take, then re-run accordingly — never silently skip, rename or "
+            "overwrite on your own. overwrite=true is the user-consent token: pass "
+            "it only AFTER the user agrees to replace an existing source (the old "
+            "raw file is moved to .trash); it is accepted only against the SAME "
+            "name and returns status='error' otherwise. "
+            "For TEXT documents (md/html/txt/rst) two version-aware gates also "
+            "fire: status='version_sibling' when the new content resembles an "
+            "already-registered source under a DIFFERENT name (a revised edition, "
+            "e.g. 设计文档-v1 -> 设计文档-v2), and status='supersede_declared' when "
+            "the document frontmatter declares `supersedes: <registered name>`. "
+            "Both also store NOTHING and carry requires_user_confirmation=true "
+            "with the similarity evidence (score, confidence, shared headings). "
+            "allow_sibling=true is the user-consent token for those two gates "
+            "only — pass it AFTER the user has seen the warning and confirmed "
+            "this is a genuinely separate document (it does NOT bypass "
+            "duplicate/conflict). Binary formats (pdf/docx) have no text "
+            "extractor yet and skip the version gates. "
             "IMPORTANT: This tool only stores and indexes the document. To extract "
             "structured knowledge (entities, concepts) from it, follow this workflow: "
             "1) Call get_prompt(prompt_type='extraction_scan') for extraction guidance. "
@@ -1264,6 +1428,28 @@ _register(
                 "name": {
                     "type": "string",
                     "description": "Identifier for this source (default: filename stem)",
+                },
+                "overwrite": {
+                    "type": "boolean",
+                    "description": (
+                        "User-consent token for re-ingesting an identifier that is "
+                        "already registered. Set to true ONLY after the user has seen "
+                        "the status='duplicate' / status='conflict' response and "
+                        "explicitly agreed to replace it. The previously registered "
+                        "raw file is moved to .trash. Accepted only against the SAME "
+                        "name; passing it together with a NEW name for content that "
+                        "is already registered elsewhere returns an error."
+                    ),
+                },
+                "allow_sibling": {
+                    "type": "boolean",
+                    "description": (
+                        "User-consent token for the version gates. Set to true ONLY "
+                        "after the user has seen status='version_sibling' or "
+                        "status='supersede_declared' and explicitly agreed the "
+                        "document is a genuinely separate entry. Does NOT bypass "
+                        "duplicate/conflict."
+                    ),
                 },
                 "source_type": {
                     "type": "string",
@@ -1687,6 +1873,14 @@ _register(
                     "type": "string",
                     "description": "Output directory for wiki pages",
                 },
+                "repo_path": {
+                    "type": "string",
+                    "description": (
+                        "Repository root used to derive the output directory when "
+                        "output_dir is absent (repo_path/repowiki). "
+                        "Pass repo_path OR output_dir."
+                    ),
+                },
                 "items": {
                     "type": "array",
                     "items": {"type": "object"},
@@ -1772,6 +1966,13 @@ _register(
             "A lightweight overview.md is generated at the workspace level with "
             "service descriptions, cross-service relationships, and links to each "
             "sub-repo's wiki. Design principle: one .git = one repowiki. "
+            "Incremental by default (per-repo three-tier dispatch on the persisted "
+            "anchor, metadata.json generation_info.commit_id): unchanged repos are "
+            "skipped (the cross-service matcher reuses their cached routes), changed "
+            "repos are re-analyzed and return changes/affected_modules to scope "
+            "incremental doc rewrites (incremental-update prompt), repos without a "
+            "prior analysis run full. Per-repo entries carry a mode field "
+            "(skipped/incremental/full/deferred). "
             "Use this for multi-repo workspaces where multiple projects are cloned "
             "into a single folder. A lightweight workspace session is created for "
             "cross-service ingest_note / query_wiki at the parent level. "
@@ -1801,6 +2002,15 @@ _register(
                 "exclude_dirs": {
                     "type": "string",
                     "description": "Comma-separated directory names to skip (default: node_modules,.venv,__pycache__)",
+                },
+                "generate_repo_wikis": {
+                    "type": "boolean",
+                    "description": (
+                        "Centralized layout only: also run the heavy per-repo analysis to "
+                        "populate each repo's knowledge partition (default: false — only the "
+                        "workspace topology/overview is produced). Ignored for colocated "
+                        "workspaces, which always analyze every repo."
+                    ),
                 },
             },
             "required": ["workspace_path"],
@@ -2062,38 +2272,53 @@ _register(
     Tool(
         name="init_workspace",
         description=(
-            "Initialize a multi-repo harness workspace: the current directory (or "
-            "workspace_path) becomes the product-level workbench hosting business "
-            "repos as independent git clones in subdirectories (excluded via "
-            ".gitignore, not submodules). Generates bootstrap.sh / bootstrap.ps1 "
-            "clone scripts with an empty registration table, a .gitignore that keeps "
-            "business repos out of the harness git, a repo-map.md navigation skeleton, "
-            "workspace conventions (two-hop retrieval routing, commit discipline) as a "
-            "marked section in AGENTS.md, and the standard product-level repowiki. "
-            "Idempotent: bootstrap scripts, repo-map, README and schema.yaml are never "
-            "clobbered on re-run; the conventions block is only refreshed when "
-            "refresh_conventions=true. Registration and cloning of business repos are "
-            "handled by add_workspace_repo(name, url); follow up with init_wiki / "
+            "Initialize (or re-sync) a multi-repo harness workspace in the current "
+            "working directory: the directory becomes the product-level workbench "
+            "hosting business repos as independent git clones in subdirectories "
+            "(excluded via .gitignore, not submodules). Generates bootstrap.sh / "
+            "bootstrap.ps1 clone scripts with a registration table, a .gitignore that "
+            "keeps business repos out of the harness git, a repo-map.md navigation "
+            "skeleton, workspace conventions (retrieval routing per layout, commit "
+            "discipline) as a marked section in AGENTS.md, and the standard "
+            "product-level repowiki. FIRST init requires an explicit knowledge-layout "
+            "decision: ask the user whether knowledge should be colocated (each "
+            "business repo keeps its own repowiki, two-hop retrieval) or centralized "
+            "(one workspace repowiki, one-hop retrieval), then pass layout=<choice>; "
+            "without layout the tool writes nothing and returns "
+            "status='needs_layout_decision'. The chosen layout is persisted to "
+            "repowiki/.meta/workspace.json for BOTH layouts. Re-runs are zero-config "
+            "and idempotent with two modes: when every init trace is present "
+            "(bootstrap scripts with a parseable registration table, .gitignore, "
+            "repowiki skeleton) the re-run is clone-only — it adopts the workspace, "
+            "fetches just the registered business repos not yet cloned, backfills a "
+            "missing layout config, and touches nothing else (in that state running "
+            "the workspace's bootstrap script directly achieves the same clone sync; "
+            "the tool mode is a safety net); otherwise it runs the full sync flow: "
+            "adopts the persisted knowledge layout, creates missing artifacts, "
+            "force-refreshes the conventions block, and clones uncloned repos (a "
+            "failed clone only warns; ./bootstrap.sh retries later). Register new "
+            "business repos with add_workspace_repo(url); follow up with init_wiki / "
             "analyze_repo per repo, then analyze_workspace for cross-repo analysis."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "workspace_path": {
-                    "type": "string",
-                    "description": "Existing directory to become the workspace root (default: current working directory; not auto-created).",
-                },
                 "output_dir": {
                     "type": "string",
                     "description": "Product-level repowiki directory (default: <workspace>/repowiki).",
                 },
-                "refresh_conventions": {
-                    "type": "boolean",
-                    "description": "Force-refresh the workspace conventions block in AGENTS.md (default: false — existing block is kept).",
-                },
-                "with_readme": {
-                    "type": "boolean",
-                    "description": "Create a README.md skeleton when missing (default: true).",
+                "layout": {
+                    "type": "string",
+                    "enum": list(VALID_LAYOUTS),
+                    "description": (
+                        "Knowledge layout. Required on FIRST init — ask the user to "
+                        "choose before calling: colocated (each business repo keeps "
+                        "its own repowiki, two-hop retrieval) or centralized (all "
+                        "knowledge in the workspace repowiki, one-hop retrieval). "
+                        "Omit on re-runs: the persisted layout "
+                        "(repowiki/.meta/workspace.json) is adopted automatically; a "
+                        "conflicting value is an error."
+                    ),
                 },
             },
             "required": [],
@@ -2157,10 +2382,11 @@ _register(
             "Deregister a business repo from an initialized harness workspace by its "
             "subdirectory name. Transactionally removes the entry from the "
             "bootstrap.sh and bootstrap.ps1 registration tables, the /<name>/ line "
-            "from .gitignore and the nav row + section from repo-map.md. The local "
-            "clone directory is kept unless delete_dir=true (irreversible); once the "
-            "gitignore line is gone, a kept directory is no longer hidden from the "
-            "harness git. Removing a name that is not registered is a safe no-op "
+            "from .gitignore and the nav row + section from repo-map.md, scrubs the "
+            "repo from analyze_workspace artifacts (workspace_routes.json / "
+            "cross_service_links.json / infra_services.json under repowiki/.meta/ "
+            "and the generated overview.md), then deletes the local clone directory "
+            "(irreversible). Removing a name that is not registered is a safe no-op "
             "error. Never touches AGENTS.md or the other registered repos."
         ),
         inputSchema={
@@ -2173,10 +2399,6 @@ _register(
                 "name": {
                     "type": "string",
                     "description": "Registered subdirectory name of the business repo to remove.",
-                },
-                "delete_dir": {
-                    "type": "boolean",
-                    "description": "Also delete the cloned directory (default: false; deletion is irreversible).",
                 },
             },
             "required": ["name"],
@@ -2250,7 +2472,7 @@ _register(
             "required": [],
         },
     ),
-    handler_path="codewiki.mcp.tools.knowledge_loop:handle_wiki_stats",
+    handler_path="codewiki.mcp.tools.wiki_stats:handle_wiki_stats",
     mode="thread",
     takes_store=True,
 )
@@ -2551,6 +2773,43 @@ _register(
 )
 
 
+# -------------------------------------------------------------------
+#  Schema-level target-anchor guard (A: anyOf output_dir | repo_path)
+# -------------------------------------------------------------------
+# Knowledge-base tools expose output_dir and repo_path as ALTERNATIVE target
+# anchors — neither is required by the business payload alone, yet at least
+# one must be present for the call to resolve. Post-processing every
+# registered schema here (single point, Doctrine) makes one of them
+# explicitly required at the schema level, so clients/LLMs see the contract
+# instead of discovering it from a runtime error. Explicit anchor >
+# derivable > session cache: tools that already require either path are
+# skipped; session_id stays out of anyOf (explicit paths beat stale
+# sessions, per Doctrine).
+
+
+def _apply_target_anchor_anyof() -> None:
+    for td in REGISTRY.values():
+        schema = td.schema.inputSchema
+        if not isinstance(schema, dict):
+            continue
+        props = schema.get("properties")
+        if not isinstance(props, dict):
+            continue
+        if "output_dir" not in props or "repo_path" not in props:
+            continue
+        required = set(schema.get("required") or [])
+        if "output_dir" in required or "repo_path" in required:
+            continue
+        if "anyOf" not in schema:
+            schema["anyOf"] = [
+                {"required": ["output_dir"]},
+                {"required": ["repo_path"]},
+            ]
+
+
+_apply_target_anchor_anyof()
+
+
 # ===================================================================
 #  Public API
 # ===================================================================
@@ -2678,6 +2937,37 @@ async def _try_cbm_enrichment(
     return result
 
 
+# -------------------------------------------------------------------
+#  Last-resort repo_path default (B): server start CWD
+# -------------------------------------------------------------------
+# MCP stdio processes are launched with the host's project/workspace root as
+# the CWD. When a knowledge-base call omits BOTH output_dir and repo_path,
+# injecting repo_path=<server start CWD> lets resolution proceed through the
+# normal layout-aware path instead of failing with "output_dir or repo_path
+# is required". Explicit arguments are never overwritten; the injected
+# default only fills complete absence and never outranks session/output_dir
+# downstream (resolution order stays session > output_dir > repo_path).
+try:
+    _SERVER_START_CWD = os.getcwd()
+except Exception:  # pragma: no cover - cwd always readable in practice
+    _SERVER_START_CWD = None
+
+
+def _inject_repo_path_default(arguments: dict[str, Any]) -> None:
+    """Fill ``repo_path`` from the server start CWD when the call has no
+    explicit target anchor (output_dir/repo_path). In place; no-op otherwise."""
+    if _SERVER_START_CWD is None:
+        return
+    if arguments.get("output_dir") or arguments.get("repo_path"):
+        return
+    try:
+        if not Path(_SERVER_START_CWD).is_dir():
+            return
+    except OSError:
+        return
+    arguments["repo_path"] = _SERVER_START_CWD
+
+
 async def dispatch(name: str, arguments: dict[str, Any], store: Any) -> list[TextContent]:
     """Look up a tool by name, dynamically import its handler, and invoke it.
 
@@ -2694,6 +2984,9 @@ async def dispatch(name: str, arguments: dict[str, Any], store: Any) -> list[Tex
         matching the behavior of the original call_tool in server.py.
     """
     try:
+        # B: fallback target anchor for calls that omit output_dir/repo_path
+        _inject_repo_path_default(arguments)
+
         tool_def = REGISTRY.get(name)
         if tool_def is None:
             return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
@@ -2748,4 +3041,25 @@ async def dispatch(name: str, arguments: dict[str, Any], store: Any) -> list[Tex
 
     except Exception as e:
         logger.error("Tool %s failed: %s", name, e, exc_info=True)
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
+        msg = str(e)
+        if isinstance(e, ValueError) and ("output_dir" in msg or "repo_path" in msg):
+            # C: actionable error — tell the caller exactly how to fix the call
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "error": msg,
+                            "fix": (
+                                "Retry with repo_path=<repo root> or "
+                                "output_dir=<repowiki directory> to locate the "
+                                "knowledge base. Passing either explicitly is "
+                                "preferred; the server only falls back to its "
+                                "start directory when both are absent."
+                            ),
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            ]
+        return [TextContent(type="text", text=json.dumps({"error": msg}, ensure_ascii=False))]

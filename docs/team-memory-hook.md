@@ -25,31 +25,24 @@ wrapper 通过 `python -m codewiki.mcp._ide_hook` 调起采集脚本，因此要
 
 ## 启用方式（仓库已预置，默认接线）
 
-`.codebuddy/settings.json` 注册了**三个**事件钩子，全部指向同一个 wrapper（它对事件类型无感知，统一转发）：
+`.codebuddy/settings.json` 注册了两个事件钩子（接线由 `codewiki install-hooks` 维护；`PreCompact`/`Stop` 早期曾注册，因不带 `transcript_path`、只产生重复空信封而移除）：
 
 ```json
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          { "type": "command", "command": "python \".codebuddy/hooks/task_session_start.py\"", "timeout": 15 }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "matcher": "other",
         "hooks": [
-          { "type": "command", "command": "python \"d:/repos/CodeWiki-CN/.codebuddy/hooks/capture_session_end.py\"", "timeout": 30 }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "matcher": "*",
-        "hooks": [
-          { "type": "command", "command": "python \"d:/repos/CodeWiki-CN/.codebuddy/hooks/capture_session_end.py\"", "timeout": 30 }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          { "type": "command", "command": "python \"d:/repos/CodeWiki-CN/.codebuddy/hooks/capture_session_end.py\"", "timeout": 30 }
+          { "type": "command", "command": "python \".codebuddy/hooks/capture_session_end.py\"", "timeout": 30 }
         ]
       }
     ]
@@ -57,13 +50,14 @@ wrapper 通过 `python -m codewiki.mcp._ide_hook` 调起采集脚本，因此要
 }
 ```
 
-三个事件的分工（官方文档确认三者 stdin 载荷均含 `session_id` + `transcript_path`）：
+两个事件的分工：
 
-| 事件 | 触发时机 | matcher | 采集价值 |
+| 事件 | 触发时机 | matcher | 职责 |
 |---|---|---|---|
-| `SessionEnd` | 会话终止（切换/删除/清空） | `other`（目前唯一支持的 reason 值） | 收尾：拿到最终完整 transcript |
-| `PreCompact` | 上下文即将压缩前 | `*`（匹配 trigger 的 manual/auto 两种） | 检查点：压缩会稀释细节，长会话在压缩前抓一份原文 |
-| `Stop` | Agent 每轮响应完成 | 不使用，省略 | 崩溃保险：任意时刻 IDE 退出最多丢一轮；依赖同会话覆盖去重，不产生增量文件 |
+| `SessionStart` | 新会话开始 | `startup` | 同步返回 `hookSpecificOutput.additionalContext`，注入任务关联引导（脚本 `task_session_start.py`，纯 stdlib，不 import codewiki） |
+| `SessionEnd` | 会话终止（切换/删除/清空） | `other`（目前唯一支持的 reason 值） | 唯一可靠携带 `transcript_path` 的事件；采集脚本经 wrapper 转发落盘 |
+
+**命令路径用项目相对形式（如 `python ".codebuddy/hooks/capture_session_end.py"`），不写机器相关绝对路径**——`.<ide>/settings.json` 随仓库共享，绝对路径（如 `d:/repos/CodeWiki-CN/...`）提交后队友克隆到其他目录即失效。相对路径可行的前提是宿主以项目根为工作目录执行 hook 命令（已实测）；各宿主的 `$*_PROJECT_DIR` 环境变量展开曾尝试（CodeBuddy `$CODEBUDDY_PROJECT_DIR`、Qoder `$QODER_PROJECT_DIR`、Claude Code `$CLAUDE_PROJECT_DIR`、Gemini CLI `$GEMINI_PROJECT_DIR`），实测不可靠故弃用。重跑 `codewiki install-hooks` 会把旧格式条目（绝对路径/环境变量占位符）原地迁移为相对形式，不产生重复注册。接线后建议开一个新会话验证 hook 触发。
 
 事件触发时，CodeBuddy 通过 **stdin** 向 wrapper 传入事件 JSON（以 SessionEnd 为例）：
 
@@ -77,7 +71,7 @@ wrapper 通过 `python -m codewiki.mcp._ide_hook` 调起采集脚本，因此要
 }
 ```
 
-wrapper 据此解析 `repo_path`（优先取事件 JSON 的 `cwd` 字段作为仓库绝对路径）与对话来源 `transcript_path`，调用采集脚本完成落盘。注意：CodeBuddy 的 hook 命令**不会展开** `$CODEBUDDY_PROJECT_DIR` 之类的环境变量，因此 `.codebuddy/settings.json` 里注册命令时必须直接写脚本的**绝对路径**（如 `d:/repos/CodeWiki-CN/.codebuddy/hooks/capture_session_end.py`），否则会被当成字面路径拼接导致 `can't open file`。无需额外环境变量——采集已用 `--enable` 强制开启。
+wrapper 据此解析 `repo_path`（优先 `CODEBUDDY_PROJECT_DIR` / `CLAUDE_PROJECT_DIR` 环境变量，其次事件 JSON 的 `cwd` 字段，最后从脚本自身位置推导）与对话来源 `transcript_path`，调用采集脚本完成落盘。脚本本体不依赖工作目录，可移植性只取决于 settings.json 里那行命令能否定位到脚本。
 
 ### 备选：手动调用采集脚本（不走 IDE 钩子）
 

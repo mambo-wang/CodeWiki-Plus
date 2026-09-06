@@ -54,6 +54,10 @@ _DEFAULT_CONVENTIONS = {
     # 默认 tags 不再为空：schema.yaml 里 okf_tags 为 [] 时，
     # frontmatter 注入 helper 会回落到此默认值。
     "okf_tags": ["codewiki", "auto-generated"],
+    # Team-layout Phase 4 (D14): git 同步策略。advisory 默认开——只读
+    # fetch、每进程每仓一次、失败静默降级；session_ff_only/auto_push
+    # （第二刀）仅限 repowiki 所在仓不含业务代码的 harness 根仓。
+    "git_sync": {"mode": "advisory", "auto_push": False},
 }
 
 # V4: fill the note_types placeholder from the authoritative table (import kept
@@ -204,9 +208,7 @@ _DEFAULT_PAGE_TYPES = {
 
 # ── installation schema.yaml loading ─────────────────────────────────────
 
-_CONFIG_PATH_PKG = Path(__file__).resolve().parents[2] / "templates" / "schema.yaml"
-_CONFIG_PATH_ROOT = Path(__file__).resolve().parents[3] / "schema.yaml"
-_CONFIG_PATH = _CONFIG_PATH_PKG if _CONFIG_PATH_PKG.exists() else _CONFIG_PATH_ROOT
+_CONFIG_PATH = Path(__file__).resolve().parents[2] / "templates" / "schema.yaml"
 _project_config_cache: Optional[dict] = None
 
 
@@ -333,12 +335,49 @@ def generate_schema(
     # Merge with existing schema if present
     existing = _load_existing_schema(schema_path)
     if existing is not None:
+        # Team-layout Phase 1 (churn suppression): schema.yaml is the team's
+        # highest-frequency meaningless-conflict source — every analyze_repo
+        # run used to rewrite generated_at (and occasionally project.*),
+        # producing a diff for every developer even when nothing substantive
+        # changed.  Snapshot the on-disk content with generated_at stripped;
+        # if the merge result is byte-identical apart from the timestamp,
+        # skip the write-back entirely.  generated_at thus becomes "last
+        # substantive change of auto-managed content", matching the
+        # team-layout design doc §5.2.
+        before_text = _normalized_yaml_text(existing)
+        old_generated_at = existing.get("generated_at")
         new_schema = _merge_schemas(existing, new_schema)
+        if _normalized_yaml_text(new_schema) == before_text:
+            new_schema["generated_at"] = old_generated_at
+            logger.debug("Schema unchanged (timestamp-only drift); write skipped")
+            return new_schema
 
     # Write to disk
     _write_yaml(schema_path, new_schema)
 
     return new_schema
+
+
+def _normalized_yaml_text(data) -> str:
+    """Serialize *data* to YAML text with ``generated_at`` stripped.
+
+    The churn-free signature used to decide whether a merge changed anything
+    substantive.  Works on both plain dicts and ruamel CommentedMaps
+    (deep-copied first so the caller's object is never mutated).
+    """
+    import copy
+    from io import StringIO
+
+    from ruamel.yaml import YAML
+
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    snapshot = copy.deepcopy(data)
+    if isinstance(snapshot, dict):
+        snapshot.pop("generated_at", None)
+    buf = StringIO()
+    yaml.dump(snapshot, buf)
+    return buf.getvalue()
 
 
 def _load_existing_schema(schema_path: Path):
@@ -431,9 +470,15 @@ def _write_yaml(path: Path, data) -> None:
             )
             data = cm
 
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            yaml.dump(data, f)
+        # Team-layout Phase 2: dump to string then atomic-write (temp +
+        # replace) — a crash mid-dump used to leave a truncated schema.yaml.
+        from io import StringIO
+
+        buf = StringIO()
+        yaml.dump(data, buf)
+        from codewiki.src.store import atomic_write
+
+        atomic_write(path, buf.getvalue())
         logger.info("Schema written to %s", path)
     except Exception as e:
         logger.warning("Failed to write schema.yaml: %s", e)

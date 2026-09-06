@@ -9,45 +9,45 @@ block the primary operation.
 from __future__ import annotations
 
 import logging
-import os
+import re
 import threading
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Tuple
+
+from codewiki.src.locks import file_lock
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Cross-platform file locking: fcntl is Unix-only; on Windows we fall back to
-# msvcrt, and if neither is available we degrade gracefully to a thread lock.
+# Cross-platform file locking lives in codewiki.src.locks; _append_with_lock
+# below is a thin convenience wrapper over the generic read-modify-write lock.
 # ---------------------------------------------------------------------------
-try:
-    import fcntl as _fcntl  # type: ignore
-except ImportError:  # pragma: no cover - Windows
-    _fcntl = None
-
-try:
-    import msvcrt as _msvcrt  # type: ignore
-except ImportError:  # pragma: no cover - non-Windows
-    _msvcrt = None
-
-# Process-local fallback lock for the append path when no OS-level file lock
-# primitive is available.
-_append_fallback_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Module-level lock for index rebuilds (serialises concurrent rebuild calls)
 # ---------------------------------------------------------------------------
 _index_lock = threading.Lock()
 
-# Lock for log file creation (prevents duplicate headers on first concurrent call)
-_log_create_lock = threading.Lock()
-
 # Timezone: UTC+8 for display, but we use utcnow() + format manually
 _TZ_CST = timezone(timedelta(hours=8))
 
-# Files to exclude from the module-docs table in index.md
+# Files to exclude from the module-docs table in index.md.
+# NOTE: WIKI_SYSTEM_FILES membership (see src/config.py) also matches monthly
+# log shards ``log-YYYY-MM.md`` — this local set only guards root-level names
+# scanned directly here, so the prefix check must be repeated.
 _EXCLUDED_FROM_INDEX = {"index.md", "log.md", "overview.md", "schema.yaml"}
+
+
+def _is_log_shard(name: str) -> bool:
+    """True for monthly log shard filenames (``log-YYYY-MM.md``) only.
+
+    Strict month pattern so a user page named e.g. ``log-架构分析.md`` is
+    NOT mistaken for a system log shard.
+    """
+    import re
+
+    return re.fullmatch(r"log-\d{4}-\d{2}\.md", name) is not None
 
 
 # ===================================================================
@@ -97,7 +97,7 @@ def rebuild_index(output_dir: str | Path) -> None:
             for md_file in sorted(wiki_dir.iterdir()):
                 if not md_file.is_file() or md_file.suffix != ".md":
                     continue
-                if md_file.name in _EXCLUDED_FROM_INDEX:
+                if md_file.name in _EXCLUDED_FROM_INDEX or _is_log_shard(md_file.name):
                     continue
                 title, summary = _extract_doc_title_and_summary(md_file)
                 root_entries.append(
@@ -215,85 +215,104 @@ def append_log(
     operation: str,
     summary: str,
 ) -> None:
-    """Record one operation in ``wiki/log.md`` (OKF v0.2 §9 format).
+    """Record one operation in ``wiki/log-YYYY-MM.md`` (OKF v0.2 §9 format).
 
-    §9: flat list of date-grouped entries, newest first::
+    Team-layout Phase 1 (D5): monthly shards, **ascending chronological
+    order, pure file-end append**.  Two developers appending on the same
+    day produce additions at different line positions of the shard, so git
+    merges them automatically — the old single ``log.md`` (newest-first,
+    top-insertion) was a guaranteed conflict surface.
 
-        # Directory Update Log
+    Shard layout (``## YYYY-MM-DD`` sections, oldest first)::
 
-        ## 2026-08-03
+        # 操作日志 · 2026-09
+
+        ## 2026-09-02
         * **write_doc_file**: Created foo.md
+        ## 2026-09-03
+        * **ingest_note**: ...
 
-    Entries for the same day are appended to that day's block; a new day
-    section is inserted at the top.  Legacy v5.1.x table logs are kept
-    below the new sections, marked once with an archive comment.
-    Silently returns if *output_dir* does not exist.
+    The legacy ``wiki/log.md`` is never written again; it stays on disk
+    read-only (historical archive).  Silently returns if *output_dir* does
+    not exist.
     """
     output_dir = Path(output_dir)
     if not output_dir.is_dir():
         return
 
-    from codewiki.src.config import LOG_FILENAME, WIKI_DIR
+    from codewiki.src.config import LOG_SHARD_PREFIX, WIKI_DIR
 
-    # Log always lives in wiki/log.md (create wiki/ if needed)
     wiki_dir = output_dir / WIKI_DIR
     wiki_dir.mkdir(parents=True, exist_ok=True)
-    log_path = wiki_dir / LOG_FILENAME
+
+    now = datetime.now(_TZ_CST)
+    date_str = now.strftime("%Y-%m-%d")
+    month_str = now.strftime("%Y-%m")
+    shard_path = wiki_dir / f"{LOG_SHARD_PREFIX}{month_str}.md"
 
     safe_op = operation.replace("\n", " ").replace("|", "/")
     safe_summary = summary.replace("\n", " ").replace("|", "/")
-    now = datetime.now(_TZ_CST)
-    date_str = now.strftime("%Y-%m-%d")
     entry = f"* **{safe_op}**: {safe_summary}"
 
-    with _log_create_lock:
-        if not log_path.exists():
-            header = (
-                "# 操作日志\n\n> 按日期倒序分组的操作记录，由系统自动维护（OKF v0.2 §9 格式）\n\n"
-            )
-            try:
-                log_path.write_text(header, encoding="utf-8")
-            except OSError as e:
-                logger.warning("Failed to create log.md: %s", e)
-                return
-
-        try:
-            content = log_path.read_text(encoding="utf-8")
-        except OSError as e:
-            logger.warning("Failed to read log.md: %s", e)
-            return
-
-        lines = content.split("\n")
-        n = len(lines)
-
-        # Anchor: first date heading, or legacy table row (v5.1.x format)
-        idx = 0
-        while idx < n and not lines[idx].startswith("## ") and not lines[idx].startswith("|"):
-            idx += 1
-
-        if idx < n and lines[idx].startswith("|"):
-            # Legacy table log: insert new-format section before the table,
-            # marking the archive boundary once.
-            marker = "<!-- 以下为 v5.1.x 旧格式日志存档 -->"
-            block = [f"## {date_str}", entry, ""]
-            if marker not in content:
-                block.append(marker)
-            lines = lines[:idx] + block + lines[idx:]
-        elif idx < n and lines[idx].strip() == f"## {date_str}":
-            # Same-day section exists: append after its last non-empty line
-            j = idx + 1
-            while j < n and not lines[j].startswith("## "):
-                j += 1
-            k = j
-            while k > idx + 1 and lines[k - 1].strip() == "":
-                k -= 1
-            lines.insert(k, entry)
-        else:
-            # New day section at the top (newest first)
-            lines = lines[:idx] + [f"## {date_str}", entry, ""] + lines[idx:]
-
-        _atomic_write(log_path, "\n".join(lines))
+    try:
+        # Cross-process read-modify-write lock (fcntl/msvcrt + thread layer).
+        # NOTE: file_lock() opens the target O_RDWR|O_CREAT, so a brand-new
+        # shard already "exists" as an empty file — emptiness is judged by
+        # content, not existence.  All I/O goes through the lock handle
+        # (Windows constraint: a second open inside the block raises).
+        with file_lock(shard_path) as f:
+            f.seek(0)
+            content = f.read()
+            if not content.strip():
+                header = (
+                    f"# 操作日志 · {month_str}\n\n"
+                    "> 按时间正序追加（team-layout Phase 1 月度分片，OKF v0.2 §9 格式；"
+                    "由系统自动维护）\n\n"
+                )
+                payload = f"{header}## {date_str}\n{entry}\n"
+            else:
+                # Find the last ``## YYYY-MM-DD`` heading already in the shard.
+                last_heading = None
+                for line in content.splitlines():
+                    if line.startswith("## "):
+                        last_heading = line[3:].strip()
+                if last_heading == date_str:
+                    # Same-day section exists: pure append under it.
+                    payload = entry + "\n"
+                else:
+                    payload = f"\n## {date_str}\n{entry}\n"
+            f.seek(0, 2)  # end of file — pure append, never rewrite history
+            f.write(payload)
+    except Exception as e:
+        logger.warning("Failed to append log entry to %s: %s", shard_path, e)
+        return
     logger.debug("Appended log entry: %s", safe_op)
+
+
+def ensure_index(output_dir: str | Path) -> bool:
+    """Rebuild ``wiki/index.md`` when it is missing (read-path self-heal).
+
+    Team-layout Phase 1 (D7): index.md is a rebuildable derived file and is
+    no longer committed; a fresh clone has no copy.  lint_wiki calls this on
+    every run (close_session rebuilds unconditionally, which is equivalent);
+    query_wiki does not read index.md, so no other call sites are needed.
+
+    Returns True when a rebuild was performed.
+    """
+    output_dir = Path(output_dir)
+    if not output_dir.is_dir():
+        return False
+    from codewiki.src.config import INDEX_FILENAME, WIKI_DIR
+
+    index_path = output_dir / WIKI_DIR / INDEX_FILENAME
+    if index_path.exists():
+        return False
+    try:
+        rebuild_index(output_dir)
+        return True
+    except Exception as e:
+        logger.warning("ensure_index rebuild failed: %s", e)
+        return False
 
 
 # ===================================================================
@@ -395,6 +414,38 @@ _PAGE_TYPE_LABELS = {
     "scenario": "场景方法",
 }
 
+# Markdown inline links: [label](target)
+_INLINE_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
+
+
+def _relocate_summary_links(summary: str, relpath: str) -> str:
+    """Re-base relative links inside *summary* so they resolve from index.md.
+
+    A page's frontmatter ``description`` is authored relative to that page's
+    own directory — e.g. ``[Foo](Foo.md)`` inside ``wiki/modules/``.  Index
+    bullets live in ``wiki/index.md`` (one level up), so such links must gain
+    the page's directory prefix to stay resolvable, otherwise ``lint_wiki``
+    reports them as ``stale_refs``/broken links.
+
+    Only bare filenames are rewritten: URLs, anchors, absolute paths and
+    already-qualified relative paths are left untouched.
+    """
+    base = str(PurePosixPath(relpath.replace("\\", "/")).parent)
+    if base in ("", "."):
+        return summary
+
+    def _fix(match: "re.Match[str]") -> str:
+        target = match.group(2)
+        if (
+            target.startswith(("/", "#", "mailto:"))
+            or "://" in target
+            or "/" in target
+        ):
+            return match.group(0)
+        return f"[{match.group(1)}]({base}/{target})"
+
+    return _INLINE_LINK_RE.sub(_fix, summary)
+
 
 def _render_index(
     type_entries: Dict[str, List[Dict[str, str]]],
@@ -445,7 +496,10 @@ def _render_index(
         parts.append(f"## {label}")
         parts.append("")
         for entry in entries:
-            parts.append(f"* [{entry['title']}]({entry['relpath']}) - {entry['summary']}")
+            parts.append(
+                f"* [{entry['title']}]({entry['relpath']}) - "
+                f"{_relocate_summary_links(entry['summary'], entry['relpath'])}"
+            )
         parts.append("")
 
     # Notes section
@@ -461,54 +515,30 @@ def _render_index(
 
 
 def _atomic_write(path: Path, content: str) -> None:
-    """Write *content* to *path* via a temp file + atomic rename."""
-    tmp = path.with_suffix(".tmp")
+    """Write *content* to *path* via a temp file + atomic rename.
+
+    Delegates to the shared store implementation (adds Windows retry); failure
+    is logged and swallowed, matching this module's best-effort contract.
+    """
+    from codewiki.src.store import atomic_write
+
     try:
-        tmp.write_text(content, encoding="utf-8")
-        os.replace(str(tmp), str(path))
-    except Exception as e:
+        atomic_write(path, content)
+    except OSError as e:
         logger.warning("Atomic write failed for %s: %s", path, e)
-        # Clean up temp file if it was created
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
 
 
 def _append_with_lock(filepath: Path, line: str) -> None:
     """Append a single line to *filepath* with an exclusive file lock.
 
-    Cross-platform: uses ``fcntl.flock`` on Unix, ``msvcrt.locking`` on
-    Windows, and a process-local thread lock as a last-resort fallback.
+    Thin wrapper over :func:`codewiki.src.locks.file_lock` (cross-platform:
+    ``fcntl.flock`` on Unix, ``msvcrt.locking`` on Windows, plus a
+    process-local thread layer on every platform).  All I/O goes through
+    the handle that holds the lock (required on Windows).
     """
     try:
-        with open(filepath, "a", encoding="utf-8") as f:
-            if _fcntl is not None:
-                _fcntl.flock(f.fileno(), _fcntl.LOCK_EX)
-                try:
-                    f.write(line + "\n")
-                    f.flush()
-                finally:
-                    _fcntl.flock(f.fileno(), _fcntl.LOCK_UN)
-            elif _msvcrt is not None:
-                # msvcrt locks byte ranges; lock a 1-byte region at the
-                # current position for the duration of the write.
-                try:
-                    _msvcrt.locking(f.fileno(), _msvcrt.LK_LOCK, 1)
-                except OSError:
-                    pass  # locking may fail on some filesystems; still write
-                try:
-                    f.write(line + "\n")
-                    f.flush()
-                finally:
-                    try:
-                        _msvcrt.locking(f.fileno(), _msvcrt.LK_UNLCK, 1)
-                    except OSError:
-                        pass
-            else:
-                with _append_fallback_lock:
-                    f.write(line + "\n")
-                    f.flush()
+        with file_lock(filepath) as f:
+            f.seek(0, 2)  # end of file
+            f.write(line + "\n")
     except Exception as e:
         logger.warning("Failed to append to %s: %s", filepath, e)

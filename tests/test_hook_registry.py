@@ -234,15 +234,15 @@ class TestPromptRegistryDriven:
         assert "绝不主动新建" in s
 
     def test_init_workspace_prompt_renders(self):
-        import os
-
         from codewiki.mcp.prompts import _prompt_init_workspace
 
-        ws = os.path.normpath("D:/tmp/ws")
-        s = _prompt_init_workspace({"workspace_path": "D:/tmp/ws"})
-        assert f'init_workspace(workspace_path="{ws}"' in s
+        s = _prompt_init_workspace({})
+        assert "init_workspace()" in s  # zero-config invocation for skeleton repair
         assert "bootstrap.sh" in s
         assert "CodeWiki Workspace Conventions" in s
+        assert "补克隆" in s  # re-sync clone wording
+        assert "needs_layout_decision" in s  # first-init decision gate handling
+        assert "centralized" in s  # first-init layout choice guidance
         assert "不要凭记忆猜测" in s  # URL gathering guardrail
         assert "add_workspace_repo" in s
 
@@ -251,9 +251,13 @@ class TestPromptRegistryDriven:
 
         from codewiki.mcp.prompts import _prompt_add_workspace_repo
 
-        ws = os.path.normpath("D:/tmp/ws")
+        # Platform-agnostic: an absolute path renders verbatim; a relative
+        # one is resolved against cwd (the prompt always shows an absolute
+        # path so agents don't have to guess). Use the platform's own abs
+        # path so the assertion holds on Windows (D:/...) and POSIX alike.
+        ws = os.path.normpath(os.path.join(os.getcwd(), "tmp", "ws"))
         s = _prompt_add_workspace_repo(
-            {"workspace_path": "D:/tmp/ws", "name": "demo", "url": "https://x/demo.git"}
+            {"workspace_path": ws, "name": "demo", "url": "https://x/demo.git"}
         )
         assert f'add_workspace_repo(workspace_path="{ws}"' in s
         assert "demo" in s
