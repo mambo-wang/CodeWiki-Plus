@@ -330,6 +330,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         changes_info = _detect_doc_changes(repo_path, output_dir, components=metas)
     if changes_info is not None:
         changes_info = _enrich_stale_pages(changes_info, output_dir)
+        changes_info = _enrich_stale_evidence(changes_info, output_dir)
         workspace.write_json("changes.json", changes_info)
 
     # 5. Summary
@@ -519,6 +520,10 @@ def _build_no_change_response(
         if not lang or lang.lower() in ("null", "none", "unknown"):
             lang = "unknown"
         langs[lang] = langs.get(lang, 0) + 1
+    # D2 stale_pages enriches here too (fingerprint drift may exist with no
+    # code change), but the D1 evidence signal stays SILENT on this path
+    # (ADR-0005): no_changes means "code didn't move" — evidence drift then
+    # waits for an explicit lint_wiki(checks=["stale_evidence"]).
     changes_info = _enrich_stale_pages(changes_info, output_dir)
     workspace.write_json("changes.json", changes_info)
 
@@ -784,6 +789,57 @@ def _enrich_stale_pages(
     stale = detect_stale_pages(output_dir, cf)
     if stale:
         changes_info["stale_pages"] = sorted(stale)
+    return changes_info
+
+
+def _enrich_stale_evidence(
+    changes_info: Optional[Dict[str, Any]], output_dir: Path
+) -> Optional[Dict[str, Any]]:
+    """Merge D1 evidence-drift signal into *changes_info* in place (B6).
+
+    Third drift signal alongside ``affected_modules`` (git-diff driven) and
+    ``stale_pages`` (D2 manifest driven): pages whose ``repo://`` evidence no
+    longer verifies get a page-level status summary in
+    ``changes_info["stale_evidence_pages"]``.  Semantics differ from
+    ``stale_pages`` (file-level change) — the two fields coexist without
+    dedup; a page hit by both signals is honestly double-reported.
+
+    Only the changed-code path enriches.  The ``no_changes`` short-circuit
+    stays silent by design (ADR-0005): drift there waits for an explicit
+    ``lint_wiki(checks=["stale_evidence"])``.
+
+    The signal drives review, never rewriting: the hint guides the agent to
+    re-verify claims and re-stamp evidence that still holds, not to blind-
+    regenerate pages (evidence drift may be relocation, not semantic change).
+    """
+    if not isinstance(changes_info, dict):
+        return changes_info
+    if changes_info.get("no_changes"):
+        return changes_info
+    from codewiki.mcp.tools.evidence import collect_evidence_drift
+
+    drift = collect_evidence_drift(output_dir)
+    if not drift:
+        return changes_info
+
+    pages: Dict[str, Dict[str, int]] = {}
+    for record in drift:
+        counts = pages.setdefault(
+            record["file"], {"stale": 0, "missing": 0, "unresolvable": 0}
+        )
+        counts[record["status"]] += 1
+    changes_info["stale_evidence_pages"] = {
+        page: {k: v for k, v in counts.items() if v}
+        for page, counts in sorted(pages.items())
+    }
+    total = sum(sum(c.values()) for c in changes_info["stale_evidence_pages"].values())
+    changes_info["hint"] = (
+        changes_info.get("hint", "")
+        + f" {total} evidence entr{'y' if total == 1 else 'ies'} drifted across "
+        f"{len(changes_info['stale_evidence_pages'])} page(s) — review whether the "
+        "claims still hold: re-stamp evidence that does (stamp_evidence), correct "
+        "pages that do not. Detail: lint_wiki(checks=['stale_evidence'])."
+    )
     return changes_info
 
 

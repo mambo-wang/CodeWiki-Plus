@@ -1000,94 +1000,42 @@ def _check_unsupported_claims(
 def _check_stale_evidence(output_dir: Path) -> List[Dict[str, Any]]:
     """Flag pages whose ``repo://`` code evidence no longer matches source.
 
-    Reads each page's ``sources`` list for entries carrying a ``content_hash``
-    (stamped by ``stamp_evidence``), re-reads the referenced region, and reports
-    ``stale`` (code drifted) or ``missing`` (file gone) entries.  Evidence
-    drives review only — this check never rewrites content.
+    Thin wrapper over :func:`collect_evidence_drift`
+    (``codewiki.mcp.tools.evidence``) — the shared collection point also
+    feeds the ``analyze_repo`` incremental post-step (B6).  Reports ``stale``
+    (code drifted) or ``missing`` (file gone) entries.  Evidence drives
+    review only — this check never rewrites content.
     """
-    from codewiki.mcp.tools.evidence import evidence_roots
-    from codewiki.src.evidence import verify_entry
+    from codewiki.mcp.tools.evidence import collect_evidence_drift
 
-    # Centralized workspaces keep the code in <ws>/<repo>/ while the corpus is
-    # <ws>/repowiki, so output_dir.parent (the status-quo repo root) resolves
-    # nothing — try every plausible root instead. An entry's own `repo` field
-    # (recorded by stamp_evidence) narrows it to the owning repo.
-    base_roots = evidence_roots(output_dir)
     issues: List[Dict[str, Any]] = []
-
-    for md_file in output_dir.rglob("*.md"):
-        if not md_file.is_file():
-            continue
-        parts = set(md_file.relative_to(output_dir).parts)
-        if parts & _SCRATCH_DIR_NAMES or "raw" in parts:
-            continue
-        try:
-            content = md_file.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        if not content.startswith("---"):
-            continue
-        end = content.find("---", 3)
-        if end < 0:
-            continue
-        try:
-            import yaml
-
-            data = yaml.safe_load(content[3:end]) or {}
-        except Exception:  # noqa: BLE001 - malformed FM is other checks' concern
-            continue
-        if not isinstance(data, dict):
-            continue
-        sources = data.get("sources")
-        if isinstance(sources, dict):
-            sources = [sources]
-        if not isinstance(sources, list):
-            continue
-
-        rel_path = str(md_file.relative_to(output_dir)).replace("\\", "/")
-        for entry in sources:
-            if not isinstance(entry, dict) or "content_hash" not in entry:
-                continue
-            roots = (
-                evidence_roots(output_dir, entry.get("repo"))
-                if entry.get("repo")
-                else base_roots
+    for record in collect_evidence_drift(output_dir):
+        status = record["status"]
+        resource = record["resource"]
+        if status == "stale":
+            message = f"code evidence drifted: {resource}"
+            suggestion = (
+                "Source changed since this page was grounded. Re-verify the "
+                "claim, then re-stamp via stamp_evidence or edit_doc_file."
             )
-            statuses = [verify_entry(entry, root) for root in roots]
-            if "ok" in statuses:
-                continue
-            # Only report the most actionable verdict: drift > gone > broken URI.
-            if "stale" in statuses:
-                status = "stale"
-            elif "missing" in statuses:
-                status = "missing"
-            else:
-                status = "unresolvable"
-            resource = str(entry.get("resource", "<unknown>"))
-            if status == "stale":
-                message = f"code evidence drifted: {resource}"
-                suggestion = (
-                    "Source changed since this page was grounded. Re-verify the "
-                    "claim, then re-stamp via stamp_evidence or edit_doc_file."
-                )
-            elif status == "missing":
-                message = f"evidence file disappeared: {resource}"
-                suggestion = (
-                    "Referenced source no longer exists under the repo root. "
-                    "Re-check the page and re-stamp or remove the entry."
-                )
-            else:
-                message = f"unresolvable evidence resource: {resource}"
-                suggestion = "Malformed repo:// resource; re-stamp with a valid URI."
-            issues.append(
-                {
-                    "check": "stale_evidence",
-                    "severity": "warning",
-                    "message": message,
-                    "file": rel_path,
-                    "suggestion": suggestion,
-                }
+        elif status == "missing":
+            message = f"evidence file disappeared: {resource}"
+            suggestion = (
+                "Referenced source no longer exists under the repo root. "
+                "Re-check the page and re-stamp or remove the entry."
             )
+        else:
+            message = f"unresolvable evidence resource: {resource}"
+            suggestion = "Malformed repo:// resource; re-stamp with a valid URI."
+        issues.append(
+            {
+                "check": "stale_evidence",
+                "severity": "warning",
+                "message": message,
+                "file": record["file"],
+                "suggestion": suggestion,
+            }
+        )
 
     return issues
 
