@@ -241,7 +241,7 @@ repowiki/
 | `batch_ingest` | 批量导入：一次调用处理多个笔记/文档 |
 | `init_wiki` | 初始化 Wiki 工作区目录结构与项目级 schema.yaml |
 | `wiki_stats` | Wiki 知识库统计（页面数、笔记状态分布、覆盖率概览） |
-| `skill_creator` | 把已确认知识（场景块 + stable pitfall/lesson/decision 笔记 + 技能 open issues）编译为 SKILL.md 行为指令草稿（`repowiki/skills/` 草稿区，两区制：进索引进 lint、不生效）。Mode C：prepare 零副作用返回候选素材/冲突预检（Jaccard>0.6）/容量预警（橙 9 只 UPDATE、红 12 先合并）/写作规范提示 → Agent 撰写 → submit 校验（失败报具体规则名）落盘、写双向溯源（source_refs ⇄ compiled_into）、追加 revisions、重建索引；空产出 no_action 合法；每批最多新建 1 份 |
+| `skill_creator` | 把已确认知识（场景块 + stable pitfall/lesson/decision 笔记 + 技能 open issues）编译为 SKILL.md 行为指令草稿（`repowiki/skills/` 草稿区，两区制：进索引进 lint、不生效）。Mode C：prepare 零副作用返回候选素材/冲突预检（Jaccard>0.6）/容量预警（橙 9 只 UPDATE、红 12 先合并）/写作规范提示 → Agent 撰写 → submit 校验（失败报具体规则名）落盘、写双向溯源（source_refs ⇄ compiled_into）、追加 revisions、重建索引；空产出 no_action 合法；每批最多新建 1 份。install（用户确认后）：剥离管理元数据装入生效区 `.codebuddy/skills/<name>/`（幂等，写 installed_at/to/hash 供漂移检测）；retire：草稿标 deprecated + 生效区移除（正文保留审计，需 reason） |
 
 **质量保障（2 个）：**
 
@@ -943,7 +943,7 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP. The serve
 | `batch_ingest` | Batch import multiple notes/sources in one call |
 | `init_wiki` | Initialize Wiki workspace directories and project-level schema.yaml |
 | `wiki_stats` | Wiki statistics (page counts, note status distribution, coverage overview) |
-| `skill_creator` | Compile confirmed knowledge (scenario blocks + stable pitfall/lesson/decision notes + per-skill open issues) into SKILL.md behaviour-instruction drafts in `repowiki/skills/` (two-zone draft area: indexed and linted, never effective). Mode C: prepare (zero side effects) returns candidates, conflict pre-check (Jaccard > 0.6), capacity warning (orange >= 9 update-only, red >= 12 merge-first) and the writing system prompt → the agent writes → submit validates (failures name the exact rule), writes the draft, records bidirectional provenance (source_refs ⇄ compiled_into), appends revisions and rebuilds the index. Empty output (no_action) is legal; at most one new skill per batch |
+| `skill_creator` | Compile confirmed knowledge (scenario blocks + stable pitfall/lesson/decision notes + per-skill open issues) into SKILL.md behaviour-instruction drafts in `repowiki/skills/` (two-zone draft area: indexed and linted, never effective). Mode C: prepare (zero side effects) returns candidates, conflict pre-check (Jaccard > 0.6), capacity warning (orange >= 9 update-only, red >= 12 merge-first) and the writing system prompt → the agent writes → submit validates (failures name the exact rule), writes the draft, records bidirectional provenance (source_refs ⇄ compiled_into), appends revisions and rebuilds the index. Empty output (no_action) is legal; at most one new skill per batch. install (after user confirmation): strip management frontmatter into the effect zone `.codebuddy/skills/<name>/` (idempotent, stamps installed_at/to/hash for drift detection); retire: mark the draft deprecated + remove the effect copy (body kept for audit, reason required) |
 
 **Quality Assurance (2):**
 

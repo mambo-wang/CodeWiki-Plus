@@ -1264,11 +1264,11 @@ def _prompt_consolidate_knowledge(args: dict[str, str]) -> str:
 
 def _prompt_skill_creator(args: dict[str, str]) -> str:
     repo_path = _resolve_path(args.get("repo_path", ""))
-    return f"""技能编译工作流（skill-creator T2，docs/skill-creator需求与设计方案.md，ADR-0004 两区制）。当用户说"把经验编成技能""生成 SKILL""整理出可复用的行为指令"，或希望把已确认知识（场景块 + 精选笔记）升级为 IDE 可触发的 SKILL.md 时，使用本流程。**编译出的技能只落草稿区 `repowiki/skills/`（进索引进 lint、不生效）；install 到生效区是后续单独的用户动作（T3）。**
+    return f"""技能编译工作流（skill-creator T2+T3，docs/skill-creator需求与设计方案.md，ADR-0004 两区制）。当用户说"把经验编成技能""生成 SKILL""整理出可复用的行为指令"，或希望把已确认知识（场景块 + 精选笔记）升级为 IDE 可触发的 SKILL.md 时，使用本流程。**编译出的技能只落草稿区 `repowiki/skills/`（进索引进 lint、不生效）；install 到生效区 `.codebuddy/skills/` 是单独的用户动作——用户明确确认后才调用。**
 
 ## ⛔ 行为契约（必须遵守）
 - 素材边界：只用**已确认知识**——`wiki/scenarios/` 场景块、stable 状态的 pitfall/lesson/decision 笔记、既有技能名下的 open issues；**任务记忆不是技能素材**（直写落盘无确认闸门，ADR-0002）。
-- 永不自动编译；触发词出现先向用户确认再执行。
+- 永不自动编译、永不自动 install；触发词出现先向用户确认再执行。
 
 ## 步骤 1：准备（零副作用）
 `skill_creator(mode="prepare", repo_path="{repo_path}", topic=<计划中的技能名>)`，关注返回中的：
@@ -1291,8 +1291,18 @@ def _prompt_skill_creator(args: dict[str, str]) -> str:
 - 素材不足、不值得编译时：提交**空 report**（no_action 是合法轮次，不算失败）
 - 成功后工具自动写双向溯源（技能 source_refs ⇄ 素材 compiled_into）、追加 revisions、重建索引
 
-## 步骤 4：验证与收尾
-`lint_wiki(checks=["skill_sections"])` 确认草稿五段骨架齐全；向用户汇报新建/更新的技能清单，并提示：草稿不生效，审阅通过后走 install（T3）才能被 IDE 发现。试用中发现问题用 `flag_issue(page_path="skills/<name>/SKILL.md", issue_type="skill-ineffective")` 回流，下次 prepare 会聚合为修订素材。
+## 步骤 4：验证
+`lint_wiki(checks=["skill_sections"])` 确认草稿五段骨架齐全；向用户汇报新建/更新的技能清单，提示草稿尚未生效。
+
+## 步骤 5：安装（仅用户确认后）
+用户审阅草稿并明确同意后：`skill_creator(mode="install", repo_path="{repo_path}", name="<slug>")`
+- 生效区文件只含 name/description/正文（管理元数据全部剥离，省宿主上下文）
+- 工具写 installed_at/installed_to/installed_hash 回草稿——哈希是漂移检测契约（lint #27 据此发现"草稿已修订、生效区仍旧版"）
+- install 幂等；草稿修订后重装即可刷新生效区
+
+## 步骤 6：退役与反馈
+- 技能过时/有害：`skill_creator(mode="retire", name="<slug>", reason="<为什么>")` —— 草稿标 deprecated（正文保留审计）、生效区移除
+- 试用发现问题：`flag_issue(page_path="skills/<name>/SKILL.md", issue_type="skill-ineffective")` 回流，下次 prepare 聚合为修订素材
 
 ## 参数说明
 - **repo_path**（必填）：仓库根目录
