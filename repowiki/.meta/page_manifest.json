@@ -99,6 +99,24 @@
       "repo": null,
       "producer": "codewiki/5.6.0",
       "written_at": "2026-09-05T12:00:39Z"
+    },
+    "wiki/comparisons/自动生成SKILL可行性-wikiskill闭环-vs-CodeWiki编译复用.md": {
+      "git_head": null,
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": null,
+      "producer": "codewiki/5.6.0",
+      "written_at": "2026-09-05T15:20:04Z"
+    },
+    "wiki/queries/skill-creator设计方案.md": {
+      "git_head": null,
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": null,
+      "producer": "codewiki/5.6.0",
+      "written_at": "2026-09-05T15:39:25Z"
     }
   }
 }

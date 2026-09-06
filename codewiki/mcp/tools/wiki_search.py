@@ -303,6 +303,29 @@ def _extract_title(ct):
     return None
 
 
+def _cache_serves_output_dir(session, output_dir: Path) -> bool:
+    """True when the session's shared cache DB is the one *output_dir* maps to.
+
+    Cross-repo pollution guard: a session cache is bound to its repo root DB
+    (``<repo>/.codewiki/analysis_cache.db``). Routing an output_dir that maps
+    to a DIFFERENT DB through that cache would rebuild/update the repo index
+    with the foreign wiki's content (a smoke/harness run pointing output_dir
+    at a temp directory does exactly that). Callers fall through to the
+    standalone path when this returns False — there the DB is resolved from
+    the output_dir itself, so the repo cache is never touched.
+    """
+    cache = getattr(session, "cache", None)
+    if cache is None:
+        return False
+    expected = _resolve_db_path(output_dir)
+    if expected is None:
+        return False
+    try:
+        return Path(cache.db_path).resolve() == Path(expected).resolve()
+    except (ValueError, OSError):
+        return False
+
+
 # ---- Public API ----
 
 
@@ -318,8 +341,8 @@ def build_full_index(output_dir, session=None):
         return {"docs_indexed": 0, "notes_indexed": 0, "total_tokens": 0}
 
     with _build_lock:
-        # Try SQLite cache first (active session)
-        if session is not None and getattr(session, "cache", None) is not None:
+        # Try SQLite cache first (active session owning this output_dir)
+        if session is not None and _cache_serves_output_dir(session, od):
             try:
                 return session.cache.build_search_index(od)
             except Exception as e:
@@ -426,7 +449,7 @@ def update_file(output_dir, filepath, session=None):
     """Incrementally update search index for a single file."""
     od = Path(output_dir)
     fp = Path(filepath)
-    if session is not None and getattr(session, "cache", None) is not None:
+    if session is not None and _cache_serves_output_dir(session, od):
         try:
             session.cache.update_search_doc(od, fp)
             return
@@ -575,8 +598,8 @@ def search(
     # reuses its shared AnalysisCache connection). See _ensure_index.
     _ensure_index(od, session=session)
 
-    # Try SQLite cache first (active session)
-    if session is not None and getattr(session, "cache", None) is not None:
+    # Try SQLite cache first (active session owning this output_dir)
+    if session is not None and _cache_serves_output_dir(session, od):
         try:
             return session.cache.search(
                 query,
@@ -769,7 +792,7 @@ def query_coverage(output_dir, query, expand_terms=None, session=None):
 
     conn = None
     _standalone = None
-    if session is not None and getattr(session, "cache", None) is not None:
+    if session is not None and _cache_serves_output_dir(session, od):
         try:
             conn = session.cache.conn
         except Exception:

@@ -225,14 +225,10 @@ def _collect_linked_targets(
 
 
 def _get_output_dir(session: Optional[SessionState], arguments: Dict) -> Optional[Path]:
-    """Resolve the output directory from session or arguments."""
+    """Resolve the output directory from session or repo_path (a
+    caller-supplied output_dir is ignored on the write path)."""
     if session:
         return Path(session.output_dir).expanduser().resolve()
-    output_dir = arguments.get("output_dir")
-    if output_dir:
-        p = Path(output_dir).expanduser().resolve()
-        p.mkdir(parents=True, exist_ok=True)
-        return p
     # Fallback: derive from repo_path (layout-aware, ticket 09: centralized
     # members lint the workspace knowledge base).
     rp = arguments.get("repo_path")

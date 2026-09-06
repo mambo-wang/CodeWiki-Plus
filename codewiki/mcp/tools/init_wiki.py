@@ -130,7 +130,6 @@ def handle_init_wiki(arguments: dict) -> str:
         JSON string with created paths and status.
     """
     repo_path = arguments.get("repo_path", "").strip()
-    output_dir = arguments.get("output_dir", "").strip()
 
     # Resolve repo_path
     if not repo_path:
@@ -172,20 +171,11 @@ def handle_init_wiki(arguments: dict) -> str:
     except Exception as e:  # pragma: no cover - routing must never break init
         logger.warning("centralized-layout routing skipped: %s", e)
 
-    # Resolve output_dir — the default routes to the workspace corpus under
-    # centralized; an explicit output_dir is the caller's directory-level
-    # choice and is never hijacked (same semantics as routing_for_write).
-    if not output_dir:
-        if _centralized:
-            from codewiki.mcp.tools.workspace_layout import default_output_dir
+    # output_dir is a pure function of repo_path under the active layout; a
+    # caller-supplied output_dir is ignored on the write path (retired param).
+    from codewiki.mcp.tools.workspace_layout import default_output_dir
 
-            output_dir_p = default_output_dir(repo_path_p)
-        else:
-            output_dir_p = repo_path_p / "repowiki"
-    elif os.path.isabs(output_dir):
-        output_dir_p = Path(output_dir).resolve()
-    else:
-        output_dir_p = (repo_path_p / output_dir).resolve()
+    output_dir_p = default_output_dir(repo_path_p)
 
     results: dict = {
         "repo_path": str(repo_path_p),
@@ -291,7 +281,7 @@ def handle_init_wiki(arguments: dict) -> str:
             "left untouched; no AGENTS.md block was injected into the business "
             "repo. Next: run analyze_repo on this repo (modules route to "
             "wiki/modules/<repo>/), or use ingest_note/query_wiki with "
-            "output_dir=<workspace repowiki> and repo=<name> filtering."
+            "repo_path=<workspace root> and repo=<name> filtering."
         )
     else:
         results["next_steps"] = (

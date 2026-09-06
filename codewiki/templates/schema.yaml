@@ -1,7 +1,7 @@
 # CodeWiki 默认 schema 模板
 # 此文件定义与目标仓库语言无关的文档生成默认值。
-# 使用方式：直接拷贝到项目的 output_dir（如 repowiki/schema.yaml），然后按需修改。
-# 首次 analyze_repo 时，本文件的配置会作为初始值写入 output_dir/schema.yaml。
+# 使用方式：直接拷贝到项目的 repowiki 目录（如 repowiki/schema.yaml），然后按需修改。
+# 首次 analyze_repo 时，本文件的配置会作为初始值写入 repowiki/schema.yaml。
 # 增量更新时，用户已自定义的字段会被保留，不会被覆盖。
 #
 # 自动推断的字段（不在本文件中）：

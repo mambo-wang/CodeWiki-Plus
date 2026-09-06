@@ -73,24 +73,22 @@ def handle_flag_issue(
     by a stable hash of (issue_type, page_path) so duplicate flags are
     idempotent (the timestamp is updated but the ID stays the same).
     """
-    # Resolve output directory.  Location is unified on ``output_dir``; when
-    # it is omitted we fall back to the active session directory so the tool
-    # still works inside a live MCP session.  The ``session_id`` parameter was
-    # removed: it only duplicated output_dir resolution and was never stored
-    # on the issue record.
-    output_dir = arguments.get("output_dir")
-    if not output_dir and store is not None:
+    # Resolve output directory from repo_path under the active layout, with a
+    # fallback to the most-recently-accessed active session.  A caller-supplied
+    # ``output_dir`` is ignored on the write path (retired param).
+    rp = arguments.get("repo_path")
+    if rp:
+        from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+        output_dir = default_output_dir(Path(rp).expanduser().resolve())
+    else:
         # Fall back to the most recently accessed active session's output_dir
         sessions = getattr(store, "_sessions", None) or {}
         if sessions:
             latest = max(sessions.values(), key=lambda s: s.last_accessed)
             output_dir = latest.output_dir
-    if not output_dir:
-        rp = arguments.get("repo_path")
-        if rp:
-            output_dir = str(Path(rp).expanduser().resolve() / "repowiki")
         else:
-            return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
+            return json.dumps({"error": "repo_path is required (or pass an active session)."})
     output_dir = Path(output_dir).expanduser().resolve()
 
     # Validate inputs

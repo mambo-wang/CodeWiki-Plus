@@ -24,7 +24,7 @@ bootstrap 会把所有业务仓克隆到本仓的子目录。已存在的目录�
 1. **harness 不入业务仓**：跨仓约定、产品级 repowiki 只存在于本仓；业务仓内部资产归业务仓自己。
 2. **提交不打架**：业务仓带自己的 `.git`，本仓 `.gitignore` 显式排除业务目录，业务代码物理上无法被提交进本仓。
 3. **分支松耦合**：各业务仓自由选择主线分支或个人开发分支，互不感知、无需同步。
-4. **知识分层检索**：本仓 repowiki 存产品概述、各业务仓业务概述与导航；深度模块知识在各业务仓自己的 repowiki。Agent 检索先查本仓，命中业务仓后用 `query_wiki(output_dir=<业务仓>/repowiki)` 下钻；跨服务调用关系用 `query_cross_service(workspace_path=<本仓根目录>)`。
+4. **知识分层检索**：本仓 repowiki 存产品概述、各业务仓业务概述与导航；深度模块知识在各业务仓自己的 repowiki。Agent 检索先查本仓，命中业务仓后用 `query_wiki(repo_path=<业务仓>)` 下钻；跨服务调用关系用 `query_cross_service(workspace_path=<本仓根目录>)`。
 
 ## 维护约定
 

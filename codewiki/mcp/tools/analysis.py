@@ -54,16 +54,14 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     if not repo_path.exists():
         return json.dumps({"error": f"Repository not found: {repo_path}"})
 
-    # Layout-aware default output_dir (ticket 04): an explicit argument always
-    # wins; otherwise a centralized-workspace member repo analyses into the
-    # workspace knowledge base, everything else keeps <repo>/repowiki.
-    _od_arg = (arguments.get("output_dir") or "").strip()
-    if _od_arg:
-        output_dir = Path(_od_arg).expanduser().resolve()
-    else:
-        from codewiki.mcp.tools.workspace_layout import default_output_dir
+    # output_dir is a pure function of repo_path under the active layout
+    # (convergence: no explicit output_dir override on write paths — an
+    # external process must not steer where this repo's knowledge lands).
+    # Centralized member repos analyse into the workspace knowledge base;
+    # everything else keeps <repo>/repowiki.
+    from codewiki.mcp.tools.workspace_layout import default_output_dir
 
-        output_dir = default_output_dir(repo_path)
+    output_dir = default_output_dir(repo_path)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     import tempfile
@@ -272,10 +270,6 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     session.analyzed_commit = get_git_commit_hash(repo_path) or None
     if session.analyzed_commit:
         cache.set_last_commit_id(session.analyzed_commit)
-    try:
-        cache.set_output_dir(str(output_dir))
-    except Exception as e:
-        logger.warning("Failed to persist output_dir to cache: %s", e)
 
     # Persist repo_path ↔ output_dir mapping (enables session-free SQLite access)
     try:
@@ -514,10 +508,6 @@ def _build_no_change_response(
     from codewiki.cli.utils.repo_validator import get_git_commit_hash
 
     session.analyzed_commit = get_git_commit_hash(repo_path) or None
-    try:
-        cache.set_output_dir(str(output_dir))
-    except Exception as e:
-        logger.warning("Failed to persist output_dir to cache: %s", e)
 
     workspace = SessionWorkspace(repo_path, session.session_id)
     session.workspace = workspace

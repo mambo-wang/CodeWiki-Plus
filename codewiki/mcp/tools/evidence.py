@@ -82,7 +82,6 @@ def _resolve_targets(
     """Resolve (output_dir, repo_root) following the write_doc_file convention."""
     from codewiki.mcp.tools.workspace_result import resolve_session
 
-    od = arguments.get("output_dir")
     rp = arguments.get("repo_path")
 
     repo_path: Optional[Path] = None
@@ -92,15 +91,11 @@ def _resolve_targets(
 
     session = resolve_session(arguments, store)
 
-    if od:
-        output_dir = Path(od).expanduser().resolve()
-    elif session:
-        output_dir = Path(session.output_dir).expanduser().resolve()
-    elif repo_path:
-        from codewiki.mcp.tools.workspace_layout import default_output_dir
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
 
-        output_dir = default_output_dir(repo_path)
-    else:
+    try:
+        output_dir = resolve_output_dir(session, arguments)
+    except ValueError:
         return None, None
 
     if repo_path is None and session is not None and session.repo_path:

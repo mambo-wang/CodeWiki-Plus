@@ -13,46 +13,72 @@ source_ingest / knowledge_loop):
 
 1. An active session's ``output_dir`` (already fully resolved at session
    creation time, including centralized-workspace routing).
-2. An explicit ``output_dir`` argument.
-3. ``repo_path`` → ``workspace_layout.default_output_dir`` (layout-aware:
+2. ``repo_path`` → ``workspace_layout.default_output_dir`` (layout-aware:
    centralized members route to the workspace-root shared corpus, everything
    else keeps ``<repo>/repowiki``).
 
-Raises ``ValueError`` when none of the three is available — same contract the
-old per-tool copies had, so handler error paths behave identically.
+Raises ``ValueError`` when neither a session nor ``repo_path`` is available —
+the retired ``output_dir`` parameter is ignored (with a warning) on all paths.
 """
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from codewiki.mcp.session import SessionState
 from codewiki.src.store import KnowledgeStore
 
+logger = logging.getLogger(__name__)
+
 
 def resolve_output_dir(
     session: Optional[SessionState],
     arguments: Dict[str, Any],
 ) -> Path:
-    """Resolve the repowiki output directory for this invocation."""
+    """Resolve the knowledge-base directory for this invocation.
+
+    output_dir is a pure function of repo_path under the active layout
+    (:func:`workspace_layout.default_output_dir`) and is never persisted — an
+    external invocation cannot steer where a repo's knowledge lands.
+
+    An active session's ``output_dir`` (already layout-derived at session
+    creation) wins; otherwise ``repo_path`` derives the layout-aware directory.
+    A caller-supplied explicit ``output_dir`` that differs from the derivation
+    is ignored with a warning — a compat shim for callers that still send the
+    retired parameter.
+    """
     if session is not None:
         return Path(session.output_dir).expanduser().resolve()
     od = arguments.get("output_dir")
-    if od:
-        return Path(od).expanduser().resolve()
     rp = arguments.get("repo_path")
     if rp:
-        # Layout-aware: centralized members write into the workspace-root
-        # shared corpus; single repos keep <repo>/repowiki.
         from codewiki.mcp.tools.workspace_layout import default_output_dir
 
-        return default_output_dir(Path(rp).expanduser().resolve())
+        derived = default_output_dir(Path(rp).expanduser().resolve())
+        if od:
+            _warn_ignored_output_dir(rp, od, derived)
+        return derived
     raise ValueError(
-        "output_dir or repo_path is required (or pass an active session). "
-        "Provide repo_path=<repo root> or output_dir=<repowiki directory> to "
-        "locate the knowledge base."
+        "repo_path is required (or pass an active session). "
+        "Provide repo_path=<repo root> to locate the knowledge base."
     )
+
+
+def _warn_ignored_output_dir(rp: str, od: Any, derived: Path) -> None:
+    """Warn once per invocation when a write call still sends output_dir."""
+    from codewiki.mcp.tools.workspace_layout import is_foreign_output_dir
+
+    if is_foreign_output_dir(rp, od) is not None:
+        logger.warning(
+            "resolve_output_dir: ignoring explicit output_dir=%r on a write "
+            "path; layout derives %s from repo_path=%r (output_dir retired "
+            "on write tools)",
+            od,
+            derived,
+            rp,
+        )
 
 
 def store_for(

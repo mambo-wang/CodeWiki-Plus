@@ -157,8 +157,7 @@ def _resolve_output_dir(
 
     Resolution order:
       1. An active session's ``output_dir`` (a fully-resolved repowiki path).
-      2. An explicit ``output_dir`` argument.
-      3. ``repo_path``/repowiki fallback.
+      2. ``repo_path``-derived output directory (layout-aware ``default_output_dir``).
 
     Thin re-export of the unified bridge — kept here for the modules
     (task_manager) and tests that import it from this module.
@@ -334,7 +333,7 @@ def handle_capture_conversation(
 
     Arguments:
       - session_id (optional): active session id.
-      - output_dir / repo_path (optional): repowiki resolution fallback.
+      - repo_path (optional): repository root; repowiki is derived from it.
       - conversation (required): list of turns or {"turns": [...]} object.
       - link_to (optional): wiki object id/title this conversation relates to.
       - source_session_id (optional): the IDE-side session id (e.g. CodeBuddy's

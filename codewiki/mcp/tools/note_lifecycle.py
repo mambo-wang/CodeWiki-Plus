@@ -63,19 +63,18 @@ def handle_confirm_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     from codewiki.mcp.tools.workspace_result import resolve_session
 
     session = resolve_session(arguments, store)
-    od = arguments.get("output_dir")
     rp = arguments.get("repo_path")
-    if od:
-        output_dir = Path(od).expanduser().resolve()
-    elif rp:
+    if rp:
         # Prefer repo_path derivation over the restored session's cached
-        # output_dir: find_or_restore() may return a stale/incorrect path that
-        # does not match where notes were actually written.
-        output_dir = Path(rp).expanduser().resolve() / "repowiki"
+        # output_dir (layout-aware; keeps cross-repo confirms correct).
+        # A caller-supplied output_dir is ignored on the write path.
+        from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+        output_dir = default_output_dir(Path(rp).expanduser().resolve())
     elif session:
         output_dir = Path(session.output_dir).expanduser().resolve()
     else:
-        return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
+        return json.dumps({"error": "repo_path is required (or pass an active session)."})
 
     note_file = arguments.get("note_file", "")
     if not note_file:
@@ -96,19 +95,18 @@ def handle_reject_note(arguments: Dict[str, Any], store: SessionStore) -> str:
     from codewiki.mcp.tools.workspace_result import resolve_session
 
     session = resolve_session(arguments, store)
-    od = arguments.get("output_dir")
     rp = arguments.get("repo_path")
-    if od:
-        output_dir = Path(od).expanduser().resolve()
-    elif rp:
+    if rp:
         # Prefer repo_path derivation over the restored session's cached
-        # output_dir: find_or_restore() may return a stale/incorrect path that
-        # does not match where notes were actually written.
-        output_dir = Path(rp).expanduser().resolve() / "repowiki"
+        # output_dir (layout-aware; keeps cross-repo confirms correct).
+        # A caller-supplied output_dir is ignored on the write path.
+        from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+        output_dir = default_output_dir(Path(rp).expanduser().resolve())
     elif session:
         output_dir = Path(session.output_dir).expanduser().resolve()
     else:
-        return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
+        return json.dumps({"error": "repo_path is required (or pass an active session)."})
 
     note_file = arguments.get("note_file", "")
     if not note_file:
@@ -179,16 +177,15 @@ def handle_batch_set_status(arguments: Dict[str, Any], store: SessionStore) -> s
     from codewiki.mcp.tools.workspace_result import resolve_session
 
     session = resolve_session(arguments, store)
-    od = arguments.get("output_dir")
     rp = arguments.get("repo_path")
-    if od:
-        output_dir = Path(od).expanduser().resolve()
-    elif rp:
-        output_dir = Path(rp).expanduser().resolve() / "repowiki"
+    if rp:
+        from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+        output_dir = default_output_dir(Path(rp).expanduser().resolve())
     elif session:
         output_dir = Path(session.output_dir).expanduser().resolve()
     else:
-        return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
+        return json.dumps({"error": "repo_path is required (or pass an active session)."})
 
     target = arguments.get("status", "stable") or "stable"
     scope = (arguments.get("scope", "all") or "all").lower()  # all | wiki | notes

@@ -356,13 +356,13 @@ class AnalysisCache:
     def set_last_commit_id(self, cid: str):
         self._mset("last_commit_id", cid)
 
-    def get_output_dir(self) -> Optional[str]:
-        """Return the output_dir recorded by the last analyze_repo, if any."""
-        od = self._mget("output_dir")
-        return self._abs_path(od) if od else None
-
-    def set_output_dir(self, od: str):
-        self._mset("output_dir", self._rel_path(od))
+    # NOTE (output_dir convergence): set_output_dir / get_output_dir are
+    # retired — output_dir is a pure function of repo_path under the active
+    # layout (workspace_layout.default_output_dir) and must never be persisted
+    # or inherited across processes. The repo_meta "output_dir" key written by
+    # older versions is now dead data; stale foreign rows are simply ignored
+    # because no code path reads them anymore. "Foreign path" validation lives
+    # in workspace_layout.is_foreign_output_dir for handler-side write guards.
 
     def get_component_count(self) -> int:
         r = self.conn.execute("SELECT COUNT(*) as c FROM components").fetchone()

@@ -9,7 +9,7 @@
 **第一跳（产品级）**：先查本仓 repowiki，获取产品概述、业务仓导航、跨仓约定。
 
 ```
-query_wiki(query=..., output_dir=<harness根>/repowiki)
+query_wiki(query=..., repo_path=<harness根>)
 ```
 
 导航入口页：`repowiki/wiki/repo-map.md`（各业务仓职责、目录、repowiki 路径一览）。
@@ -17,7 +17,7 @@ query_wiki(query=..., output_dir=<harness根>/repowiki)
 **第二跳（仓库级）**：命中某个业务仓后，下钻到该业务仓自己的 repowiki 获取模块/实体/笔记等深度知识。
 
 ```
-query_wiki(query=..., output_dir=<harness根>/<业务仓目录>/repowiki)
+query_wiki(query=..., repo_path=<harness根>/<业务仓目录>)
 ```
 
 **跨服务调用关系**：直接对工作区根做多仓分析检索。

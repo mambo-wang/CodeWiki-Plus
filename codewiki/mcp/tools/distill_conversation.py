@@ -1100,8 +1100,14 @@ def _process_llm_output(
                 )
                 continue
 
+        # Write delegation: ingest_note is a write tool and no longer accepts
+        # the retired output_dir parameter — it derives the KB from repo_path.
+        # resolve_output_dir returned output_dir as default_output_dir(x) where
+        # x is either the repo itself (colocated: x/repowiki) or the centralized
+        # workspace root; in both cases output_dir.parent is a root that
+        # re-derives the same directory, so it is a faithful repo_path.
         ingest_args = {
-            "output_dir": str(output_dir),
+            "repo_path": str(output_dir.parent),
             "title": title,
             "note_type": note_type,
             "content": content,

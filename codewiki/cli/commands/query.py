@@ -94,7 +94,7 @@ def _render_result_block(payload: dict) -> str:
 @click.command(name="query")
 @click.argument("query")
 @click.option(
-    "--output-dir", "-o", default=None, help="repowiki directory (default: <cwd>/repowiki)"
+    "--repo-path", "-r", default=None, help="Repository root (default: current directory); repowiki is derived from it"
 )
 @click.option("--top", type=int, default=10, show_default=True, help="Max results (1-20)")
 @click.option(
@@ -121,7 +121,7 @@ def _render_result_block(payload: dict) -> str:
     default=None,
     help="Include full page content (optional value: char budget 500-20000)",
 )
-def query_command(query, output_dir, top, check_mode, scope, type_filter, expand):
+def query_command(query, repo_path, top, check_mode, scope, type_filter, expand):
     """Search the wiki from the command line (agent-friendly delimited output).
 
     Same search engine as the query_wiki MCP tool — BM25 + usage heat +
@@ -129,16 +129,19 @@ def query_command(query, output_dir, top, check_mode, scope, type_filter, expand
     """
     from pathlib import Path
 
-    od = Path(output_dir).expanduser().resolve() if output_dir else Path.cwd() / "repowiki"
+    from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+    rp = Path(repo_path).expanduser().resolve() if repo_path else Path.cwd()
+    od = default_output_dir(rp)
     if not od.is_dir():
         click.echo(
-            f"error: output dir not found: {od}\n"
-            "Pass --output-dir or run from a repo with a generated repowiki/.",
+            f"error: repowiki dir not found: {od}\n"
+            "Pass --repo-path or run from a repo with a generated repowiki/.",
             err=True,
         )
         sys.exit(2)
 
-    arguments = {"output_dir": str(od), "query": query, "max_results": max(1, min(20, top))}
+    arguments = {"repo_path": str(rp), "query": query, "max_results": max(1, min(20, top))}
     if check_mode:
         arguments["mode"] = "check"
     if scope:

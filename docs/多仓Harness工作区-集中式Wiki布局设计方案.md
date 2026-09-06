@@ -130,7 +130,7 @@ CodeWiki-Plus-Harness/              ← harness 主仓库（独立 git）
 | `query_wiki` | 一跳检索整个 `repowiki/`；新增可选 `repo=<名>` 过滤，收敛到"适用于该仓的知识"＝该仓分区 + 带该仓标的共享项 + 全局项（§7.1） |
 | `query_cross_service` | 仍读 `.meta/`，不变 |
 | `ingest_note` / `write_doc_file` | 按页型路由：`module` → 仓分区，其余 → 共享池（带来源标） |
-| `capture_conversation` / `distill_conversation` / `task_manager` | `output_dir` 解析到工作区根，`tasks`/`raw`/`conversations` 共享（§8） |
+| `capture_conversation` / `distill_conversation` / `task_manager` | `repo_path` 经布局推导到工作区根，`tasks`/`raw`/`conversations` 共享（§8） |
 | `lint_wiki` | 新增 layout-violation 检查（§12.6） |
 
 ## 7. 检索路由
@@ -138,7 +138,9 @@ CodeWiki-Plus-Harness/              ← harness 主仓库（独立 git）
 - **`colocated`**：两跳，完全同《管理模型》现状——第一跳查父仓 `repowiki`，命中后下钻业务仓 `repowiki`。
 - **`centralized`**：**一跳**。`query_wiki` 直接检索工作区唯一 `repowiki/`，覆盖产品级 + 全部业务仓；传 `repo=<名>` 时收敛到"**适用于该仓的知识**"——`wiki/modules/<名>/` + 带该仓标的共享项 + 全局项（§7.1）。`repo-map.md` 仍是导航页，但角色从"第二跳入口"变为"仓清单与分区索引"。
 
-**`output_dir` 与 `repo=` 的分工（二者不冗余）**：`output_dir` 是**目录级定位**——指向 `repowiki/wiki/modules/<名>/` 即只查该仓 modules 分区（沿用 `colocated` 第二跳的既有机制，轻量场景用它即可）。但 `output_dir` 是单一路径，无法同时覆盖"该仓 modules + 适用于该仓的共享池知识"（分散在不同目录）。`repo=` 补的正是这个缺口：按**仓身份**聚合 `wiki/modules/<名>/` 与适用于该仓的共享池页——frontmatter `repo:`/`repos:` 含 `<名>`，**或无范围标的全局页**（§7.1）。这恰是 `colocated` 模式"下钻某仓 `repowiki/` 拿全部知识"在集中模式下的等价物——集中模式把一仓的适用知识拆进了"分区 + 共享池"多处，单靠 `output_dir` 聚不拢。因此：只要 modules 用 `output_dir`，要"适用于该仓的全部"用 `repo=`。
+**`repo_path` 与 `repo=` 的分工（二者不冗余）**：`repo_path` 是**目录级定位**——经 `default_output_dir` 布局推导后指向检索的 corpus（colocated：`<业务仓>/repowiki` 即该仓全部知识；centralized：工作区唯一 `repowiki/`）。corpus 是单一路径，无法单独覆盖"该仓 modules + 适用于该仓的共享池知识"（分散在不同目录）。`repo=` 补的正是这个缺口（集中模式）：按**仓身份**聚合 `wiki/modules/<名>/` 与适用于该仓的共享池页——frontmatter `repo:`/`repos:` 含 `<名>`，**或无范围标的全局页**（§7.1）。这恰是 `colocated` 模式"下钻某仓 `repowiki/` 拿全部知识"在集中模式下的等价物——集中模式把一仓的适用知识拆进了"分区 + 共享池"多处，单靠目录定位聚不拢。因此：定位整个 corpus 用 `repo_path`（集中模式即全库一跳）；要"适用于该仓的全部"用 `repo=`。
+
+> **收敛更新（output_dir 退役）**：早期设计稿以显式 `output_dir` 作为目录级定位参数；收敛后**所有工具（含只读检索）不再暴露 `output_dir`**，输出目录一律由 `repo_path` 经 `default_output_dir` 布局推导（普通单仓 → `repo根/repowiki`，centralized 成员 → 工作区根 `repowiki`），跨仓显式寻址改用 `repo_path=<业务仓目录>` + `repo=` 过滤。本节按 `output_dir` 叙述的部分仅作设计史参考，不代表当前契约。
 
 ### 7.1 范围模型：改某个仓时该查什么
 
