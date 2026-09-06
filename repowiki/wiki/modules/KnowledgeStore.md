@@ -21,22 +21,22 @@ metadata:
 sources:
 - id: repo://codewiki/src/store.py#L79-L160
   resource: repo://codewiki/src/store.py#L79-L160
-  content_hash: sha256:a4dc5c088e334661d91434f482452b6a7d688f5fa20d741e2ba4f2bad97de3a0
+  content_hash: sha256:a46670f87e3b121e3d1d989e49a011a28a777fb9fe695a8f8e11aee48a743388
 - id: repo://codewiki/src/store.py#L260-L345
   resource: repo://codewiki/src/store.py#L260-L345
-  content_hash: sha256:51b5d82ab14df71c7bfef2bbe15fc6afb9b963b1a5b1256efbd4cdc3a769a68d
+  content_hash: sha256:5d994d1f90f1ddecd168ae242aa94347545a95aa46d8e75902b36fdfaaa253c2
 - id: repo://codewiki/src/store.py#L493-L557
   resource: repo://codewiki/src/store.py#L493-L557
-  content_hash: sha256:2b8765df88dbb809960aa978d0d53dfafc8fa8890c54140ab483a05acbf7b214
+  content_hash: sha256:2c3607ba4d9b546e26c81aa1e579c89d43220d16d2ba789471b17e60894f7518
 - id: repo://codewiki/src/store.py#L842-L906
   resource: repo://codewiki/src/store.py#L842-L906
-  content_hash: sha256:fb3440f655646ad2837eaafc2f5e459499032ed5a5442fd2ee025250beb9fd4e
+  content_hash: sha256:1b13726ff0448dc8fa18ca8f5ab71eda196cab58d557154f17b9c430f7e68d57
 - id: repo://codewiki/src/frontmatter.py#L425-L482
   resource: repo://codewiki/src/frontmatter.py#L425-L482
   content_hash: sha256:89b40825a6442ce2a333f93a8bac158a9bea73b483f063eb4c55624eeae2df28
 - id: repo://codewiki/mcp/tools/store_bridge.py#L34-L70
   resource: repo://codewiki/mcp/tools/store_bridge.py#L34-L70
-  content_hash: sha256:31d95ddfafaa7054ce68731c2aefdf4d76ccbc9dbf85219e261f46d63cc53603
+  content_hash: sha256:fe51742282ca4f2d69b77fdb55eec009f788f68b17405f4214f7f3320a3775ce
 ---
 # [KnowledgeStore](../../../codewiki/src/store.py) 模块文档
 
@@ -53,12 +53,16 @@ sources:
 | `locked_rmw` | 函数 | store.py | 锁内读-转换-原子写；`transform` 返回 `None` 中止写（只读窥探），否则返回新文本 |
 | `Page` | 类 | store.py | 轻量只读文档对象（relpath / 绝对路径 / frontmatter / body） |
 | `KnowledgeStore`（含 `path`/`relpath`/`_read_text`/`page`/`iter_pages`/`write`/`update_frontmatter`/`content_hash`/`_raw_index`/`_rebuild_raw_index`/`read_task_index`/`write_task_index`/`find_task`） | 类 | store.py | 单个 repowiki 根的持久化门面：目录/文件路径解析、BOM 容忍读、页面解析与枚举、原子写与 frontmatter 定点更新、raw 与任务索引缓存（目录为真相、缓存校验重建） |
+| `capture_raw` / `pending_raws_by_task` / `mark_raw_distilled` / `sync_raw_index` / `delete_raw` | 方法 | store.py | raw 暂存区生命周期：落盘捕获（content_hash 去重 + supersede 继承 task_id）、按任务汇总待蒸馏清单、蒸馏后索引置位/删除（`_raw_rel` 同时接受 `raw/<name>` 与裸文件名两种约定） |
+| `read_binding` / `write_binding` / `remove_binding` / `clear_bindings_for_task` / `gc_bindings` | 方法 | store.py | 会话绑定凭证（`.meta/task_bindings/<session>.json`）读写；`clear_bindings_for_task` 供 delete_task 级联、`gc_bindings` 按 `bound_at` 年龄清扫从未捕获的一次性凭证（无法定日期的损坏文件一律保留） |
+| `split_entries` / `split_summary_and_entries` / `entry_sort_key` / `format_memory_entry` | 函数 | store.py | 任务记忆条目切分工具：按 `### ` 时间戳头切条、分离「早期记忆（摘要）」段与条目段、按时间戳排序、生成带 `### YYYY-MM-DD HH:MM` 头的条目——压缩/分层/截断的解析边界（ADR-0001） |
 | `parse_frontmatter` | 函数 | frontmatter.py | 分离文档 frontmatter 与正文（全仓库唯一解析收敛点，json 解码标量值） |
 | `resolve_output_dir` | 函数 | store_bridge.py | 把工具调用的 `output_dir` 解析到知识库根：集中式布局成员 → 工作区共享 repowiki；否则状态维持 `repo_path/repowiki` |
 
 ## 关键设计
 
 - **原子文件族与集中锁**：Windows 上被打开/锁定的目标文件不能被 `os.replace` 覆盖，因此锁加在独立文件上（D19：集中存放于 `<wiki-root>/.meta/locks/`，按目标绝对路径哈希命名——锁语义只要求路径确定性映射，与相邻无关；无 `.meta` 祖先的裸 fixture 回退就地边车）；`atomic_write` 用 pid+线程 id 保证跨进程/跨线程临时名唯一，`os.replace` 带退避重试，`finally` 兜底清理。团队布局约定：跨进程共享文件（index、telemetry 等）一律经 `locked_write`/`locked_rmw`，绝不裸 `write_text`。
+- **锁文件生命周期分平台**：锁本体由 `codewiki.src.locks.file_lock` 提供；释放后 Windows 尽力删除锁文件（无人持有时 unlink 才成功，无 inode 竞态），Unix 刻意保留——`flock` 锁的是 inode，删掉路径会让第三个进程锁上一个新文件，出现两个「独占」持有者（见 `locked` docstring，store.py:152-158）。
 - **门面与 bridge 分层**：`KnowledgeStore` 构造即绑定 root，只认 root 之下的路径，不感知多仓布局；`resolve_output_dir` 是唯一的布局路由入口（集中式 vs 就地）。
 - **目录为真相、索引为缓存**：任务索引 `read_task_index` 先做廉价一致性校验（目录名 id 集合 == 缓存 id 集合），失配/损坏才扫描 `task.md` frontmatter 全量重建并回写（失败不抛错）；raw 索引同理以 `conv-*.md` frontmatter 为真相（`_rebuild_raw_index`）。`content_hash` 把 `task_id` 纳入摘要，同一段对话分属不同任务不会被去重误杀。
 - **frontmatter 单点解析**：所有 frontmatter 读取统一经 `parse_frontmatter`（utf-8-sig BOM 容忍 + 读取失败返回 None），旧式手工剥引号补丁（如 `_unquote_fm`）已成兼容层——统一 reader 已做 json 解码。

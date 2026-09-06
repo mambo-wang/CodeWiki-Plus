@@ -11,31 +11,31 @@
       "written_at": "2026-09-04T02:53:13Z"
     },
     "wiki/modules/MCP_Tools_DocWriter.md": {
-      "git_head": "2ce750757a12ff54756c42319c05d248a2454505",
+      "git_head": "c1beee982fddc6824557000c9e5b12b1a3bdf56f",
       "components": [],
       "files": [],
-      "source_fingerprint": null,
+      "source_fingerprint": "sha256:2e712f60c5e95c28c2954fc948e042a15c0a8afc3b66fec7cf827bd0f756b280",
       "repo": "CodeWiki-CN",
-      "producer": "codewiki/5.5.1",
-      "written_at": "2026-09-04T02:55:01Z"
+      "producer": "codewiki/5.6.1",
+      "written_at": "2026-09-06T10:14:35Z"
     },
     "wiki/modules/KnowledgeStore.md": {
-      "git_head": "2ce750757a12ff54756c42319c05d248a2454505",
+      "git_head": "c1beee982fddc6824557000c9e5b12b1a3bdf56f",
       "components": [],
       "files": [],
-      "source_fingerprint": null,
+      "source_fingerprint": "sha256:7df42501dddae9f045aac3f18c662b9afed47ac1c9a49ce61fb347e5680c8b08",
       "repo": "CodeWiki-CN",
-      "producer": "codewiki/5.5.1",
-      "written_at": "2026-09-04T04:17:47Z"
+      "producer": "codewiki/5.6.1",
+      "written_at": "2026-09-06T10:15:01Z"
     },
     "wiki/modules/MCP_Tools_Workspace.md": {
-      "git_head": "2ce750757a12ff54756c42319c05d248a2454505",
+      "git_head": "c1beee982fddc6824557000c9e5b12b1a3bdf56f",
       "components": [],
       "files": [],
-      "source_fingerprint": null,
+      "source_fingerprint": "sha256:7f17f7a8e3734e8b2a4936f6fc58ba5c5a6624890ab27d0e27d328a0faf50e9e",
       "repo": "CodeWiki-CN",
-      "producer": "codewiki/5.5.1",
-      "written_at": "2026-09-04T04:17:55Z"
+      "producer": "codewiki/5.6.1",
+      "written_at": "2026-09-06T10:13:54Z"
     },
     "wiki/sources/README_CN_2.0.md": {
       "git_head": null,
@@ -117,6 +117,15 @@
       "repo": null,
       "producer": "codewiki/5.6.0",
       "written_at": "2026-09-05T15:39:25Z"
+    },
+    "wiki/modules/MCP_Tools_Knowledge.md": {
+      "git_head": "c1beee982fddc6824557000c9e5b12b1a3bdf56f",
+      "components": [],
+      "files": [],
+      "source_fingerprint": "sha256:2319a3be4d4bdb1f4c072778c36709a292d2293497e857f5c8c9b104ffd0ca13",
+      "repo": "CodeWiki-CN",
+      "producer": "codewiki/5.6.1",
+      "written_at": "2026-09-06T10:14:09Z"
     }
   }
 }

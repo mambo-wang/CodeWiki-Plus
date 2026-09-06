@@ -23,7 +23,7 @@ verified:
 sources:
 - id: repo://codewiki/mcp/tools/schema_generator.py#L209-L238
   resource: repo://codewiki/mcp/tools/schema_generator.py#L209-L238
-  content_hash: sha256:4b1ff56d0967ef975e6ba39ea04bb1df4d824c7dbade2bb2070324a267022dad
+  content_hash: sha256:7b40889a3cb47f8755da1c0ac29c153fc54cb37ec93467f7ca4d1b9ff14fc399
 - id: repo://codewiki/templates/schema.yaml#L55-L65
   resource: repo://codewiki/templates/schema.yaml#L55-L65
   content_hash: sha256:40a438980aca923343a3105338e92600703381b10f6097cb7ba65aa3346ce2d6
@@ -63,7 +63,7 @@ sources:
 - **顺序化生成**：`module_tree.py` 通过依赖关系计算 `_get_processing_order`，保证底层模块先写。
 - **可重入编辑**：`handle_edit_doc_file` 调用 `_resync_source_refs` 重同步源码引用，避免文档漂移。
 - **配置模板单源**：`schema_generator._load_project_config` 只从包内 `codewiki/templates/schema.yaml`（`_CONFIG_PATH`）加载，已移除仓库根同名文件的回退分支；`_get_defaults` 用其覆盖硬编码默认值，因此新增/调整全局配置（如 `conventions`）只需改包内模板一份，源码树与 wheel 分发走同一路径。
-- **配置模板单源**：`schema_generator._load_project_config` 只从包内 `codewiki/templates/schema.yaml`（`_CONFIG_PATH`）加载，已移除仓库根同名文件的回退分支；`_get_defaults` 用其覆盖硬编码默认值，因此新增/调整全局配置（如 `conventions`）只需改包内模板一份，源码树与 wheel 分发走同一路径。
+- **两区制 skill 页面类型**：`_get_defaults` 的 `skill` 条目把 SKILL.md 草稿路由到 repowiki 根下 `skills/`（与 `notes/` 同级，进索引也进 lint），生效区 `.codebuddy/skills/` 在 repowiki 之外从不被扫描；五段骨架（工作场景 / 适用条件 / 核心 SOP / 判断逻辑 / 禁忌与反模式）缺段由 `skill_sections` lint 告警（issue #24 / ADR-0004）。
 
 ## 数据流（mermaid）
 
