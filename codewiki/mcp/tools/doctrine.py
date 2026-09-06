@@ -176,16 +176,12 @@ def handle_refresh_doctrine(arguments: Dict[str, Any], store: Any) -> str:
     if session is None and session_id:
         return json.dumps({"error": f"Session {session_id} not found or expired."})
 
-    if session:
-        output_dir = Path(session.output_dir).expanduser().resolve()
-    elif arguments.get("output_dir"):
-        output_dir = Path(arguments["output_dir"]).expanduser().resolve()
-    elif arguments.get("repo_path"):
-        output_dir = Path(arguments["repo_path"]).expanduser().resolve() / "repowiki"
-    else:
-        return json.dumps(
-            {"error": "output_dir or repo_path is required (or pass an active session)."}
-        )
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
+
+    try:
+        output_dir = resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
 
     mode = str(arguments.get("mode") or "prepare").lower()
     if mode not in ("prepare", "submit"):

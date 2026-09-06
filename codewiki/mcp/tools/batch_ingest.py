@@ -60,13 +60,14 @@ def handle_batch_ingest(
                 item["session_id"] = session_id
 
     # Inject output_dir into each item if not already set.
-    # When output_dir is absent, derive it from repo_path (repo_path/repowiki)
-    # to stay consistent with handle_ingest_note / handle_ingest_source.
-    top_output_dir = arguments.get("output_dir")
-    if not top_output_dir:
-        rp = arguments.get("repo_path")
-        if rp:
-            top_output_dir = str(Path(rp).expanduser().resolve() / "repowiki")
+    # Derived from session/repo_path under the active layout (a caller-supplied
+    # output_dir is ignored on the write path).
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
+
+    try:
+        top_output_dir = str(resolve_output_dir(session, arguments))
+    except ValueError:
+        top_output_dir = None
     if top_output_dir:
         for item in items:
             if "output_dir" not in item and "session_id" not in item:

@@ -788,11 +788,8 @@ def handle_query_wiki(
 
     session = resolve_session(arguments, store)
 
-    # Resolve output directory
-    od = arguments.get("output_dir")
-    if od:
-        output_dir = Path(od).expanduser().resolve()
-    elif session:
+    # Resolve output directory from session or repo_path
+    if session:
         output_dir = Path(session.output_dir).expanduser().resolve()
     else:
         # Fallback: derive from repo_path if available. Layout-aware

@@ -52,11 +52,7 @@ TOOLS = [
             "properties": {
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path. output_dir is resolved from the session or cache, falling back to repo_path/repowiki.",
-                },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Optional. Documentation output directory; overrides the session/cache-resolved value.",
+                    "description": "Repository path. Output directory is derived from it (repo_path/repowiki).",
                 },
                 "force": {
                     "type": "boolean",
@@ -170,18 +166,11 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     # already-closed session this restores it from cache so the rebuild can run.
     session = store.find_or_restore(rp)
 
-    # Resolve output_dir: explicit arg > session > convention
-    od_arg = arguments.get("output_dir")
-    if od_arg:
-        output_dir = str(Path(_resolve_path(od_arg)))
-    elif session is not None and session.output_dir:
-        output_dir = session.output_dir
-    else:
-        # Layout-aware (ticket 07): centralized members close into the
-        # workspace knowledge base; everything else keeps <repo>/repowiki.
-        from codewiki.mcp.tools.workspace_layout import default_output_dir
+    # Resolve output_dir: a pure function of repo_path under the active layout;
+    # a caller-supplied output_dir is ignored on the write path (retired param).
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
 
-        output_dir = str(default_output_dir(rp))
+    output_dir = str(resolve_output_dir(session, arguments))
 
     # Determine if docs were written
     docs_generated = False

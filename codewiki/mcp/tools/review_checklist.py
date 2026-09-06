@@ -186,7 +186,9 @@ def load_project_checklist(repo_path: Optional[str]) -> Optional[Dict[str, List[
     """
     if not repo_path:
         return None
-    p = Path(repo_path) / "repowiki" / "review_checklist.yaml"
+    from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+    p = default_output_dir(Path(repo_path)) / "review_checklist.yaml"
     if not p.exists():
         return None
     try:

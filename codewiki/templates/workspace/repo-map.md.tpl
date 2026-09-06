@@ -26,5 +26,5 @@ status: stable
 
 **业务概述**：<一段话>
 
-**检索方式**：query_wiki(query=..., output_dir=<harness根>/<目录>/repowiki)
+**检索方式**：query_wiki(query=..., repo_path=<harness根>/<目录>)
 -->

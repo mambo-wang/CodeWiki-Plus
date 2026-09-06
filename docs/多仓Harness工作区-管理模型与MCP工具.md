@@ -108,7 +108,6 @@ CodeWiki v5.5.0 为这个模型提供了三个开箱即用的 MCP 工具与配�
 
 | 参数 | 必填 | 默认 | 说明 |
 |------|------|------|------|
-| `output_dir` | 否 | `<workspace>/repowiki` | 产品级 repowiki 目录 |
 | `layout` | 首次初始化必传 | — | `colocated`（各业务仓自带 repowiki，两跳检索）或 `centralized`（知识集中于工作区 repowiki，一跳检索）。首次初始化前须征询用户；重跑可省略（自动沿用持久化布局），传冲突值报错 |
 
 **产物**：
@@ -180,10 +179,10 @@ MCP Server 内置三个 Prompt（IDE Prompt 面板可直接触发）：
 3. 对每个业务仓调用 add_workspace_repo(url=...) # 登记 + 克隆
 4. 对每个业务仓调用 init_wiki / analyze_repo    # 建仓库级 Wiki
 5. 调用 analyze_workspace(workspace_path=...)   # 跨仓分析 → repowiki/overview.md
-6. 日常检索：
-   - query_wiki(output_dir=<harness根>/repowiki)          # 第一跳：产品级
-   - query_wiki(output_dir=<harness根>/<业务仓>/repowiki)  # 第二跳：仓库级
-   - query_cross_service(workspace_path=<harness根>)       # 跨服务调用
+6. 日常检索（输出目录由 `repo_path` 经布局自动推导，不再传 `output_dir`）：
+   - query_wiki(repo_path=<harness根>)                   # 第一跳：产品级（colocated：harness 根自带 repowiki）
+   - query_wiki(repo_path=<harness根>/<业务仓>)           # 第二跳：仓库级（colocated：各仓自有 repowiki；centralized：注册成员自动路由到工作区 repowiki）
+   - query_cross_service(workspace_path=<harness根>)      # 跨服务调用
 7. 移除业务仓时调用 remove_workspace_repo(name=...)
 8. 增量同步（代码变更后）：直接重跑 analyze_workspace，按返回的 per-repo `mode` 分派——
    - `skipped`：未变更仓，不碰；

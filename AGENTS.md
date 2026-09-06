@@ -153,7 +153,7 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
 - `repowiki/raw/` 是**暂存区,不进 `query_wiki` 检索**,蒸馏完成后由 `distill_conversation` 删除(除非 `keep_raw`);未蒸馏的 raw 会一直保留(无自动过期);不膨胀、不影响查询性能。
 - 蒸馏产出 `status=draft` 的 note,须 `confirm_note` 确认后才成正式知识。
 - 触发形态:**both** —— 手动命令(主) + IDE hook(可选)。
-- **Mode C submit 走 `distilled_file` 文件侧通道(勿内联大 JSON)**：多条大对话蒸馏时,`distilled` 内联参数可能超出 MCP 传输限制导致失败。正确做法:先用 `write_to_file` 把蒸馏 JSON(形状 `{conversation_id: {notes, memories}}`,或单条裸 `{notes, memories}` 配合 `conversation_id` 参数)写入 `repowiki/raw/.distill-*.json`,再 `distill_conversation(mode="submit", distilled_file=<路径>)` 只传小路径;相对路径按 `output_dir` 再按 CWD 解析。小载荷仍可内联 `distilled`(两者可合并,内联优先)。**不要再写临时 Python 脚本调用 handler 绕过**。
+- **Mode C submit 走 `distilled_file` 文件侧通道(勿内联大 JSON)**：多条大对话蒸馏时,`distilled` 内联参数可能超出 MCP 传输限制导致失败。正确做法:先用 `write_to_file` 把蒸馏 JSON(形状 `{conversation_id: {notes, memories}}`,或单条裸 `{notes, memories}` 配合 `conversation_id` 参数)写入 `repowiki/raw/.distill-*.json`,再 `distill_conversation(mode="submit", distilled_file=<路径>)` 只传小路径;相对路径先按推导出的 repowiki 目录再按 CWD 解析。小载荷仍可内联 `distilled`(两者可合并,内联优先)。**不要再写临时 Python 脚本调用 handler 绕过**。
 
 <!-- TEAM-MEMORY-TASK:START -->
 ## Task memory (任务记忆)
@@ -200,7 +200,7 @@ IDE 式磁盘 transcript；任务记忆的注入与捕获改由 Agent 执行：
      本会话 chatId → `qwenwork_task_get_detail(chatId, offset 分页)` 拉全部轮次
   2. 按轮次做要点级压缩：保留决策脉络、关键事实、结论与提交号；丢弃寒暄、
      过程噪音与工具调用细节
-  3. 调 `capture_conversation(output_dir=<repo>/repowiki,
+  3. 调 `capture_conversation(repo_path=<repo>,
      conversation=[{"role": ..., "content": ...}...], task_id=<绑定的任务id>,
      source_session_id="qwenwork-<chatId>")` 走标准管线落盘
      （frontmatter/content_hash/supersede 全套），**勿手写 raw/*.md**

@@ -1305,7 +1305,6 @@ async def handle_write_doc_file(
 ) -> str:
     """Create a new documentation file in the output directory."""
     # Resolve output directory from output_dir or repo_path (schema contract)
-    od = arguments.get("output_dir")
     rp = arguments.get("repo_path")
     repo_path = None
     if rp:
@@ -1320,17 +1319,14 @@ async def handle_write_doc_file(
 
     session = resolve_session(arguments, store)
 
-    if od:
-        output_dir = Path(od).expanduser().resolve()
-    elif session:
-        # Prefer the session's output_dir (honours custom output_dir from analyze_repo)
-        output_dir = Path(session.output_dir).expanduser().resolve()
-    elif repo_path:
-        from codewiki.mcp.tools.workspace_layout import default_output_dir
+    # output_dir is a pure function of repo_path under the active layout; a
+    # caller-supplied output_dir is ignored on the write path (retired param).
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
 
-        output_dir = default_output_dir(repo_path)
-    else:
-        return json.dumps({"error": "output_dir or repo_path is required."})
+    try:
+        output_dir = resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
 
     if session and repo_path is None:
         repo_path = session.repo_path
@@ -1613,7 +1609,6 @@ async def handle_edit_doc_file(
 ) -> str:
     """Edit an existing documentation file (str_replace, insert, or undo)."""
     # Resolve output directory from output_dir or repo_path
-    od = arguments.get("output_dir")
     rp = arguments.get("repo_path")
     repo_path = None
     if rp:
@@ -1628,15 +1623,14 @@ async def handle_edit_doc_file(
 
     session = resolve_session(arguments, store)
 
-    if od:
-        output_dir = str(Path(od).expanduser().resolve())
-    elif session:
-        # Prefer the session's output_dir (honours custom output_dir from analyze_repo)
-        output_dir = str(Path(session.output_dir).expanduser().resolve())
-    elif repo_path:
-        output_dir = str(Path(repo_path) / "repowiki")
-    else:
-        return json.dumps({"error": "output_dir or repo_path is required."})
+    # output_dir is a pure function of repo_path under the active layout; a
+    # caller-supplied output_dir is ignored on the write path (retired param).
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
+
+    try:
+        output_dir = str(resolve_output_dir(session, arguments))
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
 
     if session and repo_path is None:
         repo_path = session.repo_path

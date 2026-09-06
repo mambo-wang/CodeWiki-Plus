@@ -215,20 +215,14 @@ def handle_ingest_note(
 
     session = resolve_session(arguments, store)
 
-    # Resolve output directory
-    od = arguments.get("output_dir")
-    if od:
-        output_dir = Path(od).expanduser().resolve()
-    elif session:
-        output_dir = Path(session.output_dir).expanduser().resolve()
-    else:
-        rp = arguments.get("repo_path")
-        if rp:
-            from codewiki.mcp.tools.workspace_layout import default_output_dir
+    # Resolve output directory: a pure function of repo_path under the active
+    # layout; a caller-supplied output_dir is ignored on the write path.
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
 
-            output_dir = default_output_dir(rp)
-        else:
-            return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
+    try:
+        output_dir = resolve_output_dir(session, arguments)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
 
     # Layout-aware provenance (ticket 04): notes ingested from a centralized
     # member repo are shared-pool knowledge and carry a repo: source tag.

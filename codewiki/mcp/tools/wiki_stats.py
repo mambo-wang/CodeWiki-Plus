@@ -49,17 +49,16 @@ def handle_wiki_stats(
 
     session = resolve_session(arguments, store)
 
-    od = arguments.get("output_dir")
-    if od:
-        output_dir = Path(od).expanduser().resolve()
-    elif session:
+    if session:
         output_dir = Path(session.output_dir).expanduser().resolve()
     else:
         rp = arguments.get("repo_path")
         if rp:
-            output_dir = Path(rp).expanduser().resolve() / "repowiki"
+            from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+            output_dir = default_output_dir(Path(rp).expanduser().resolve())
         else:
-            return json.dumps({"error": "output_dir is required (or pass repo_path to derive it)."})
+            return json.dumps({"error": "repo_path is required (or pass an active session)."})
 
     from codewiki.mcp.tools import telemetry
 

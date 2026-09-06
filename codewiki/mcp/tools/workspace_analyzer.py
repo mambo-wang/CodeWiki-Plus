@@ -448,19 +448,20 @@ def handle_analyze_workspace(
     if exclude_str:
         exclude_dirs.update(d.strip() for d in exclude_str.split(",") if d.strip())
 
-    # Output dir for the workspace-level overview (product-level repowiki)
-    output_dir_arg = arguments.get("output_dir")
-    if output_dir_arg:
-        output_dir = Path(output_dir_arg).resolve()
-    else:
-        output_dir = workspace_path / "repowiki"
+    # Output dir for the workspace-level overview (product-level repowiki) is
+    # a fixed workspace-root convention; output_dir is retired on writes.
+    output_dir = workspace_path / "repowiki"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Layout detection (ticket 08): centralized workspaces keep all knowledge
     # in the workspace repowiki, so per-repo analysis targets it instead of
     # the (nonexistent) in-repo repowiki. generate_repo_wikis gates the heavy
     # per-repo analysis under centralized (default off — topology still runs).
-    from codewiki.mcp.tools.workspace_layout import LAYOUT_CENTRALIZED, read_layout
+    from codewiki.mcp.tools.workspace_layout import (
+        LAYOUT_CENTRALIZED,
+        default_output_dir,
+        read_layout,
+    )
 
     layout = read_layout(workspace_path)
     centralized = layout == LAYOUT_CENTRALIZED
@@ -490,10 +491,7 @@ def handle_analyze_workspace(
     for repo_path in repos:
         # Layout-aware per-repo target (ticket 08): centralized keeps all
         # knowledge in the workspace repowiki; colocated keeps <repo>/repowiki.
-        if centralized:
-            repo_output_dir = output_dir
-        else:
-            repo_output_dir = repo_path / "repowiki"
+        repo_output_dir = default_output_dir(repo_path)
 
         # ── Incremental three-tier dispatch ──────────────────────────────
         # (docs/多仓Harness工作区-Wiki增量更新设计方案.md)

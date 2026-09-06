@@ -10,7 +10,7 @@ description: 任务开始前检索 CodeWiki 团队知识库（本仓库 repowiki
 ### 1. 相关性预检（必做，先花小钱）
 
 ```bash
-codewiki query "<任务关键词>" --check --output-dir <repo>/repowiki
+codewiki query "<任务关键词>" --check --repo-path <repo>
 ```
 
 - `relevant: false` 或 top_score < 2 → 判定"知识库无相关内容"，直接返回一行结论：`wiki-recall: 无相关知识（precheck top_score=<N>）`，结束
@@ -20,10 +20,10 @@ codewiki query "<任务关键词>" --check --output-dir <repo>/repowiki
 
 ```bash
 # 常规（默认）：snippet 级，足够判断方向
-codewiki query "<完整任务描述关键词>" --output-dir <repo>/repowiki --top 5
+codewiki query "<完整任务描述关键词>" --repo-path <repo> --top 5
 
 # 深读单页：需要完整内容时（改核心模块/排查复杂问题）
-codewiki query "<查询>" --output-dir <repo>/repowiki --expand 5000
+codewiki query "<查询>" --repo-path <repo> --expand 5000
 ```
 
 ### 3. 压缩返回（保护主上下文）

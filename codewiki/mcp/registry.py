@@ -105,10 +105,6 @@ _register(
                     "type": "string",
                     "description": "Absolute path to the repository to analyze",
                 },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for generated docs (default: <repo>/repowiki)",
-                },
                 "include_patterns": {
                     "type": "string",
                     "description": "Comma-separated file patterns to include (e.g., '*.py,*.js')",
@@ -175,7 +171,7 @@ _register(
             "Use [[wikilinks]] in content to reference other pages — these are automatically "
             "parsed into a graph for multi-hop search (query_wiki with hop parameter). "
             "For large docs (>200 lines), use content_file instead of inline content. "
-            "Provide output_dir or derive it from repo_path. "
+            "Output directory is derived from repo_path. "
             "MANDATORY FINAL STEP: after writing the LAST module doc, you MUST call "
             "close_session(repo_path=...) to build the BM25 search index + wikilink graph. "
             "query_wiki returns NOTHING until close_session runs — skipping it leaves the wiki unsearchable."
@@ -183,10 +179,6 @@ _register(
         inputSchema={
             "type": "object",
             "properties": {
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for wiki pages",
-                },
                 "repo_path": {
                     "type": "string",
                     "description": "Repository path. Derives output_dir = repo_path/repowiki.",
@@ -280,10 +272,6 @@ _register(
         inputSchema={
             "type": "object",
             "properties": {
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for wiki pages",
-                },
                 "repo_path": {
                     "type": "string",
                     "description": "Repository path. Derives output_dir = repo_path/repowiki.",
@@ -358,10 +346,6 @@ _register(
                 "repo_path": {
                     "type": "string",
                     "description": "Repository path. Derives output_dir = repo_path/repowiki.",
-                },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for the module tree (default: repo_path/repowiki). Overrides repo_path-based default.",
                 },
                 "module_tree": {
                     "type": "object",
@@ -468,10 +452,6 @@ _register(
                     "type": "object",
                     "description": "Optional template variables to fill in",
                 },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Optional bundle directory (contains schema.yaml) — most direct way to enable schema-constraint injection (incl. the OKF v0.2 block)",
-                },
                 "repo_path": {
                     "type": "string",
                     "description": "Optional repository path — derives <repo>/repowiki and enables writing large prompts to workspace files",
@@ -505,11 +485,7 @@ _register(
             "properties": {
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path. output_dir is resolved from the session or cache, falling back to repo_path/repowiki.",
-                },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Optional. Documentation output directory; overrides the session/cache-resolved value.",
+                    "description": "Repository path. Output directory is derived from it (repo_path/repowiki).",
                 },
                 "force": {
                     "type": "boolean",
@@ -819,13 +795,9 @@ _register(
         inputSchema={
             "type": "object",
             "properties": {
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for wiki pages",
-                },
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
+                    "description": "Repository path. output_dir is auto-derived via the workspace layout (default_output_dir).",
                 },
                 "checks": {
                     "type": "array",
@@ -914,10 +886,6 @@ _register(
                     },
                     "description": "Code regions this page's facts are grounded in.",
                 },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for wiki pages.",
-                },
                 "repo_path": {
                     "type": "string",
                     "description": "Repository path; evidence resources resolve against this root.",
@@ -943,7 +911,7 @@ _register(
             "architecture (system design rationale), bug_fix (how we fixed Y), "
             "pitfall (gotcha with root cause), known_issue (tracked problem), "
             "workaround (temporary solution), general (free-form knowledge). "
-            "Can be used with or without an active session — just provide output_dir. "
+            "Can be used with or without an active session — just provide repo_path. "
             "CONFLICT AWARENESS: before writing it scans notes/ for existing notes that look "
             "like the same knowledge and returns them in 'similar_notes' with a hint "
             "(set detect_conflicts=false to skip). It never overwrites or auto-merges — if the "
@@ -954,13 +922,9 @@ _register(
         inputSchema={
             "type": "object",
             "properties": {
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for wiki pages",
-                },
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
+                    "description": "Repository path. Derives output_dir = repo_path/repowiki.",
                 },
                 "scope": {
                     "description": (
@@ -1071,16 +1035,11 @@ _register(
         inputSchema={
             "type": "object",
             "properties": {
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for wiki pages",
-                },
                 "repo_path": {
                     "type": "string",
                     "description": (
-                        "Repository root used to locate the knowledge base when output_dir "
-                        "is absent (derives <repo_path>/repowiki; layout-aware in "
-                        "centralized workspaces). Pass repo_path OR output_dir."
+                        "Repository root used to locate the knowledge base "
+                        "(derives <repo_path>/repowiki; layout-aware in centralized workspaces)."
                     ),
                 },
                 "query": {
@@ -1111,7 +1070,7 @@ _register(
                         "applicable to one business repo = its wiki/modules/<repo>/ partition "
                         "+ shared-pool pages tagged with it + untagged product-line (global) "
                         "pages. Omit for a one-hop search across the whole workspace. "
-                        "Combined with output_dir, the filter applies within that corpus. "
+                        "The filter applies within the corpus derived from repo_path. "
                         "Ignored outside centralized workspaces."
                     ),
                 },
@@ -1238,13 +1197,9 @@ _register(
         inputSchema={
             "type": "object",
             "properties": {
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for wiki pages",
-                },
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
+                    "description": "Repository path. Derives output_dir = repo_path/repowiki.",
                 },
                 "note_file": {
                     "type": "string",
@@ -1281,13 +1236,9 @@ _register(
         inputSchema={
             "type": "object",
             "properties": {
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for wiki pages",
-                },
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
+                    "description": "Repository path. Derives output_dir = repo_path/repowiki.",
                 },
                 "status": {
                     "type": "string",
@@ -1341,13 +1292,9 @@ _register(
         inputSchema={
             "type": "object",
             "properties": {
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for wiki pages",
-                },
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
+                    "description": "Repository path. Derives output_dir = repo_path/repowiki.",
                 },
                 "note_file": {
                     "type": "string",
@@ -1413,13 +1360,9 @@ _register(
         inputSchema={
             "type": "object",
             "properties": {
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for wiki pages",
-                },
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
+                    "description": "Repository path. Derives output_dir = repo_path/repowiki.",
                 },
                 "source_ref": {
                     "type": "string",
@@ -1491,13 +1434,9 @@ _register(
         inputSchema={
             "type": "object",
             "properties": {
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for wiki pages",
-                },
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
+                    "description": "Repository path. Derives output_dir = repo_path/repowiki.",
                 },
                 "name": {
                     "type": "string",
@@ -1538,13 +1477,9 @@ _register(
                     "type": "string",
                     "description": "Optional active session id (resolves output_dir).",
                 },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Wiki output directory (default: <repo_path>/repowiki).",
-                },
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path used to derive output_dir when output_dir is absent.",
+                    "description": "Repository path used to derive the output directory.",
                 },
                 "conversation": {
                     "type": "array",
@@ -1616,13 +1551,9 @@ _register(
                     "type": "string",
                     "description": "Optional active session id (resolves output_dir).",
                 },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Wiki output directory (default: <repo_path>/repowiki).",
-                },
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path used to derive output_dir when output_dir is absent.",
+                    "description": "Repository path used to derive the output directory.",
                 },
                 "raw_path": {
                     "type": "string",
@@ -1748,13 +1679,9 @@ _register(
                     "type": "string",
                     "description": "Optional active session id (resolves output_dir).",
                 },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Wiki output directory (default: <repo_path>/repowiki).",
-                },
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path used to derive output_dir when output_dir is absent.",
+                    "description": "Repository path used to derive the output directory.",
                 },
                 "mode": {
                     "type": "string",
@@ -1815,13 +1742,9 @@ _register(
                     "type": "string",
                     "description": "Optional active session id (resolves output_dir).",
                 },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Wiki output directory (default: <repo_path>/repowiki).",
-                },
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path used to derive output_dir when output_dir is absent.",
+                    "description": "Repository path used to derive the output directory.",
                 },
                 "mode": {
                     "type": "string",
@@ -1869,16 +1792,10 @@ _register(
         inputSchema={
             "type": "object",
             "properties": {
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for wiki pages",
-                },
                 "repo_path": {
                     "type": "string",
                     "description": (
-                        "Repository root used to derive the output directory when "
-                        "output_dir is absent (repo_path/repowiki). "
-                        "Pass repo_path OR output_dir."
+                        "Repository root used to derive the output directory (repo_path/repowiki)."
                     ),
                 },
                 "items": {
@@ -1913,13 +1830,9 @@ _register(
         inputSchema={
             "type": "object",
             "properties": {
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for wiki pages",
-                },
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path. Auto-derives output_dir = repo_path/repowiki when not provided.",
+                    "description": "Repository path. Derives output_dir = repo_path/repowiki.",
                 },
                 "issue_type": {
                     "type": "string",
@@ -1994,10 +1907,6 @@ _register(
                 "workspace_path": {
                     "type": "string",
                     "description": "Absolute path to the parent directory containing git repos",
-                },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for workspace overview (default: <workspace>/repowiki)",
                 },
                 "exclude_dirs": {
                     "type": "string",
@@ -2133,10 +2042,6 @@ _register(
                     "type": "string",
                     "description": "Absolute path to the workspace root (for analyze_workspace) or repo root (for analyze_repo monorepo mode). Auto-derives output_dir when omitted.",
                 },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for workspace analysis .meta/ files. Overrides auto-derived path from workspace_path.",
-                },
                 "filter_type": {
                     "type": "string",
                     "enum": ["all", "by_service", "by_method", "by_path", "trace"],
@@ -2174,11 +2079,6 @@ _register(
                 "repo_path": {
                     "type": "string",
                     "description": "Absolute path to the repository to document",
-                },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for generated docs (default: ./repowiki)",
-                    "default": "repowiki",
                 },
                 "doc_type": {
                     "type": "string",
@@ -2218,11 +2118,6 @@ _register(
                     "type": "string",
                     "description": "Absolute path to the repository",
                 },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Directory containing generated docs (default: ./repowiki)",
-                    "default": "repowiki",
-                },
             },
             "required": ["repo_path"],
         },
@@ -2254,10 +2149,6 @@ _register(
                 "repo_path": {
                     "type": "string",
                     "description": "Repository root path. AGENTS.md is written here. Default: current working directory.",
-                },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Wiki output directory (default: <repo_path>/repowiki). Created if it does not exist.",
                 },
             },
             "required": [],
@@ -2303,10 +2194,6 @@ _register(
         inputSchema={
             "type": "object",
             "properties": {
-                "output_dir": {
-                    "type": "string",
-                    "description": "Product-level repowiki directory (default: <workspace>/repowiki).",
-                },
                 "layout": {
                     "type": "string",
                     "enum": list(VALID_LAYOUTS),
@@ -2432,11 +2319,7 @@ _register(
             "properties": {
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository root path. If output_dir is not given, stats are read from <repo_path>/repowiki/.meta/retrieval_stats.db.",
-                },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Wiki output directory (default: <repo_path>/repowiki). Use this if the wiki was generated to a custom location.",
+                    "description": "Repository root path. Stats are read from <repo_path>/repowiki/.meta/retrieval_stats.db.",
                 },
                 "sort_by": {
                     "type": "string",
@@ -2506,13 +2389,9 @@ _register(
                     "type": "string",
                     "description": "Optional active session id (resolves output_dir).",
                 },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Wiki output directory (default: <repo_path>/repowiki).",
-                },
                 "repo_path": {
                     "type": "string",
-                    "description": "Repository path used to derive output_dir when output_dir is absent.",
+                    "description": "Repository path used to derive the output directory.",
                 },
             },
             "required": ["title"],
@@ -2540,7 +2419,6 @@ _register(
                     "description": "Optional status filter: 'active' or 'completed'.",
                 },
                 "session_id": {"type": "string", "description": "Optional active session id."},
-                "output_dir": {"type": "string", "description": "Wiki output directory."},
                 "repo_path": {"type": "string", "description": "Repository path."},
             },
         },
@@ -2571,7 +2449,6 @@ _register(
                     ),
                 },
                 "session_id": {"type": "string", "description": "Optional active session id."},
-                "output_dir": {"type": "string", "description": "Wiki output directory."},
                 "repo_path": {"type": "string", "description": "Repository path."},
             },
             "required": ["task_id"],
@@ -2593,7 +2470,6 @@ _register(
             "properties": {
                 "task_id": {"type": "string", "description": "Task id."},
                 "session_id": {"type": "string", "description": "Optional active session id."},
-                "output_dir": {"type": "string", "description": "Wiki output directory."},
                 "repo_path": {"type": "string", "description": "Repository path."},
             },
             "required": ["task_id"],
@@ -2615,7 +2491,6 @@ _register(
             "properties": {
                 "task_id": {"type": "string", "description": "Task id."},
                 "session_id": {"type": "string", "description": "Optional active session id."},
-                "output_dir": {"type": "string", "description": "Wiki output directory."},
                 "repo_path": {"type": "string", "description": "Repository path."},
             },
             "required": ["task_id"],
@@ -2642,7 +2517,6 @@ _register(
                 },
                 "task_id": {"type": "string", "description": "Task id to bind to."},
                 "session_id": {"type": "string", "description": "Optional active session id."},
-                "output_dir": {"type": "string", "description": "Wiki output directory."},
                 "repo_path": {"type": "string", "description": "Repository path."},
             },
             "required": ["source_session_id", "task_id"],
@@ -2667,7 +2541,6 @@ _register(
                 "task_id": {"type": "string", "description": "Task id."},
                 "content": {"type": "string", "description": "Memory text (markdown)."},
                 "session_id": {"type": "string", "description": "Optional active session id."},
-                "output_dir": {"type": "string", "description": "Wiki output directory."},
                 "repo_path": {"type": "string", "description": "Repository path."},
             },
             "required": ["task_id", "content"],
@@ -2711,7 +2584,6 @@ _register(
                     ),
                 },
                 "session_id": {"type": "string", "description": "Optional active session id."},
-                "output_dir": {"type": "string", "description": "Wiki output directory."},
                 "repo_path": {"type": "string", "description": "Repository path."},
             },
             "required": ["task_id"],
@@ -2762,7 +2634,6 @@ _register(
                     ),
                 },
                 "session_id": {"type": "string", "description": "Optional active session id."},
-                "output_dir": {"type": "string", "description": "Wiki output directory."},
                 "repo_path": {"type": "string", "description": "Repository path."},
             },
             "required": ["task_id"],
@@ -2771,43 +2642,6 @@ _register(
     handler_path="codewiki.mcp.tools.task_manager:handle_compact_task_memories",
     mode="thread",
 )
-
-
-# -------------------------------------------------------------------
-#  Schema-level target-anchor guard (A: anyOf output_dir | repo_path)
-# -------------------------------------------------------------------
-# Knowledge-base tools expose output_dir and repo_path as ALTERNATIVE target
-# anchors — neither is required by the business payload alone, yet at least
-# one must be present for the call to resolve. Post-processing every
-# registered schema here (single point, Doctrine) makes one of them
-# explicitly required at the schema level, so clients/LLMs see the contract
-# instead of discovering it from a runtime error. Explicit anchor >
-# derivable > session cache: tools that already require either path are
-# skipped; session_id stays out of anyOf (explicit paths beat stale
-# sessions, per Doctrine).
-
-
-def _apply_target_anchor_anyof() -> None:
-    for td in REGISTRY.values():
-        schema = td.schema.inputSchema
-        if not isinstance(schema, dict):
-            continue
-        props = schema.get("properties")
-        if not isinstance(props, dict):
-            continue
-        if "output_dir" not in props or "repo_path" not in props:
-            continue
-        required = set(schema.get("required") or [])
-        if "output_dir" in required or "repo_path" in required:
-            continue
-        if "anyOf" not in schema:
-            schema["anyOf"] = [
-                {"required": ["output_dir"]},
-                {"required": ["repo_path"]},
-            ]
-
-
-_apply_target_anchor_anyof()
 
 
 # ===================================================================
@@ -2941,12 +2775,12 @@ async def _try_cbm_enrichment(
 #  Last-resort repo_path default (B): server start CWD
 # -------------------------------------------------------------------
 # MCP stdio processes are launched with the host's project/workspace root as
-# the CWD. When a knowledge-base call omits BOTH output_dir and repo_path,
-# injecting repo_path=<server start CWD> lets resolution proceed through the
-# normal layout-aware path instead of failing with "output_dir or repo_path
-# is required". Explicit arguments are never overwritten; the injected
-# default only fills complete absence and never outranks session/output_dir
-# downstream (resolution order stays session > output_dir > repo_path).
+# the CWD. When a knowledge-base call omits repo_path, injecting
+# repo_path=<server start CWD> lets resolution proceed through the normal
+# layout-aware path instead of failing with "repo_path is required".
+# Explicit arguments are never overwritten; the injected default only fills
+# complete absence and never outranks the session downstream (resolution order
+# stays session > repo_path).
 try:
     _SERVER_START_CWD = os.getcwd()
 except Exception:  # pragma: no cover - cwd always readable in practice
@@ -2955,10 +2789,10 @@ except Exception:  # pragma: no cover - cwd always readable in practice
 
 def _inject_repo_path_default(arguments: dict[str, Any]) -> None:
     """Fill ``repo_path`` from the server start CWD when the call has no
-    explicit target anchor (output_dir/repo_path). In place; no-op otherwise."""
+    explicit target anchor. In place; no-op otherwise."""
     if _SERVER_START_CWD is None:
         return
-    if arguments.get("output_dir") or arguments.get("repo_path"):
+    if arguments.get("repo_path"):
         return
     try:
         if not Path(_SERVER_START_CWD).is_dir():
@@ -2984,7 +2818,7 @@ async def dispatch(name: str, arguments: dict[str, Any], store: Any) -> list[Tex
         matching the behavior of the original call_tool in server.py.
     """
     try:
-        # B: fallback target anchor for calls that omit output_dir/repo_path
+        # B: fallback target anchor for calls that omit repo_path
         _inject_repo_path_default(arguments)
 
         tool_def = REGISTRY.get(name)
@@ -3042,7 +2876,7 @@ async def dispatch(name: str, arguments: dict[str, Any], store: Any) -> list[Tex
     except Exception as e:
         logger.error("Tool %s failed: %s", name, e, exc_info=True)
         msg = str(e)
-        if isinstance(e, ValueError) and ("output_dir" in msg or "repo_path" in msg):
+        if isinstance(e, ValueError) and "repo_path" in msg:
             # C: actionable error — tell the caller exactly how to fix the call
             return [
                 TextContent(
@@ -3050,13 +2884,7 @@ async def dispatch(name: str, arguments: dict[str, Any], store: Any) -> list[Tex
                     text=json.dumps(
                         {
                             "error": msg,
-                            "fix": (
-                                "Retry with repo_path=<repo root> or "
-                                "output_dir=<repowiki directory> to locate the "
-                                "knowledge base. Passing either explicitly is "
-                                "preferred; the server only falls back to its "
-                                "start directory when both are absent."
-                            ),
+                            "fix": "Retry with repo_path=<repo root> to locate the knowledge base.",
                         },
                         ensure_ascii=False,
                     ),

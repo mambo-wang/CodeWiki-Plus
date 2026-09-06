@@ -321,7 +321,7 @@ def _repo_map_section(name: str, layout: str = LAYOUT_COLOCATED) -> str:
         "**检索方式**\n"
         "\n"
         "```\n"
-        f"query_wiki(query=<问题>, output_dir=<harness根>/{name}/repowiki)\n"
+        f"query_wiki(query=<问题>, repo_path=<harness根>/{name})\n"
         "```\n"
     )
 
@@ -510,12 +510,9 @@ def _run_full_skeleton_flow(
     else:
         layout = layout_arg or LAYOUT_COLOCATED
         results["layout"] = layout
-        if layout == LAYOUT_CENTRALIZED and output_dir_p != workspace_p / "repowiki":
-            return None, (
-                "centralized layout requires the default output_dir <workspace>/repowiki: "
-                "workspace discovery is anchored at <workspace>/repowiki/.meta/workspace.json, "
-                "so a custom output_dir would make the layout config invisible to routing."
-            )
+        # output_dir is a pure function of workspace_path (<workspace>/repowiki)
+        # — a caller-supplied custom directory is retired, so the layout config
+        # stays anchored at <workspace>/repowiki/.meta/workspace.json by construction.
         config_path.parent.mkdir(parents=True, exist_ok=True)
         _write_text(
             config_path,
@@ -636,13 +633,12 @@ def handle_init_workspace(arguments: dict) -> str:
     later).
 
     Advertised parameters (from arguments dict):
-        output_dir: Product-level repowiki directory
-            (default: <workspace>/repowiki).
         layout: ``colocated`` | ``centralized`` — required on FIRST init
             (ask the user; without it the gate returns
             ``needs_layout_decision`` and writes nothing); on re-runs the
             persisted layout wins and a conflicting value is an error
             (clone-only adoption included).
+        (output_dir is retired: it always derives to <workspace>/repowiki.)
 
     Tolerated but unadvertised:
         workspace_path: Workspace root (default: current working directory).
@@ -666,13 +662,7 @@ def handle_init_workspace(arguments: dict) -> str:
         return _err(f"invalid layout {layout_arg!r}: expected one of {list(VALID_LAYOUTS)}")
 
     name = workspace_p.name
-    output_dir = (arguments.get("output_dir") or "").strip()
-    if not output_dir:
-        output_dir_p = workspace_p / "repowiki"
-    elif os.path.isabs(output_dir):
-        output_dir_p = Path(output_dir).resolve()
-    else:
-        output_dir_p = (workspace_p / output_dir).resolve()
+    output_dir_p = workspace_p / "repowiki"
 
     results: dict = {
         "workspace_path": str(workspace_p),
@@ -781,7 +771,7 @@ def handle_init_workspace(arguments: dict) -> str:
             "Workspace initialized. Next: "
             "1) Register business repos with add_workspace_repo(url=<clone URL>); "
             "2) For each business repo run init_wiki / analyze_repo with "
-            "output_dir=<workspace>/<repo>/repowiki to build its repo-level wiki; "
+            "repo_path=<workspace>/<repo> to build its repo-level wiki; "
             "3) Run analyze_workspace(workspace_path=<workspace root>) for cross-repo analysis; "
             "4) On POSIX run: chmod +x bootstrap.sh"
         )
@@ -919,7 +909,7 @@ def handle_add_workspace_repo(arguments: dict) -> str:
     else:
         results["next_steps"] = (
             f"Repo {name!r} registered. Next: run init_wiki / analyze_repo with "
-            f"output_dir=<workspace>/{name}/repowiki, then fill its 业务概述 section in "
+            f"repo_path=<workspace>/{name}, then fill its 业务概述 section in "
             "repowiki/wiki/repo-map.md. On POSIX run: chmod +x bootstrap.sh"
         )
     return json.dumps(results, ensure_ascii=False, indent=2)

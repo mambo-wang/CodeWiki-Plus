@@ -81,7 +81,7 @@ IDE 式磁盘 transcript；任务记忆的注入与捕获改由 Agent 执行：
      本会话 chatId → `qwenwork_task_get_detail(chatId, offset 分页)` 拉全部轮次
   2. 按轮次做要点级压缩：保留决策脉络、关键事实、结论与提交号；丢弃寒暄、
      过程噪音与工具调用细节
-  3. 调 `capture_conversation(output_dir=<repo>/repowiki,
+  3. 调 `capture_conversation(repo_path=<repo>,
      conversation=[{{"role": ..., "content": ...}}...], task_id=<绑定的任务id>,
      source_session_id="qwenwork-<chatId>")` 走标准管线落盘
      （frontmatter/content_hash/supersede 全套），**勿手写 raw/*.md**
@@ -93,8 +93,6 @@ IDE 式磁盘 transcript；任务记忆的注入与捕获改由 Agent 执行：
 
 def _prompt_init_wiki(args: dict[str, str]) -> str:
     repo_path = _resolve_path(args.get("repo_path", ""))
-    output_dir = args.get("output_dir", "")
-    od_note = f'，output_dir="{output_dir}"' if output_dir else ""
     # T6: 可选启用任务管理（跨会话任务记忆 + 对话采集 Hook）
     enable_task_management = args.get("enable_task_management", "").strip().lower()
     if enable_task_management in ("1", "true", "yes", "on"):
@@ -176,13 +174,13 @@ CLI 自动检测项目根目录存在哪些 IDE 配置目录（`.codebuddy/` / `
     return f"""请为项目初始化 Wiki 工作区。按以下步骤执行：
 
 ## 步骤 1: 初始化
-调用 init_wiki(repo_path="{repo_path}"{od_note})
+调用 init_wiki(repo_path="{repo_path}")
 - 自动创建目录结构：wiki/modules, wiki/entities, wiki/concepts, wiki/sources, wiki/comparisons, wiki/queries, notes/
 - 拷贝带注释的 schema.yaml 模板到输出目录（保留所有注释，方便阅读和自定义）
 - 在仓库根目录写入/更新 AGENTS.md（含使用建议、自我反思协议、知识沉淀规则）
 {hook_block}
 ## 步骤 {2 + step_shift}: 自定义 schema.yaml
-读取 `{output_dir or repo_path + "/repowiki"}/schema.yaml`，根据项目特点修改：
+读取 `{repo_path}/repowiki/schema.yaml`，根据项目特点修改：
 - **purpose**（重要）：用一两句话描述项目定位，会注入到所有文档生成 prompt 中
 - **doc_types**：选择适合项目的文档风格（api/architecture/design/business 等）
 - **conventions**：调整命名规范、最小行数、是否需要 Mermaid 图等
@@ -230,7 +228,7 @@ def _prompt_init_workspace(args: dict[str, str]) -> str:
 ## 步骤 4: 登记业务仓（仅新工作区需要）
 - 对用户提到的每个业务仓，用 add_workspace_repo(url=<克隆URL>) 逐个登记（目录名自动取仓库名）；用户没给 URL 就先询问，不要凭记忆猜测
 - 登记完成后**不要自动生成 wiki**：不调用 init_wiki / analyze_repo / analyze_workspace，等用户显式要求时再生成
-- 生成时按布局选工具：**centralized** 下 `init_wiki` 不适用于仓库级（知识统一汇入工作区 repowiki，无独立仓库 wiki）——单仓代码知识用 `analyze_repo(<repo_path>)`（不传 output_dir 自动路由到 `wiki/modules/<名>/` 分区），跨仓拓扑与工作区总览用 `analyze_workspace(workspace_path=<工作区根>)`；**colocated** 下按既有流程 `init_wiki` + `analyze_repo`（各仓 wiki 位于 `<repo>/repowiki/`）
+- 生成时按布局选工具：**centralized** 下 `init_wiki` 不适用于仓库级（知识统一汇入工作区 repowiki，无独立仓库 wiki）——单仓代码知识用 `analyze_repo(<repo_path>)`（自动推导输出目录并路由到 `wiki/modules/<名>/` 分区），跨仓拓扑与工作区总览用 `analyze_workspace(workspace_path=<工作区根>)`；**colocated** 下按既有流程 `init_wiki` + `analyze_repo`（各仓 wiki 位于 `<repo>/repowiki/`）
 
 ## 注意事项
 - 首次初始化必须显式选择布局：不传 layout 时工具返回 needs_layout_decision 且不写任何产物；重跑自动沿用 `repowiki/.meta/workspace.json` 中持久化的布局（显式传冲突值才报错）
@@ -301,12 +299,10 @@ def _prompt_remove_workspace_repo(args: dict[str, str]) -> str:
 
 def _prompt_generate_wiki(args: dict[str, str]) -> str:
     repo_path = _resolve_path(args.get("repo_path", ""))
-    output_dir = args.get("output_dir", "")
-    od_note = f'，output_dir="{output_dir}"' if output_dir else ""
     return f"""请为代码仓库生成完整的 Wiki 文档。按以下步骤执行：
 
 ## 步骤 1: 分析仓库
-调用 analyze_repo(repo_path="{repo_path}"{od_note})
+调用 analyze_repo(repo_path="{repo_path}")
 - 返回组件数量、语言统计等分析结果
 - 大文件结果写入 workspace 文件，通过返回的 file_path 读取
 
@@ -352,7 +348,7 @@ def _prompt_incremental_update(args: dict[str, str]) -> str:
 
 ## 步骤 1: 检测变更
 调用 analyze_repo(repo_path="{repo_path}")
-- 如果 output_dir 已有 .meta/metadata.json，返回 changes 字段
+- 如果 repo_path 对应的 repowiki 已有 .meta/metadata.json，返回 changes 字段
 - changes 包含: added_files, modified_files, deleted_files, affected_modules
 
 ## 步骤 2: 评估影响范围
@@ -389,8 +385,8 @@ def _prompt_extract_knowledge(args: dict[str, str]) -> str:
     from pathlib import Path as _Path
 
     source_name = _Path(source_path).stem
-    # output_dir defaults to cwd/repowiki (not next to the source file)
-    output_dir = args.get("output_dir", "") or str(_Path(_resolve_path("")) / "repowiki")
+    # 知识库定位由 repo_path 经布局推导（default_output_dir），不再接受显式 output_dir
+    repo_path = _resolve_path(args.get("repo_path", ""))
     granularity = args.get("granularity", "").strip()
     gran_call = f', variables={{"granularity": "{granularity}"}}' if granularity else ""
     gran_default_note = (
@@ -401,9 +397,9 @@ def _prompt_extract_knowledge(args: dict[str, str]) -> str:
     return f"""请导入外部文档并从中抽取结构化知识。采用「骨架提取 → 去重检查 → 证据校验 → 页面撰写」两阶段流程，按以下步骤执行：
 
 ## 步骤 1: 导入文档
-调用 ingest_source(output_dir="{output_dir}", source_ref="{source_path}")
-- 文档会被复制到 {output_dir}/raw/sources/ 并注册到 source_registry.json
-- 此步骤直接传入 output_dir，无需 session
+调用 ingest_source(repo_path="{repo_path}", source_ref="{source_path}")
+- 文档会被复制到 {repo_path}/repowiki/raw/sources/ 并注册到 source_registry.json
+- 此步骤直接传入 repo_path，无需 session
 
 ## 步骤 2: 骨架提取（Pass 0 — 只识别，不撰写）
 1. 通读源文档 "{source_path}"（使用 Read 工具直接读取原始文件，无需 view_repo_file），标记关键实体和抽象概念
@@ -414,7 +410,7 @@ def _prompt_extract_knowledge(args: dict[str, str]) -> str:
 
 ## 步骤 3: 去重检查（语义去重）
 对每个骨架项：
-1. 调用 query_wiki(output_dir="{output_dir}", query="<title 及 aliases>") 搜索已有相似页面
+1. 调用 query_wiki(repo_path="{repo_path}", query="<title 及 aliases>") 搜索已有相似页面
 2. 调用 get_prompt(prompt_type="extraction_dedup") 获取去重判定规则
 3. 按规则将每项三分类：**create**（新建页面）/ **merge**（合并进已有页面）/ **drop**（丢弃）
 - 核心原则：**related ≠ same**——相关不等于相同，拿不准就不合并
@@ -425,12 +421,12 @@ def _prompt_extract_knowledge(args: dict[str, str]) -> str:
 - 一次性提及按当前 granularity 处理：focused/standard 直接丢弃；exhaustive 可保留但页面中须注明仅为提及
 - 无法给出真实引用的项应丢弃——**无引用不成立**
 
-## 步骤 5: 撰写知识页面（使用 output_dir="{output_dir}"）
-1. 源文档摘要: write_doc_file(output_dir="{output_dir}", filename="{source_name}.md", page_type="source", content=...)
+## 步骤 5: 撰写知识页面
+1. 源文档摘要: write_doc_file(repo_path="{repo_path}", filename="{source_name}.md", page_type="source", content=...)
    - 调用 get_prompt(prompt_type="source_summary") 获取模板
-2. 实体页面（action=create）: write_doc_file(output_dir="{output_dir}", filename="<实体名>.md", page_type="entity", content=...)
+2. 实体页面（action=create）: write_doc_file(repo_path="{repo_path}", filename="<实体名>.md", page_type="entity", content=...)
    - 调用 get_prompt(prompt_type="entity_page") 获取模板（含编译器写作纪律）
-3. 概念页面（action=create）: write_doc_file(output_dir="{output_dir}", filename="<概念名>.md", page_type="concept", content=...)
+3. 概念页面（action=create）: write_doc_file(repo_path="{repo_path}", filename="<概念名>.md", page_type="concept", content=...)
    - 调用 get_prompt(prompt_type="concept_page") 获取模板（含编译器写作纪律）
 4. action=merge 的项: 先用 view_repo_file 读取已有页面，再用 edit_doc_file 追加新事实
    - 新事实必须附 `[^src:{source_name}:<line_range>]` 引用；补充 aliases；不得覆盖或删除已有内容
@@ -438,8 +434,8 @@ def _prompt_extract_knowledge(args: dict[str, str]) -> str:
 ## 步骤 6: 构建知识图谱并验证
 - 页面间使用 [[wikilink]] 互相引用（如 [[认证服务]]、[[OAuth2]]）
 - build_search_index 会自动解析 wikilink 为图谱边
-- 调用 query_wiki(output_dir="{output_dir}", query="<实体/概念名>") 验证新页面可被检索
-- 之后可通过 query_wiki(output_dir="{output_dir}", query, hop=1) 进行多跳关联搜索
+- 调用 query_wiki(repo_path="{repo_path}", query="<实体/概念名>") 验证新页面可被检索
+- 之后可通过 query_wiki(repo_path="{repo_path}", query, hop=1) 进行多跳关联搜索
 
 ## 写作纪律（所有页面通用）
 - **编译器模式**：事实性陈述直接引用源文档原句并标注 `[^src:{source_name}:<a-b>]`，可轻排序、去重、连接，但不得为风格改写或扩写
@@ -448,8 +444,8 @@ def _prompt_extract_knowledge(args: dict[str, str]) -> str:
 - 使用 frontmatter_extra 添加 aliases（搜索加权 3x）和 source_refs
 
 ## 注意事项
-- 整个流程直接使用 output_dir，无需 analyze_repo
-- write_doc_file 直接传 output_dir 参数
+- 整个流程直接使用 repo_path（自动推导 output_dir），无需 analyze_repo
+- write_doc_file 直接传 repo_path 参数
 - ingest_source 只负责存储，不会自动生成 entity/concept 页面
 - 每个页面应包含：定义、关键属性、与其他实体的关系、来源引用"""
 
@@ -488,12 +484,11 @@ def _prompt_search_wiki(args: dict[str, str]) -> str:
 
 
 def _prompt_quality_check(args: dict[str, str]) -> str:
-    output_dir = args.get("output_dir", "")
-    od_param = f'output_dir="{output_dir}"' if output_dir else "repo_path=<repo_path>"
+    repo_path = _resolve_path(args.get("repo_path", ""))
     return f"""请对 Wiki 文档执行全面质量审计。按以下步骤执行：
 
 ## 步骤 1: 运行全量检查
-调用 lint_wiki({od_param}, checks=["all"])
+调用 lint_wiki(repo_path="{repo_path}", checks=["all"])
 - stale_refs: 文档引用了已不存在的代码组件
 - broken_links: Markdown 链接指向不存在的页面
 - undocumented: 高影响组件缺少文档
@@ -904,7 +899,7 @@ def _prompt_cross_service_trace(args: dict[str, str]) -> str:
 
 
 def _prompt_ingest_note(args: dict[str, str]) -> str:
-    output_dir = args.get("output_dir", "")
+    repo_path = _resolve_path(args.get("repo_path", ""))
     note_type = args.get("note_type", "general")
     return f"""请将知识经验归档到 Wiki 知识库。按以下步骤执行：
 
@@ -943,7 +938,7 @@ def _prompt_ingest_note(args: dict[str, str]) -> str:
 
 ```json
 {{
-  "output_dir": "{output_dir or "<repo>/repowiki"}",
+  "repo_path": "{repo_path or "<repo>"}",
   "note_type": "{note_type}",
   "title": "<简洁描述核心知识的标题>",
   "content": "## 背景\\n...\\n## 核心内容\\n...\\n## 原因\\n...",
@@ -953,7 +948,7 @@ def _prompt_ingest_note(args: dict[str, str]) -> str:
 ```
 
 ### 参数说明
-- **output_dir**（必填）：Wiki 输出目录路径
+- **repo_path**（必填）：仓库根目录路径（自动推导 Wiki 输出目录）
 - **note_type**：笔记类型，默认 general
 - **title**（必填）：简洁的标题，概括核心知识
 - **content**（必填）：Markdown 格式的笔记正文
@@ -968,14 +963,14 @@ def _prompt_ingest_note(args: dict[str, str]) -> str:
 
 调用 query_wiki 确认笔记可被检索：
 ```
-query_wiki(output_dir="{output_dir or "<repo>/repowiki"}", query="<笔记标题关键词>")
+query_wiki(repo_path="{repo_path or "<repo>"}", query="<笔记标题关键词>")
 ```
 
 ## 高质量笔记示例
 
 ```json
 {{
-  "output_dir": "{output_dir or "<repo>/repowiki"}",
+  "repo_path": "{repo_path or "<repo>"}",
   "note_type": "lesson",
   "title": "OrderService.process() 只做参数校验不做业务处理",
   "content": "## 背景\\n\\nAgent 误以为 OrderService.process() 包含完整业务逻辑，基于方法名做了错误的设计假设。\\n\\n## 正确做法\\n\\nprocess() 仅做入参校验和格式化，实际业务处理在 OrderService.execute() 中。老项目方法名与实际行为不一致是常见情况，应优先阅读实现而非信任方法名。\\n\\n## 根因\\n\\n十几年老项目，方法经过多次重构但名称未更新。",
@@ -1269,12 +1264,12 @@ def _prompt_consolidate_knowledge(args: dict[str, str]) -> str:
 
 def _prompt_promote_note(args: dict[str, str]) -> str:
     note_file = (args.get("note_file") or "").strip()
-    output_dir = (args.get("output_dir") or "").strip() or "<repo>/repowiki"
+    repo_path = _resolve_path(args.get("repo_path", ""))
     target = note_file or "<候选笔记相对路径，如 notes/2026-08-01-port-conflict.md>"
     return f"""笔记晋升工作流（P1 C 线，docs/知识飞轮增强设计方案-P1三项.md §4）。当 wiki_stats 返回的 `promotion_candidates` 出现候选笔记（status=stable、被 Agent 声明采纳达到门槛、树龄足够），或用户要求"把某条笔记晋升为正式 wiki 页面"时，使用本流程把反复被采纳的笔记 AI 重写为正式 wiki 页面，打通 notes → wiki 的断层。
 
 ## 前置：确定晋升对象
-- 未指定笔记时：调用 `wiki_stats(output_dir="{output_dir}")`，读取 `promotion_candidates` 列表，向用户展示候选（file/title/type/adopted_count/age_days/suggested_page_type），由用户选定要晋升哪一条
+- 未指定笔记时：调用 `wiki_stats(repo_path="{repo_path}")`，读取 `promotion_candidates` 列表，向用户展示候选（file/title/type/adopted_count/age_days/suggested_page_type），由用户选定要晋升哪一条
 - 已指定笔记（本次目标：`{target}`）时：直接进入执行步骤
 
 ## 类型路由（笔记 → 目标页面类型）
@@ -1295,11 +1290,11 @@ def _prompt_promote_note(args: dict[str, str]) -> str:
 - **原笔记的 aliases 并入新页面 frontmatter** 的 aliases 字段，保持检索连续性
 
 ## 执行步骤
-1. 读取原笔记全文（`view_repo_file` 或直接读 `{output_dir}/{target}`），确认其类型并按映射表选定 page_type
+1. 读取原笔记全文（`view_repo_file` 或直接读 `{repo_path}/repowiki/{target}`），确认其类型并按映射表选定 page_type
 2. 按重写规则完成去个人化重写，调用 `write_doc_file`（page_type 按映射表取）：
    ```json
    {{
-     "output_dir": "{output_dir}",
+     "repo_path": "{repo_path}",
      "page_type": "<query|concept>",
      "file_name": "<新页面文件名>",
      "title": "<去个人化后的标题>",
@@ -1314,13 +1309,12 @@ def _prompt_promote_note(args: dict[str, str]) -> str:
    metadata:
      promoted_to: wiki/queries/<新页面文件名>
    ```
-   （值为新页面相对 output_dir 的路径。**⚠ promoted_to 必须写在 `metadata:` 嵌套段下（缩进两格），不能写成顶层键**——OKF v0.2 顶层键白名单不含 promoted_to，顶层直写会触发 okf_conformance lint 告警）
+   （值为新页面相对 Wiki 根目录的路径，如 `wiki/queries/xxx.md`；Wiki 根目录由 `repo_path` 自动推导。**⚠ promoted_to 必须写在 `metadata:` 嵌套段下（缩进两格），不能写成顶层键**——OKF v0.2 顶层键白名单不含 promoted_to，顶层直写会触发 okf_conformance lint 告警）
 4. **原笔记不删除、不降级状态**——它是审计轨迹与 source_ref 链路的锚点，仅加 promoted_to 标记
 
 ## 参数说明
 - **note_file**（可选）：要晋升的笔记相对路径（如 notes/xxx.md）
-- **output_dir**（可选）：Wiki 输出目录，默认 `<repo>/repowiki`
-- **repo_path**（可选）：仓库根目录，用于推导 output_dir"""
+- **repo_path**（必填）：仓库根目录，用于自动推导 Wiki 输出目录"""
 
 
 def register(server):
@@ -1346,11 +1340,6 @@ def register(server):
                         required=False,
                     ),
                     PromptArgument(
-                        name="output_dir",
-                        description="Wiki 输出目录（默认: <repo>/repowiki）",
-                        required=False,
-                    ),
-                    PromptArgument(
                         name="enable_task_management",
                         description="是否启用任务管理（跨会话任务记忆）：true/1 会在初始化指引中追加任务管理启用说明（注册 SessionEnd 采集 Hook + 向 AGENTS.md 写入任务引导段，新建会话时提示用户关联/新建任务）；留空或 false 则跳过。默认关闭。",
                         required=False,
@@ -1368,13 +1357,7 @@ def register(server):
                     "为 clone-only 接管（只补缺业务仓克隆，不触碰骨架与 AGENTS.md），骨架有"
                     "缺失才补齐产物并强制刷新约定块。业务仓登记走 add_workspace_repo。"
                 ),
-                arguments=[
-                    PromptArgument(
-                        name="output_dir",
-                        description="产品级 repowiki 目录（默认: <workspace>/repowiki）",
-                        required=False,
-                    ),
-                ],
+                arguments=[],
             ),
             Prompt(
                 name="add-workspace-repo",
@@ -1430,11 +1413,6 @@ def register(server):
                     PromptArgument(
                         name="repo_path",
                         description="要分析的代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="output_dir",
-                        description="Wiki 输出目录（默认: <repo>/repowiki）",
                         required=False,
                     ),
                 ],
@@ -1522,8 +1500,8 @@ def register(server):
                 description="对已生成的 Wiki 执行全面质量检查：过时引用、断链、覆盖率、循环依赖",
                 arguments=[
                     PromptArgument(
-                        name="output_dir",
-                        description="Wiki 输出目录",
+                        name="repo_path",
+                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
                         required=False,
                     ),
                 ],
@@ -1599,8 +1577,8 @@ def register(server):
                         required=False,
                     ),
                     PromptArgument(
-                        name="output_dir",
-                        description="Wiki 输出目录（默认: <cwd>/repowiki）",
+                        name="repo_path",
+                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
                         required=False,
                     ),
                     PromptArgument(
@@ -1619,8 +1597,8 @@ def register(server):
                 ),
                 arguments=[
                     PromptArgument(
-                        name="output_dir",
-                        description="Wiki 输出目录（默认: <repo>/repowiki）",
+                        name="repo_path",
+                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
                         required=False,
                     ),
                     PromptArgument(
@@ -1714,11 +1692,6 @@ def register(server):
                     PromptArgument(
                         name="note_file",
                         description="要晋升的笔记相对路径（如 notes/xxx.md）；留空则从 wiki_stats 的 promotion_candidates 中由用户选定",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="output_dir",
-                        description="Wiki 输出目录（默认: <repo>/repowiki）",
                         required=False,
                     ),
                     PromptArgument(
