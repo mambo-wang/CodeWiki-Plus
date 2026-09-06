@@ -1378,6 +1378,12 @@ class AnalysisCache:
                 continue
             if not include_notes and doc_row["source"] == "note":
                 continue
+            # skill-creator T5 (issue #28, ADR-0004): recall isolation —
+            # draft-zone skills are indexed (lint/capacity/stats see them)
+            # but NEVER recalled: skills are behaviour instructions consumed
+            # by the IDE trigger, not retrievable knowledge.
+            if doc_row["source"] == "skill":
+                continue
             # LLM Wiki: type_filter enforcement
             if allowed_source_types and doc_row["source"] not in allowed_source_types:
                 continue
@@ -1480,6 +1486,10 @@ class AnalysisCache:
                 if not doc_row:
                     continue
                 if not include_notes and doc_row["source"] == "note":
+                    continue
+                # T5 recall isolation (issue #28): expanded-term path must
+                # not leak skill pages either — same rule as the main loop.
+                if doc_row["source"] == "skill":
                     continue
                 snippet = ""
                 ex_raw_len = 0

@@ -218,3 +218,90 @@ def test_effect_zone_files_never_linted(tmp_path):
     (eff / "SKILL.md").write_text("no frontmatter, no headings\n", encoding="utf-8")
     issues = [i for i in _lint(repo, ["skill_sections"]) if i["check"] == "skill_sections"]
     assert issues == []
+
+
+# --------------------------------------------------------------------------- #
+# 5. T5 recall isolation (issue #28): indexed, but never recalled
+# --------------------------------------------------------------------------- #
+def _mk_recognizable_skill(od: Path, name: str, marker: str) -> Path:
+    """A skill whose body carries a unique BM25 marker token."""
+    body = "\n".join(f"## {s}\n\n{marker} {s}" for s in _SECTIONS)
+    sk_dir = od / "skills" / name
+    sk_dir.mkdir(parents=True, exist_ok=True)
+    p = sk_dir / "SKILL.md"
+    p.write_text(
+        "---\n"
+        + yaml.safe_dump(
+            {"name": name, "description": f"当遇到 {name} 场景时使用 {marker}", "type": "Skill", "status": "draft"},
+            allow_unicode=True,
+        )
+        + "---\n\n"
+        + body
+        + "\n",
+        encoding="utf-8",
+    )
+    return p
+
+
+def test_search_legacy_never_recalls_skill(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    marker = "zxquniquemarker"
+    _mk_recognizable_skill(od, "secret-skill", marker)
+    # a note sharing the marker IS recalled — proving the index works and
+    # the exclusion is specific to skills, not a broken search
+    (od / "notes").mkdir(exist_ok=True)
+    (od / "notes" / f"{marker}-note.md").write_text(
+        f"---\ntitle: {marker} note\nstatus: stable\n---\n\n{marker} body\n",
+        encoding="utf-8",
+    )
+    wiki_search.build_full_index(od)
+    results = wiki_search.search(od, marker)
+    files = [r["file"] for r in results]
+    assert not [f for f in files if f.startswith("skills/")], files
+    assert any(marker in f for f in files), "control note should be recalled"
+
+
+def test_search_sqlite_never_recalls_skill(tmp_path):
+    from codewiki.mcp.cache import AnalysisCache
+
+    repo, od = _mk_repo(tmp_path)
+    marker = "zxqsqliteuniquemarker"
+    _mk_recognizable_skill(od, "sqlite-secret-skill", marker)
+    (od / "notes").mkdir(exist_ok=True)
+    (od / "notes" / f"{marker}-note.md").write_text(
+        f"---\ntitle: {marker} note\nstatus: stable\n---\n\n{marker} body\n",
+        encoding="utf-8",
+    )
+    cache = AnalysisCache(Path(repo), db_path=Path(repo) / ".codewiki" / "analysis_cache.db")
+    try:
+        cache.build_search_index(od)
+        # indexed but not recallable
+        rows = cache.conn.execute(
+            "SELECT COUNT(*) AS c FROM search_index WHERE source='skill'"
+        ).fetchone()
+        assert rows["c"] == 1
+        results = cache.search(marker, output_dir=od)
+        files = [r["file"] for r in results]
+        assert not [f for f in files if f.startswith("skills/")], files
+        assert any(marker in f for f in files), "control note should be recalled"
+    finally:
+        cache.close()
+
+
+def test_search_expanded_terms_do_not_leak_skill(tmp_path):
+    """The SQLite expanded-terms path must respect the same isolation."""
+    from codewiki.mcp.cache import AnalysisCache
+
+    repo, od = _mk_repo(tmp_path)
+    marker = "zxqexpanduniquemarker"
+    _mk_recognizable_skill(od, "expand-leak-skill", marker)
+    cache = AnalysisCache(Path(repo), db_path=Path(repo) / ".codewiki" / "analysis_cache.db")
+    try:
+        cache.build_search_index(od)
+        results = cache.search(
+            "nearmiss",  # main query matches nothing…
+            output_dir=od,
+        )
+        assert not [r for r in results if str(r["file"]).startswith("skills/")]
+    finally:
+        cache.close()
