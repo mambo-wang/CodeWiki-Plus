@@ -1780,6 +1780,99 @@ _register(
 
 _register(
     Tool(
+        name="skill_creator",
+        description=(
+            "Compile CONFIRMED knowledge into SKILL.md behaviour-instruction "
+            "drafts in the draft zone repowiki/skills/ (skill-creator T2, "
+            "issue #25, ADR-0004 two-zone gate: drafts are indexed and linted "
+            "but NEVER effective — install to .codebuddy/skills/ is a separate "
+            "user action, T3). Mode C protocol — the host agent writes, the "
+            "tool does deterministic bookkeeping. mode='prepare' (zero side "
+            "effects): candidate materials not yet absorbed by any skill "
+            "(scenario blocks + stable pitfall/lesson/decision notes), open "
+            "issues grouped per existing skill, the draft-zone skill index, "
+            "a name/description conflict pre-check (token Jaccard > 0.6), a "
+            "graded capacity warning (green / orange=update-only / "
+            "red=merge-first, cap 12), the anti-fragmentation discipline and "
+            "the writing system prompt (description = trigger condition + "
+            "action, five-section skeleton, quantified note backlinks, body "
+            "<= 8KB, no absolute paths or secrets). mode='submit' with "
+            "report.skills=[{name, action(created|updated), description, body, "
+            "source_refs, summary?, revision_note?}]: validates each entry "
+            "(failures name the exact rule, e.g. name_slug / "
+            "description_trigger / body_too_large / sensitive_content / "
+            "source_refs_required / name_conflict), enforces the batch "
+            "anti-fragmentation rules (at most ONE created per batch, orange/"
+            "red capacity blocks creation), writes skills/<name>/SKILL.md "
+            "with OKF frontmatter, appends revisions on update, records "
+            "bidirectional provenance (skill metadata.source_refs ⇄ material "
+            "metadata.compiled_into) and rebuilds the search index. An empty "
+            "report (no_action) is a legal round. Task memories are NOT "
+            "skill material (ADR-0002). NEVER runs automatically."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional active session id (resolves output_dir).",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path used to derive the output directory.",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["prepare", "submit"],
+                    "description": (
+                        "prepare: return candidates + skill index + conflict "
+                        "pre-check + capacity warning + writing system prompt. "
+                        "submit: validate and record the agent-written skill "
+                        "report (install/retire are a later ticket)."
+                    ),
+                },
+                "topic": {
+                    "type": "string",
+                    "description": (
+                        "prepare only: the planned skill name/topic, used for "
+                        "the name/description conflict pre-check (Jaccard > 0.6)."
+                    ),
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["scenarios", "notes", "issues"],
+                    },
+                    "description": (
+                        "prepare only: restrict the returned candidate kinds "
+                        "(default: all three)."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "prepare only: max candidates per kind (default 30).",
+                },
+                "report": {
+                    "type": "object",
+                    "description": (
+                        "submit only: {skills: [{name, action, description, "
+                        "body, source_refs, summary?, revision_note?}]} — "
+                        "action in created|updated, source_refs the absorbed "
+                        "material paths (wiki/scenarios/... or notes/...). An "
+                        "empty skills list is a legal no_action round."
+                    ),
+                },
+            },
+            "required": ["mode"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.skill_creator:handle_skill_creator",
+    mode="thread",
+)
+
+_register(
+    Tool(
         name="batch_ingest",
         description=(
             "Bulk-import multiple notes and/or source documents in one call. "

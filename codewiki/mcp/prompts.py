@@ -1262,6 +1262,43 @@ def _prompt_consolidate_knowledge(args: dict[str, str]) -> str:
 用户拒绝则到此为止，不再追问。"""
 
 
+def _prompt_skill_creator(args: dict[str, str]) -> str:
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    return f"""技能编译工作流（skill-creator T2，docs/skill-creator需求与设计方案.md，ADR-0004 两区制）。当用户说"把经验编成技能""生成 SKILL""整理出可复用的行为指令"，或希望把已确认知识（场景块 + 精选笔记）升级为 IDE 可触发的 SKILL.md 时，使用本流程。**编译出的技能只落草稿区 `repowiki/skills/`（进索引进 lint、不生效）；install 到生效区是后续单独的用户动作（T3）。**
+
+## ⛔ 行为契约（必须遵守）
+- 素材边界：只用**已确认知识**——`wiki/scenarios/` 场景块、stable 状态的 pitfall/lesson/decision 笔记、既有技能名下的 open issues；**任务记忆不是技能素材**（直写落盘无确认闸门，ADR-0002）。
+- 永不自动编译；触发词出现先向用户确认再执行。
+
+## 步骤 1：准备（零副作用）
+`skill_creator(mode="prepare", repo_path="{repo_path}", topic=<计划中的技能名>)`，关注返回中的：
+- `capacity.warning`：orange（≥9 份）= 只准 UPDATE；red（≥12 份）= 先合并/退役再谈新建
+- `conflict_precheck.warnings`：topic 与既有技能 name/description 的 Jaccard 相似度 >0.6 —— 命中就改为 UPDATE 该技能
+- `candidates.scenarios` / `candidates.notes`：未被任何技能 source_refs 吸收的素材（带 est_tokens 阅读成本）
+- `open_issues_by_skill`：既有技能名下的 open issues（修订输入）
+- `system_prompt` 与 `fragmentation_discipline`：写作规范与防碎片纪律全文
+
+## 步骤 2：撰写（防碎片纪律）
+1. 默认 UPDATE；每批**最多新建 1 份**；新建前先读 ≥2 份最相似技能确认放不进
+2. description = **触发条件 + 具体行动**（一句话，利于 IDE 触发判定）
+3. 正文五段骨架：工作场景 / 适用条件 / 核心 SOP / 判断逻辑 / 禁忌与反模式；正文 ≤8KB
+4. 证据段带量化回链："依据：notes/xxx.md 的 Y 结论"，不止 source_refs 路径
+5. **禁绝对路径（/Users/、C:\\…）与密钥**——submit 会拒收
+
+## 步骤 3：提交
+`skill_creator(mode="submit", report={{"skills": [{{"name": "<slug>", "action": "created|updated", "description": "...", "body": "<五段正文>", "source_refs": ["wiki/scenarios/...", "notes/..."], "summary": "<40 字内>", "revision_note": "<修订原因，updated 时建议附>"}}]}})`
+- 校验失败会返回**具体规则名**（name_slug / description_trigger / body_too_large / sensitive_content / source_refs_required / name_conflict / batch_fragmentation / capacity_orange 等）——按规则修正后重交，失败轮次不落盘
+- 素材不足、不值得编译时：提交**空 report**（no_action 是合法轮次，不算失败）
+- 成功后工具自动写双向溯源（技能 source_refs ⇄ 素材 compiled_into）、追加 revisions、重建索引
+
+## 步骤 4：验证与收尾
+`lint_wiki(checks=["skill_sections"])` 确认草稿五段骨架齐全；向用户汇报新建/更新的技能清单，并提示：草稿不生效，审阅通过后走 install（T3）才能被 IDE 发现。试用中发现问题用 `flag_issue(page_path="skills/<name>/SKILL.md", issue_type="skill-ineffective")` 回流，下次 prepare 会聚合为修订素材。
+
+## 参数说明
+- **repo_path**（必填）：仓库根目录
+- **topic**（可选）：prepare 时传入计划技能名做冲突预检"""
+
+
 def _prompt_promote_note(args: dict[str, str]) -> str:
     note_file = (args.get("note_file") or "").strip()
     repo_path = _resolve_path(args.get("repo_path", ""))
@@ -1679,6 +1716,24 @@ def register(server):
                 ],
             ),
             Prompt(
+                name="skill-creator",
+                title="技能编译（SKILL.md 草稿区）",
+                description=(
+                    "把已确认知识（场景块 + stable 笔记 + 技能 open issues）编译为"
+                    " SKILL.md 行为指令草稿（repowiki/skills/，两区制草稿区：进索引进"
+                    " lint、不生效）：prepare 取候选素材/冲突预检/容量预警/写作规范 → "
+                    "Agent 撰写 → submit 校验落盘并写双向溯源。install/retire 为后续"
+                    "工单。适用于「生成技能」「把经验编成 SKILL」等场景。"
+                ),
+                arguments=[
+                    PromptArgument(
+                        name="repo_path",
+                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
+                        required=False,
+                    ),
+                ],
+            ),
+            Prompt(
                 name="promote-note",
                 title="笔记晋升为正式 wiki 页面",
                 description=(
@@ -1731,6 +1786,7 @@ def register(server):
             "distill-conversations": _prompt_distill_conversations,
             "task-workflow": _prompt_task_workflow,
             "consolidate-knowledge": _prompt_consolidate_knowledge,
+            "skill-creator": _prompt_skill_creator,
             "promote-note": _prompt_promote_note,
         }
 

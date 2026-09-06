@@ -371,7 +371,7 @@ def register(server):
                 {
                     "server": "CodeWiki-CN MCP Server v5.5.0",
                     # NOTE: keep in sync with the number of _register() calls in registry.py
-                    "tool_count": 47,
+                    "tool_count": 49,
                     "tool_categories": {
                         "代码分析": [
                             "analyze_repo",
@@ -405,6 +405,7 @@ def register(server):
                             "ingest_source",
                             "retract_source",
                             "batch_ingest",
+                            "skill_creator",
                         ],
                         "质量保障": ["lint_wiki", "flag_issue"],
                         "会话管理": ["close_session", "init_wiki"],
