@@ -313,14 +313,51 @@ def _friction_score_of(text: str) -> int:
         return 0
 
 
+def _captured_at_of(text: str) -> str:
+    """Read the top-level ``captured_at:`` frontmatter value ('' when absent).
+
+    capture writes the value via ``json.dumps``, so it normally carries
+    wrapping quotes (``captured_at: "2026-09-07T06:44:18Z"``); unquoted legacy
+    values also match. The ISO-8601 UTC timestamps sort lexicographically ==
+    chronologically, so the string is used directly as a sort key.
+    """
+    m = re.search(r'^captured_at:\s*"?([^"\n]*)"?\s*$', text, re.MULTILINE)
+    if not m:
+        return ""
+    return m.group(1).strip()
+
+
+def _captured_at_dt(value: Any) -> Optional[datetime]:
+    """Frontmatter ``captured_at`` value → local-naive datetime (None when
+    missing/unparseable — the caller falls back to the append time).
+
+    capture stamps UTC (``2026-09-07T06:44:18Z``) while task-memory headings
+    are local-naive (``datetime.now()``), so the UTC value is shifted to local
+    time first — headings stay on one consistent clock.
+    """
+    s = str(value or "").strip().strip('"').strip()
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone().replace(tzinfo=None)
+    return dt
+
+
 def _iter_raw_files(raw_dir: Path) -> List[Path]:
     if not raw_dir.exists():
         return []
     files = [p for p in raw_dir.glob("conv-*.md")]
-    # Only not-yet-distilled files, ordered by friction score DESC (K-line):
-    # conversations with visible friction (corrections/interrupts/repeats) are
-    # the most likely to yield valuable lesson notes, so they surface first in
-    # the prepare listing. Missing friction_score (pre-K-line captures) → 0.
+    # Only not-yet-distilled files, ordered by captured_at ASC: batch
+    # distillation (prepare→submit share this iteration order) appends task
+    # memories oldest→newest, keeping the "newest entry last" convention the
+    # memory reader relies on (entries[-max_memories:] truncation). Missing
+    # captured_at (pre-key captures) counts as oldest; same-moment ties fall
+    # back to friction score DESC (K-line: the correction/interrupt/repeat
+    # signal still ranks first among equals), then filename.
     scored = []
     for p in sorted(files):
         try:
@@ -330,9 +367,9 @@ def _iter_raw_files(raw_dir: Path) -> List[Path]:
         m = re.search(r"^status:\s*(\w+)", text, re.MULTILINE)
         if m and m.group(1) == "distilled":
             continue
-        scored.append((_friction_score_of(text), p))
-    scored.sort(key=lambda item: -item[0])
-    return [p for _score, p in scored]
+        scored.append((_captured_at_of(text), -_friction_score_of(text), p))
+    scored.sort(key=lambda item: (item[0], item[1]))
+    return [p for _captured, _neg_friction, p in scored]
 
 
 # --------------------------------------------------------------------------- #
@@ -797,7 +834,13 @@ def _apply_dedup_action(
         # note_merge 多条对等 draft 的合并场景，语义不同。
         head = _union_fm_list(head, "related_modules", from_text=content)
         body_md = body.strip()
-        marker = f"> 合并自蒸馏候选：{title}\n\n" if strategies.get("body") == "append" else ""
+        from codewiki.mcp import i18n as _i18n
+
+        marker = (
+            _i18n.t("tools.distill_conversation.merge_marker", title=title) + "\n\n"
+            if strategies.get("body") == "append"
+            else ""
+        )
         section = f"\n\n## {title}\n\n{marker}{content.strip()}\n"
         return head + ("\n\n" + body_md if body_md else "") + section
 
@@ -1155,7 +1198,13 @@ def _process_llm_output(
     if task_id and memories:
         from codewiki.mcp.tools.task_manager import append_task_memories_direct
 
-        memories_written = append_task_memories_direct(output_dir, task_id, memories)
+        # Entry headings carry the conversation's captured_at (dialogue time),
+        # not the distillation moment — a batch catch-up of yesterday's
+        # conversations must not mis-date them as today. Unparseable or
+        # missing captured_at (pre-key captures) falls back to the append time.
+        memories_written = append_task_memories_direct(
+            output_dir, task_id, memories, at=_captured_at_dt(meta.get("captured_at", ""))
+        )
 
     # Mark raw as distilled, then apply the retention policy (L0 archive):
     #   drop_raw (argument or frontmatter) -> delete (explicit privacy opt-out)
@@ -1612,8 +1661,11 @@ def handle_distill_conversation(
                     "turn_count": meta.get("turn_count", ""),
                     "link_to": _unquote_fm(meta.get("link_to", "")),
                     "task_id": _unquote_fm(meta.get("task_id", "")),
-                    # K-line: friction score for distillation prioritisation. The
-                    # listing itself is already friction-DESC via _iter_raw_files.
+                    # K-line: friction score rides along for prioritisation
+                    # (and breaks same-moment ties). The listing itself is
+                    # chronological — captured_at ASC via _iter_raw_files — so a
+                    # batch submit appends task memories oldest→newest, leaving
+                    # the newest entry last.
                     "friction_score": friction_score,
                     # V6: 提取前即可见的库内近邻（无则空列表）。
                     **({"related_notes": related_notes} if related_notes else {}),
@@ -1659,10 +1711,9 @@ def handle_distill_conversation(
         # K-line hint (additive key — existing consumers unaffected). Only
         # surfaced when at least one pending conversation shows friction.
         if any(c.get("friction_score", 0) >= 20 for c in captures):
-            ret["friction_hint"] = (
-                "提示：friction_score ≥ 20 的会话含明显摩擦信号（纠正/打断/重复），"
-                "优先蒸馏更可能产出有价值的经验笔记（清单已按 friction_score 降序排列）。"
-            )
+            from codewiki.mcp import i18n as _i18n
+
+            ret["friction_hint"] = _i18n.t("tools.distill_conversation.friction_hint")
         return json.dumps(ret, indent=2, ensure_ascii=False)
 
     if mode == "submit":

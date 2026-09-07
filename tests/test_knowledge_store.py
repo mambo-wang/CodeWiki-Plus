@@ -103,6 +103,18 @@ def test_append_memories_locked_and_ghost_task(tmp_path):
     # Ghost task (deleted) → no write, no raise.
     assert store.append_memories("no-such-task", ["x"], user="u1") == 0
 
+    # at= stamps the heading with the given real time (distillation passes the
+    # conversation's captured_at) instead of the append time; aware datetimes
+    # are shifted to the local-naive clock datetime.now() uses.
+    from datetime import datetime, timezone
+
+    at = datetime(2026, 9, 5, 3, 30, tzinfo=timezone.utc)
+    assert store.append_memories("t1", ["带时间戳的记忆"], user="u1", at=at) == 1
+    _raw2, _s2, entries2, _b2 = store.parse_memory_file(own)
+    expect = at.astimezone().replace(tzinfo=None)
+    assert entries2[-1].startswith(f"### {expect:%Y-%m-%d %H:%M}")
+    assert "带时间戳的记忆" in entries2[-1]
+
 
 def test_update_frontmatter_preserves_unknown_keys(tmp_path):
     store = _store(tmp_path)

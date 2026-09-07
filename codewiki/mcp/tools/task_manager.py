@@ -359,7 +359,12 @@ def _parse_max_memories(arguments: Dict[str, Any], default: int) -> Optional[int
         return None
 
 
-def append_task_memories_direct(output_dir: Path, task_id: str, contents: List[str]) -> int:
+def append_task_memories_direct(
+    output_dir: Path,
+    task_id: str,
+    contents: List[str],
+    at: Optional[datetime] = None,
+) -> int:
     """Direct-write distilled task memories (no confirm gate).
 
     ADR-0002: task memories are task-scoped progress knowledge — noise cost is
@@ -367,6 +372,9 @@ def append_task_memories_direct(output_dir: Path, task_id: str, contents: List[s
     distillation writes them directly (timestamp-headed entries, atomic
     append), unlike notes which keep the confirm_note quality gate. Ghost
     task_id (task deleted after capture) is tolerated: returns 0, no write.
+
+    ``at`` (optional) stamps the entries with the distilled conversation's
+    captured_at (dialogue time) instead of the distillation moment.
 
     Writes go to the CURRENT USER's ``memories/<user_id>.md`` only (per-user
     file ownership is the git-level conflict isolation invariant), under the
@@ -376,7 +384,9 @@ def append_task_memories_direct(output_dir: Path, task_id: str, contents: List[s
     """
     if not task_id or not contents:
         return 0
-    return KnowledgeStore(output_dir).append_memories(task_id, contents, user=_current_user_id())
+    return KnowledgeStore(output_dir).append_memories(
+        task_id, contents, user=_current_user_id(), at=at
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -788,14 +798,15 @@ def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> s
 # Memory compaction (P1 — see docs/任务记忆存储与加载扩展性设计方案.md §5.2)
 # --------------------------------------------------------------------------- #
 
-_COMPACT_INSTRUCTION = (
-    "阅读 entries_to_compress（若 existing_summary 非空，它包含此前压缩的旧摘要，"
-    "新摘要应覆盖其内容），生成一份任务早期记忆的中文 Markdown 摘要，"
-    "不超过 {max_chars} 字。摘要应覆盖：关键事实与已完成决策、未决事项、"
-    "仍可能影响后续工作的上下文（历史坑、约定、外部依赖）。"
-    "丢掉纯过程性细节，保留结论性信息。"
-    "完成后调用 compact_task_memories(mode='submit', task_id=..., summary=...)。"
-)
+def _compact_instruction(max_chars: int) -> str:
+    """Localized compaction instruction.
+
+    Resolved per call (not at import) so the instruction follows the language
+    chosen when the server process started.
+    """
+    from codewiki.mcp import i18n
+
+    return i18n.t("tools.task_manager.compact_instruction", max_chars=max_chars)
 
 
 def _compact_threshold_state(
@@ -920,7 +931,7 @@ def handle_compact_task_memories(arguments: Dict[str, Any], store: SessionStore)
                 "summary_max_chars": _COMPACTION_SUMMARY_MAX_CHARS,
                 "summary_heading": _SUMMARY_HEADING,
                 "archive_owners": archive_owners,
-                "instruction": _COMPACT_INSTRUCTION.format(max_chars=_COMPACTION_SUMMARY_MAX_CHARS),
+                "instruction": _compact_instruction(_COMPACTION_SUMMARY_MAX_CHARS),
             },
             ensure_ascii=False,
         )

@@ -1,0 +1,48 @@
+# CodeWiki review_changes generic review checklist template (English variant)
+# Project-level override layer.  Copied by init_wiki into
+# <project>/repowiki/review_checklist.yaml; skipped when the target already
+# exists so user customizations are never clobbered.
+#
+# At review_changes(mode='prepare') this file is merged with the builtin checklist:
+#   - Same id  — the project entry overrides the builtin one
+#   - New id   — appended to the end of the checklist
+#   - all      — applies to every change
+#   - python   — applies only when the change touches .py files
+#
+# Entry fields:
+#   id        — globally unique; must match the builtin id to override it
+#   title     — checklist item title (referenced in the review report)
+#   questions — questions to walk through during review
+#
+# Builtin checklist (codewiki/mcp/tools/review_checklist.py):
+#   all group: err-handling / input-validation / logging / security /
+#           concurrency / null-boundary / testability / backward-compat /
+#           performance / code-quality
+#   python group: py-mutable-default / py-bare-except / py-resource-context /
+#             py-encoding / py-import-side-effect
+
+---
+
+# ── Language-agnostic (all group) ──────────────────────────────────────────
+all:
+  # Override example: the same id replaces the builtin "Error handling and
+  # resource cleanup" entry (uncomment to activate)
+  # - id: err-handling
+  #   title: Team error-handling conventions
+  #   questions:
+  #     - "Are exceptions re-raised with context (never swallowed silently)?"
+  #     - "Are resources released in finally / with / defer?"
+
+  # Project-specific example (a new id is appended — edit or delete freely)
+  - id: team-style
+    title: Team style conventions
+    questions:
+      - "Is naming consistent with the existing code style?"
+
+# ── Python (applies only when the change includes .py files) ───────────────
+python:
+  # Project-specific example
+  - id: py-team-logging
+    title: Logging conventions (team)
+    questions:
+      - "Is the logger used instead of print?"

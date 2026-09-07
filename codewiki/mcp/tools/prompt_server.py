@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from codewiki.mcp import i18n as _i18n
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.tools.workspace_result import _FILE_THRESHOLD
 
@@ -1111,13 +1112,7 @@ def _resolve_prompt(prompt_type: str, variables: Dict[str, Any]) -> str:
             "### Step 4: Draft Format\n\n"
             "Present to user for confirmation before writing:\n\n"
             "```\n"
-            "📝 知识沉淀候选 ({n} 项)\n\n"
-            "1. [{note_type/page_type}] {title}\n"
-            "   背景: {one line}\n"
-            "   结论: {one line}\n"
-            "   适用范围: {when this applies}\n\n"
-            "2. ...\n\n"
-            "要记录哪些？(全部 / 选择编号 / 跳过)\n"
+            _i18n.t("tools.prompt_server.draft_template")
             "```\n\n"
             "### Anti-patterns (do NOT record):\n\n"
             "- Transient variables, paths, parameters specific to this task\n"

@@ -41,6 +41,7 @@ import stat
 import subprocess
 from pathlib import Path
 
+from codewiki.mcp import i18n as _i18n
 from codewiki.mcp.tools.workspace_layout import (
     LAYOUT_CENTRALIZED,
     LAYOUT_COLOCATED,
@@ -695,16 +696,13 @@ def handle_init_workspace(arguments: dict) -> str:
                 "workspace_path": str(workspace_p),
                 "output_dir": str(output_dir_p),
                 "traces": traces,
-                "question": (
-                    "首次初始化多仓工作区需要选择知识布局：请先询问用户，"
-                    "得到答复后带 layout 参数重新调用 init_workspace。"
-                ),
+                "question": _i18n.t("tools.workspace_bootstrap.layout_question"),
                 "options": {
-                    LAYOUT_COLOCATED: (
-                        "各业务仓自带 repowiki，wiki 与代码同仓演进，检索两跳（先产品级、再仓库级）"
+                    LAYOUT_COLOCATED: _i18n.t(
+                        "tools.workspace_bootstrap.layout_colocated"
                     ),
-                    LAYOUT_CENTRALIZED: (
-                        "知识全部集中在本工作区 repowiki，业务仓为纯代码目录，检索一跳"
+                    LAYOUT_CENTRALIZED: _i18n.t(
+                        "tools.workspace_bootstrap.layout_centralized"
                     ),
                 },
                 "next_steps": (

@@ -1432,10 +1432,12 @@ async def handle_write_doc_file(
         if doc_path.exists() and new_code_fp:
             old_fp = read_page_code_fingerprint(doc_path)
             if old_fp and old_fp != new_code_fp:
-                stale_code_advisory = (
-                    f"code_fingerprint 漂移：该页面此前基于另一代码状态生成"
-                    f"（旧 {old_fp[:19]}… → 新 {new_code_fp[:19]}…），本次覆盖写入。"
-                    "旧页结论可能已过期，建议 lint_wiki stale_pages 复核。"
+                from codewiki.mcp import i18n as _i18n
+
+                stale_code_advisory = _i18n.t(
+                    "tools.doc_writer.stale_code_advisory",
+                    old_fp=old_fp[:19],
+                    new_fp=new_code_fp[:19],
                 )
     except Exception as e:
         logger.debug("code fingerprint advisory skipped: %s", e)

@@ -1,0 +1,270 @@
+# CodeWiki default schema template (English variant)
+# Defines documentation-generation defaults that are independent of the target
+# repo's language.
+# Usage: copied into the project's repowiki directory (e.g. repowiki/schema.yaml),
+# then edited as needed.
+# On the first analyze_repo run, the values in this file seed repowiki/schema.yaml.
+# On incremental updates, fields the user customized are preserved, never overwritten.
+#
+# Auto-inferred fields (not present in this file):
+#   project.name, project.languages, project.total_components — filled from each analyze_repo result
+#   conventions.module_naming — detected from module names (snake_case/camelCase/kebab-case/PascalCase)
+
+---
+
+# ── Project positioning ───────────────────────────────────────────────────
+# One or two sentences describing the project's goal and positioning; injected
+# into every documentation-generation prompt.
+# Leave empty to skip injection. Recommended to fill in after copying.
+purpose: ""
+
+# ── Document types ────────────────────────────────────────────────────────
+# The doc_type argument of analyze_repo / get_prompt takes its values from here.
+# Each type defines module (prompt hint for leaf/parent module docs) and
+# overview (prompt hint for the overview doc, optional).
+# Types can be added or removed freely; prompt_server picks them up automatically.
+doc_types:
+  default: design
+  types:
+    api:
+      module: "Focus on API documentation: endpoints, parameters, return types, and usage examples."
+    architecture:
+      module: "Focus on architecture documentation: system design, component relationships, and data flow."
+      overview: "Focus on system-level architecture: show how modules relate, data flows between components, and the overall layered design. Include a high-level Mermaid architecture diagram."
+    user-guide:
+      module: "Focus on user guide documentation: how to use features, step-by-step tutorials."
+    developer:
+      module: "Focus on developer documentation: code structure, contribution guidelines, and implementation details."
+    business:
+      module: "Focus on business logic documentation: describe business workflows, processing pipelines, state transitions, and domain rules. Emphasize WHAT the system does for users and WHY, trace end-to-end business scenarios through the code, and document domain-specific terminology. De-emphasize infrastructure and deployment details."
+    design:
+      module: "Generate technical design documentation optimized for AI comprehension. For each module, describe in depth: (1) module responsibilities and boundaries, (2) detailed implementation logic and business rules, (3) data flow within and through the module, (4) interface contracts — inputs, outputs, and side effects, (5) internal layered design and component collaboration patterns, (6) relationships and dependencies with other modules, (7) constraints, assumptions, and edge cases. Use precise technical language. Include Mermaid diagrams for complex flows and interactions. Do not limit documentation length — let the content depth match the module's complexity."
+      overview: "Focus on system-level architecture: show how modules relate to each other, data flows between components, overall layered design, and key architectural decisions. Provide a high-level view that helps readers understand the system's structural blueprint. Include Mermaid diagrams for the architecture overview."
+
+# ── Documentation conventions ─────────────────────────────────────────────
+conventions:
+  # Doc file match pattern: lint and index scans only process files matching this glob
+  file_pattern: "*.md"
+  # Link template for cross-references between modules.
+  # {module_name} is replaced with the actual module name, producing a relative
+  # link such as [Engine Core](Engine Core.md)
+  cross_reference_format: "[[{module_name}]]({{module_name}}.md)"
+  # Whether every leaf module doc must contain at least one Mermaid diagram.
+  # When true, get_prompt emphasizes this requirement in the system prompt and
+  # lint enforces it.
+  mermaid_required: true
+  # Minimum line count for leaf module docs. Below this, lint reports a warning
+  # (content is probably too thin).
+  min_leaf_doc_lines: 200
+  # Maximum line count for parent/overview docs. Above this, lint reports a
+  # warning (consider splitting into sub-modules).
+  max_overview_doc_lines: 1000
+  # Whether to auto-inject a "Related modules" cross-link section after
+  # write_doc_file. Computes "Depends on" / "Used by" links from the module tree.
+  auto_crosslink: true
+  # Whether to stamp code evidence automatically when write_doc_file writes a
+  # module doc (P0): records the content_hash of each module component's code
+  # range into the page frontmatter.sources, so lint's stale_evidence check can
+  # flag drift for review (evidence is never rewritten automatically).
+  auto_evidence: true
+  # Whether to enforce OKF (Open Knowledge Format) v0.2 frontmatter.
+  # When true, every .md file must start with YAML frontmatter containing
+  # type/title/description/tags plus the v0.2 provenance/lifecycle fields
+  # (generated/status/stale_after).
+  okf_frontmatter: true
+  # OKF spec version to follow; written to the okf_version field of wiki/index.md
+  okf_version: "0.2"
+  # Knowledge freshness period (days). write_doc_file / ingest_note compute
+  # stale_after from it; after expiry, lint's okf_conformance check suggests a
+  # review. For notes/ this value is only the fallback when freshness is not
+  # configured (see the freshness section below).
+  default_stale_days: 90
+  # Type-aware freshness windows.
+  # A note's stale_after is computed from the by_type table at ingest/confirm:
+  # after confirmation, that knowledge counts as fresh within the window; past
+  # the window it enters lint's stale_notes review reminder (renew with
+  # confirm_note or retire with reject_note) — it is never auto-invalidated.
+  # Fallback chain: by_type[type] → default_window_days → default_stale_days → 90.
+  freshness:
+    default_window_days: 180    # global default window (for types absent from by_type)
+    retrieval_defer_days: 60    # extend the window when recently retrieved (activity exemption)
+    by_type:
+      workaround: 45            # temporary fixes are short-lived by nature
+      known_issue: 60           # known issues usually expire with their fix
+      general: 120
+      pitfall: 180              # pitfalls stay relevant longer
+      lesson: 180
+      bug_fix: 180
+      decision: 365             # decisions hold until overturned by a newer one
+      architecture: 365         # architecture facts live longest
+  # Usage-signal feedback: feeds retrieval heat from retrieval_stats.db into BM25
+  # ranking (final = BM25 × authority × heat).
+  #   heat = 1 + min(boost_cap, 0.03 × ln(1 + hit_count))
+  #          − cold_penalty (only when hit_count ≥ cold_min_hits and last_hit is
+  #          older than cold_days)
+  # Docs with no retrieval record get heat = 1.0 (new docs are unaffected, avoiding
+  # a Matthew effect); with enabled=false ranking behaves exactly as before
+  # (results still carry the usage field).
+  usage_ranking:
+    enabled: true
+    boost_cap: 0.15      # upper bound of the heat boost (heat ceiling ~1.15)
+    cold_penalty: 0.2    # magnitude of the cold-doc penalty (heat floor 0.8)
+    cold_days: 180       # days since last hit after which a doc counts as cold
+    cold_min_hits: 3     # only docs that "were hot then went cold" are penalized
+    adopted_weight: 0.06 # adoption weight (actually cited vs merely retrieved; 0 disables it)
+    low_adoption:        # lint low_adoption check: often retrieved, never adopted
+      min_hits: 5          # minimum retrieval count to trigger the check
+      max_adopted: 0       # adoption-count ceiling (above it the need is met)
+      recent_days: 60      # only count recent retrievals (historically cold docs are handled by stale_notes)
+  # Threshold for promoting a note to a formal wiki page (used by
+  # wiki_stats.promotion_candidates)
+  promotion:
+    min_adopted: 3      # minimum adoption count
+    min_age_days: 14    # minimum note age (prevents fast-tracking brand-new notes)
+  # Team telemetry: per-user usage-signal event stream
+  # (.meta/telemetry/<user_id>.jsonl, shared on ingest).
+  # Retrieval hits and adoptions from query_wiki are attributed to a user_id
+  # (CODEWIKI_USER env var first, then git config user.name, then the OS login
+  # name); aggregation (heat ranking / adoption counting / cold-start checks)
+  # happens purely in memory. With enabled=false, writes go to
+  # .meta/telemetry-local/ (gitignored, local-only degraded mode) and aggregation
+  # is unchanged (both directories are scanned). user_id is not authenticated —
+  # it is only a namespace; members who prefer not to be credited under their
+  # real git name can set a pseudonym via CODEWIKI_USER.
+  telemetry:
+    enabled: true
+  # Team git-sync strategy. mode: off is fully silent; advisory (default) runs one
+  # read-only git fetch per process per repo to detect upstream divergence and
+  # attaches the result as a warning to ingest_note / write_doc_file responses —
+  # never blocking, never mutating the workspace;
+  # session_ff_only / auto_push are only for harness/workspace root repos that
+  # contain no business code, and must be enabled explicitly.
+  git_sync:
+    mode: advisory
+    auto_push: false
+  # Global default tag list, appended to the frontmatter tags of every doc.
+  # For example [project-x, v2] tags every doc, helping cross-project retrieval.
+  okf_tags: []
+
+# ── Required sections ─────────────────────────────────────────────────────
+# Sections every leaf module doc must contain. get_prompt injects them into the
+# system prompt, and lint's coverage check verifies they exist.
+required_sections:
+  - title: Architecture Overview    # overall design of the module
+    mermaid_diagram: true           # this section must contain at least one Mermaid diagram
+  - title: Component Responsibilities  # what each component does
+  - title: Cross-References         # dependencies on other modules
+
+# ── Documentation dimensions ──────────────────────────────────────────────
+# Aspects documentation should cover. get_prompt asks the LLM to describe modules
+# from these angles so docs are more than a code translation — they carry design
+# decisions and context.
+documentation_dimensions:
+  - architecture_decisions    # why this design, and what the trade-offs were
+  - api_contracts             # public interface inputs/outputs, error codes, versioning
+  - data_model_changes        # evolution history and migration strategy of core structures
+  - dependency_rationale      # why an external dependency was added, and the alternatives
+
+# ── Incremental update policy ─────────────────────────────────────────────
+update_policy:
+  # What to do when code changes:
+  #   update_affected — only update affected modules (default, recommended)
+  #   full_regen      — regenerate every doc
+  #   skip            — do not auto-update, only mark as stale
+  on_code_change: update_affected
+  # Whether to keep existing architecture-decision prose during incremental
+  # updates (not overwritten by new code).
+  # When true, edit_doc_file only updates the changed parts and preserves
+  # human-written design notes.
+  preserve_decisions: true
+  # Whether to cascade-refresh parent module overviews and overview.md after a
+  # child module updates. true keeps overview docs reflecting the latest children.
+  cascade_to_overview: true
+
+# ── Lint configuration ────────────────────────────────────────────────────
+lint:
+  # Threshold for the "undocumented components" check: when the number of
+  # undocumented components in a module exceeds this, lint reports a warning.
+  # Raise it to reduce noise, lower it to be stricter.
+  high_impact_threshold: 5
+
+# ── LLM Wiki knowledge layer ──────────────────────────────────────────────
+# Controls the structured Wiki layout, page-type routing and extraction behavior.
+# Re-run analyze_repo after editing; existing projects keep user-customized
+# values when schema.yaml is merged incrementally.
+
+# Page-type routing table: each type maps to a subdirectory under wiki/.
+# Customize directory (output dir), description (injected into LLM prompts) and
+# required_sections. Adding a type here is enough — page_router.py picks it up.
+page_types:
+  module:
+    directory: wiki/modules
+    description: Code module documentation — architecture, components and dependencies of a functional module
+    required_sections:
+      - Architecture Overview
+      - Component Responsibilities
+      - Cross-References
+  entity:
+    directory: wiki/entities
+    description: Standalone documentation for key classes, interfaces, data models and API endpoints
+    required_sections:
+      - Responsibilities
+      - Public API
+      - Usage Examples
+      - Dependencies
+  concept:
+    directory: wiki/concepts
+    description: Documentation of design patterns, architectural ideas and domain concepts
+    required_sections:
+      - Concept Definition
+      - Use Cases
+      - Application in This Project
+  source:
+    directory: wiki/sources
+    description: Summaries of third-party docs (SDK/API/framework documentation)
+    required_sections:
+      - Document Overview
+      - Key APIs and Concepts
+      - Relevance to This Project
+  comparison:
+    directory: wiki/comparisons
+    description: Option comparisons and technology-selection analysis
+    required_sections:
+      - Background and Goals
+      - Candidate Options
+      - Comparative Analysis
+      - Conclusion and Decision
+  query:
+    directory: wiki/queries
+    description: Design-decision records including reasoning and trade-offs
+    required_sections:
+      - Problem Statement
+      - Investigation Process
+      - Trade-offs
+      - Decision
+  # skill-creator: draft area for skills. Note that directory is relative to
+  # output_dir — skills/ sits at the repowiki root (a knowledge asset alongside
+  # notes/), not in the wiki/ code-docs layer; the active zone is
+  # .codebuddy/skills/ at the repo root and repowiki is not scanned for it.
+  # The five-section body mirrors scenario pages (When to Apply ≈ applicable
+  # conditions, Instructions ≈ SOP).
+  skill:
+    directory: skills
+    description: "SKILL.md behavioral-instruction drafts compiled from confirmed knowledge (two-zone draft area: indexed and linted, not active), generated by skill_creator and installed to the active zone after confirmation"
+    required_sections:
+      - Working Scenario
+      - When to Apply
+      - Core SOP
+      - Decision Logic
+      - Anti-patterns
+
+# Extraction granularity: how densely extraction_scan prompts look for
+# entities/concepts when scanning sources.
+#   focused    — 3-7 key items, for small projects or a quick overview
+#   standard   — moderate extraction, the default
+#   exhaustive — extract everything, for deep documentation of large projects
+extraction_granularity: exhaustive
+
+# Wiki link syntax: when enabled, post-processing rewrites identifiers into
+# [[slug|display]] form.
+wiki_link_syntax: false

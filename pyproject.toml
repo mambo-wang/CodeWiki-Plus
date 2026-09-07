@@ -96,7 +96,7 @@ Repository = "https://github.com/mambo-wang/CodeWiki-Plus"
 Issues = "https://github.com/mambo-wang/CodeWiki-Plus/issues"
 
 [tool.hatch.build]
-artifacts = ["codewiki/templates/**/*", "codewiki/py.typed", "codewiki/agents/**/*"]
+artifacts = ["codewiki/templates/**/*", "codewiki/py.typed", "codewiki/agents/**/*", "codewiki/mcp/locales/**/*"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["codewiki"]

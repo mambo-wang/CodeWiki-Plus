@@ -5,9 +5,10 @@ Covers the four sub-tasks:
       repeat / scale bonus / hard gate / verdict / config overrides);
   K2  capture_conversation — friction keys in the raw frontmatter + the
       returned JSON, and score refresh on session supersede;
-  K3  distill_conversation prepare listing ordered by friction score DESC
-      (plus friction_hint), and get_task_context pending_raws entries
-      carrying friction_score;
+  K3  distill_conversation prepare listing ordered by captured_at ASC (memory
+      append order keeps newest-last; friction_score breaks same-moment ties,
+      plus friction_hint), and get_task_context pending_raws entries carrying
+      friction_score;
   K4  task_session_start hook — stdlib-only line scan of the newest pending
       raw capture, one-line hint when friction_score >= 20.
 
@@ -331,15 +332,19 @@ def test_supersede_refreshes_friction_score(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-def _write_raw_with_friction(repo: Path, name: str, score: int, task_id: str = "") -> Path:
+def _write_raw_with_friction(
+    repo: Path, name: str, score: int, task_id: str = "", captured_at: str = ""
+) -> Path:
     raw_dir = repo / "repowiki" / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     p = raw_dir / name
     extra = f'task_id: "{task_id}"\n' if task_id else ""
+    ca = f'captured_at: "{captured_at}"\n' if captured_at else ""
     p.write_text(
         "---\n"
         "type: conversation\n"
         "status: pending\n"
+        f"{ca}"
         f"friction_score: {score}\n"
         f"friction_signals: correction=0,interrupt=0,repeat=0,user_turns=5\n"
         f"{extra}"
@@ -349,11 +354,19 @@ def _write_raw_with_friction(repo: Path, name: str, score: int, task_id: str = "
     return p
 
 
-def test_prepare_lists_captures_by_friction_desc(tmp_path):
-    _write_raw_with_friction(tmp_path, "conv-low.md", 0)
-    _write_raw_with_friction(tmp_path, "conv-high.md", 45)
-    _write_raw_with_friction(tmp_path, "conv-mid.md", 20)
-    _write_raw_with_friction(tmp_path, "conv-legacy.md", 0)  # pre-K-line: no key
+def test_prepare_lists_captures_chronologically_then_friction(tmp_path):
+    # The listing order == batch-submit iteration order, and batch distillation
+    # appends task memories in that order — so captures must surface oldest
+    # first, leaving the newest entry last (the memory reader's convention).
+    # friction_score stays as a per-capture priority signal and breaks
+    # same-moment ties (K-line).
+    _write_raw_with_friction(tmp_path, "conv-legacy.md", 45)  # no captured_at → oldest
+    _write_raw_with_friction(tmp_path, "conv-early.md", 0, captured_at="2026-09-05T10:00:00Z")
+    _write_raw_with_friction(tmp_path, "conv-mid.md", 20, captured_at="2026-09-06T10:00:00Z")
+    _write_raw_with_friction(tmp_path, "conv-latest.md", 45, captured_at="2026-09-07T10:00:00Z")
+    # Same captured_at moment: higher friction first.
+    _write_raw_with_friction(tmp_path, "conv-tie-calm.md", 0, captured_at="2026-09-08T10:00:00Z")
+    _write_raw_with_friction(tmp_path, "conv-tie-hot.md", 30, captured_at="2026-09-08T10:00:00Z")
 
     out = json.loads(
         distill.handle_distill_conversation(
@@ -366,11 +379,18 @@ def test_prepare_lists_captures_by_friction_desc(tmp_path):
     )
 
     assert out["status"] == "prepared"
-    scores = [c["friction_score"] for c in out["captures"]]
-    assert scores == sorted(scores, reverse=True)
     ids = [c["conversation_id"] for c in out["captures"]]
-    assert ids[0] == "conv-high"
-    assert ids[1] == "conv-mid"
+    assert ids == [
+        "conv-legacy",  # missing captured_at treated as oldest
+        "conv-early",  # 09-05
+        "conv-mid",  # 09-06
+        "conv-latest",  # 09-07
+        "conv-tie-hot",  # 09-08, friction 30 before ...
+        "conv-tie-calm",  # ... friction 0
+    ]
+    # Timestamps ride along for the agent; friction stays per-capture.
+    assert [c["captured_at"] for c in out["captures"]][1] == "2026-09-05T10:00:00Z"
+    assert out["captures"][3]["friction_score"] == 45
     # Additive hint key present (at least one capture >= 20) without touching
     # any pre-existing key.
     assert "friction_hint" in out

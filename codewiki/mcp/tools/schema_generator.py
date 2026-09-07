@@ -223,8 +223,20 @@ _DEFAULT_PAGE_TYPES = {
 
 # ── installation schema.yaml loading ─────────────────────────────────────
 
-_CONFIG_PATH = Path(__file__).resolve().parents[2] / "templates" / "schema.yaml"
 _project_config_cache: Optional[dict] = None
+
+
+def _config_path() -> Path:
+    """Path of the default schema template for the current language.
+
+    English runs read ``templates/schema.en.yaml``; everything else reads
+    ``templates/schema.yaml``.  This only seeds NEW schema.yaml files — an
+    existing project schema is merged, never retroactively rewritten.
+    """
+    from codewiki.mcp import i18n
+
+    name = "schema.en.yaml" if i18n.lang() == "en" else "schema.yaml"
+    return Path(__file__).resolve().parents[2] / "templates" / name
 
 
 def _load_project_config() -> dict:
@@ -239,13 +251,14 @@ def _load_project_config() -> dict:
     try:
         from ruamel.yaml import YAML
 
-        if _CONFIG_PATH.exists():
+        path = _config_path()
+        if path.exists():
             yaml = YAML()
             yaml.preserve_quotes = True
-            data = yaml.load(_CONFIG_PATH)
+            data = yaml.load(path)
             if isinstance(data, dict):
                 _project_config_cache = data
-                logger.info("Loaded project config from %s", _CONFIG_PATH)
+                logger.info("Loaded project config from %s", path)
                 return _project_config_cache
     except Exception as e:
         logger.warning("Failed to load installation schema.yaml: %s", e)
