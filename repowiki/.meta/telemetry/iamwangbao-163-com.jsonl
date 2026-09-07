@@ -336,3 +336,10 @@
 {"t": "hit", "doc": "wiki/scenarios/任务记忆系统设计方法.md", "at": "2026-09-07", "n": 2}
 {"t": "hit", "doc": "notes/2026-08-26-read-versioned-lines-对磁盘上已不存在的-untracked-文件返回空列表产生只有-header.md", "at": "2026-09-07", "n": 2}
 {"t": "hit", "doc": "wiki/modules/MCP_Tools_DocWriter.md", "at": "2026-09-07", "n": 2}
+{"t": "by_file", "doc": "notes/2026-08-29-生成的-ps1-必须带-utf-8-bom否则-powershell-51-按-gbk-误读.md", "at": "2026-09-07", "n": 1}
+{"t": "by_file", "doc": "notes/2026-08-25-review-changes-全轴-prepare-单次调用易挂起mcp-通道卡住.md", "at": "2026-09-07", "n": 1}
+{"t": "by_file", "doc": "notes/2026-08-25-untracked-新文件不在分析图谱内review-changes-changed-sources-切片为空.md", "at": "2026-09-07", "n": 1}
+{"t": "by_file", "doc": "notes/2026-08-23-distill-worker-subagent-定义随包发布hook-启用时自动拷贝到项目-codebuddyagent.md", "at": "2026-09-07", "n": 1}
+{"t": "by_file", "doc": "notes/2026-08-23-hook-采集机制仅正式接线-codebuddyreadme-措辞用仅接线支持.md", "at": "2026-09-07", "n": 1}
+{"t": "by_file", "doc": "notes/2026-08-21-下一期方向资产置信分层与负反馈闭环roadmap-phase-5.md", "at": "2026-09-07", "n": 1}
+{"t": "by_file", "doc": "notes/2026-08-19-l0-对话归档采用链接优先零索引设计.md", "at": "2026-09-07", "n": 1}
