@@ -1181,6 +1181,8 @@ def _check_stale_notes(
         note_type = fm.get("type", "general")
         hit_count = hit_count_map.get(rel_path, hit_count_map.get(f"notes/{note_file.name}", 0))
 
+        from codewiki.mcp import i18n as _i18n
+
         issue = {
             "check": "stale_notes",
             "severity": "warning",
@@ -1191,10 +1193,10 @@ def _check_stale_notes(
                 f"(retrieved {hit_count} times total)"
             ),
             "file": rel_path,
-            "suggestion": (
-                f"超过 {overdue_days} 天未验证。确认仍然准确用 "
-                f'confirm_note(note_file="{rel_path}") 续期'
-                f"（将按类型窗口刷新 stale_after），已过时用 reject_note 退役。"
+            "suggestion": _i18n.t(
+                "tools.wiki_lint.stale_note_suggestion",
+                overdue_days=overdue_days,
+                rel_path=rel_path,
             ),
         }
         # U2: never-retrieved notes sort before any retrieved date ("").
@@ -1332,6 +1334,8 @@ def _check_low_adoption(
             continue
 
         title = fm.get("title", note_file.stem)
+        from codewiki.mcp import i18n as _i18n
+
         issues.append(
             {
                 "check": "low_adoption",
@@ -1342,11 +1346,8 @@ def _check_low_adoption(
                     f"but not actionable enough"
                 ),
                 "file": rel_path,
-                "suggestion": (
-                    "高频召回但零采纳：内容相关但可能不够 actionable。建议重写为更"
-                    "可执行的形式（补充具体步骤/命令/预期结果），可用 "
-                    "distill_conversation 产出草稿后 confirm_note，或用 "
-                    f"edit_doc_file 直接更新 {rel_path}。"
+                "suggestion": _i18n.t(
+                    "tools.wiki_lint.low_adoption_suggestion", rel_path=rel_path
                 ),
             }
         )
@@ -2512,7 +2513,13 @@ def handle_lint_wiki(
         try:
             from codewiki.mcp.tools.wiki_index import append_log
 
-            append_log(str(output_dir), "lint_wiki", f"检查完成: {len(filtered)} 个问题")
+            from codewiki.mcp import i18n as _i18n
+
+            append_log(
+                str(output_dir),
+                "lint_wiki",
+                _i18n.t("tools.wiki_lint.check_done", count=len(filtered)),
+            )
         except Exception:
             pass
 

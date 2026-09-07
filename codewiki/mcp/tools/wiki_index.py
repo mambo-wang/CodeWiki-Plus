@@ -264,11 +264,9 @@ def append_log(
             f.seek(0)
             content = f.read()
             if not content.strip():
-                header = (
-                    f"# 操作日志 · {month_str}\n\n"
-                    "> 按时间正序追加（team-layout Phase 1 月度分片，OKF v0.2 §9 格式；"
-                    "由系统自动维护）\n\n"
-                )
+                from codewiki.mcp import i18n as _i18n
+
+                header = _i18n.t("artifacts.index.log_header", month_str=month_str)
                 payload = f"{header}## {date_str}\n{entry}\n"
             else:
                 # Find the last ``## YYYY-MM-DD`` heading already in the shard.
@@ -370,7 +368,9 @@ def _extract_doc_title_and_summary(filepath: Path) -> Tuple[str, str]:
     if title is None:
         title = filepath.stem
     if summary is None:
-        summary = "(无摘要)"
+        from codewiki.mcp import i18n as _i18n
+
+        summary = _i18n.t("artifacts.index.no_summary")
     return title, summary
 
 
@@ -403,16 +403,23 @@ def _parse_note_frontmatter(filepath: Path) -> Dict[str, Any]:
         return {}
 
 
-# Chinese labels for page types
-_PAGE_TYPE_LABELS = {
-    "module": "模块文档",
-    "entity": "实体",
-    "concept": "概念",
-    "source": "外部文档",
-    "comparison": "对比分析",
-    "query": "研究查询",
-    "scenario": "场景方法",
-}
+# Section labels for page-type groups in index.md (localized at render time).
+_PAGE_TYPE_ORDER = (
+    "module",
+    "entity",
+    "concept",
+    "source",
+    "comparison",
+    "query",
+    "scenario",
+)
+
+
+def _page_type_labels() -> Dict[str, str]:
+    """Localized heading labels for each page-type section."""
+    from codewiki.mcp import i18n
+
+    return {t: i18n.t(f"artifacts.index.page_type.{t}") for t in _PAGE_TYPE_ORDER}
 
 # Markdown inline links: [label](target)
 _INLINE_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
@@ -465,31 +472,37 @@ def _render_index(
         from codewiki.src.config import OKF_VERSION
     except Exception:
         OKF_VERSION = "0.2"
+    from codewiki.mcp import i18n as _i18n
+
     parts: List[str] = [
         "---",
         f'okf_version: "{OKF_VERSION}"',
         "aliases:",
-        "- 项目文档索引",
-        "- 文档索引",
-        "- 知识笔记索引",
+        "- " + _i18n.t("artifacts.index.alias_docs"),
+        "- " + _i18n.t("artifacts.index.alias_index"),
+        "- " + _i18n.t("artifacts.index.alias_notes"),
         "---",
         "",
-        f"<!-- 自动生成于 {generated_at} | Health Score: {health_score}/100 | 本文件由系统自动维护 -->",
+        _i18n.t(
+            "artifacts.index.generated_comment",
+            generated_at=generated_at,
+            health_score=health_score,
+        ),
         "",
-        "# 项目文档索引",
+        _i18n.t("artifacts.index.heading"),
         "",
     ]
 
     # Root-level pages (wiki/doctrine.md, wiki/reading-guide.md, ...)
     if root_entries:
-        parts.append("## 入门指引")
+        parts.append(_i18n.t("artifacts.index.getting_started"))
         parts.append("")
         for entry in root_entries:
             parts.append(f"* [{entry['title']}]({entry['relpath']}) - {entry['summary']}")
         parts.append("")
 
     # Render each page type section (§8 bullet lists)
-    for page_type, label in _PAGE_TYPE_LABELS.items():
+    for page_type, label in _page_type_labels().items():
         entries = type_entries.get(page_type, [])
         if not entries:
             continue
@@ -504,7 +517,7 @@ def _render_index(
 
     # Notes section
     if note_entries:
-        parts.append("## 知识笔记")
+        parts.append(_i18n.t("artifacts.index.notes"))
         parts.append("")
         for entry in note_entries:
             meta = f" ({entry['type']}, {entry['date']})" if entry.get("date") else ""

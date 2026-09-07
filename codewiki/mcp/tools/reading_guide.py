@@ -71,24 +71,26 @@ def generate_reading_guide(
 
         # Build markdown. 带 OKF 兼容 frontmatter：本文件由 close_session 自动重建，
         # 若无 type 字段会被 lint 的 okf_conformance 检查标记为缺失 frontmatter。
+        from codewiki.mcp import i18n as _i18n
+
         generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         lines: List[str] = [
             "---",
             "type: Concept",
-            'title: "阅读指南"',
+            'title: "' + _i18n.t("artifacts.reading_guide.title") + '"',
             f"generated: {{ by: codewiki/reading_guide.py, at: {generated_at} }}",
             "stale_after: 2099-12-31",
-            'description: "> 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。"',
+            'description: "' + _i18n.t("artifacts.reading_guide.description") + '"',
             "---",
-            "# 阅读指南",
+            _i18n.t("artifacts.reading_guide.heading"),
             "",
-            "> 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。",
-            "> 排序依据为 PageRank 得分（综合考虑被依赖数量及依赖方自身的重要性），",
-            "> 表中「直接被依赖数」列为原始入度，仅供参考。",
+            _i18n.t("artifacts.reading_guide.description"),
+            _i18n.t("artifacts.reading_guide.intro_line2"),
+            _i18n.t("artifacts.reading_guide.intro_line3"),
             "",
-            "## 推荐阅读顺序",
+            _i18n.t("artifacts.reading_guide.recommended_order"),
             "",
-            "| # | 组件 | 类型 | 所属模块 | 直接被依赖数 | PageRank | 文件 |",
+            _i18n.t("artifacts.reading_guide.table_header"),
             "|---|------|------|----------|--------------|----------|------|",
         ]
 
@@ -122,9 +124,9 @@ def generate_reading_guide(
                 lines.extend(
                     [
                         "",
-                        "## 模块重要性排名",
+                        _i18n.t("artifacts.reading_guide.module_ranking"),
                         "",
-                        "| # | 模块 | 累计 PageRank |",
+                        _i18n.t("artifacts.reading_guide.module_table_header"),
                         "|---|------|---------------|",
                     ]
                 )
@@ -135,7 +137,11 @@ def generate_reading_guide(
             [
                 "",
                 "---",
-                f"*基于 {len(components)} 个组件、{sum(len(d) for d in graph.values())} 条依赖边计算。*",
+                _i18n.t(
+                    "artifacts.reading_guide.footer",
+                    components=len(components),
+                    edges=sum(len(d) for d in graph.values()),
+                ),
             ]
         )
 

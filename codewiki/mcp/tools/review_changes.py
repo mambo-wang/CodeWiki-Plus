@@ -309,7 +309,9 @@ def _collect_spec_evidence(
 
     note = ""
     if not sources:
-        note = "未找到 SPEC——仅能评审通用正确性，无法查缺失/超范围"
+        from codewiki.mcp import i18n as _i18n
+
+        note = _i18n.t("tools.review_changes.no_spec_note")
     return {"found": bool(sources), "sources": sources, "note": note}
 
 
