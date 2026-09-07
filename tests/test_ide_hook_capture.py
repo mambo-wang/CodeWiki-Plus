@@ -37,6 +37,27 @@ class _FakeStdin(io.StringIO):
         return False
 
 
+class _FakeStdinBinary:
+    """Binary stdin carrying a real ``.buffer`` (shape of a piped native process).
+
+    Required to exercise the hook's raw-bytes path, including the UTF-8 BOM
+    tolerance that a StringIO-only fake can never trigger.
+    """
+
+    def __init__(self, raw: bytes):
+        self.buffer = io.BytesIO(raw)
+
+    def isatty(self) -> bool:
+        return False
+
+
+class _TtyStdin(io.StringIO):
+    """StringIO reporting isatty() == True (no piped payload)."""
+
+    def isatty(self) -> bool:
+        return True
+
+
 @pytest.fixture
 def enable_hook(monkeypatch):
     monkeypatch.setenv("CODEWIKI_TEAM_MEMORY_HOOK", "1")
@@ -540,6 +561,55 @@ def test_hook_disabled_by_default(monkeypatch, tmp_path):
     rc = _ide_hook.main(["--repo-path", str(repo)])
     assert rc == 0
     assert not _raw_files(repo)
+
+
+# --------------------------------------------------------------------------- #
+# stdout purity (injection channel) + stdin BOM tolerance
+# --------------------------------------------------------------------------- #
+def test_no_payload_stdout_stays_clean(enable_hook, monkeypatch, tmp_path, capsys):
+    """A no-payload invocation must keep stdout EMPTY.
+
+    On UserPromptSubmit the IDE reads this script's stdout as the injection
+    channel; diagnostic text would become per-prompt noise in the agent
+    context. The no-payload notice belongs on stderr.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setattr("sys.stdin", _TtyStdin(""))
+    rc = _ide_hook.main(["--enable", "--repo-path", str(repo)])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no conversation payload provided" in captured.err
+
+
+def test_stdin_utf8_bom_tolerated(enable_hook, monkeypatch, tmp_path):
+    """A UTF-8 BOM on piped stdin (PowerShell) must not break JSON parsing.
+
+    Regression for the raw-bytes stdin path decoding with plain utf-8, which
+    turned the BOM into U+FEFF and made json.loads fail.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    payload = (
+        json.dumps(
+            {
+                "hook_event_name": "SessionEnd",
+                "session_id": "s-bom",
+                "conversation": [
+                    {"role": "user", "content": "bom question"},
+                    {"role": "assistant", "content": "bom answer"},
+                ],
+            }
+        )
+        + "\n"
+    ).encode("utf-8")
+    monkeypatch.setattr("sys.stdin", _FakeStdinBinary(b"\xef\xbb\xbf" + payload))
+    rc = _ide_hook.main(["--repo-path", str(repo)])
+    assert rc == 0
+    files = _raw_files(repo)
+    assert len(files) == 1
+    assert "bom question" in files[0].read_text(encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- #
