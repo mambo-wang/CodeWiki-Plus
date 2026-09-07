@@ -227,7 +227,7 @@ repowiki/
 | `get_prompt` | 获取各阶段的提示词模板（含 16 种 prompt_type） |
 | `close_session` | 关闭会话释放资源，构建 BM25 索引 + wikilink 图谱，写入生成元数据 |
 
-**知识管理（10 个）：**
+**知识管理（11 个）：**
 
 | 工具 | 用途 |
 |------|------|
@@ -241,6 +241,7 @@ repowiki/
 | `batch_ingest` | 批量导入：一次调用处理多个笔记/文档 |
 | `init_wiki` | 初始化 Wiki 工作区目录结构与项目级 schema.yaml |
 | `wiki_stats` | Wiki 知识库统计（页面数、笔记状态分布、覆盖率概览） |
+| `skill_creator` | 把已确认知识（场景块 + stable pitfall/lesson/decision 笔记 + 技能 open issues）编译为 SKILL.md 行为指令草稿（`repowiki/skills/` 草稿区，两区制：进索引进 lint、不生效）。Mode C：prepare 零副作用返回候选素材/冲突预检（Jaccard>0.6）/容量预警（橙 9 只 UPDATE、红 12 先合并）/写作规范提示 → Agent 撰写 → submit 校验（失败报具体规则名）落盘、写双向溯源（source_refs ⇄ compiled_into）、追加 revisions、重建索引；空产出 no_action 合法；每批最多新建 1 份。install（用户确认后）：剥离管理元数据装入生效区 `.codebuddy/skills/<name>/`（幂等，写 installed_at/to/hash 供漂移检测）；retire：草稿标 deprecated + 生效区移除（正文保留审计，需 reason） |
 
 **质量保障（2 个）：**
 
@@ -563,6 +564,8 @@ CodeWiki-Plus 采用 **SQLite 主存储 + JSON 兼容副本** 的双层架构：
 | `okf_conformance` | OKF v0.2 合规审计：缺失 type/frontmatter、旧版状态词、verified 格式错误、stale_after 过期、缺 okf_version |
 | `scenario_capacity` | L2 场景块数量达到/超过容量上限（error/warning 分级），需先 MERGE 腾位再新增 |
 | `scenario_orphan` | 无来源标注（metadata.source_notes）且长期未被检索的孤儿场景块，可能冗余或过时 |
+| `skill_sections` | 草稿区技能页（skills/&lt;name&gt;/SKILL.md）缺失 schema `page_types.skill` 五段骨架（工作场景/适用条件/核心 SOP/判断逻辑/禁忌与反模式）——缺章节的指令资产不可执行（error） |
+| `skill_lint` | 技能页完整兜底检查：name slug / description 触发语义 / frontmatter 完整 / 正文 ≤8KB / 敏感串 / revisions 审计链（error）；素材过期联动 possibly_stale 与 install 后草稿漂移（warning）；容量红 12 / 橙 9 |
 
 `lint_wiki` 返回 **health_score**（0-100），计算方式为 `100 - Σ(error×10 + warning×3 + info×1)`。
 
@@ -927,7 +930,7 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP. The serve
 | `get_prompt` | Retrieve prompt templates (23 prompt_types) |
 | `close_session` | Close session, build BM25 index + wikilink graph, write metadata |
 
-**Knowledge Management (10):**
+**Knowledge Management (11):**
 
 | Tool | Purpose |
 |------|---------|
@@ -941,6 +944,7 @@ All tools require zero LLM config. The IDE Agent invokes them via MCP. The serve
 | `batch_ingest` | Batch import multiple notes/sources in one call |
 | `init_wiki` | Initialize Wiki workspace directories and project-level schema.yaml |
 | `wiki_stats` | Wiki statistics (page counts, note status distribution, coverage overview) |
+| `skill_creator` | Compile confirmed knowledge (scenario blocks + stable pitfall/lesson/decision notes + per-skill open issues) into SKILL.md behaviour-instruction drafts in `repowiki/skills/` (two-zone draft area: indexed and linted, never effective). Mode C: prepare (zero side effects) returns candidates, conflict pre-check (Jaccard > 0.6), capacity warning (orange >= 9 update-only, red >= 12 merge-first) and the writing system prompt → the agent writes → submit validates (failures name the exact rule), writes the draft, records bidirectional provenance (source_refs ⇄ compiled_into), appends revisions and rebuilds the index. Empty output (no_action) is legal; at most one new skill per batch. install (after user confirmation): strip management frontmatter into the effect zone `.codebuddy/skills/<name>/` (idempotent, stamps installed_at/to/hash for drift detection); retire: mark the draft deprecated + remove the effect copy (body kept for audit, reason required) |
 
 **Quality Assurance (2):**
 

@@ -11,7 +11,7 @@ from codewiki.mcp.tools.wiki_lint import (
 
 
 def _run_lint(output_dir: Path, **kwargs) -> dict:
-    args = {"output_dir": str(output_dir), "checks": ["stale_refs"], **kwargs}
+    args = {"repo_path": str(output_dir.parent), "checks": ["stale_refs"], **kwargs}
     out = handle_lint_wiki(args, None)
     return json.loads(out) if isinstance(out, str) else out
 

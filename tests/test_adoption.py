@@ -191,8 +191,9 @@ class TestHeatAdoption:
 # capture integration (end-to-end through handle_capture_conversation)
 # --------------------------------------------------------------------------- #
 def _capture_args(tmp_path, turns, session_id=""):
+    # output_dir is retired on write tools: capture writes into
+    # default_output_dir(repo_path) = <repo_path>/repowiki.
     return {
-        "output_dir": str(tmp_path),
         "repo_path": str(tmp_path),
         "conversation": turns,
         "source_session_id": session_id,
@@ -200,7 +201,7 @@ def _capture_args(tmp_path, turns, session_id=""):
 
 
 def _make_doc(tmp_path, rel):
-    p = tmp_path / rel
+    p = tmp_path / "repowiki" / rel
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text("---\ntype: pitfall\ntitle: t\nstatus: stable\n---\nbody", encoding="utf-8")
 
@@ -224,7 +225,7 @@ class TestCaptureIntegration:
         )
         assert result["adopted_docs"] == ["notes/pitfall-a.md", "wiki/modules/m.md"]
         assert result["adoption_inserted"] == 2
-        counts = load_adoption_counts(tmp_path)
+        counts = load_adoption_counts(tmp_path / "repowiki")
         assert counts == {"notes/pitfall-a.md": 1, "wiki/modules/m.md": 1}
 
     def test_supersede_no_double_count(self, tmp_path):
@@ -243,7 +244,7 @@ class TestCaptureIntegration:
         ]
         handle_capture_conversation(_capture_args(tmp_path, turns1, "s1"), SessionStore())
         handle_capture_conversation(_capture_args(tmp_path, turns2, "s1"), SessionStore())
-        assert load_adoption_counts(tmp_path) == {"notes/pitfall-a.md": 1}
+        assert load_adoption_counts(tmp_path / "repowiki") == {"notes/pitfall-a.md": 1}
 
     def test_missing_path_dropped(self, tmp_path):
         _make_doc(tmp_path, "notes/exists.md")
@@ -258,7 +259,7 @@ class TestCaptureIntegration:
             handle_capture_conversation(_capture_args(tmp_path, turns, "s1"), SessionStore())
         )
         assert result["adopted_docs"] == ["notes/exists.md"]
-        assert load_adoption_counts(tmp_path) == {"notes/exists.md": 1}
+        assert load_adoption_counts(tmp_path / "repowiki") == {"notes/exists.md": 1}
 
     def test_nudge_when_search_traces_without_declaration(self, tmp_path):
         turns = [

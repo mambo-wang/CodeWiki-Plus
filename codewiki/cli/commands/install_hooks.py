@@ -91,7 +91,8 @@ def install_hooks(ide: str, create_dir: bool, repo_path: str) -> None:
     无 --ide 参数时自动检测项目根目录存在的智能体配置目录
     （.codebuddy/.qoder/.claude），检测到哪些就为哪些接线。
     每个 IDE 接线内容：强制拷贝 hook 脚本与 distill-worker subagent 到
-    对应目录、幂等合并 settings.json 的 SessionStart/SessionEnd 注册、
+    对应目录、幂等合并 settings.json 的 SessionStart/SessionEnd 采集注册 +
+    UserPromptSubmit 技能草稿提示注册（advisory，见 skill-creator §10）、
     向 AGENTS.md upsert 任务记忆引导段（多 IDE 共享一份）。
 
     Examples:

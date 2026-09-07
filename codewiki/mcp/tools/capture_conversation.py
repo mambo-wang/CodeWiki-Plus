@@ -157,8 +157,7 @@ def _resolve_output_dir(
 
     Resolution order:
       1. An active session's ``output_dir`` (a fully-resolved repowiki path).
-      2. An explicit ``output_dir`` argument.
-      3. ``repo_path``/repowiki fallback.
+      2. ``repo_path``-derived output directory (layout-aware ``default_output_dir``).
 
     Thin re-export of the unified bridge — kept here for the modules
     (task_manager) and tests that import it from this module.
@@ -202,48 +201,25 @@ def _should_capture_l0(content: str) -> bool:
     return True
 
 
-# Content-block types that carry internal monologue / tool plumbing rather than
-# user-facing assistant text. Skipped even when nested inside a content array.
-_NOISE_BLOCK_TYPES = {
-    "thinking",
-    "reasoning",
-    "thought",
-    "tool_use",
-    "tool_result",
-    "tool_call",
-    "function_call",
-    "function_result",
-    "system",
-    "system_prompt",
-    "context",
-}
+# Content-block digestion (skill-creator §9, two-tier): pure noise
+# (thinking/system) is dropped; tool calls survive as one compressed
+# ``[tool: name · command]`` line each; tool results survive only as error
+# excerpts. The logic lives in codewiki.src.tool_digest (shared with the
+# stdlib-only IDE hook so the two capture paths never drift).
+from codewiki.src.tool_digest import digest_blocks
 
 
 def _content_blocks_text(content: Any) -> Any:
     """If ``content`` is a list of content blocks (Claude/CodeBuddy format),
-    flatten to the concatenated text of user/assistant-facing blocks only,
-    dropping thinking/tool/system blocks. Otherwise return it unchanged.
+    flatten to text lines with two-tier tool digestion: plain text kept,
+    tool calls compressed to ``[tool: …]`` lines (command/error/fix chains
+    are skill material — see tool_digest docstring), tool results kept only
+    as error excerpts. Otherwise return it unchanged.
     """
     if not isinstance(content, list):
         return content
-    texts: List[str] = []
-    for block in content:
-        if not isinstance(block, dict):
-            if isinstance(block, str):
-                texts.append(block)
-            continue
-        btype = block.get("type")
-        if btype in _NOISE_BLOCK_TYPES:
-            continue
-        if btype == "text":
-            text = block.get("text")
-            if isinstance(text, str):
-                texts.append(text)
-        elif btype is None:
-            text = block.get("text") or block.get("content")
-            if isinstance(text, str):
-                texts.append(text)
-    return "\n".join(t for t in texts if t).strip() or content
+    lines = digest_blocks(content)
+    return "\n".join(lines).strip() or content
 
 
 def _extract_transcript(conversation: Any) -> List[Dict[str, str]]:
@@ -334,7 +310,7 @@ def handle_capture_conversation(
 
     Arguments:
       - session_id (optional): active session id.
-      - output_dir / repo_path (optional): repowiki resolution fallback.
+      - repo_path (optional): repository root; repowiki is derived from it.
       - conversation (required): list of turns or {"turns": [...]} object.
       - link_to (optional): wiki object id/title this conversation relates to.
       - source_session_id (optional): the IDE-side session id (e.g. CodeBuddy's

@@ -53,7 +53,7 @@ def _ingest(
     r = json.loads(
         handle_ingest_note(
             {
-                "output_dir": f"{repo}/repowiki",
+                "repo_path": repo,
                 "title": title,
                 "note_type": note_type,
                 "content": content,
@@ -71,7 +71,7 @@ def _confirm(repo: str, note_file: str) -> dict:
     return json.loads(
         handle_confirm_note(
             {
-                "output_dir": f"{repo}/repowiki",
+                "repo_path": repo,
                 "note_file": note_file,
             },
             store,
@@ -109,7 +109,7 @@ def _fm(repo: str, rel: str) -> dict:
 
 def _consolidate(repo: str, args: dict) -> dict:
     store = SessionStore()
-    payload = {"output_dir": f"{repo}/repowiki", **args}
+    payload = {"repo_path": repo, **args}
     return json.loads(cons.handle_consolidate_notes(payload, store))
 
 
@@ -146,7 +146,7 @@ def test_wiki_stats_exposes_aggregation_section(tmp_path):
     nf = _ingest(repo, "Stats visibility note")
     _confirm(repo, nf)
     store = SessionStore()
-    resp = json.loads(handle_wiki_stats({"output_dir": f"{repo}/repowiki"}, store))
+    resp = json.loads(handle_wiki_stats({"repo_path": repo}, store))
     # no retrieval stats DB yet → early return path must still carry counters
     assert "aggregation" in resp
     assert resp["aggregation"]["notes_since_last_consolidation"] == 1
@@ -160,11 +160,11 @@ def test_get_task_context_exposes_aggregation(tmp_path):
 
     store = SessionStore()
     r = json.loads(
-        handle_create_task({"output_dir": f"{repo}/repowiki", "title": "P2 smoke task"}, store)
+        handle_create_task({"repo_path": repo, "title": "P2 smoke task"}, store)
     )
     task_id = r["task"]["id"]
     resp = json.loads(
-        handle_get_task_context({"output_dir": f"{repo}/repowiki", "task_id": task_id}, store)
+        handle_get_task_context({"repo_path": repo, "task_id": task_id}, store)
     )
     assert resp["ok"] is True
     assert "aggregation" in resp
@@ -183,7 +183,7 @@ def test_prepare_lists_only_pending_confirmed_notes(tmp_path):
     rejected = _ingest(repo, "Rejected candidate note")
     store = SessionStore()
     handle_reject_note(
-        {"output_dir": f"{repo}/repowiki", "note_file": rejected, "reason": "noise"}, store
+        {"repo_path": repo, "note_file": rejected, "reason": "noise"}, store
     )
 
     resp = _consolidate(repo, {"mode": "prepare"})
@@ -322,6 +322,155 @@ def test_submit_validation_error_keeps_counter(tmp_path):
     assert state["notes_since_last_consolidation"] == 1  # NOT reset
 
 
+# --------------------------------------------------------------------------- #
+# 3b. candidate dispositions (every pending note needs a destination)
+# --------------------------------------------------------------------------- #
+def test_submit_disposition_excluded_drops_from_pending(tmp_path):
+    repo = str(tmp_path)
+    _set_thresholds(repo)
+    keep = _ingest(repo, "Reusable method note")
+    drop = _ingest(repo, "One off task state note")
+    _confirm(repo, keep)
+    _confirm(repo, drop)
+
+    resp = _consolidate(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "dispositions": [
+                    {
+                        "file": f"notes/{drop}",
+                        "verdict": "excluded",
+                        "reason": "一次性任务状态，非可复用工作方法",
+                    }
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "completed", resp
+    assert resp["dispositions"] == [{"file": f"notes/{drop}", "verdict": "excluded"}]
+
+    fm = _fm(repo, f"notes/{drop}")
+    assert fm["metadata"]["disposition"]["verdict"] == "excluded"
+    assert fm["metadata"]["disposition"]["reason"].startswith("一次性")
+    assert fm["metadata"]["disposition"]["at"]
+
+    again = _consolidate(repo, {"mode": "prepare"})
+    titles = [n["title"] for n in again["pending_notes"]]
+    assert "One off task state note" not in titles
+    assert "Reusable method note" in titles
+
+
+def test_submit_disposition_deferred_stays_pending_with_marker(tmp_path):
+    repo = str(tmp_path)
+    _set_thresholds(repo)
+    thin = _ingest(repo, "Thin but real note")
+    _confirm(repo, thin)
+
+    resp = _consolidate(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "dispositions": [
+                    {"file": f"notes/{thin}", "verdict": "deferred", "reason": "等同类素材"}
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "completed", resp
+
+    again = _consolidate(repo, {"mode": "prepare"})
+    assert len(again["pending_notes"]) == 1
+    entry = again["pending_notes"][0]
+    assert entry["title"] == "Thin but real note"
+    # still pending, but now visibly already judged
+    assert entry["disposition"] == "deferred"
+
+
+def test_prepare_disposition_null_when_never_judged(tmp_path):
+    repo = str(tmp_path)
+    _set_thresholds(repo)
+    fresh = _ingest(repo, "Never judged note")
+    _confirm(repo, fresh)
+    resp = _consolidate(repo, {"mode": "prepare"})
+    assert resp["pending_notes"][0]["disposition"] is None
+
+
+def test_submit_disposition_excluded_requires_reason(tmp_path):
+    repo = str(tmp_path)
+    _set_thresholds(repo)
+    nf = _ingest(repo, "Unreasoned exclusion note")
+    _confirm(repo, nf)
+
+    resp = _consolidate(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "dispositions": [{"file": f"notes/{nf}", "verdict": "excluded"}]
+            },
+        },
+    )
+    assert resp["status"] == "error"
+    assert any("requires a non-empty reason" in e["error"] for e in resp["errors"])
+    # nothing written: still pending
+    again = _consolidate(repo, {"mode": "prepare"})
+    assert [n["title"] for n in again["pending_notes"]] == ["Unreasoned exclusion note"]
+
+
+def test_submit_disposition_rejects_absorbed_verdict(tmp_path):
+    """absorbed is derived from consolidated_into — submitting it is a bug."""
+    repo = str(tmp_path)
+    _set_thresholds(repo)
+    nf = _ingest(repo, "Derived verdict note")
+    _confirm(repo, nf)
+
+    resp = _consolidate(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "dispositions": [{"file": f"notes/{nf}", "verdict": "absorbed"}]
+            },
+        },
+    )
+    assert resp["status"] == "error"
+    assert any("invalid verdict" in e["error"] for e in resp["errors"])
+
+
+def test_absorbed_disposition_is_derived_not_stored(tmp_path):
+    """source_notes alone must produce the absorbed disposition — no second copy."""
+    repo = str(tmp_path)
+    _set_thresholds(repo)
+    n1 = _ingest(repo, "Absorbed source note")
+    _confirm(repo, n1)
+
+    scen = _write_scenario(repo, "absorb-scene", with_provenance=False)
+    resp = _consolidate(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "scenarios": [
+                    {
+                        "file": scen,
+                        "action": "created",
+                        "source_notes": [f"notes/{n1}"],
+                        "summary": "absorb test",
+                        "heat": 1,
+                    }
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "completed", resp
+    # derived on read, not persisted
+    assert "disposition" not in _fm(repo, f"notes/{n1}")["metadata"]
+    assert cons._note_disposition(_fm(repo, f"notes/{n1}")["metadata"]) == "absorbed"
+
+
 def test_submit_capacity_exceeded_blocks_reset(tmp_path):
     repo = str(tmp_path)
     _set_thresholds(repo, max_scenes=2)
@@ -356,7 +505,7 @@ def test_lint_scenario_capacity_and_orphan(tmp_path):
     store = SessionStore()
     resp = json.loads(
         handle_lint_wiki(
-            {"output_dir": f"{repo}/repowiki", "checks": ["scenario_capacity", "scenario_orphan"]},
+            {"repo_path": repo, "checks": ["scenario_capacity", "scenario_orphan"]},
             store,
         )
     )

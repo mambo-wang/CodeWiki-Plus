@@ -21,10 +21,10 @@ metadata:
 sources:
 - id: repo://codewiki/mcp/tools/workspace_layout.py#L68-L216
   resource: repo://codewiki/mcp/tools/workspace_layout.py#L68-L216
-  content_hash: sha256:eac410843c8e954c6856501f3b0b93af55a4164aefadc16496a5f54952358fa5
+  content_hash: sha256:a7e3f6c3482eacbbf999022a546ddf72b7813a8574f8f9e08f6a986fd03ce47a
 - id: repo://codewiki/mcp/tools/workspace_layout.py#L238-L373
   resource: repo://codewiki/mcp/tools/workspace_layout.py#L238-L373
-  content_hash: sha256:a8b42d59e42a3ac8fa44c555b2d55d281172862411bc34c093609c9c3f79b602
+  content_hash: sha256:448f787b1e39e266d0b76582f054123bb45bd0405ce00bae0086c1ef191cce8c
 - id: repo://codewiki/mcp/tools/workspace_bootstrap.py#L85-L110
   resource: repo://codewiki/mcp/tools/workspace_bootstrap.py#L85-L110
   content_hash: sha256:e1e31df054c586e0f4de606af03f977eac63a242125cd5536d3f6f736e0ccbe2
@@ -45,6 +45,7 @@ sources:
 | `WorkspaceResolution` | 类 | workspace_layout.py | 解析结果（root/layout/member）；`centralized` 属性即集中式路由决策点 |
 | `resolve_workspace` | 函数 | workspace_layout.py | 按四条护栏解析 repo_path：仅 workspace.json 为发现信号 / 命中仍需注册表成员资格 / 三态回退到 colocated / 进程级结果缓存（`clear_cache` 供测试） |
 | `default_output_dir` | 函数 | workspace_layout.py | 集中式成员 → 工作区共享 `repowiki`；其余 → 状态维持 `repo_path/repowiki` |
+| `is_foreign_output_dir` | 函数 | workspace_layout.py | 把调用方显式传入的 `output_dir` 与布局推导结果比对：不一致即 foreign，返回该外来路径供 handler 忽略并告警——外部调用（冒烟/测试）不得把某个仓的知识导向别处 |
 | `is_centralized_corpus` | 函数 | workspace_layout.py | 判断 output_dir 是否落在集中式 corpus（用于门控 `repo=` 查询过滤等布局专属语义） |
 | `routing_for_write` | 函数 | workspace_layout.py | 判定写入是否需要分区：仅当 repo 是集中式成员且 output_dir 恰为该工作区 repowiki 时返回注册目录名（module 页路由到共享池的依据） |
 | `read_provenance` / `parse_scope_arg` / `merge_provenance` | 函数 | workspace_layout.py | 读取/规范化 `repo:`/`repos:` provenance；合并时写入 frontmatter `metadata:` 节点之下（避免 OKF lint 顶层键告警），global 清空 provenance |

@@ -36,11 +36,6 @@ TOOLS = [
                     "type": "string",
                     "description": "Absolute path to the repository to document",
                 },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Output directory for generated docs (default: ./repowiki)",
-                    "default": "repowiki",
-                },
                 "doc_type": {
                     "type": "string",
                     "description": "Type of documentation to generate. Valid values defined in schema.yaml doc_types.types (default: design)",
@@ -73,11 +68,6 @@ TOOLS = [
                     "type": "string",
                     "description": "Absolute path to the repository",
                 },
-                "output_dir": {
-                    "type": "string",
-                    "description": "Directory containing generated docs (default: ./repowiki)",
-                    "default": "repowiki",
-                },
             },
             "required": ["repo_path"],
         },
@@ -108,8 +98,9 @@ def _load_config():
 async def handle_generate_docs(arguments: dict) -> str:
     """Legacy generate_docs — requires CodeWiki LLM configuration."""
     repo_path = Path(arguments["repo_path"]).expanduser().resolve()
-    raw_od = Path(arguments.get("output_dir", "repowiki")).expanduser()
-    output_dir = raw_od.resolve() if raw_od.is_absolute() else (repo_path / raw_od).resolve()
+    from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+    output_dir = default_output_dir(repo_path).resolve()
 
     if not repo_path.exists():
         return json.dumps({"error": f"Repository not found: {repo_path}"})
@@ -181,8 +172,9 @@ async def handle_generate_docs(arguments: dict) -> str:
 async def handle_get_module_tree(arguments: dict, store=None) -> str:
     """Legacy get_module_tree."""
     repo_path = Path(arguments["repo_path"]).expanduser().resolve()
-    raw_od = Path(arguments.get("output_dir", "repowiki")).expanduser()
-    output_dir = raw_od.resolve() if raw_od.is_absolute() else (repo_path / raw_od).resolve()
+    from codewiki.mcp.tools.workspace_layout import default_output_dir
+
+    output_dir = default_output_dir(repo_path).resolve()
 
     from codewiki.src.config import MODULE_TREE_FILENAME, meta_resolve
 

@@ -1,11 +1,12 @@
 """Schema-level target-anchor guards (A+B+C).
 
-Regression coverage for the "agents omit output_dir/repo_path" problem:
-- A: anyOf(output_dir | repo_path) is post-processed into every dual-anchor
-     knowledge-base tool schema that requires neither path.
+Regression coverage for the "agents omit output_dir/repo_path" problem,
+updated for the output_dir-retirement world:
+- A: no registered tool advertises the retired output_dir; knowledge-base
+     tools expose repo_path as the single anchor.
 - B: dispatch injects repo_path=<server start CWD> when a call carries no
-     explicit anchor (output_dir/repo_path), so resolution succeeds instead
-     of raising. Explicit arguments are never overwritten.
+     explicit repo_path, so resolution succeeds instead of raising. Explicit
+     repo_path is never overwritten (output_dir is NOT an anchor anymore).
 - C: resolve_output_dir raises an actionable error and dispatch wraps it in a
      JSON payload with a "fix" field.
 """
@@ -23,46 +24,27 @@ from codewiki.mcp.tools.store_bridge import resolve_output_dir
 
 
 # --------------------------------------------------------------------------- #
-# A: schema-level anyOf guard
+# A: single-anchor schema invariant (output_dir retired)
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize(
-    "tool_name",
-    [
-        "capture_conversation",
-        "query_wiki",
-        "ingest_note",
-        "ingest_source",
-        "distill_conversation",
-        "lint_wiki",
-        "confirm_note",
-        "reject_note",
-        "wiki_stats",
-        "write_doc_file",
-    ],
-)
-def test_dual_anchor_tools_gain_anyof(tool_name: str) -> None:
-    """Tools exposing both output_dir and repo_path (neither required) must
-    advertise anyOf so clients/LLMs treat one of them as required."""
-    schema = REGISTRY[tool_name].schema.inputSchema
-    assert schema.get("anyOf") == [
-        {"required": ["output_dir"]},
-        {"required": ["repo_path"]},
-    ]
+def test_no_tool_advertises_output_dir() -> None:
+    """Exhaustive invariant: output_dir is retired — it must not appear in any
+    registered tool schema. repo_path is the single target anchor."""
+    for name, td in REGISTRY.items():
+        props = td.schema.inputSchema.get("properties") or {}
+        assert "output_dir" not in props, f"{name} still advertises output_dir"
 
 
 def test_tool_already_requiring_anchor_is_untouched() -> None:
-    # analyze_repo already requires repo_path — an anyOf would be redundant.
+    # analyze_repo already requires repo_path — no anchor fallback needed.
     schema = REGISTRY["analyze_repo"].schema.inputSchema
     assert "repo_path" in schema["required"]
-    assert "anyOf" not in schema
 
 
 def test_query_wiki_schema_declares_repo_path() -> None:
-    """query_wiki's handler derives output_dir from repo_path, but the schema
-    used to omit the parameter — the main source of runtime "output_dir is
-    required" errors. It must now expose repo_path."""
+    """query_wiki's handler derives output_dir from repo_path; the schema must
+    expose repo_path so clients never hit a runtime anchor error."""
     props = REGISTRY["query_wiki"].schema.inputSchema["properties"]
     assert "repo_path" in props
 
@@ -70,24 +52,6 @@ def test_query_wiki_schema_declares_repo_path() -> None:
 def test_batch_ingest_schema_declares_repo_path() -> None:
     props = REGISTRY["batch_ingest"].schema.inputSchema["properties"]
     assert "repo_path" in props
-
-
-def test_all_dual_anchor_tools_get_anyof() -> None:
-    """Exhaustive invariant: every registered tool whose properties include
-    both anchors — and requires neither — must carry the anyOf guard."""
-    from codewiki.mcp.registry import _apply_target_anchor_anyof
-
-    _apply_target_anchor_anyof()  # idempotent re-apply
-    for name, td in REGISTRY.items():
-        schema = td.schema.inputSchema
-        props = schema.get("properties") or {}
-        if "output_dir" not in props or "repo_path" not in props:
-            continue
-        required = set(schema.get("required") or [])
-        if "output_dir" in required or "repo_path" in required:
-            assert "anyOf" not in schema, f"{name} already requires an anchor"
-            continue
-        assert schema.get("anyOf"), f"{name} missing anyOf guard"
 
 
 # --------------------------------------------------------------------------- #
@@ -103,10 +67,12 @@ def test_inject_fills_only_when_fully_absent(monkeypatch, tmp_path) -> None:
     _inject_repo_path_default(a)
     assert a == {"repo_path": cwd}
 
-    # Explicit anchors are never overwritten.
+    # A legacy output_dir arg is NOT an anchor in the retired world: the call
+    # still needs repo_path and gets the CWD fallback. Explicit repo_path is
+    # never overwritten.
     b = {"output_dir": "x"}
     _inject_repo_path_default(b)
-    assert b == {"output_dir": "x"}
+    assert b == {"output_dir": "x", "repo_path": cwd}
 
     c = {"repo_path": "y"}
     _inject_repo_path_default(c)

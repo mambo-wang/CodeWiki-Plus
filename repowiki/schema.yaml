@@ -311,6 +311,21 @@ page_types:
     - 相关任务与资产
     - 演化记录
     - 待确认问题
+  # skill-creator (issue #24, ADR-0004)：技能草稿区。directory 是 output_dir
+  # 相对路径——skills/ 在 repowiki 根（与 notes/ 同层的知识资产，不在 wiki/ 代码
+  # 文档层）；生效区在仓库根 .codebuddy/skills/，repowiki 不扫描。代码内置路由在
+  # page_router 的 skill 分支（config.SKILLS_DIR），不设此项仍可用；在此声明使
+  # schema 自文档化，并让 lint 的 skill_sections 检查感知五段必填章节。
+  skill:
+    directory: skills
+    description: 从已确认知识编译的 SKILL.md 行为指令草稿（两区制草稿区：进索引进
+      lint、不生效），由 skill_creator 生成，经确认后 install 到生效区
+    required_sections:
+    - 工作场景
+    - 适用条件
+    - 核心 SOP
+    - 判断逻辑
+    - 禁忌与反模式
 
 # 提取粒度：控制 extraction_scan 提示词扫描源码时提取实体/概念的密度。
 #   focused    — 3-7 个关键项，适合小型项目或快速概览

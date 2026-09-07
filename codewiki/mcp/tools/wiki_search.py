@@ -303,6 +303,29 @@ def _extract_title(ct):
     return None
 
 
+def _cache_serves_output_dir(session, output_dir: Path) -> bool:
+    """True when the session's shared cache DB is the one *output_dir* maps to.
+
+    Cross-repo pollution guard: a session cache is bound to its repo root DB
+    (``<repo>/.codewiki/analysis_cache.db``). Routing an output_dir that maps
+    to a DIFFERENT DB through that cache would rebuild/update the repo index
+    with the foreign wiki's content (a smoke/harness run pointing output_dir
+    at a temp directory does exactly that). Callers fall through to the
+    standalone path when this returns False — there the DB is resolved from
+    the output_dir itself, so the repo cache is never touched.
+    """
+    cache = getattr(session, "cache", None)
+    if cache is None:
+        return False
+    expected = _resolve_db_path(output_dir)
+    if expected is None:
+        return False
+    try:
+        return Path(cache.db_path).resolve() == Path(expected).resolve()
+    except (ValueError, OSError):
+        return False
+
+
 # ---- Public API ----
 
 
@@ -318,8 +341,8 @@ def build_full_index(output_dir, session=None):
         return {"docs_indexed": 0, "notes_indexed": 0, "total_tokens": 0}
 
     with _build_lock:
-        # Try SQLite cache first (active session)
-        if session is not None and getattr(session, "cache", None) is not None:
+        # Try SQLite cache first (active session owning this output_dir)
+        if session is not None and _cache_serves_output_dir(session, od):
             try:
                 return session.cache.build_search_index(od)
             except Exception as e:
@@ -342,7 +365,7 @@ def build_full_index(output_dir, session=None):
     # Legacy JSON fallback
     with _build_lock:
         idx = _IndexData()
-        dc = nc = sc = 0
+        dc = nc = sc = skc = 0
 
         # Scan wiki/ subdirectories recursively
         from codewiki.src.config import WIKI_DIR, WIKI_SYSTEM_FILES
@@ -391,6 +414,27 @@ def build_full_index(output_dir, session=None):
                 idx.upsert(f"{_NOTES_DIR}/{nf.name}", title, "note", ct, batch=True)
                 nc += 1
 
+        # skill-creator (issue #24): draft-zone skill pages (skills/<name>/
+        # SKILL.md), source="skill". Recall-side isolation is enforced at the
+        # search entry point (T5, issue #28) — the index itself carries them.
+        from codewiki.src.config import SKILLS_DIR
+
+        sk_dir = od / SKILLS_DIR
+        if sk_dir.is_dir():
+            for sf in sorted(sk_dir.rglob("SKILL.md")):
+                if not sf.is_file():
+                    continue
+                try:
+                    ct = sf.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if not ct.strip():
+                    continue
+                title = _extract_fm(ct, "name") or sf.parent.name
+                fk = str(sf.relative_to(od)).replace("\\", "/")
+                idx.upsert(fk, title, "skill", ct, batch=True)
+                skc += 1
+
         # Scan raw/sources/
         raw_dir = od / "raw" / "sources"
         if raw_dir.is_dir():
@@ -416,6 +460,7 @@ def build_full_index(output_dir, session=None):
         "docs_indexed": dc,
         "notes_indexed": nc,
         "sources_indexed": sc,
+        "skills_indexed": skc,
         "total_docs": idx.total_docs,
         "avg_doc_len": round(idx.avg_doc_len, 1),
         "vocabulary_size": len(idx.doc_freq),
@@ -426,7 +471,7 @@ def update_file(output_dir, filepath, session=None):
     """Incrementally update search index for a single file."""
     od = Path(output_dir)
     fp = Path(filepath)
-    if session is not None and getattr(session, "cache", None) is not None:
+    if session is not None and _cache_serves_output_dir(session, od):
         try:
             session.cache.update_search_doc(od, fp)
             return
@@ -575,8 +620,8 @@ def search(
     # reuses its shared AnalysisCache connection). See _ensure_index.
     _ensure_index(od, session=session)
 
-    # Try SQLite cache first (active session)
-    if session is not None and getattr(session, "cache", None) is not None:
+    # Try SQLite cache first (active session owning this output_dir)
+    if session is not None and _cache_serves_output_dir(session, od):
         try:
             return session.cache.search(
                 query,
@@ -657,6 +702,11 @@ def search(
             ):
                 continue
         if not include_notes and di.get("source") == "note":
+            continue
+        # skill-creator T5 (issue #28, ADR-0004): recall isolation — draft
+        # skills are indexed but never recalled (behaviour instructions are
+        # consumed via IDE trigger, not query_wiki). Mirrors cache.py search.
+        if di.get("source") == "skill":
             continue
         s = 0.0
         tfm = di.get("term_freq", {})
@@ -769,7 +819,7 @@ def query_coverage(output_dir, query, expand_terms=None, session=None):
 
     conn = None
     _standalone = None
-    if session is not None and getattr(session, "cache", None) is not None:
+    if session is not None and _cache_serves_output_dir(session, od):
         try:
             conn = session.cache.conn
         except Exception:

@@ -189,7 +189,7 @@ def test_ingest_writes_type_window(tmp_path):
         r = json.loads(
             handle_ingest_note(
                 {
-                    "output_dir": str(od),
+                    "repo_path": str(od.parent),
                     "title": f"n-{ntype}",
                     "note_type": ntype,
                     "content": "body",
@@ -211,7 +211,7 @@ def test_confirm_renews_by_type_window(tmp_path):
     # Old workaround note whose stale_after has lapsed
     _write_note(od, "w.md", ntype="workaround", status="draft", stale_after=PAST)
     store = SessionStore()
-    r = json.loads(handle_confirm_note({"output_dir": str(od), "note_file": "w.md"}, store))
+    r = json.loads(handle_confirm_note({"repo_path": str(od.parent), "note_file": "w.md"}, store))
     assert "error" not in r, r
     fm = _read_fm(od, "w.md")
     assert fm["status"] == "stable"
@@ -262,7 +262,7 @@ def test_lint_dispatch_reads_schema_config(tmp_path):
         stale_after=(TODAY - timedelta(days=5)).strftime("%Y-%m-%d"),
     )
     store = SessionStore()
-    resp = json.loads(handle_lint_wiki({"output_dir": str(od), "checks": ["stale_notes"]}, store))
+    resp = json.loads(handle_lint_wiki({"repo_path": str(od.parent), "checks": ["stale_notes"]}, store))
     files = [i["file"] for i in resp.get("issues", []) if i["check"] == "stale_notes"]
     assert files == ["notes/wa.md"]
 
@@ -273,7 +273,7 @@ def test_lint_no_double_report_with_okf(tmp_path):
     store = SessionStore()
     resp = json.loads(
         handle_lint_wiki(
-            {"output_dir": str(od), "checks": ["stale_notes", "okf_conformance"]}, store
+            {"repo_path": str(od.parent), "checks": ["stale_notes", "okf_conformance"]}, store
         )
     )
     lapsed_issues = [i for i in resp.get("issues", []) if i["file"] == "notes/lapsed.md"]
@@ -368,6 +368,6 @@ def test_wiki_stats_freshness_distribution(tmp_path):
     assert dist["due_notes"] == ["notes/lapsed.md"]
 
     store = SessionStore()
-    resp = json.loads(handle_wiki_stats({"output_dir": str(od)}, store))
+    resp = json.loads(handle_wiki_stats({"repo_path": str(od.parent)}, store))
     # No retrieval stats db yet -> error path still carries freshness
     assert resp.get("freshness", {}).get("due") == 1

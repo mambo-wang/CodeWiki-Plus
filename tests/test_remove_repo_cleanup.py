@@ -111,7 +111,7 @@ class TestRemoveCentralizedCleanup:
         _remove(ws, "a")
         res = json.loads(
             handle_lint_wiki(
-                {"output_dir": str(ws / "repowiki"), "checks": ["layout_violations"]},
+                {"repo_path": str(ws), "checks": ["layout_violations"]},
                 _StubStore(),
             )
         )

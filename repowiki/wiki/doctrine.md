@@ -1,6 +1,7 @@
 ---
 type: Doctrine
 title: Team Operating Doctrine
+aliases: [Team Doctrine, 团队共识, Doctrine]
 status: stable
 generated:
   by: human:wangbao

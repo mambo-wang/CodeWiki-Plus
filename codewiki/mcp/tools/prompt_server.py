@@ -372,26 +372,21 @@ def handle_get_prompt(
     prompt_type = arguments["prompt_type"]
     variables = arguments.get("variables", {})
     # Bundle locators, most-direct first:
-    #   output_dir  → points straight at the bundle holding schema.yaml
-    #   repo_path   → derives <repo>/repowiki (also enables workspace writes)
+    #   repo_path   → derives the bundle dir under the active layout (also
+    #                 enables workspace writes)
     #   session_id  → resolves via the active session's output_dir
-    output_dir_arg = arguments.get("output_dir")
     repo_path = arguments.get("repo_path")
-    if output_dir_arg:
+    if repo_path:
         from pathlib import Path
 
-        output_dir = str(Path(output_dir_arg).expanduser().resolve())
-        # No session/workspace here; large prompts stay inline.
-        session = None
-    elif repo_path:
-        from pathlib import Path
+        from codewiki.mcp.tools.workspace_layout import default_output_dir
 
         rp = (
             str(Path(repo_path).expanduser().resolve())
             if Path(repo_path).is_absolute()
             else str((Path.cwd() / repo_path).expanduser().resolve())
         )
-        output_dir = str(Path(rp) / "repowiki")
+        output_dir = str(default_output_dir(Path(rp).expanduser().resolve()))
         # Try to find active session for workspace access
         session = store.find_or_restore(rp)
         # Create a lightweight workspace for large prompt writing if no active session

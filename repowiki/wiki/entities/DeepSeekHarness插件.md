@@ -4,11 +4,10 @@ type: Entity
 description: "WeKnora 官方 DeepSeek Harness 插件 @wxg-prc-cpg/dsh-weknora，提供四个只读编码 Agent 工具"
 generated: { by: codewiki/5.6.0, at: 2026-09-05T12:00:27Z }
 stale_after: 2026-12-04
-aliases: [dsh-weknora, @wxg-prc-cpg/dsh-weknora, DeepSeek Harness 插件]
+aliases: ["dsh-weknora", "@wxg-prc-cpg/dsh-weknora", "DeepSeek Harness 插件"]
 status: stable
 metadata:
   category: "集成"
-  source_refs: ["README_CN_2.0"]
   source_refs: ["README_CN_2.0"]
   chunk_refs: ["README_CN_2.0:197", "README_CN_2.0:197", "README_CN_2.0:199-202", "README_CN_2.0:197"]
   code_fingerprint: sha256:829467a7f49459ddf16d1711753a335b7338eb7409360e8d30565d9f78d11621

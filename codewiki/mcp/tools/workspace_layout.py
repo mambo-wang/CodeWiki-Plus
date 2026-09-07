@@ -160,6 +160,30 @@ def default_output_dir(repo_path: Union[str, Path]) -> Path:
     return rp / REPOWIKI_DIRNAME
 
 
+def is_foreign_output_dir(
+    repo_path: Union[str, Path], output_dir: Union[str, Path, None]
+) -> Path | None:
+    """Resolve a caller-supplied *output_dir* against the layout-derived KB.
+
+    output_dir is a pure function of repo_path (see :func:`default_output_dir`):
+    write paths derive it and no longer accept overrides. A supplied value that
+    resolves differently is *foreign* — an external smoke/harness run must not
+    be able to steer where a repo's knowledge lands — so handlers should ignore
+    it (and warn) rather than honour it. Returns the foreign absolute path when
+    it differs from the derived directory, else ``None``.
+    """
+    if not output_dir:
+        return None
+    try:
+        supplied = Path(output_dir).expanduser().resolve()
+    except OSError:
+        supplied = None
+    expected = default_output_dir(repo_path).resolve()
+    if supplied is not None and supplied != expected:
+        return supplied
+    return None
+
+
 def is_centralized_corpus(output_dir: Union[str, Path]) -> bool:
     """True when *output_dir* lies within a centralized workspace's corpus.
 

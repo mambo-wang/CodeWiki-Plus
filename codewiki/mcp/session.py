@@ -183,17 +183,14 @@ class SessionStore:
         leaf_nodes = cache.get_leaf_nodes()
         lazy_store = LazyComponentStore(cache, metas)
 
-        # Determine output_dir: prefer the dir recorded by the last
-        # analyze_repo (honours custom output_dir), else repo convention
-        from pathlib import Path as _P
+        # output_dir is a pure function of repo_path under the active layout —
+        # never persisted, never inheritable across processes (an external run
+        # must not re-point later sessions at a foreign directory). Centralized
+        # member repos derive the workspace-root shared corpus; everything else
+        # keeps <repo>/repowiki.
+        from codewiki.mcp.tools.workspace_layout import default_output_dir
 
-        output_dir = None
-        try:
-            output_dir = cache.get_output_dir()
-        except Exception:
-            pass
-        if not output_dir:
-            output_dir = str(_P(rp) / "repowiki")
+        output_dir = str(default_output_dir(rp))
 
         session = self.create(
             repo_path=rp,
@@ -203,10 +200,11 @@ class SessionStore:
             cache=cache,
         )
 
-        # Create a lightweight workspace so write_result works
+        # Create a lightweight workspace so write_result works.
+        # SessionWorkspace normalizes the path itself (Path.resolve()).
         from codewiki.mcp.workspace import SessionWorkspace
 
-        workspace = SessionWorkspace(_P(rp), session.session_id)
+        workspace = SessionWorkspace(rp, session.session_id)
         session.workspace = workspace
         return session
 

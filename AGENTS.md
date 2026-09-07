@@ -153,7 +153,7 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
 - `repowiki/raw/` 是**暂存区,不进 `query_wiki` 检索**,蒸馏完成后由 `distill_conversation` 删除(除非 `keep_raw`);未蒸馏的 raw 会一直保留(无自动过期);不膨胀、不影响查询性能。
 - 蒸馏产出 `status=draft` 的 note,须 `confirm_note` 确认后才成正式知识。
 - 触发形态:**both** —— 手动命令(主) + IDE hook(可选)。
-- **Mode C submit 走 `distilled_file` 文件侧通道(勿内联大 JSON)**：多条大对话蒸馏时,`distilled` 内联参数可能超出 MCP 传输限制导致失败。正确做法:先用 `write_to_file` 把蒸馏 JSON(形状 `{conversation_id: {notes, memories}}`,或单条裸 `{notes, memories}` 配合 `conversation_id` 参数)写入 `repowiki/raw/.distill-*.json`,再 `distill_conversation(mode="submit", distilled_file=<路径>)` 只传小路径;相对路径按 `output_dir` 再按 CWD 解析。小载荷仍可内联 `distilled`(两者可合并,内联优先)。**不要再写临时 Python 脚本调用 handler 绕过**。
+- **Mode C submit 走 `distilled_file` 文件侧通道(勿内联大 JSON)**：多条大对话蒸馏时,`distilled` 内联参数可能超出 MCP 传输限制导致失败。正确做法:先用 `write_to_file` 把蒸馏 JSON(形状 `{conversation_id: {notes, memories}}`,或单条裸 `{notes, memories}` 配合 `conversation_id` 参数)写入 `repowiki/raw/.distill-*.json`,再 `distill_conversation(mode="submit", distilled_file=<路径>)` 只传小路径;相对路径先按推导出的 repowiki 目录再按 CWD 解析。小载荷仍可内联 `distilled`(两者可合并,内联优先)。**不要再写临时 Python 脚本调用 handler 绕过**。
 
 <!-- TEAM-MEMORY-TASK:START -->
 ## Task memory (任务记忆)
@@ -198,9 +198,13 @@ IDE 式磁盘 transcript；任务记忆的注入与捕获改由 Agent 执行：
 - **会话捕获（自然停顿点执行：任务告一段落 / 话题切换 / 用户空闲）**：
   1. 委托后台子代理执行，**不阻塞回答**：`qw_query` 拉取当前会话列表定位
      本会话 chatId → `qwenwork_task_get_detail(chatId, offset 分页)` 拉全部轮次
-  2. 按轮次做要点级压缩：保留决策脉络、关键事实、结论与提交号；丢弃寒暄、
-     过程噪音与工具调用细节
-  3. 调 `capture_conversation(output_dir=<repo>/repowiki,
+  2. 按轮次做要点级压缩：保留决策脉络、关键事实、结论与提交号；**保留关键
+     命令原文、报错→修复对、版本/参数钉子**（它们是经验蒸馏与技能编译的素材，
+     不是噪音）；丢弃寒暄与纯过程脚印（重复读文件、失败搜索、确认往返）。
+     判断标准：这条工具信息换个会话还能复用吗？能 → 留。capture_conversation
+     落盘时也会对 content-block 形式的工具调用做两级消化（压缩行 + error 片段，
+     `codewiki/src/tool_digest.py`），压缩阶段无须自行丢弃工具信息
+  3. 调 `capture_conversation(repo_path=<repo>,
      conversation=[{"role": ..., "content": ...}...], task_id=<绑定的任务id>,
      source_session_id="qwenwork-<chatId>")` 走标准管线落盘
      （frontmatter/content_hash/supersede 全套），**勿手写 raw/*.md**

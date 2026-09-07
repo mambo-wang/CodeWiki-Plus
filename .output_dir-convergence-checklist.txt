@@ -1,0 +1,60 @@
+# output_dir 收敛清单（todo1 产物，实施后删除）
+
+目标态：output_dir 是 repo_path 的布局感知纯函数；跨进程持久化退役；写路径工具 schema 不暴露 output_dir（handler 容忍层忽略/告警 repo 外值）；只读检索保留显式 output_dir；session.output_dir 恒 = default_output_dir(repo_path)。
+
+## L1 数据/恢复层（持久化与 session 恢复）
+- codewiki/mcp/cache.py:359  `_foreign_output_dir(od)` — repo 外判定（保留/上移共享）
+- codewiki/mcp/cache.py:386-400 `get_output_dir` — 读 repo_meta["output_dir"]（退役）
+- codewiki/mcp/cache.py:402-411 `set_output_dir` — 写 repo_meta（退役；现有"repo 外+有 repowiki 则忽略"防护可并入共享 helper）
+- codewiki/mcp/session.py:156-211 `find_or_restore` — 190-196 行消费 cache.get_output_dir()，需改 default_output_dir(repo_path)；注意 174-181 行 cache.is_fresh() 无缓存返回 None 的契约不可破坏
+- codewiki/mcp/tools/analysis.py:276、518 — 两处 cache.set_output_dir 调用（退役）
+- codewiki/mcp/tools/analysis.py:254-260、507-513 — store.create(output_dir=...) 两处，output_dir 源自 60-66 行解析（保留"显式→default_output_dir"已近目标，但显式分支应收敛）
+- codewiki/mcp/tools/analysis.py:280-315 — project.json 写入（output_dir 字段+相对 cache_db；消费方 wiki_search._resolve_db_path 只读 cache_db 字段，output_dir 字段无读取方 → project.json 保留不动）
+- codewiki/mcp/tools/wiki_search.py:101 `_resolve_db_path` — 读 project.json cache_db（事故修复涉及，勿回退）
+
+## L2 handler 解析层（arguments.get("output_dir") 出现点；括号内为当前角色）
+- codewiki/mcp/tools/analysis.py:60 — analyze_repo 主流程（写路径：收显式 → 应收敛）
+- codewiki/mcp/tools/workspace_analyzer.py:452 — analyze_workspace（写/分析）
+- codewiki/mcp/tools/workspace_bootstrap.py:669 — init_workspace/add_workspace_repo 族
+- codewiki/mcp/tools/doc_writer.py:1308、1616 — write_doc_file 两个入口（写）
+- codewiki/mcp/tools/note_ingest.py:219 — ingest_note（写）
+- codewiki/mcp/tools/note_lifecycle.py:66、99、182 — 三个函数（如 init_wiki?/close?）
+- codewiki/mcp/tools/batch_ingest.py:65 — batch_ingest（写）
+- codewiki/mcp/tools/close_session.py:174 — close_session（生命周期，写侧）
+- codewiki/mcp/tools/wiki_lint.py:231 — lint_wiki（校验，兼读写）
+- codewiki/mcp/tools/evidence.py:85 — evidence 族（查询+写，仅读结果？待核）
+- codewiki/mcp/tools/module_tree.py:239 — save_module_tree（写）
+- codewiki/mcp/tools/wiki_stats.py:52 — wiki_stats（只读统计）
+- codewiki/mcp/tools/doctrine.py:181 — doctrine（refresh/init 等）
+- codewiki/mcp/tools/note_query.py:792 — handle_query_wiki（**只读，保留 output_dir 寻址**）
+- codewiki/mcp/tools/cross_service.py:53 — query_cross_service（**只读跨仓，保留**）
+- codewiki/mcp/tools/issue_tracker.py:81 — issue 工具（写 issue 到 wiki?）
+- codewiki/mcp/tools/prompt_server.py:378 — prompt 获取（只读）
+- codewiki/mcp/tools/store_bridge.py:41 — resolve_output_dir 公共解析（session > output_dir > repo_path→default）
+- codewiki/mcp/tools/workspace_result.py:29-67 — resolve_session（repo_path/session_id→store.find_or_restore；无 store/cache 时返回 None）
+
+## L3 schema 定义层（registry.py 37 处 + 模块内 Tool）
+- 注册：registry.py:64 `_register(schema, handler_path, mode, takes_store)` → REGISTRY
+- dispatch：registry.py:2971 `dispatch()` 不做参数过滤 → 未知/多余参数直接透传 handler（MCP 层宽容；schema 移除无执行风险）
+- 兜底：registry.py:2956 `_inject_repo_path_default`（2988 在 dispatch 内调用）— 零锚点时注入 server 启动 CWD；注释"resolution order session > output_dir > repo_path"
+- schema 定义位置待 todo3 逐工具处理时按 name= 定位；其中仓库内已有模块自带 schema：codewiki/mcp/tools/close_session.py:31 TOOLS=[Tool(name="close_session",...)]
+- 注意 registry 中 readme：analyze_repo 在 registry 的 schema 位于 ~104-108 行（output_dir 描述待收敛）
+
+## L4 文案/模板/测试面（待 todo4/5 逐一同步；已知锚点）
+- 模板：codewiki/templates/workspace/agents-md-workspace.md.tpl（第 7-21 行两跳 query_wiki(output_dir=)）；agents-md-workspace-centralized.md.tpl（一跳，需核）；repo-map.md.tpl:29；readme.md.tpl:27
+- prompts：codewiki/mcp/prompts.py:404 `ingest_source(output_dir="{output_dir}")`
+- hooks：codewiki/hooks/task_session_start.py（含 query_wiki，需核 output_dir 用法）
+- agents：codewiki/agents/wiki-recall.md（含 query_wiki）
+- cli：codewiki/cli/commands/query.py
+- tests：布局/会话/centralized 相关文件清单见 plan「目录结构」；新增 tests/test_output_dir_convergence.py
+- docs/README/AGENTS.md 文案同步（git 上已改的 wiki_search/cache 勿动）
+
+## centralized 不可动（语义红线）
+- workspace_layout.py 原语：default_output_dir / resolve_workspace / routing_for_write / is_centralized_corpus
+- centralized：成员仓 cache 与 anchor 落在 workspace 根 .codewiki/<repo>/（analysis.py:293-300 project.json 注释）；repo= 过滤；共享 corpus
+- 禁止手写 `<repo>/repowiki` 拼接；一律复用 default_output_dir
+
+## 关键行为契约（改动时保持）
+- resolve_session/find_or_restore 返回 None 而非抛错（session 可选语义）
+- 写工具无 session 且无 repo_path 时保持 ValueError（含 fix 提示）
+- MCP 层不校验未知参数 → 容忍层以 handler 内判定实现，不依赖 schema

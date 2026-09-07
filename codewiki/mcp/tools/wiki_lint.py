@@ -44,6 +44,12 @@ _ALL_CHECKS = {
     # P2 (team-memory fusion): L2 scene block hygiene
     "scenario_capacity",
     "scenario_orphan",
+    # skill-creator (issue #24, ADR-0004): draft-zone SKILL.md section
+    # conformance against schema.page_types.skill.required_sections
+    "skill_sections",
+    # skill-creator T4 (issue #27, design §4.5): full SKILL.md check set —
+    # six backstop errors + possibly_stale material linkage + install drift
+    "skill_lint",
     # P1 B-line: hot-but-never-adopted notes (usage utility dimension)
     "low_adoption",
     # Centralized-layout discipline (ticket 09)
@@ -225,14 +231,10 @@ def _collect_linked_targets(
 
 
 def _get_output_dir(session: Optional[SessionState], arguments: Dict) -> Optional[Path]:
-    """Resolve the output directory from session or arguments."""
+    """Resolve the output directory from session or repo_path (a
+    caller-supplied output_dir is ignored on the write path)."""
     if session:
         return Path(session.output_dir).expanduser().resolve()
-    output_dir = arguments.get("output_dir")
-    if output_dir:
-        p = Path(output_dir).expanduser().resolve()
-        p.mkdir(parents=True, exist_ok=True)
-        return p
     # Fallback: derive from repo_path (layout-aware, ticket 09: centralized
     # members lint the workspace knowledge base).
     rp = arguments.get("repo_path")
@@ -1004,94 +1006,42 @@ def _check_unsupported_claims(
 def _check_stale_evidence(output_dir: Path) -> List[Dict[str, Any]]:
     """Flag pages whose ``repo://`` code evidence no longer matches source.
 
-    Reads each page's ``sources`` list for entries carrying a ``content_hash``
-    (stamped by ``stamp_evidence``), re-reads the referenced region, and reports
-    ``stale`` (code drifted) or ``missing`` (file gone) entries.  Evidence
-    drives review only — this check never rewrites content.
+    Thin wrapper over :func:`collect_evidence_drift`
+    (``codewiki.mcp.tools.evidence``) — the shared collection point also
+    feeds the ``analyze_repo`` incremental post-step (B6).  Reports ``stale``
+    (code drifted) or ``missing`` (file gone) entries.  Evidence drives
+    review only — this check never rewrites content.
     """
-    from codewiki.mcp.tools.evidence import evidence_roots
-    from codewiki.src.evidence import verify_entry
+    from codewiki.mcp.tools.evidence import collect_evidence_drift
 
-    # Centralized workspaces keep the code in <ws>/<repo>/ while the corpus is
-    # <ws>/repowiki, so output_dir.parent (the status-quo repo root) resolves
-    # nothing — try every plausible root instead. An entry's own `repo` field
-    # (recorded by stamp_evidence) narrows it to the owning repo.
-    base_roots = evidence_roots(output_dir)
     issues: List[Dict[str, Any]] = []
-
-    for md_file in output_dir.rglob("*.md"):
-        if not md_file.is_file():
-            continue
-        parts = set(md_file.relative_to(output_dir).parts)
-        if parts & _SCRATCH_DIR_NAMES or "raw" in parts:
-            continue
-        try:
-            content = md_file.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        if not content.startswith("---"):
-            continue
-        end = content.find("---", 3)
-        if end < 0:
-            continue
-        try:
-            import yaml
-
-            data = yaml.safe_load(content[3:end]) or {}
-        except Exception:  # noqa: BLE001 - malformed FM is other checks' concern
-            continue
-        if not isinstance(data, dict):
-            continue
-        sources = data.get("sources")
-        if isinstance(sources, dict):
-            sources = [sources]
-        if not isinstance(sources, list):
-            continue
-
-        rel_path = str(md_file.relative_to(output_dir)).replace("\\", "/")
-        for entry in sources:
-            if not isinstance(entry, dict) or "content_hash" not in entry:
-                continue
-            roots = (
-                evidence_roots(output_dir, entry.get("repo"))
-                if entry.get("repo")
-                else base_roots
+    for record in collect_evidence_drift(output_dir):
+        status = record["status"]
+        resource = record["resource"]
+        if status == "stale":
+            message = f"code evidence drifted: {resource}"
+            suggestion = (
+                "Source changed since this page was grounded. Re-verify the "
+                "claim, then re-stamp via stamp_evidence or edit_doc_file."
             )
-            statuses = [verify_entry(entry, root) for root in roots]
-            if "ok" in statuses:
-                continue
-            # Only report the most actionable verdict: drift > gone > broken URI.
-            if "stale" in statuses:
-                status = "stale"
-            elif "missing" in statuses:
-                status = "missing"
-            else:
-                status = "unresolvable"
-            resource = str(entry.get("resource", "<unknown>"))
-            if status == "stale":
-                message = f"code evidence drifted: {resource}"
-                suggestion = (
-                    "Source changed since this page was grounded. Re-verify the "
-                    "claim, then re-stamp via stamp_evidence or edit_doc_file."
-                )
-            elif status == "missing":
-                message = f"evidence file disappeared: {resource}"
-                suggestion = (
-                    "Referenced source no longer exists under the repo root. "
-                    "Re-check the page and re-stamp or remove the entry."
-                )
-            else:
-                message = f"unresolvable evidence resource: {resource}"
-                suggestion = "Malformed repo:// resource; re-stamp with a valid URI."
-            issues.append(
-                {
-                    "check": "stale_evidence",
-                    "severity": "warning",
-                    "message": message,
-                    "file": rel_path,
-                    "suggestion": suggestion,
-                }
+        elif status == "missing":
+            message = f"evidence file disappeared: {resource}"
+            suggestion = (
+                "Referenced source no longer exists under the repo root. "
+                "Re-check the page and re-stamp or remove the entry."
             )
+        else:
+            message = f"unresolvable evidence resource: {resource}"
+            suggestion = "Malformed repo:// resource; re-stamp with a valid URI."
+        issues.append(
+            {
+                "check": "stale_evidence",
+                "severity": "warning",
+                "message": message,
+                "file": record["file"],
+                "suggestion": suggestion,
+            }
+        )
 
     return issues
 
@@ -1606,6 +1556,307 @@ def _check_scenario_orphan(
                     "Verify the block is still valid; retire via [DELETED] on the "
                     "next consolidate_notes run if superseded."
                 ),
+            }
+        )
+    return issues
+
+
+def _check_skill_sections(output_dir: Path) -> List[Dict[str, Any]]:
+    """Validate draft-zone SKILL.md bodies against schema required sections.
+
+    skill-creator (issue #24, ADR-0004): every draft skill lives at
+    ``skills/<name>/SKILL.md`` and its body must carry the five-section
+    skeleton declared in ``schema.yaml`` ``page_types.skill`` (same shape as
+    scenario blocks — When-to-Apply ≈ 适用条件, Instructions ≈ SOP). A skill
+    without its sections is not an actionable instruction set, so a missing
+    section is an error, not a warning.
+
+    The section list is read from schema (single source of truth); the check
+    is scoped to the draft zone only — the effect zone (.codebuddy/skills/)
+    lives outside repowiki and is never scanned.
+    """
+    issues: List[Dict[str, Any]] = []
+    try:
+        import re
+
+        from codewiki.mcp.tools.page_router import load_schema
+        from codewiki.src.config import SKILLS_DIR
+
+        schema = load_schema(output_dir)
+        pt = schema.get("page_types", {}).get("skill", {})
+        required = list(pt.get("required_sections", [])) if isinstance(pt, dict) else []
+    except Exception:
+        return issues
+    if not required:
+        return issues  # nothing declared — nothing to enforce
+
+    sk_dir = output_dir / SKILLS_DIR
+    if not sk_dir.is_dir():
+        return issues
+
+    for sf in sorted(sk_dir.rglob("SKILL.md")):
+        if not sf.is_file():
+            continue
+        try:
+            ct = sf.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        try:
+            rel = str(sf.relative_to(output_dir)).replace("\\", "/")
+        except ValueError:
+            rel = f"{SKILLS_DIR}/{sf.parent.name}/SKILL.md"
+
+        # Collect heading titles from the BODY only (frontmatter may mention
+        # section-ish keys; the skeleton lives in the markdown body).
+        body = ct
+        if body.startswith("---"):
+            end = body.find("\n---", 3)
+            if end != -1:
+                body = body[end + 4 :]
+        headings = set()
+        for line in body.splitlines():
+            m = re.match(r"^\s{0,3}#{1,6}\s+(.+?)\s*$", line)
+            if m:
+                headings.add(m.group(1).strip())
+
+        for section in required:
+            if section not in headings:
+                issues.append(
+                    {
+                        "check": "skill_sections",
+                        "severity": "error",
+                        "message": (
+                            f"Skill draft '{rel}' is missing required section "
+                            f"'{section}' (schema page_types.skill skeleton)."
+                        ),
+                        "file": rel,
+                        "suggestion": (
+                            "Re-run skill_creator prepare for the writing-system "
+                            "prompt, then submit with the full five-section body."
+                        ),
+                    }
+                )
+    return issues
+
+
+def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
+    """skill-creator T4 (issue #27, design §4.5): the full SKILL.md check set.
+
+    Backstop lint — submit already validates most of these rules; lint
+    catches drafts written outside the tool or regressed by hand edits:
+
+    errors: name_slug / description_trigger / frontmatter_required /
+    body_too_large / sensitive_content / revisions_required; capacity at
+    the red line. warnings: skill_possibly_stale (a source_refs material
+    is deprecated / soft-deleted / missing, design Q5 — prompt a human
+    revise/retire decision, never auto), skill_drift (draft normalized
+    hash != installed_hash: revised after install, the effect zone still
+    serves the old version; reinstall is a user action, ADR-0004),
+    capacity orange.
+    """
+    issues: List[Dict[str, Any]] = []
+    try:
+        from codewiki.mcp.tools.skill_creator import (
+            _BODY_LIMIT_BYTES,
+            _MAX_SKILLS,
+            _ORANGE_SKILLS,
+            _normalized_hash,
+            _read_body,
+            _read_frontmatter,
+            _scan_skills,
+            _sensitive_scan,
+        )
+        from codewiki.src.store import slugify
+    except Exception:
+        return issues
+
+    skills = _scan_skills(output_dir)
+    if not skills:
+        return issues
+
+    # --- per-skill errors / warnings ---
+    for s in skills:
+        rel = s["file"]
+        path = output_dir / rel
+        fm = _read_frontmatter(path) or {}
+        meta = fm.get("metadata") if isinstance(fm.get("metadata"), dict) else {}
+        name = str(fm.get("name") or "")
+        body = _read_body(path)
+        body_bytes = len(body.encode("utf-8"))
+        description = str(fm.get("description") or "")
+
+        # name_slug: slugify(name) == directory name
+        dirname = path.parent.name
+        if not name or slugify(name) != dirname:
+            issues.append(
+                {
+                    "check": "skill_lint",
+                    "severity": "error",
+                    "message": (
+                        f"Skill '{rel}': name '{name}' is not a slug match for "
+                        f"its directory '{dirname}'."
+                    ),
+                    "file": rel,
+                    "suggestion": "Rename so slugify(name) equals the directory name.",
+                }
+            )
+
+        # description_trigger: non-empty, >= 10 chars (submit's same heuristic)
+        if len(description.strip()) < 10:
+            issues.append(
+                {
+                    "check": "skill_lint",
+                    "severity": "error",
+                    "message": (
+                        f"Skill '{rel}': description missing or too short to "
+                        "carry trigger semantics (condition + action)."
+                    ),
+                    "file": rel,
+                    "suggestion": "Rewrite as '<condition> — <specific action>'.",
+                }
+            )
+
+        # frontmatter_required: status + metadata.source_refs
+        status = str(fm.get("status") or "")
+        refs = meta.get("source_refs")
+        refs = refs if isinstance(refs, list) else []
+        missing = []
+        if status not in ("draft", "stable", "deprecated"):
+            missing.append("status")
+        if not refs:
+            missing.append("metadata.source_refs")
+        if missing:
+            issues.append(
+                {
+                    "check": "skill_lint",
+                    "severity": "error",
+                    "message": f"Skill '{rel}': missing required frontmatter: {', '.join(missing)}.",
+                    "file": rel,
+                    "suggestion": "skill_creator submit writes these; hand-edited drafts need them too.",
+                }
+            )
+
+        # body_too_large
+        if body_bytes > _BODY_LIMIT_BYTES:
+            issues.append(
+                {
+                    "check": "skill_lint",
+                    "severity": "error",
+                    "message": f"Skill '{rel}': body is {body_bytes} bytes (cap {_BODY_LIMIT_BYTES}).",
+                    "file": rel,
+                    "suggestion": "Split the skill or reference the scenario instead of restating it.",
+                }
+            )
+
+        # sensitive_content (description + body)
+        scan_hit = _sensitive_scan(f"{description}\n{body}")
+        if scan_hit:
+            issues.append(
+                {
+                    "check": "skill_lint",
+                    "severity": "error",
+                    "message": (
+                        f"Skill '{rel}': sensitive {scan_hit[0]} pattern matched "
+                        f"('{scan_hit[1]}')."
+                    ),
+                    "file": rel,
+                    "suggestion": "Remove absolute paths and secrets; use repo-relative references.",
+                }
+            )
+
+        # revisions_required: generated provenance must carry an audit trail
+        revisions = meta.get("revisions")
+        revisions = revisions if isinstance(revisions, list) else []
+        if not revisions and fm.get("generated"):
+            issues.append(
+                {
+                    "check": "skill_lint",
+                    "severity": "error",
+                    "message": (
+                        f"Skill '{rel}': has generated provenance but no "
+                        "metadata.revisions audit trail."
+                    ),
+                    "file": rel,
+                    "suggestion": "Re-submit via skill_creator (updated) so the revision lands in revisions.",
+                }
+            )
+
+        # skill_possibly_stale (warning, design Q5)
+        for ref in refs:
+            ref_norm = str(ref).replace("\\", "/")
+            target = output_dir / ref_norm
+            stale_reason = None
+            if not target.is_file():
+                stale_reason = "material file missing"
+            else:
+                mfm = _read_frontmatter(target) or {}
+                m_status = str(mfm.get("status") or "").lower()
+                if m_status in ("deprecated", "superseded", "rejected"):
+                    stale_reason = f"material status={m_status}"
+                elif _read_body(target) == "[DELETED]":
+                    stale_reason = "material soft-deleted"
+            if stale_reason:
+                issues.append(
+                    {
+                        "check": "skill_lint",
+                        "severity": "warning",
+                        "message": (
+                            f"Skill '{rel}' possibly stale: {stale_reason} "
+                            f"(source: {ref_norm})."
+                        ),
+                        "file": rel,
+                        "suggestion": "Review the skill; revise against current material or retire it.",
+                    }
+                )
+                break  # one warning per skill is enough to trigger review
+
+        # skill_drift (warning, design Q6): draft revised after install
+        installed_hash = meta.get("installed_hash")
+        if installed_hash:
+            current = _normalized_hash(name, description, body)
+            if current != installed_hash:
+                issues.append(
+                    {
+                        "check": "skill_lint",
+                        "severity": "warning",
+                        "message": (
+                            f"Skill '{rel}' drifted: the draft was revised after "
+                            "install — the effect zone still serves the old version."
+                        ),
+                        "file": rel,
+                        "suggestion": (
+                            "Re-run skill_creator(mode='install') after user "
+                            "review (reinstall is a user action)."
+                        ),
+                    }
+                )
+
+    # --- capacity (mirror skill_creator grading; deprecated don't count) ---
+    live = [s for s in skills if s.get("status") != "deprecated"]
+    if len(live) >= _MAX_SKILLS:
+        issues.append(
+            {
+                "check": "skill_lint",
+                "severity": "error",
+                "message": (
+                    f"Draft skills at/over capacity: {len(live)}/{_MAX_SKILLS} "
+                    "— merge or retire before creating more."
+                ),
+                "file": "skills/",
+                "suggestion": "Retire or merge similar skills first (skill_creator retire).",
+            }
+        )
+    elif len(live) >= _ORANGE_SKILLS:
+        issues.append(
+            {
+                "check": "skill_lint",
+                "severity": "warning",
+                "message": (
+                    f"Draft skills near capacity: {len(live)}/{_MAX_SKILLS} "
+                    f"(orange line {_ORANGE_SKILLS}) — UPDATE only."
+                ),
+                "file": "skills/",
+                "suggestion": "Default to UPDATE on the next skill_creator run.",
             }
         )
     return issues
@@ -2166,6 +2417,16 @@ def handle_lint_wiki(
 
     if "scenario_orphan" in checks and output_dir:
         all_issues.extend(_check_scenario_orphan(output_dir))
+
+    if "skill_sections" in checks and output_dir:
+        # skill-creator (issue #24): required-section list is read from
+        # schema.yaml inside the check; dispatch passes no hardcoded values.
+        all_issues.extend(_check_skill_sections(output_dir))
+
+    if "skill_lint" in checks and output_dir:
+        # skill-creator T4 (issue #27): thresholds are imported from
+        # skill_creator constants — single source, no hardcoded copies.
+        all_issues.extend(_check_skill_lint(output_dir))
 
     if "okf_conformance" in checks and output_dir:
         all_issues.extend(

@@ -23,6 +23,18 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m codewiki.mcp._ide_hook --enable",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

@@ -38,7 +38,7 @@ sources:
   content_hash: sha256:b0c89f0634d1727f9e45e86324f1e0f5830c7a4149cefb6768eff835755be58e
 - id: repo://codewiki/mcp/tools/distill_conversation.py#L341-L399
   resource: repo://codewiki/mcp/tools/distill_conversation.py#L341-L399
-  content_hash: sha256:cb66ba5412ba9f86aed92fcea5c1e509e57b5d5487e4b98f41563be3248062fa
+  content_hash: sha256:d294bb9ad4a5951089bb1fa7a0a81113a351cfc7fddc5926aa99ccd9131b8f31
 - id: repo://codewiki/mcp/tools/hook_registry.py#L31-L71
   resource: repo://codewiki/mcp/tools/hook_registry.py#L31-L71
   content_hash: sha256:ad0ab76fd97983b71d5c74fd62578bbe8bac67bac67ab6d8e1a7d32712edada0
@@ -76,7 +76,9 @@ sources:
 | `_norm_status` | 私有 | note_writer.py | 规范化笔记 status 值（别名归一、非法回退） |
 | `load_note_types` | 私有 | note_types.py | 从 schema 加载 note_type 定义（约束笔记类型集合） |
 | `_scan_scenarios` | 私有 | note_consolidation.py | 扫描 scenarios 目录待聚合入口笔记（consolidate 前置） |
+| `_parse_frontmatter` | 私有 | distill_conversation.py | 页面 frontmatter 的扁平 str→str 视图：瘦委托给 `frontmatter.parse_frontmatter`（json 解码标量，避免 `task_id: "foo"` 把引号漏进路由键），非字符串值 json 化 |
 | `_unquote_fm` | 私有 | distill_conversation.py | 兼容层：剥离旧 raw 笔记中残留的包裹引号（统一 frontmatter reader 已做 json 解码） |
+| `_is_retired_note` | 私有 | distill_conversation.py | OKF：已退役笔记不是知识——`deprecated` 及旧词汇 `rejected`/`superseded`（经 `note_writer._norm_status` 归一）一律跳过，避免去重时把新草稿并进死知识 |
 | `load_registry` | 私有 | hook_registry.py | 读取 IDE hook 注册表（启用的 hook 清单） |
 
 ## 关键设计

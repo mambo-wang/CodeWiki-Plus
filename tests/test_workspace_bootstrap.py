@@ -686,8 +686,9 @@ class TestRegistryWiring:
         tool_def = registry.REGISTRY["init_workspace"]
         props = tool_def.schema.inputSchema["properties"]
         assert tool_def.schema.inputSchema["required"] == []
-        assert set(props) == {"output_dir", "layout"}
+        assert set(props) == {"layout"}
         assert props["layout"]["enum"] == ["colocated", "centralized"]
+        assert "output_dir" not in props
         assert "workspace_path" not in props
         assert "with_readme" not in props
         assert "repos" not in props

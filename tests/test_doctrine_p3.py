@@ -52,7 +52,7 @@ def _ingest_and_confirm(repo: str, title: str) -> str:
     r = json.loads(
         handle_ingest_note(
             {
-                "output_dir": f"{repo}/repowiki",
+                "repo_path": repo,
                 "title": title,
                 "note_type": "decision",
                 "content": "## Background\nbody",
@@ -62,7 +62,7 @@ def _ingest_and_confirm(repo: str, title: str) -> str:
         )
     )
     nf = Path(r["note_path"]).name
-    handle_confirm_note({"output_dir": f"{repo}/repowiki", "note_file": nf}, store)
+    handle_confirm_note({"repo_path": repo, "note_file": nf}, store)
     return nf
 
 
@@ -86,7 +86,7 @@ def _write_scenario(repo: str, name: str) -> str:
 
 def _refresh(repo: str, args: dict) -> dict:
     store = SessionStore()
-    payload = {"output_dir": f"{repo}/repowiki", **args}
+    payload = {"repo_path": repo, **args}
     return json.loads(doc_tool.handle_refresh_doctrine(payload, store))
 
 
@@ -192,7 +192,7 @@ def test_query_wiki_overview_injects_doctrine_and_navigation(tmp_path):
     resp = json.loads(
         handle_query_wiki(
             {
-                "output_dir": f"{repo}/repowiki",
+                "repo_path": repo,
                 "mode": "overview",
                 "query": "",
             },
@@ -219,7 +219,7 @@ def test_consolidate_submit_cascades_doctrine_hint(tmp_path):
     resp = json.loads(
         cons.handle_consolidate_notes(
             {
-                "output_dir": f"{repo}/repowiki",
+                "repo_path": repo,
                 "mode": "submit",
                 "report": {
                     "scenarios": [
@@ -253,7 +253,7 @@ def test_consolidate_no_doctrine_hint_below_threshold(tmp_path):
     resp = json.loads(
         cons.handle_consolidate_notes(
             {
-                "output_dir": f"{repo}/repowiki",
+                "repo_path": repo,
                 "mode": "submit",
                 "report": {
                     "scenarios": [

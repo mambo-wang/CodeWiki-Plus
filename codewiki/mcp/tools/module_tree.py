@@ -235,18 +235,11 @@ def handle_save_module_tree(
     # Try to reuse active session for workspace/caching, fall back to standalone
     session = resolve_session(arguments, store)
 
-    # Respect explicit output_dir from arguments, then session, then default
-    explicit_od = arguments.get("output_dir")
-    if explicit_od:
-        output_dir = (
-            str(_Path(explicit_od).expanduser().resolve())
-            if _Path(explicit_od).is_absolute()
-            else str((_Path(rp) / explicit_od).expanduser().resolve())
-        )
-    elif session is not None and session.output_dir:
-        output_dir = session.output_dir
-    else:
-        output_dir = str(_Path(rp) / "repowiki")
+    # output_dir is a pure function of repo_path under the active layout; a
+    # caller-supplied output_dir is ignored on the write path (retired param).
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
+
+    output_dir = str(resolve_output_dir(session, arguments))
 
     workspace = (
         session.workspace if session is not None else SessionWorkspace(_Path(rp), "standalone")
@@ -277,10 +270,12 @@ def handle_get_processing_order(
     )
 
     session = resolve_session(arguments, store)
+    from codewiki.mcp.tools.workspace_layout import default_output_dir
+
     output_dir = (
         session.output_dir
         if session is not None and session.output_dir
-        else str(_Path(rp) / "repowiki")
+        else str(default_output_dir(_Path(rp).expanduser().resolve()))
     )
     workspace = (
         session.workspace if session is not None else SessionWorkspace(_Path(rp), "standalone")

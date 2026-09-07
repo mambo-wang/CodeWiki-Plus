@@ -356,13 +356,13 @@ class AnalysisCache:
     def set_last_commit_id(self, cid: str):
         self._mset("last_commit_id", cid)
 
-    def get_output_dir(self) -> Optional[str]:
-        """Return the output_dir recorded by the last analyze_repo, if any."""
-        od = self._mget("output_dir")
-        return self._abs_path(od) if od else None
-
-    def set_output_dir(self, od: str):
-        self._mset("output_dir", self._rel_path(od))
+    # NOTE (output_dir convergence): set_output_dir / get_output_dir are
+    # retired — output_dir is a pure function of repo_path under the active
+    # layout (workspace_layout.default_output_dir) and must never be persisted
+    # or inherited across processes. The repo_meta "output_dir" key written by
+    # older versions is now dead data; stale foreign rows are simply ignored
+    # because no code path reads them anymore. "Foreign path" validation lives
+    # in workspace_layout.is_foreign_output_dir for handler-side write guards.
 
     def get_component_count(self) -> int:
         r = self.conn.execute("SELECT COUNT(*) as c FROM components").fetchone()
@@ -1051,7 +1051,7 @@ class AnalysisCache:
         c.execute("DELETE FROM search_stats")
         from codewiki.src.config import WIKI_SYSTEM_FILES, WIKI_DIR
 
-        dc = nc = sc = 0
+        dc = nc = sc = skc = 0
 
         # Scan wiki/ subdirectories recursively for doc pages
         wiki_dir = od / WIKI_DIR
@@ -1156,6 +1156,46 @@ class AnalysisCache:
                     c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
                 nc += 1
 
+        # skill-creator (issue #24): draft-zone skill pages, one SKILL.md per
+        # nested directory (skills/<name>/SKILL.md). Indexed with
+        # source="skill" — ADR-0004: indexed and linted, but recall-side
+        # isolation (query_wiki never returns them) is enforced separately
+        # at the search entry point (T5, issue #28).
+        from codewiki.src.config import SKILLS_DIR
+
+        sk_dir = od / SKILLS_DIR
+        if sk_dir.is_dir():
+            for sf in sorted(sk_dir.rglob("SKILL.md")):
+                if not sf.is_file():
+                    continue
+                try:
+                    ct = sf.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if not ct.strip():
+                    continue
+                title = _extract_frontmatter(ct, "name") or sf.parent.name
+                tokens = tokenize(build_indexable_text(ct))
+                if not tokens:
+                    continue
+                tf = {}
+                [tf.update({t: tf.get(t, 0) + 1}) for t in tokens]
+                fk = str(sf.relative_to(od)).replace("\\", "/")
+                c.execute(
+                    "INSERT OR REPLACE INTO search_index(doc_key,title,source,doc_len,term_freq,authority) VALUES(?,?,?,?,?,?)",
+                    (
+                        fk,
+                        title,
+                        "skill",
+                        len(tokens),
+                        json.dumps(tf),
+                        doc_authority(fk, "skill", ct),
+                    ),
+                )
+                for t, f in tf.items():
+                    c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
+                skc += 1
+
         # Scan raw/sources/ for third-party document text
         raw_dir = od / "raw" / "sources"
         if raw_dir.is_dir():
@@ -1192,7 +1232,7 @@ class AnalysisCache:
                     c.execute("INSERT OR IGNORE INTO search_token_index VALUES(?,?,?)", (t, fk, f))
                 sc += 1
 
-        td = dc + nc + sc
+        td = dc + nc + sc + skc
         if td:
             avg = (c.execute("SELECT SUM(doc_len) FROM search_index").fetchone()[0] or 0) / td
             c.execute("INSERT INTO search_stats VALUES('total_docs',?)", (str(td),))
@@ -1218,6 +1258,7 @@ class AnalysisCache:
             "docs_indexed": dc,
             "notes_indexed": nc,
             "sources_indexed": sc,
+            "skills_indexed": skc,
             "total_docs": td,
             "graph_edges": graph_info.get("edges", 0),
         }
@@ -1337,6 +1378,12 @@ class AnalysisCache:
                 continue
             if not include_notes and doc_row["source"] == "note":
                 continue
+            # skill-creator T5 (issue #28, ADR-0004): recall isolation —
+            # draft-zone skills are indexed (lint/capacity/stats see them)
+            # but NEVER recalled: skills are behaviour instructions consumed
+            # by the IDE trigger, not retrievable knowledge.
+            if doc_row["source"] == "skill":
+                continue
             # LLM Wiki: type_filter enforcement
             if allowed_source_types and doc_row["source"] not in allowed_source_types:
                 continue
@@ -1439,6 +1486,10 @@ class AnalysisCache:
                 if not doc_row:
                     continue
                 if not include_notes and doc_row["source"] == "note":
+                    continue
+                # T5 recall isolation (issue #28): expanded-term path must
+                # not leak skill pages either — same rule as the main loop.
+                if doc_row["source"] == "skill":
                     continue
                 snippet = ""
                 ex_raw_len = 0

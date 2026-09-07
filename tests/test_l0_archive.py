@@ -42,7 +42,7 @@ def _submit(repo: str, distilled: dict, **extra_args):
     store = SessionStore()
     out = distill.handle_distill_conversation(
         {
-            "output_dir": f"{repo}/repowiki",
+            "repo_path": repo,
             "mode": "submit",
             "distilled": distilled,
             **extra_args,
@@ -161,7 +161,7 @@ def test_source_ref_repointed_across_conflict_rounds(tmp_path):
     r0 = json.loads(
         handle_ingest_note(
             {
-                "output_dir": f"{repo}/repowiki",
+                "repo_path": repo,
                 "title": "alpha beta gamma delta epsilon",
                 "note_type": "pitfall",
                 "content": "existing",
@@ -172,7 +172,7 @@ def test_source_ref_repointed_across_conflict_rounds(tmp_path):
     )
     handle_confirm_note(
         {
-            "output_dir": f"{repo}/repowiki",
+            "repo_path": repo,
             "note_file": Path(r0["note_path"]).name,
         },
         store,
@@ -281,7 +281,7 @@ def test_query_wiki_surfaces_source_ref(tmp_path):
     resp = json.loads(
         handle_query_wiki(
             {
-                "output_dir": f"{repo}/repowiki",
+                "repo_path": repo,
                 "query": "缓存击穿",
             },
             store,
@@ -300,7 +300,7 @@ def test_conflict_pending_keeps_raw_unarchived(tmp_path):
 
     handle_ingest_note(
         {
-            "output_dir": f"{repo}/repowiki",
+            "repo_path": repo,
             "title": "alpha beta gamma delta epsilon",
             "note_type": "pitfall",
             "content": "existing",

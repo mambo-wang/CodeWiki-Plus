@@ -76,13 +76,91 @@ def evidence_roots(output_dir: Path, repo_name: Optional[str] = None) -> List[Pa
     return roots
 
 
+def collect_evidence_drift(output_dir: Path) -> List[Dict[str, str]]:
+    """Scan the corpus for drifted code evidence, entry-level detail.
+
+    Shared collection point for both consumers of the D1 evidence signal:
+    the lint check ``stale_evidence`` (uses the detail records directly) and
+    the ``analyze_repo`` incremental post-step (aggregates them per page into
+    ``changes_info.stale_evidence_pages`` — B6).
+
+    Returns a list of ``{"file": <page relpath>, "resource": <repo:// URI>,
+    "status": "stale"|"missing"|"unresolvable"}`` for every evidence entry
+    that no longer verifies.  Entries without ``content_hash`` are skipped
+    (D1 progressive-enable semantics: legacy pages never trigger drift).
+    Evidence drives review only — this function never rewrites content.
+    """
+    from codewiki.src.evidence import verify_entry
+
+    output_dir = Path(output_dir)
+    base_roots = evidence_roots(output_dir)
+    drift: List[Dict[str, str]] = []
+
+    for md_file in output_dir.rglob("*.md"):
+        if not md_file.is_file():
+            continue
+        parts = set(md_file.relative_to(output_dir).parts)
+        if parts & {".trash", ".hook-debug", ".meta"} or "raw" in parts:
+            continue
+        try:
+            content = md_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if not content.startswith("---"):
+            continue
+        end = content.find("---", 3)
+        if end < 0:
+            continue
+        try:
+            import yaml
+
+            data = yaml.safe_load(content[3:end]) or {}
+        except Exception:  # noqa: BLE001 - malformed FM is other checks' concern
+            continue
+        if not isinstance(data, dict):
+            continue
+        sources = data.get("sources")
+        if isinstance(sources, dict):
+            sources = [sources]
+        if not isinstance(sources, list):
+            continue
+
+        rel_path = str(md_file.relative_to(output_dir)).replace("\\", "/")
+        for entry in sources:
+            if not isinstance(entry, dict) or "content_hash" not in entry:
+                continue
+            roots = (
+                evidence_roots(output_dir, entry.get("repo"))
+                if entry.get("repo")
+                else base_roots
+            )
+            statuses = [verify_entry(entry, root) for root in roots]
+            if "ok" in statuses:
+                continue
+            # Same priority as the lint check: drift > gone > broken URI.
+            if "stale" in statuses:
+                status = "stale"
+            elif "missing" in statuses:
+                status = "missing"
+            else:
+                status = "unresolvable"
+            drift.append(
+                {
+                    "file": rel_path,
+                    "resource": str(entry.get("resource", "<unknown>")),
+                    "status": status,
+                }
+            )
+
+    return drift
+
+
 def _resolve_targets(
     arguments: Dict[str, Any], store: SessionStore
 ) -> Tuple[Optional[Path], Optional[Path]]:
     """Resolve (output_dir, repo_root) following the write_doc_file convention."""
     from codewiki.mcp.tools.workspace_result import resolve_session
 
-    od = arguments.get("output_dir")
     rp = arguments.get("repo_path")
 
     repo_path: Optional[Path] = None
@@ -92,15 +170,11 @@ def _resolve_targets(
 
     session = resolve_session(arguments, store)
 
-    if od:
-        output_dir = Path(od).expanduser().resolve()
-    elif session:
-        output_dir = Path(session.output_dir).expanduser().resolve()
-    elif repo_path:
-        from codewiki.mcp.tools.workspace_layout import default_output_dir
+    from codewiki.mcp.tools.store_bridge import resolve_output_dir
 
-        output_dir = default_output_dir(repo_path)
-    else:
+    try:
+        output_dir = resolve_output_dir(session, arguments)
+    except ValueError:
         return None, None
 
     if repo_path is None and session is not None and session.repo_path:

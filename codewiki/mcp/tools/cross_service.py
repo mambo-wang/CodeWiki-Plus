@@ -49,24 +49,20 @@ def handle_query_cross_service(
             ensure_ascii=False,
         )
 
-    # Resolve meta directory: explicit output_dir first, then auto-derive
-    explicit_od = arguments.get("output_dir")
-    if explicit_od:
-        meta_dir = Path(explicit_od).expanduser().resolve() / ".meta"
-    else:
-        meta_dir = workspace_path / "repowiki" / ".meta"
-        if not meta_dir.exists():
-            # Legacy: pre-unification analyze_workspace output location
-            meta_dir = workspace_path / "workspace-wiki" / ".meta"
-        if not meta_dir.exists():
-            # Broader search: try common workspace subdirs
-            for candidate in workspace_path.iterdir():
-                if not candidate.is_dir() or candidate.name.startswith("."):
-                    continue
-                test_dir = candidate / ".meta"
-                if test_dir.exists() and (test_dir / "cross_service_links.json").exists():
-                    meta_dir = test_dir
-                    break
+    # Resolve meta directory from workspace_path (output_dir retired)
+    meta_dir = workspace_path / "repowiki" / ".meta"
+    if not meta_dir.exists():
+        # Legacy: pre-unification analyze_workspace output location
+        meta_dir = workspace_path / "workspace-wiki" / ".meta"
+    if not meta_dir.exists():
+        # Broader search: try common workspace subdirs
+        for candidate in workspace_path.iterdir():
+            if not candidate.is_dir() or candidate.name.startswith("."):
+                continue
+            test_dir = candidate / ".meta"
+            if test_dir.exists() and (test_dir / "cross_service_links.json").exists():
+                meta_dir = test_dir
+                break
 
     links_path = meta_dir / "cross_service_links.json"
     routes_path = meta_dir / "workspace_routes.json"

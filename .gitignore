@@ -34,6 +34,8 @@ MANIFEST
 
 # Tests
 .pytest_cache/
+# pytest basetemp (configured in pyproject): local-only, never commit
+.pytest-tmp/
 .coverage
 htmlcov/
 .tox/
@@ -108,3 +110,30 @@ repowiki/.meta/locks/
 
 # Qoder IDE plugin skills (not part of this repo)
 .qoder/skills/
+# Team-layout Phase 1: 可重建派生物不入库（D1，详见 docs/团队化文件冲突治理与同步策略设计方案.md）
+.pytest-tmp/test_still_allows_workspace_ro0/repowiki/wiki/index.md
+.pytest-tmp/test_still_allows_workspace_ro0/repowiki/.meta/edit_history.json
+.pytest-tmp/test_still_allows_workspace_ro0/repowiki/.meta/metadata.json
+.pytest-tmp/test_still_allows_workspace_ro0/repowiki/.meta/module_tree.json
+.pytest-tmp/test_still_allows_workspace_ro0/repowiki/.meta/symbol_map.json
+.pytest-tmp/test_still_allows_workspace_ro0/repowiki/.meta/project.json
+.pytest-tmp/test_still_allows_workspace_ro0/repowiki/.meta/overview_refs.json
+.pytest-tmp/test_still_allows_workspace_ro0/repowiki/.meta/aggregate_state.json
+.pytest-tmp/test_still_allows_workspace_ro0/repowiki/.meta/source_registry.json
+.pytest-tmp/test_still_allows_workspace_ro0/repowiki/.meta/task_bindings/
+.pytest-tmp/test_still_allows_workspace_ro0/repowiki/.meta/locks/
+.pytest-tmp/test_still_allows_workspace_ro0/repowiki/tasks/.index.json
+.pytest-tmp/test_still_allows_workspace_ro0/repowiki/distill-jobs.json
+.pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/wiki/index.md
+.pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/.meta/edit_history.json
+.pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/.meta/metadata.json
+.pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/.meta/module_tree.json
+.pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/.meta/symbol_map.json
+.pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/.meta/project.json
+.pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/.meta/overview_refs.json
+.pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/.meta/aggregate_state.json
+.pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/.meta/source_registry.json
+.pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/.meta/task_bindings/
+.pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/.meta/locks/
+.pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/tasks/.index.json
+.pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/distill-jobs.json

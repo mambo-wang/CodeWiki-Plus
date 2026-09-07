@@ -20,6 +20,7 @@ from codewiki.cli.commands.install_hooks import install_hooks
 from codewiki.cli.utils.ide_config import (
     AGENT_FILE,
     HOOK_FILES,
+    PROMPT_HOOK_CMD,
     detect_ide_dirs,
     install_for_ide,
     merge_settings_json,
@@ -111,11 +112,15 @@ def test_merge_keeps_unrelated_config():
     assert end[0]["matcher"] == "other"
     assert end[0]["hooks"][0]["command"] == "end-cmd"
     assert end[0]["hooks"][0]["timeout"] == 30
+    prompt = merged["hooks"]["UserPromptSubmit"]
+    assert prompt[0]["matcher"] == ""
+    assert prompt[0]["hooks"][0]["command"] == PROMPT_HOOK_CMD
+    assert prompt[0]["hooks"][0]["timeout"] == 10
 
 
 def test_merge_none_existing():
     merged = merge_settings_json(None, "start-cmd", "end-cmd")
-    assert set(merged["hooks"]) == {"SessionStart", "SessionEnd"}
+    assert set(merged["hooks"]) == {"SessionStart", "SessionEnd", "UserPromptSubmit"}
 
 
 def test_merge_is_idempotent():
@@ -125,6 +130,7 @@ def test_merge_is_idempotent():
     # Re-running must not grow the registrations.
     assert len(twice["hooks"]["SessionStart"]) == 1
     assert len(twice["hooks"]["SessionEnd"]) == 1
+    assert len(twice["hooks"]["UserPromptSubmit"]) == 1
 
 
 def test_merge_dedups_same_command_with_different_timeout():
@@ -142,6 +148,37 @@ def test_merge_dedups_same_command_with_different_timeout():
     assert len(merged["hooks"]["SessionStart"]) == 1
     # Existing timeout preserved; no duplicate entry added.
     assert merged["hooks"]["SessionStart"][0]["hooks"][0]["timeout"] == 99
+
+
+def test_merge_registers_user_prompt_submit():
+    merged = merge_settings_json(None, "start-cmd", "end-cmd")
+    up = merged["hooks"]["UserPromptSubmit"]
+    assert len(up) == 1
+    assert up[0]["matcher"] == ""  # empty matcher = every prompt runs the matcher
+    assert up[0]["hooks"] == [
+        {"type": "command", "command": PROMPT_HOOK_CMD, "timeout": 10}
+    ]
+
+
+def test_merge_keeps_existing_user_prompt_matchers():
+    # User-owned UserPromptSubmit rules (any matcher) are kept untouched next to
+    # CodeWiki's empty-matcher registration.
+    existing = {
+        "hooks": {
+            "UserPromptSubmit": [
+                {
+                    "matcher": "startup",
+                    "hooks": [{"type": "command", "command": "my-own-hook", "timeout": 5}],
+                }
+            ]
+        }
+    }
+    merged = merge_settings_json(existing, "start-cmd", "end-cmd")
+    up = merged["hooks"]["UserPromptSubmit"]
+    assert len(up) == 2
+    assert [e["matcher"] for e in up] == ["startup", ""]
+    own = next(e for e in up if e["matcher"] == "startup")
+    assert own["hooks"] == [{"type": "command", "command": "my-own-hook", "timeout": 5}]
 
 
 # Legacy entries (absolute / backslash paths, or $*_PROJECT_DIR placeholders)
@@ -288,6 +325,9 @@ def test_install_keeps_existing_settings_and_is_idempotent(tmp_path, fake_pkg):
     assert settings["telemetry"] == {"enabled": True}  # unrelated config kept
     assert len(settings["hooks"]["SessionStart"]) == 1
     assert len(settings["hooks"]["SessionEnd"]) == 1
+    assert len(settings["hooks"]["UserPromptSubmit"]) == 1
+    prompt_cmd = settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+    assert prompt_cmd == PROMPT_HOOK_CMD
 
     # AGENTS.md must contain exactly one task-memory section.
     agents_md = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")

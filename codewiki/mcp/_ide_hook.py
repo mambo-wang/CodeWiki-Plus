@@ -12,6 +12,13 @@ handled separately by `distill_conversation` run in a background subagent/worker
 (see SPEC-conversation-to-wiki.md). The raw/ staging area is transient and is
 NOT indexed by query_wiki.
 
+Second responsibility (skill-creator §10): on a ``UserPromptSubmit`` event the
+hook matches the user's prompt against *uninstalled* draft skills
+(``repowiki/skills/*/SKILL.md`` with ``status: draft``) and, on a hit, emits a
+``hookSpecificOutput.additionalContext`` pointer carrying only the skill's name
+and description. This branch is read-only — it never captures, never compiles
+and never installs.
+
 Security / opt-in:
     The hook is OFF by default. The IDE must set the environment variable
     ``CODEWIKI_TEAM_MEMORY_HOOK=1`` (or pass ``--enable``) before invoking this
@@ -51,6 +58,8 @@ import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+from codewiki.src.skill_match import PROMPT_EVENTS
 
 logger = None  # lazily imported to keep CLI startup cheap
 
@@ -118,11 +127,16 @@ def _load_event(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
         # ``sys.stdin.read()`` would use the platform locale codec (e.g. cp936
         # on Chinese Windows), which turns non-ASCII bytes into lone surrogates
         # and later breaks ``write_text(encoding="utf-8")`` for CJK content.
+        # Decode with utf-8-sig and strip stray BOM chars: PowerShell pipes
+        # prepend a UTF-8 BOM to a native command's stdin (sometimes more than
+        # one), which would otherwise break ``json.loads`` below. Same
+        # tolerance as the hook wrapper's ``_read_event``
+        # (.codebuddy/hooks/capture_session_end.py).
         try:
             stdin_bytes = sys.stdin.buffer.read()
         except AttributeError:  # pragma: no cover - non-buffered stdin
             stdin_bytes = sys.stdin.read().encode("utf-8", "replace")
-        raw = stdin_bytes.decode("utf-8", "replace").strip()
+        raw = stdin_bytes.decode("utf-8-sig", "replace").lstrip("\ufeff").strip()
         if raw:
             try:
                 data = json.loads(raw)
@@ -245,31 +259,18 @@ def _extract_codebuddy_message_text(msg_data: dict) -> str:
     return ""
 
 
-_NOISE_BLOCK_TYPES = frozenset(
-    {
-        "tool-call",
-        "tool_call",
-        "tool-result",
-        "tool_result",
-        "reasoning",
-        "thinking",
-    }
-)
+# Content-block digestion (skill-creator §9): two-tier tool handling shared
+# with capture_conversation — codewiki.src.tool_digest is stdlib-only, so
+# importing it here does not break the hook's stdlib constraint. Tool calls
+# become one ``[tool: name · command]`` line each (command/error/fix chains
+# are skill material); tool results survive only as error excerpts; pure
+# noise (thinking/system) stays dropped.
+from codewiki.src.tool_digest import digest_blocks
 
 
 def _text_from_content_blocks(blocks: list) -> str:
-    """Join text from content blocks, skipping tool-call/tool-result/reasoning noise."""
-    parts: list = []
-    for block in blocks:
-        if not isinstance(block, dict):
-            continue
-        btype = block.get("type", "")
-        if btype in _NOISE_BLOCK_TYPES:
-            continue
-        text = block.get("text")
-        if isinstance(text, str) and text.strip():
-            parts.append(text.strip())
-    return "\n\n".join(parts)
+    """Flatten content blocks with two-tier tool digestion (see tool_digest)."""
+    return "\n\n".join(digest_blocks(blocks))
 
 
 def _load_transcript(path: Optional[str]) -> Optional[list]:
@@ -350,6 +351,87 @@ def _cleanup_event_file(path: Optional[str]) -> None:
         pass
 
 
+def _event_name(event: Dict[str, Any]) -> str:
+    """Lower-cased hook event name (several IDEs spell the key differently)."""
+    raw = (
+        event.get("hook_event_name")
+        or event.get("hookEventName")
+        or event.get("event")
+        or ""
+    )
+    return str(raw).strip().lower()
+
+
+def _extract_prompt(event: Dict[str, Any]) -> str:
+    """Pull the submitted user prompt out of a UserPromptSubmit payload."""
+    for key in ("prompt", "user_prompt", "message", "text", "input"):
+        value = event.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _resolve_skills_dir(repo_path: str) -> Optional[str]:
+    """Draft-zone skills directory for this repo, or None if not a CodeWiki repo."""
+    if not repo_path:
+        return None
+    from codewiki.src.config import SKILLS_DIR
+
+    for candidate in (
+        Path(repo_path) / "repowiki" / SKILLS_DIR,
+        Path(repo_path) / SKILLS_DIR,
+    ):
+        if candidate.is_dir():
+            return str(candidate)
+    return None
+
+
+def _handle_user_prompt(
+    args: argparse.Namespace, event: Dict[str, Any], event_file: Optional[str]
+) -> int:
+    """UserPromptSubmit → match draft skills → inject a one-line pointer.
+
+    Read-only and hint-only: never captures, never compiles, never installs,
+    never writes (design §10). The injected text carries name + description
+    and nothing else — surfacing a SKILL body would blur retrieval knowledge
+    with behaviour instructions (ADR-0004 decision 2).
+    """
+    try:
+        prompt = _extract_prompt(event)
+        repo_path = args.repo_path or event.get("repo_path") or event.get("cwd") or ""
+        skills_dir = _resolve_skills_dir(repo_path)
+        if not prompt or not skills_dir:
+            return 0
+
+        from codewiki.src.skill_match import build_skill_hint, match_draft_skills
+
+        hit = match_draft_skills(prompt, skills_dir)
+        if not hit:
+            return 0
+        hint = build_skill_hint("match", hit)
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError, OSError):
+            pass
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "UserPromptSubmit",
+                        "additionalContext": hint["skill_hint"]["message"],
+                    }
+                },
+                ensure_ascii=False,
+            )
+        )
+    except Exception as e:  # never break the user's prompt on a hook failure
+        print(f"ide-hook: skill match failed: {e}", file=sys.stderr)
+        return 0
+    finally:
+        _cleanup_event_file(event_file)
+    return 0
+
+
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(
         description="IDE hook: capture a conversation into repowiki/raw/ (no distillation)."
@@ -386,15 +468,29 @@ def main(argv: Optional[list] = None) -> int:
 
     # Opt-in gate: never capture unless explicitly enabled.
     if not _enabled(args.enable):
-        print("ide-hook: disabled (set CODEWIKI_TEAM_MEMORY_HOOK=1 or pass --enable).")
+        # Diagnostic messages go to stderr: on UserPromptSubmit the IDE reads
+        # this script's stdout as the injection channel, so any non-JSON text
+        # here would become per-prompt noise in the agent context.
+        print(
+            "ide-hook: disabled (set CODEWIKI_TEAM_MEMORY_HOOK=1 or pass --enable).",
+            file=sys.stderr,
+        )
         _cleanup_event_file(event_file_to_clean)
         return 0
 
     event = _load_event(args)
     if event is None:
-        print("ide-hook: no conversation payload provided; nothing to capture.")
+        # stdout is the hook-injection channel — keep it empty when there is
+        # nothing to do, so an un-triggered invocation injects nothing.
+        print("ide-hook: no conversation payload provided; nothing to capture.", file=sys.stderr)
         _cleanup_event_file(event_file_to_clean)
         return 0
+
+    # UserPromptSubmit is a read-only advisory path (design §10): match the
+    # prompt against uninstalled draft skills and inject a pointer. It never
+    # captures and never writes — dispatch before the capture logic below.
+    if _event_name(event) in PROMPT_EVENTS:
+        return _handle_user_prompt(args, event, event_file_to_clean)
 
     # Merge CLI args over the payload file/stdin.
     def _pick(key, cli_val):
@@ -416,7 +512,8 @@ def main(argv: Optional[list] = None) -> int:
             print(
                 f"ide-hook: {hook_event} event has no conversation turns and no "
                 "usable transcript_path; capturing the event envelope only "
-                "(the IDE did not provide an inline transcript)."
+                "(the IDE did not provide an inline transcript).",
+                file=sys.stderr,
             )
             # Fall through: capture the event envelope as a minimal record.
             # NOTE: role must be "user" (not "system") -- capture_conversation
@@ -437,7 +534,10 @@ def main(argv: Optional[list] = None) -> int:
                 }
             ]
         else:
-            print("ide-hook: payload has no 'conversation' turns; nothing to capture.")
+            print(
+                "ide-hook: payload has no 'conversation' turns; nothing to capture.",
+                file=sys.stderr,
+            )
             return 0
 
     arguments: Dict[str, Any] = {
