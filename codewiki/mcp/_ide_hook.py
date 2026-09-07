@@ -127,11 +127,16 @@ def _load_event(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
         # ``sys.stdin.read()`` would use the platform locale codec (e.g. cp936
         # on Chinese Windows), which turns non-ASCII bytes into lone surrogates
         # and later breaks ``write_text(encoding="utf-8")`` for CJK content.
+        # Decode with utf-8-sig and strip stray BOM chars: PowerShell pipes
+        # prepend a UTF-8 BOM to a native command's stdin (sometimes more than
+        # one), which would otherwise break ``json.loads`` below. Same
+        # tolerance as the hook wrapper's ``_read_event``
+        # (.codebuddy/hooks/capture_session_end.py).
         try:
             stdin_bytes = sys.stdin.buffer.read()
         except AttributeError:  # pragma: no cover - non-buffered stdin
             stdin_bytes = sys.stdin.read().encode("utf-8", "replace")
-        raw = stdin_bytes.decode("utf-8", "replace").strip()
+        raw = stdin_bytes.decode("utf-8-sig", "replace").lstrip("\ufeff").strip()
         if raw:
             try:
                 data = json.loads(raw)
@@ -463,13 +468,21 @@ def main(argv: Optional[list] = None) -> int:
 
     # Opt-in gate: never capture unless explicitly enabled.
     if not _enabled(args.enable):
-        print("ide-hook: disabled (set CODEWIKI_TEAM_MEMORY_HOOK=1 or pass --enable).")
+        # Diagnostic messages go to stderr: on UserPromptSubmit the IDE reads
+        # this script's stdout as the injection channel, so any non-JSON text
+        # here would become per-prompt noise in the agent context.
+        print(
+            "ide-hook: disabled (set CODEWIKI_TEAM_MEMORY_HOOK=1 or pass --enable).",
+            file=sys.stderr,
+        )
         _cleanup_event_file(event_file_to_clean)
         return 0
 
     event = _load_event(args)
     if event is None:
-        print("ide-hook: no conversation payload provided; nothing to capture.")
+        # stdout is the hook-injection channel — keep it empty when there is
+        # nothing to do, so an un-triggered invocation injects nothing.
+        print("ide-hook: no conversation payload provided; nothing to capture.", file=sys.stderr)
         _cleanup_event_file(event_file_to_clean)
         return 0
 
@@ -499,7 +512,8 @@ def main(argv: Optional[list] = None) -> int:
             print(
                 f"ide-hook: {hook_event} event has no conversation turns and no "
                 "usable transcript_path; capturing the event envelope only "
-                "(the IDE did not provide an inline transcript)."
+                "(the IDE did not provide an inline transcript).",
+                file=sys.stderr,
             )
             # Fall through: capture the event envelope as a minimal record.
             # NOTE: role must be "user" (not "system") -- capture_conversation
@@ -520,7 +534,10 @@ def main(argv: Optional[list] = None) -> int:
                 }
             ]
         else:
-            print("ide-hook: payload has no 'conversation' turns; nothing to capture.")
+            print(
+                "ide-hook: payload has no 'conversation' turns; nothing to capture.",
+                file=sys.stderr,
+            )
             return 0
 
     arguments: Dict[str, Any] = {
