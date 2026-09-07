@@ -13,7 +13,7 @@ metadata:
   - capture_conversation
   - distill_conversation
   - knowledge_loop
-  source_ref: raw\conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in.md
+  source_ref: conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in.md
   consolidated_into:
   - wiki/scenarios/MCP-Server薄壳架构与参数约定.md
 status: deprecated
