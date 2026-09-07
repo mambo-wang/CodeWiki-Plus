@@ -1245,9 +1245,16 @@ def _prompt_consolidate_knowledge(args: dict[str, str]) -> str:
 ## 步骤 3：退役被吸收的笔记
 对被场景块**完全吸收**的源笔记调用 `reject_note(note_file=..., reason="consolidated into <场景块标题>")`，使其退出检索。部分吸收的笔记保留。
 
+## 步骤 3.5：给未入选的候选一个去向
+每条 pending 候选都必须有明确归宿，**不允许无声跳过**：
+- 被吸收 → 已由 `source_notes` 表达，无需额外动作
+- 知识为真但还太单薄、等更多同类素材 → `dispositions` 记 `deferred`（保留在 pending，下轮再判）
+- 永不可能是场景素材（一次性任务状态、个人偏好、临时上下文）→ `dispositions` 记 `excluded`，**必须写 reason**
+
 ## 步骤 4：提交报告
-`consolidate_notes(mode="submit", report={{"scenarios": [{{"file": "wiki/scenarios/xxx.md", "action": "created|updated|merged|deleted", "source_notes": ["notes/..."], "summary": "30-40 字摘要", "heat": 1}}]}})`
-- 工具侧校验文件、写入双向溯源（source_notes ⇄ consolidated_into）、清理 [DELETED]、强制容量上限并归零聚合计数器
+`consolidate_notes(mode="submit", report={{"scenarios": [{{"file": "wiki/scenarios/xxx.md", "action": "created|updated|merged|deleted", "source_notes": ["notes/..."], "summary": "30-40 字摘要", "heat": 1}}], "dispositions": [{{"file": "notes/...", "verdict": "deferred|excluded", "reason": "..."}}]}})`
+- 工具侧校验文件、写入双向溯源（source_notes ⇄ consolidated_into）、把 disposition 盖回笔记 frontmatter、清理 [DELETED]、强制容量上限并归零聚合计数器
+- `verdict` 只接受 `deferred|excluded`（`absorbed` 由 `consolidated_into` 派生，提交会被拒）；`excluded` 缺 reason 会被拒
 - 返回 `capacity_exceeded` 时：先 MERGE 再重新提交
 - 返回 `error` 时：按 errors 修正后重交
 

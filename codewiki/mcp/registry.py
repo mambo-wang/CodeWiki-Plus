@@ -1675,8 +1675,12 @@ _register(
             "then writes scene blocks via write_doc_file(page_type='scenario'), "
             "retires fully-absorbed source notes via reject_note, and calls "
             "mode='submit' with report.scenarios=[{file, action, source_notes, "
-            "summary?, heat?}] (action: created|updated|merged|deleted). Submit "
-            "validates files, stamps summary/heat, records provenance "
+            "summary?, heat?}] (action: created|updated|merged|deleted). Every "
+            "candidate needs a destination: absorbed ones via source_notes, the "
+            "rest via report.dispositions=[{file, verdict, reason?}] with verdict "
+            "in deferred|excluded — 'deferred' stays pending, 'excluded' (reason "
+            "REQUIRED) leaves the pending list for good. Submit validates files, "
+            "stamps summary/heat, records provenance "
             "(source_notes ⇄ consolidated_into), cleans [DELETED] markers, enforces "
             "the capacity cap and resets the aggregation counter. NEVER runs "
             "automatically — only on explicit request; when triggered by an "
@@ -1710,10 +1714,15 @@ _register(
                     "type": "object",
                     "description": (
                         "submit only: {scenarios: [{file, action, source_notes, "
-                        "summary?, heat?}]} — file relative to output_dir "
+                        "summary?, heat?}], dispositions?: [{file, verdict, "
+                        "reason?}]} — file relative to output_dir "
                         "(wiki/scenarios/...md), action in created|updated|merged|"
                         "deleted, source_notes the absorbed note files. deleted "
-                        "requires the file body to be exactly [DELETED]."
+                        "requires the file body to be exactly [DELETED]. "
+                        "dispositions records where every NON-absorbed candidate "
+                        "went: file is a note path (notes/...md), verdict in "
+                        "deferred|excluded (absorbed is derived from source_notes "
+                        "and must not be submitted), reason required for excluded."
                     ),
                 },
             },

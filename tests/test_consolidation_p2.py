@@ -322,6 +322,155 @@ def test_submit_validation_error_keeps_counter(tmp_path):
     assert state["notes_since_last_consolidation"] == 1  # NOT reset
 
 
+# --------------------------------------------------------------------------- #
+# 3b. candidate dispositions (every pending note needs a destination)
+# --------------------------------------------------------------------------- #
+def test_submit_disposition_excluded_drops_from_pending(tmp_path):
+    repo = str(tmp_path)
+    _set_thresholds(repo)
+    keep = _ingest(repo, "Reusable method note")
+    drop = _ingest(repo, "One off task state note")
+    _confirm(repo, keep)
+    _confirm(repo, drop)
+
+    resp = _consolidate(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "dispositions": [
+                    {
+                        "file": f"notes/{drop}",
+                        "verdict": "excluded",
+                        "reason": "一次性任务状态，非可复用工作方法",
+                    }
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "completed", resp
+    assert resp["dispositions"] == [{"file": f"notes/{drop}", "verdict": "excluded"}]
+
+    fm = _fm(repo, f"notes/{drop}")
+    assert fm["metadata"]["disposition"]["verdict"] == "excluded"
+    assert fm["metadata"]["disposition"]["reason"].startswith("一次性")
+    assert fm["metadata"]["disposition"]["at"]
+
+    again = _consolidate(repo, {"mode": "prepare"})
+    titles = [n["title"] for n in again["pending_notes"]]
+    assert "One off task state note" not in titles
+    assert "Reusable method note" in titles
+
+
+def test_submit_disposition_deferred_stays_pending_with_marker(tmp_path):
+    repo = str(tmp_path)
+    _set_thresholds(repo)
+    thin = _ingest(repo, "Thin but real note")
+    _confirm(repo, thin)
+
+    resp = _consolidate(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "dispositions": [
+                    {"file": f"notes/{thin}", "verdict": "deferred", "reason": "等同类素材"}
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "completed", resp
+
+    again = _consolidate(repo, {"mode": "prepare"})
+    assert len(again["pending_notes"]) == 1
+    entry = again["pending_notes"][0]
+    assert entry["title"] == "Thin but real note"
+    # still pending, but now visibly already judged
+    assert entry["disposition"] == "deferred"
+
+
+def test_prepare_disposition_null_when_never_judged(tmp_path):
+    repo = str(tmp_path)
+    _set_thresholds(repo)
+    fresh = _ingest(repo, "Never judged note")
+    _confirm(repo, fresh)
+    resp = _consolidate(repo, {"mode": "prepare"})
+    assert resp["pending_notes"][0]["disposition"] is None
+
+
+def test_submit_disposition_excluded_requires_reason(tmp_path):
+    repo = str(tmp_path)
+    _set_thresholds(repo)
+    nf = _ingest(repo, "Unreasoned exclusion note")
+    _confirm(repo, nf)
+
+    resp = _consolidate(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "dispositions": [{"file": f"notes/{nf}", "verdict": "excluded"}]
+            },
+        },
+    )
+    assert resp["status"] == "error"
+    assert any("requires a non-empty reason" in e["error"] for e in resp["errors"])
+    # nothing written: still pending
+    again = _consolidate(repo, {"mode": "prepare"})
+    assert [n["title"] for n in again["pending_notes"]] == ["Unreasoned exclusion note"]
+
+
+def test_submit_disposition_rejects_absorbed_verdict(tmp_path):
+    """absorbed is derived from consolidated_into — submitting it is a bug."""
+    repo = str(tmp_path)
+    _set_thresholds(repo)
+    nf = _ingest(repo, "Derived verdict note")
+    _confirm(repo, nf)
+
+    resp = _consolidate(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "dispositions": [{"file": f"notes/{nf}", "verdict": "absorbed"}]
+            },
+        },
+    )
+    assert resp["status"] == "error"
+    assert any("invalid verdict" in e["error"] for e in resp["errors"])
+
+
+def test_absorbed_disposition_is_derived_not_stored(tmp_path):
+    """source_notes alone must produce the absorbed disposition — no second copy."""
+    repo = str(tmp_path)
+    _set_thresholds(repo)
+    n1 = _ingest(repo, "Absorbed source note")
+    _confirm(repo, n1)
+
+    scen = _write_scenario(repo, "absorb-scene", with_provenance=False)
+    resp = _consolidate(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "scenarios": [
+                    {
+                        "file": scen,
+                        "action": "created",
+                        "source_notes": [f"notes/{n1}"],
+                        "summary": "absorb test",
+                        "heat": 1,
+                    }
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "completed", resp
+    # derived on read, not persisted
+    assert "disposition" not in _fm(repo, f"notes/{n1}")["metadata"]
+    assert cons._note_disposition(_fm(repo, f"notes/{n1}")["metadata"]) == "absorbed"
+
+
 def test_submit_capacity_exceeded_blocks_reset(tmp_path):
     repo = str(tmp_path)
     _set_thresholds(repo, max_scenes=2)
