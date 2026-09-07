@@ -98,13 +98,27 @@ AGENT_FILE = "distill-worker.md"
 START_HOOK_CMD = 'python "{ide_dir}/hooks/task_session_start.py"'
 END_HOOK_CMD = 'python "{ide_dir}/hooks/capture_session_end.py"'
 
-# hook 事件注册骨架，command 运行时补全为相对路径命令
+# UserPromptSubmit（技能草稿提示，skill-creator §10）：走包内入口 `python -m`
+# 而非物理脚本——IDE 以项目根为工作目录执行 hook 命令，cwd 在 sys.path 上，
+# checkout 内或已 pip 安装的 codewiki 包即可 import。命令不含任何路径，
+# settings.json 随仓库共享天然可移植。脚本同步读 stdin 事件，内部按
+# containment 阈值过滤，命中 `status: draft` 草稿才输出 hookSpecificOutput
+# （advisory：只提示、不自动 install）。
+PROMPT_HOOK_CMD = "python -m codewiki.mcp._ide_hook --enable"
+
+# hook 事件注册骨架，command 运行时补全为相对路径命令。matcher 语义：
+# SessionStart 的 "startup" 匹配会话启动；SessionEnd 的 "other" 匹配任意原因；
+# UserPromptSubmit 的空串 matcher 让每条用户指令都过一遍匹配器，是否提示由
+# _ide_hook 内部的草稿匹配把关（命中才产生输出，未命中 stdout 为空不注入）。
 HOOKS_REGISTRATION = {
     "SessionStart": [
         {"matcher": "startup", "hooks": [{"type": "command", "command": "<cmd>", "timeout": 15}]}
     ],
     "SessionEnd": [
         {"matcher": "other", "hooks": [{"type": "command", "command": "<cmd>", "timeout": 30}]}
+    ],
+    "UserPromptSubmit": [
+        {"matcher": "", "hooks": [{"type": "command", "command": "<cmd>", "timeout": 10}]}
     ],
 }
 
@@ -155,11 +169,13 @@ def detect_ide_dirs(repo: str) -> list[str]:
 def merge_settings_json(existing: Optional[dict], start_cmd: str, end_cmd: str) -> dict:
     """幂等合并 CodeWiki 的 hook 注册到现有 settings.json 配置。
 
-    保留 existing 中全部既有键；对 hooks.SessionStart/SessionEnd 数组按 command
-    去重后合并 CodeWiki 注册项，避免重复注册。历史旧格式条目（绝对路径、
-    反斜杠路径或 ``$*_PROJECT_DIR`` 占位符形式）指向同一相对脚本路径时，
-    原地迁移为相对路径命令（保留原 timeout），重跑接线不产生重复条目。
-    返回合并结果，由调用方原子写回。
+    保留 existing 中全部既有键；对 hooks.SessionStart/SessionEnd/UserPromptSubmit
+    数组按 command 去重后合并 CodeWiki 注册项，避免重复注册。历史旧格式条目
+    （绝对路径、反斜杠路径或 ``$*_PROJECT_DIR`` 占位符形式）指向同一相对脚本
+    路径时，原地迁移为相对路径命令（保留原 timeout），重跑接线不产生重复条目。
+    UserPromptSubmit（advisory 技能提示）走常量命令 ``PROMPT_HOOK_CMD``——
+    ``python -m`` 入口不含路径，无从迁移；matcher 空串 = 每条指令都过匹配器，
+    由脚本内部 containment 阈值把关。返回合并结果，由调用方原子写回。
     """
     merged = copy.deepcopy(existing) if existing else {}
     hooks = merged.get("hooks")
@@ -170,6 +186,10 @@ def merge_settings_json(existing: Optional[dict], start_cmd: str, end_cmd: str) 
     registrations = [
         ("SessionStart", "startup", start_cmd, 15),
         ("SessionEnd", "other", end_cmd, 30),
+        # matcher 空串：UserPromptSubmit 的匹配对象是用户指令文本，空串 =
+        # 每条都触发（区别于 SessionStart 的 "startup" 只匹配会话启动）。
+        # 同步执行（IDE 要等 stdout 的 hookSpecificOutput），timeout 10 足够。
+        ("UserPromptSubmit", "", PROMPT_HOOK_CMD, 10),
     ]
     for event, matcher, command, timeout in registrations:
         if event not in hooks or not isinstance(hooks[event], list):
