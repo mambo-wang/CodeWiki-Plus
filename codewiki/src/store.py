@@ -150,22 +150,19 @@ def locked(path: Path) -> Iterator[None]:
     over.
 
     Lock-file cleanup: released lock files are best-effort removed on
-    Windows only (deleting a file that another process has open raises a
-    sharing violation, so the unlink can only succeed when nobody holds it —
-    no inode race).  On Unix the file is deliberately kept: ``flock`` locks
-    the inode, and unlinking the path while a contender has it open would
-    let a third process lock a freshly created file — two "exclusive"
+    Windows only, *inside* the per-path thread-lock critical section via
+    ``file_lock(unlink_on_release=True)`` — the unlink used to run after the
+    thread lock was released, and a sibling thread's ``os.open`` could hit
+    the Windows delete-pending state mid-release (``PermissionError`` → lost
+    update, 2026-09-07).  On Unix the file is deliberately kept: ``flock``
+    locks the inode, and unlinking the path while a contender has it open
+    would let a third process lock a freshly created file — two "exclusive"
     holders of the same lock.  See ``codewiki.src.locks``.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_file = _lock_path_for(path)
-    with file_lock(lock_file):
+    with file_lock(lock_file, unlink_on_release=os.name == "nt"):
         yield
-    if os.name == "nt":  # pragma: no cover - platform branch
-        try:
-            lock_file.unlink(missing_ok=True)
-        except OSError:
-            pass  # another holder keeps it open — leave for lint_wiki sweep
 
 
 def locked_write(path: Path, content: str) -> None:

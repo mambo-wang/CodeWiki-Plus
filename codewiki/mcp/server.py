@@ -63,6 +63,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
+from codewiki import __version__
 from codewiki.mcp.session import SessionStore
 
 logger = logging.getLogger(__name__)
@@ -136,7 +137,10 @@ ingest_note(note_type, title, content) → 自动索引 → query_wiki 可检索
 
 server = Server(
     "codewiki",
-    version="5.2.1",
+    # Single source of truth: codewiki/__init__.py (kept in sync with
+    # pyproject.toml at release time).  Never hardcode here — a stale literal
+    # misleads clients that gate capabilities on the initialize handshake.
+    version=__version__,
     instructions=_SERVER_INSTRUCTIONS,
 )
 

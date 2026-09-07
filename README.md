@@ -38,6 +38,7 @@
 - [第 7 篇：记忆/经验分层提取——自生长的团队知识库](https://mp.weixin.qq.com/s/s253xe5LiUmgdfDo3XxAbg)（2026-08）
 - [第 8 篇：四维代码评审——让踩过的坑自动变成 CHECKLIST](https://mp.weixin.qq.com/s/wH_mjG5IL-0qo_qDFpODuw)（2026-08）
 - [第 9 篇：多仓Harness集中式管理方案](https://mp.weixin.qq.com/s/pA1CsLSAIqbeVqFV4-kVQQ)（2026-09）
+- [第 10 篇：如何让AI写的Wiki可信——项目知识全生命周期管理](https://mp.weixin.qq.com/s/OdESdERtINqYTBkIIVFWlQ)（2026-09）
 
 
 

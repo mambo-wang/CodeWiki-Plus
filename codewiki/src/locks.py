@@ -45,6 +45,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import IO, Iterator, Union
@@ -75,16 +76,45 @@ def _lock_for(path_key: str) -> threading.Lock:
         return lock
 
 
+def _open_lock_file(filepath: Union[str, Path], *, attempts: int = 50, delay: float = 0.01) -> int:
+    """``os.open`` with a short retry on Windows delete-pending races.
+
+    A sidecar lock file that another thread/process is releasing may be in
+    the delete-pending state exactly while we open it — ``CreateFile`` then
+    fails with ``ERROR_ACCESS_DENIED``/``ERROR_DELETE_PENDING``
+    (``PermissionError``).  This is transient: once the unlink completes,
+    ``O_CREAT`` re-creates a fresh file.  Retry briefly instead of letting a
+    release/unlink race kill the caller's whole read-modify-write sequence
+    (observed as lost updates under threads — 2026-09-07).
+    """
+    for attempt in range(attempts):
+        try:
+            return os.open(str(filepath), os.O_RDWR | os.O_CREAT, 0o666)
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
 @contextmanager
-def file_lock(filepath: Union[str, Path]) -> Iterator[IO[str]]:
+def file_lock(
+    filepath: Union[str, Path], *, unlink_on_release: bool = False
+) -> Iterator[IO[str]]:
     """Hold an exclusive lock bound to *filepath* for the ``with`` block.
 
     Yields the UTF-8 text handle that holds the lock; perform all reads and
     writes through it.  The file is created if missing.
+
+    ``unlink_on_release=True`` (sidecar locks only — never content files)
+    best-effort removes the file after releasing, **still inside the per-path
+    thread-lock critical section** so a sibling thread can never be mid-open
+    against the delete-pending file.  Windows only: the flag is ignored on
+    Unix, where unlinking a flock'd path reintroduces the inode race.
     """
     path_key = str(Path(filepath).resolve())
     with _lock_for(path_key):
-        fd = os.open(str(filepath), os.O_RDWR | os.O_CREAT, 0o666)
+        fd = _open_lock_file(filepath)
         try:
             _acquire_os_lock(fd)
             f = os.fdopen(fd, "r+", encoding="utf-8")
@@ -99,6 +129,18 @@ def file_lock(filepath: Union[str, Path]) -> Iterator[IO[str]]:
                 os.close(fd)
             except OSError:
                 pass  # fd already closed via f.close()
+        # Still inside the per-path thread lock: no thread of this process
+        # can be mid-open here.  Cross-process contenders hitting the
+        # delete-pending window are covered by _open_lock_file's retry.
+        if unlink_on_release and os.name == "nt":  # pragma: no cover - platform branch
+            try:
+                os.unlink(str(filepath))
+            except OSError:
+                # Another holder keeps the file open — sharing violation.
+                # The leftover is transient and bounded (≤ one file per lock
+                # target, git-ignored); manual cleanup is safe once no
+                # process holds the lock.
+                pass
 
 
 def _acquire_os_lock(fd: int) -> None:
