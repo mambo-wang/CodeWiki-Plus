@@ -2,7 +2,7 @@
 name: maintain-fork-pr-merge
 description: 当合入 fork 来源的 PR 且 mergeStateStatus=CONFLICTING/DIRTY 时——先 git merge-tree 探测冲突清单，查 maintainer_can_modify，再在 worktree 隔离目录解冲突后 push fork 分支，勿因 CI 绿直接 merge
 type: Skill
-status: draft
+status: stable
 generated:
   by: codewiki/5.6.1
   at: "2026-09-06T11:43:46Z"

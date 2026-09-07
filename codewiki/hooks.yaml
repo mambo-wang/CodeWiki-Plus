@@ -11,6 +11,9 @@
 #   true  = 已验证支持（日常使用背书，接线指引可直接信任）
 #   false = 理论支持（家族归并推导，未经真机验证——接线后必须跑
 #           模拟事件验证，失败即反馈修订本注册表）
+#
+# user_prompt 故意只填 claude 家族：cursor / codex 的事件名是归并推导的猜测，
+# 未经真机验证，按「缺失回退默认源」处理，不写进注册表。
 
 version: 1
 
@@ -21,6 +24,9 @@ families:
     events:
       session_start: [SessionStart]
       session_end: [SessionEnd]
+      # Advisory only (skill-creator §10): the hook matches the prompt against
+      # draft skills and injects a pointer via hookSpecificOutput.
+      user_prompt: [UserPromptSubmit]
 
   # Cursor 格式：hooks.json + camelCase 事件。
   # 注意采集降级：Cursor 无 SessionEnd 等价事件，stop 不携带

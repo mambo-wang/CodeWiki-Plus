@@ -197,6 +197,29 @@ retire：草稿标 deprecated（revisions 记录原因、正文**保留供审计
 - **素材过期联动**：技能 source_refs 指向的 scenario/note 后来被更新、退役或删除 → lint 报 `possibly_stale` warning（复用对端新鲜度语义），提醒你决定 revise 还是 retire。只提示，**不自动修订**。
 - **漂移检测**：install 之后草稿又被修订（submit updated）→ 草稿规范化哈希 ≠ installed_hash → lint 报 drift warning："生效区仍旧版，建议 reinstall"。**不自动覆盖生效区**——生效永远是用户动作。
 
+## 自动提醒：什么时候系统会提示你
+
+三条由系统主动提出的**候选提醒**——只提示，绝不自动编译或安装：
+
+1. **你正在做的事像某份草稿技能**（UserPromptSubmit，claude 家族 hook）：
+   每次提交指令时，hook 用 name + description 匹配草稿区里**未安装**的技能
+   （`status: draft`），命中就注入一行指针。文本只含 name + description——
+   技能正文永远不会被塞进你的上下文（检索隔离的延伸）。
+2. **新场景块像技能素材**（L2 submit 返回 `skill_hint`）：落盘后的场景块若
+   命令密集（实测唯一被编译的那份命令命中 11，其余 ≤2）、未被 `compiled_into`
+   消费过、且 ≥2 条笔记背书 → 提示你评估编译。
+3. **蒸馏产出撞上草稿**（蒸馏 submit 返回 `skill_hint`）：新笔记标题匹配到
+   草稿 → 提示 evaluate/install。蒸馏只做匹配不做素材判据——新笔记还没长成
+   SOP，判据要等它被 consolidate 成 L2 才成立。
+
+收到 `skill_hint` 怎么办：普通调用方照提示执行即可（install 前仍需你点头）；
+**蒸馏 worker 的纪律是只把 hint 写进汇报摘要，不自行调用 skill_creator**。
+
+配套的状态语义：`install` 过的草稿会从 draft 变 `stable`（不再被提醒）；
+之后若草稿又被修订，会回到 draft 重新可被提醒（此时生效区已是旧版，lint 也
+会报 drift）。deprecated 永不因修订复活。提醒频次随草稿量增长——草稿区超过
+5 份后阈值需要重新校准。
+
 ## 完整示例：一次真实编译
 
 ```text

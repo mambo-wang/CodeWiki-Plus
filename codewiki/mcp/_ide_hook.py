@@ -12,6 +12,13 @@ handled separately by `distill_conversation` run in a background subagent/worker
 (see SPEC-conversation-to-wiki.md). The raw/ staging area is transient and is
 NOT indexed by query_wiki.
 
+Second responsibility (skill-creator §10): on a ``UserPromptSubmit`` event the
+hook matches the user's prompt against *uninstalled* draft skills
+(``repowiki/skills/*/SKILL.md`` with ``status: draft``) and, on a hit, emits a
+``hookSpecificOutput.additionalContext`` pointer carrying only the skill's name
+and description. This branch is read-only — it never captures, never compiles
+and never installs.
+
 Security / opt-in:
     The hook is OFF by default. The IDE must set the environment variable
     ``CODEWIKI_TEAM_MEMORY_HOOK=1`` (or pass ``--enable``) before invoking this
@@ -51,6 +58,8 @@ import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+from codewiki.src.skill_match import PROMPT_EVENTS
 
 logger = None  # lazily imported to keep CLI startup cheap
 
@@ -337,6 +346,87 @@ def _cleanup_event_file(path: Optional[str]) -> None:
         pass
 
 
+def _event_name(event: Dict[str, Any]) -> str:
+    """Lower-cased hook event name (several IDEs spell the key differently)."""
+    raw = (
+        event.get("hook_event_name")
+        or event.get("hookEventName")
+        or event.get("event")
+        or ""
+    )
+    return str(raw).strip().lower()
+
+
+def _extract_prompt(event: Dict[str, Any]) -> str:
+    """Pull the submitted user prompt out of a UserPromptSubmit payload."""
+    for key in ("prompt", "user_prompt", "message", "text", "input"):
+        value = event.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _resolve_skills_dir(repo_path: str) -> Optional[str]:
+    """Draft-zone skills directory for this repo, or None if not a CodeWiki repo."""
+    if not repo_path:
+        return None
+    from codewiki.src.config import SKILLS_DIR
+
+    for candidate in (
+        Path(repo_path) / "repowiki" / SKILLS_DIR,
+        Path(repo_path) / SKILLS_DIR,
+    ):
+        if candidate.is_dir():
+            return str(candidate)
+    return None
+
+
+def _handle_user_prompt(
+    args: argparse.Namespace, event: Dict[str, Any], event_file: Optional[str]
+) -> int:
+    """UserPromptSubmit → match draft skills → inject a one-line pointer.
+
+    Read-only and hint-only: never captures, never compiles, never installs,
+    never writes (design §10). The injected text carries name + description
+    and nothing else — surfacing a SKILL body would blur retrieval knowledge
+    with behaviour instructions (ADR-0004 decision 2).
+    """
+    try:
+        prompt = _extract_prompt(event)
+        repo_path = args.repo_path or event.get("repo_path") or event.get("cwd") or ""
+        skills_dir = _resolve_skills_dir(repo_path)
+        if not prompt or not skills_dir:
+            return 0
+
+        from codewiki.src.skill_match import build_skill_hint, match_draft_skills
+
+        hit = match_draft_skills(prompt, skills_dir)
+        if not hit:
+            return 0
+        hint = build_skill_hint("match", hit)
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError, OSError):
+            pass
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "UserPromptSubmit",
+                        "additionalContext": hint["skill_hint"]["message"],
+                    }
+                },
+                ensure_ascii=False,
+            )
+        )
+    except Exception as e:  # never break the user's prompt on a hook failure
+        print(f"ide-hook: skill match failed: {e}", file=sys.stderr)
+        return 0
+    finally:
+        _cleanup_event_file(event_file)
+    return 0
+
+
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(
         description="IDE hook: capture a conversation into repowiki/raw/ (no distillation)."
@@ -382,6 +472,12 @@ def main(argv: Optional[list] = None) -> int:
         print("ide-hook: no conversation payload provided; nothing to capture.")
         _cleanup_event_file(event_file_to_clean)
         return 0
+
+    # UserPromptSubmit is a read-only advisory path (design §10): match the
+    # prompt against uninstalled draft skills and inject a pointer. It never
+    # captures and never writes — dispatch before the capture logic below.
+    if _event_name(event) in PROMPT_EVENTS:
+        return _handle_user_prompt(args, event, event_file_to_clean)
 
     # Merge CLI args over the payload file/stdin.
     def _pick(key, cli_val):
