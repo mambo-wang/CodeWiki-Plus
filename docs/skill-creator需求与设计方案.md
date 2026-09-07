@@ -277,8 +277,80 @@ skill 的价值密度取决于素材里「命令-报错-修复对、版本/参�
 **与 MVP 的关系**：MVP（T1-T6）已先行落地；本项在其后实施，成为回流迭代
 （Phase 2）的素材质量地基——从此捕获的会话天然携带命令-报错-修复链。
 
+## 10. 自动触发与技能提示（Q31/Q32 收敛，2026-09-07 实施）
+
+skill_creator 是显式工具，但「什么时候该考虑编译技能」的判断不该全靠用户
+想起。本节加三处**只提示、永不自动执行**的触发点——与 install 的「触发永远
+显式」纪律一致：工具只把「候选」端到用户面前，编译与安装仍是用户动作。
+
+### 10.1 状态语义补全：install → stable，修订 → 回到 draft
+
+matcher 需要「未被安装的草稿」这个状态，但原实现 install 从不写 status
+（草稿永远是 draft）。补齐两处，使 `status: draft` 成为「**可被自动提示
+安装**」的精确含义：
+
+- `install`：草稿置 `stable` —— 已安装，不再被匹配器推荐；
+- `submit updated`：置回 `draft` —— 生效区副本已过时（=漂移），重新可被推荐；
+- `retire` 语义不变：deprecated 永不因 submit 复活。
+
+lint 的 `frontmatter_required` 白名单本就是 `draft | stable | deprecated`
+（wiki_lint.py），补全前 stable 只是「预留未用」，补全后它有了确切的运行时
+含义；漂移检查（installed_hash）不含 status 字段，不受影响。
+
+### 10.2 匹配器：`codewiki/src/skill_match.py`（stdlib-only）
+
+与 `tool_digest` 同层、纯标准库——IDE hook 路径不能依赖包的三方依赖。三处
+消费点共享同一实现，使「这有没有技能」的判断只有一份，永不漂移。
+
+**相似度取 containment，不是 Jaccard——实测推翻，不是假设**：以技能
+description 的前缀当 prompt（完美匹配的上界），在真实
+maintain-fork-pr-merge description 上 Jaccard 只有 0.205——长 description
+撑大并集，0.6 的 Jaccard 闸门**永远不会触发**。containment（交集/较小集）
+同对为 1.0。
+
+匹配规则（`match_draft_skills`）：
+- 只匹配 `status == draft` 的草稿（§10.1 保证该状态的精确含义）；
+- 只返回 name + description，**永不返回正文**（ADR-0004 decision 2：
+  行为指令不可被当检索知识召回）；
+- prompt ≥ 8 token（「继续」「ok」不可判），containment ≥ 0.5（≈「prompt
+  一半的 token 出现在技能里」）。阈值凭判断设定（上线时草稿区仅 2 份样例，
+  其中 1 份已安装即被 §10.1 排除），草稿区 > 5 份后重新校准。
+
+### 10.3 素材判据：命令密度（不是结构）
+
+用户原话是「蒸馏/L2 时识别**可以创建**技能的素材」（Q31-Q32）。候选判据
+实测一轮：8 个 L2 场景块**六段骨架 100% 相同**（同一模板生成）、步骤数
+5-11 全过 ≥3——结构判据天生零区分度，作废。唯一强信号是**命令密度**：
+唯一被编译成技能的那份（发布与依赖治理方法）`cmd=11 / fence=4`，是第二名
+（cmd=2）的 5 倍以上。
+
+`score_skill_material(text)` 判据：
+- 命令位命中 ≥ 3（`\b(?:git|gh|uv|pytest|…)\s` 命令位正则，尾随空白使
+  「提到 git」不计为「执行 git」）；
+- 未被 `compiled_into` 消费过；
+- `notes/` 回链 ≥ 2（单笔记背书多半是一次性，不是可复用流程）。
+
+### 10.4 三个触发点（提示只增不改，additive key 对齐 aggregation_hint 先例）
+
+| 触发点 | 载体 | 命中含义 | 提示形态 |
+|---|---|---|---|
+| UserPromptSubmit（claude 家族 hook） | `hookSpecificOutput.additionalContext` | 用户指令像某个未安装草稿 | `skill_creator install` 指针 |
+| L2 submit（note_consolidation） | 返回值 `skill_hint` | 场景块像行为指令（§10.3） | `skill_creator prepare` 指针 |
+| 蒸馏 submit（distill_conversation） | 返回值 `skill_hint` | 新笔记标题匹配到草稿 | `skill_creator install` 指针 |
+
+纪律：
+- **提示永不自动执行**——hook 的 UserPromptSubmit 分支只读不写（测试断言
+  repowiki 快照前后一致、raw/ 永不产生）；两个 MCP submit 的 `skill_hint`
+  为 additive key，默认返回值不变（下游无感）；
+- distill-worker 剧本明令「`skill_hint` 只汇报、不执行，严禁自行调用
+  skill_creator」——install 是用户确认动作（Doctrine「触发永远显式」）；
+- 蒸馏 submit 只做**匹配**、不做素材判据：新蒸馏的笔记还没长成 SOP，
+  判据要等它被 consolidate 成 L2 场景块后才成立（素材判据只看落盘后的
+  场景块形态）。
+
 ---
 
 *源设计文档：repowiki/wiki/queries/skill-creator设计方案.md（stable）+
 docs/WikiSkill论文与wikiskill源码精读.md（2026-09-06）+ grill Q1-Q9 收敛记录
-（2026-09-06 会话）。状态：已实施（MVP #24-#29 + §9 素材保真度均落地）。*
+（2026-09-06 会话）。状态：已实施（MVP #24-#29 + §9 素材保真度 + §10 自动
+触发提示均落地）。*

@@ -18,8 +18,14 @@ Mode C protocol (agent is the LLM, tool does deterministic bookkeeping):
       heat?}] with action ∈ created|updated|merged|deleted — validates the
       files, stamps summary/heat into frontmatter, records provenance
       (scenario.metadata.source_notes ⇄ note.metadata.consolidated_into),
-      cleans up [DELETED] soft-delete markers, enforces the capacity limit,
-      resets the aggregation counter and rebuilds the search index.
+      Optionally takes ``report.dispositions`` — [{file, verdict, reason?}] with
+      verdict ∈ deferred|excluded — for candidates that were NOT absorbed:
+      ``deferred`` stays pending (waiting for more evidence), ``excluded``
+      (reason REQUIRED) drops out of the pending list for good. ``absorbed`` is
+      never submitted: it is derived from ``consolidated_into``, so the
+      provenance link stays the single source of truth.
+      Then: cleans up [DELETED] soft-delete markers, enforces the capacity
+      limit, resets the aggregation counter and rebuilds the search index.
 
 Constraints honoured: never consolidates automatically (explicit calls only),
 never writes knowledge itself (the agent does), confirmation gates untouched
@@ -30,6 +36,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -39,6 +46,13 @@ _VALID_ACTIONS = ("created", "updated", "merged", "deleted")
 _SOFT_DELETE_MARKER = "[DELETED]"
 _PENDING_NOTES_LIMIT = 50
 _SUMMARY_CHARS = 300
+_REASON_CHARS = 200
+# Read model: every candidate note ends in exactly one of these. ``absorbed`` is
+# derived from ``consolidated_into`` and never stored — the provenance link is
+# the single source of truth, a second copy would only drift.
+DISPOSITION_VERDICTS = ("absorbed", "deferred", "excluded")
+# Write model: what the agent may submit. ``absorbed`` comes from source_notes.
+_SUBMITTABLE_VERDICTS = ("deferred", "excluded")
 
 _CONSOLIDATE_SYSTEM = (
     "You are the Team Work Method Memory Consolidation Architect.\n"
@@ -92,6 +106,13 @@ _CONSOLIDATE_SYSTEM = (
     "(5) Call consolidate_notes(mode='submit', report=...) listing every scene "
     "you created/updated/merged/deleted with its absorbed source notes, plus "
     "a 30-40-word summary and the heat value per scene.\n"
+    "(6) EVERY candidate from prepare must end with a destination — no silent "
+    "skips. Absorbed ones are covered by source_notes. For the rest add "
+    "report.dispositions=[{file, verdict, reason?}]: verdict='deferred' when the "
+    "knowledge is real but still too thin to stand alone (it stays pending), "
+    "verdict='excluded' when it can never be scenario material — one-off task "
+    "state, personal preference, temporary context. 'excluded' REQUIRES a "
+    "reason; a note must never disappear from pending without saying why.\n"
     "Ask the user before starting if the preparation context suggests the "
     "consolidation was tool-initiated by a reminder."
 )
@@ -257,8 +278,40 @@ def _scan_scenarios(output_dir: Path) -> List[Dict[str, Any]]:
     return out
 
 
+def _note_disposition(meta: Dict[str, Any]) -> Optional[str]:
+    """Resolve a note's consolidation disposition (read model, never stored for
+    ``absorbed``): ``absorbed`` ← ``consolidated_into``, else the stored verdict.
+    """
+    if meta.get("consolidated_into"):
+        return "absorbed"
+    disp = meta.get("disposition")
+    if isinstance(disp, dict):
+        verdict = str(disp.get("verdict") or "").lower()
+        if verdict in _SUBMITTABLE_VERDICTS:
+            return verdict
+    return None
+
+
+def _resolve_note_path(output_dir: Path, rel: str) -> Optional[Path]:
+    """Resolve a note file from a repo-relative path or a bare file name."""
+    from codewiki.src.config import NOTES_DIR
+
+    p = Path(output_dir) / rel
+    if p.is_file():
+        return p
+    notes_dir = Path(output_dir) / NOTES_DIR
+    cand = notes_dir / Path(rel).name
+    if cand.is_file():
+        return cand
+    if not Path(rel).suffix:
+        cand = notes_dir / f"{Path(rel).name}.md"
+        if cand.is_file():
+            return cand
+    return None
+
+
 def _pending_confirmed_notes(output_dir: Path, limit: int) -> List[Dict[str, Any]]:
-    """Stable notes not yet absorbed into a scene block (no consolidated_into)."""
+    """Stable notes still awaiting a destination (not absorbed, not excluded)."""
     from codewiki.src.config import NOTES_DIR
 
     notes_dir = Path(output_dir) / NOTES_DIR
@@ -271,8 +324,9 @@ def _pending_confirmed_notes(output_dir: Path, limit: int) -> List[Dict[str, Any
         if status not in ("stable", "confirmed"):
             continue
         meta = fm.get("metadata") if isinstance(fm.get("metadata"), dict) else {}
-        if meta.get("consolidated_into"):
-            continue  # already absorbed
+        disposition = _note_disposition(meta)
+        if disposition in ("absorbed", "excluded"):
+            continue  # has a destination already
         body = _read_body(p)
         scene = ""
         if isinstance(meta.get("scene"), str):
@@ -285,6 +339,7 @@ def _pending_confirmed_notes(output_dir: Path, limit: int) -> List[Dict[str, Any
                 "scene": scene,
                 "severity": str(meta.get("severity") or ""),
                 "preview": body[:_SUMMARY_CHARS],
+                "disposition": disposition,  # None = never judged | "deferred"
             }
         )
         if len(out) >= limit:
@@ -388,7 +443,12 @@ def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
                     "(3) write blocks with write_doc_file(page_type='scenario'); obey "
                     "the capacity warning (red=merge first, orange=update only); "
                     "(4) reject_note fully-absorbed source notes with "
-                    "reason='consolidated into <scene title>'; (5) submit the report. "
+                    "reason='consolidated into <scene title>'; (5) submit the report "
+                    "— every candidate needs a destination: source_notes for absorbed "
+                    "ones, otherwise report.dispositions=[{file, verdict: deferred|"
+                    "excluded, reason?}] where excluded REQUIRES a reason. Candidates "
+                    "showing disposition='deferred' were already judged once, so weigh "
+                    "the new evidence rather than repeating the old verdict. "
                     "If this consolidation was triggered by an aggregation_hint "
                     "reminder, confirm with the user before starting."
                 ),
@@ -415,8 +475,21 @@ def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
             }
         )
     entries = report.get("scenarios")
-    if not isinstance(entries, list) or not entries:
-        return json.dumps({"error": "report.scenarios must be a non-empty list."})
+    if entries is None:
+        entries = []
+    if not isinstance(entries, list):
+        return json.dumps({"error": "report.scenarios must be a list."})
+    # A pass may legitimately carry only dispositions (e.g. excluding a batch of
+    # one-off notes without touching any scene block).
+    if not entries and not report.get("dispositions"):
+        return json.dumps(
+            {
+                "error": (
+                    "report needs a non-empty 'scenarios' list, or a non-empty "
+                    "'dispositions' list."
+                )
+            }
+        )
 
     processed: List[Dict[str, Any]] = []
     errors: List[Dict[str, Any]] = []
@@ -506,6 +579,56 @@ def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
             }
         )
 
+    # ---- candidate dispositions: every non-absorbed note needs a destination ----
+    disp_entries = report.get("dispositions")
+    if disp_entries is None:
+        disp_entries = []
+    if not isinstance(disp_entries, list):
+        errors.append({"entry": "dispositions", "error": "must be a list"})
+        disp_entries = []
+    disp_stamped: List[Dict[str, str]] = []
+    for entry in disp_entries:
+        if not isinstance(entry, dict):
+            errors.append({"entry": str(entry), "error": "not an object"})
+            continue
+        rel = _norm_rel(str(entry.get("file") or ""), output_dir)
+        verdict = str(entry.get("verdict") or "").lower()
+        if not rel:
+            errors.append({"entry": str(entry), "error": "missing file"})
+            continue
+        if verdict not in _SUBMITTABLE_VERDICTS:
+            errors.append(
+                {
+                    "file": rel,
+                    "error": (
+                        f"invalid verdict '{verdict}'; expected one of "
+                        f"{'|'.join(_SUBMITTABLE_VERDICTS)} (absorbed is derived "
+                        "from source_notes, never submitted)"
+                    ),
+                }
+            )
+            continue
+        reason = str(entry.get("reason") or "").strip()
+        if verdict == "excluded" and not reason:
+            errors.append(
+                {"file": rel, "error": "verdict=excluded requires a non-empty reason"}
+            )
+            continue
+        npath = _resolve_note_path(output_dir, rel)
+        if npath is None:
+            errors.append({"file": rel, "error": "note file not found"})
+            continue
+        stamp: Dict[str, Any] = {
+            "verdict": verdict,
+            "at": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        }
+        if reason:
+            stamp["reason"] = reason[:_REASON_CHARS]
+        if _update_frontmatter_meta(npath, {"disposition": stamp}):
+            disp_stamped.append({"file": rel, "verdict": verdict})
+        else:
+            errors.append({"file": rel, "error": "frontmatter update failed"})
+
     if errors:
         return json.dumps(
             {
@@ -513,6 +636,7 @@ def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
                 "mode": "submit",
                 "errors": errors,
                 "processed": processed,
+                "dispositions": disp_stamped,
                 "message": (
                     f"{len(errors)} report entr(y/ies) failed validation; counters "
                     "NOT reset. Fix the reported issues and re-submit."
@@ -575,13 +699,39 @@ def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
     except Exception as e:  # indexing is best-effort
         logger.warning("search index rebuild failed after consolidate: %s", e)
 
+    # Skill-compile hint (design §10): a freshly consolidated scenario whose
+    # text reads like executable instructions (command-dense, backed by >= 2
+    # notes, not yet compiled) is a candidate for skill_creator. Hint only —
+    # never compiles; the decision stays with the user.
+    skill_hint = None
+    try:
+        from codewiki.src.skill_match import build_skill_hint, score_skill_material
+
+        for item in processed:
+            if str(item.get("action") or "").lower() == "deleted":
+                continue
+            scene = Path(output_dir) / str(item.get("file") or "")
+            if not scene.is_file():
+                continue
+            score = score_skill_material(scene.read_text(encoding="utf-8", errors="ignore"))
+            if score.get("worth_compiling"):
+                skill_hint = build_skill_hint(
+                    "material", {"file": item.get("file"), "score": score}
+                )["skill_hint"]
+                break
+    except Exception as e:  # best-effort: a hint failure must not fail submit
+        logger.debug("skill hint skipped: %s", e)
+        skill_hint = None
+
     return json.dumps(
         {
             "status": "completed",
             "mode": "submit",
             "processed": processed,
+            "dispositions": disp_stamped,
             "removed_deleted": removed,
             "capacity": capacity,
+            **({"skill_hint": skill_hint} if skill_hint else {}),
             "counters": {
                 "notes_since_last_consolidation": int(
                     state.get("notes_since_last_consolidation") or 0

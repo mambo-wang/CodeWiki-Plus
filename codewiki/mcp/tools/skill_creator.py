@@ -597,6 +597,12 @@ def _update_skill_file(values: Dict[str, Any], output_dir: Path) -> bool:
             }
         )
         meta["revisions"] = revisions
+        # Status lifecycle (design §10): revising a skill makes the installed
+        # effect-zone copy stale, so the draft goes back to "draft" and the
+        # matcher starts offering it again (reinstall is the user's call).
+        # Deprecated skills stay deprecated — submit must not resurrect them.
+        if str(fm.get("status") or "").lower() != "deprecated":
+            fm["status"] = "draft"
         fm["metadata"] = meta
         return _render_skill_doc(fm, values["body"])
 
@@ -690,6 +696,11 @@ def _mode_install(arguments: Dict[str, Any], output_dir: Path) -> str:
         # lstrip("./") would eat the leading dot of .codebuddy/.
         meta["installed_to"] = f".codebuddy/skills/{name}/"
         meta["installed_hash"] = _normalized_hash(skill_name, description, body)
+        # Status lifecycle (design §10): an installed draft is no longer an
+        # uninstalled draft, so it stops being offered by the UserPromptSubmit
+        # matcher. A later submit revision flips it back to "draft" (the
+        # effect-zone copy is then stale and must be re-offered).
+        dfm["status"] = "stable"
         dfm["metadata"] = meta
         return _render_skill_doc(dfm, old_body)
 

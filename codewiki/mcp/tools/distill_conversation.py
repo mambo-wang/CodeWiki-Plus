@@ -1737,6 +1737,26 @@ def handle_distill_conversation(
                 ret["git_sync"] = _push
         except Exception as e:
             logger.debug("auto_push skipped: %s", e)
+
+        # Skill hint (design §10): distillation only MATCHES existing drafts —
+        # no material scoring here, because freshly distilled notes are not yet
+        # an SOP. Hint only: a background/subagent caller must REPORT it, never
+        # act on it (install remains the user's call).
+        try:
+            from codewiki.src.config import SKILLS_DIR
+            from codewiki.src.skill_match import build_skill_hint, match_draft_skills
+
+            titles: List[str] = []
+            for r in results:
+                for n in r.get("notes", []) or []:
+                    if isinstance(n, dict) and n.get("title"):
+                        titles.append(str(n["title"]))
+            if titles:
+                hit = match_draft_skills(" ".join(titles), str(Path(output_dir) / SKILLS_DIR))
+                if hit:
+                    ret["skill_hint"] = build_skill_hint("match", hit)["skill_hint"]
+        except Exception as e:
+            logger.debug("skill hint skipped: %s", e)
         return json.dumps(ret, indent=2, ensure_ascii=False)
 
     # Mode B: background
