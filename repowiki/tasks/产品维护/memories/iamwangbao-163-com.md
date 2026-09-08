@@ -45,3 +45,31 @@
 ### 2026-09-05 19:12
 
 候选 lesson 笔记「蒸馏 subagent 自报的笔记状态不可信，需用 `get_task_context` 的 `related_notes[].status` 复核」已向用户提议写入 Wiki，**用户尚未答复**；本次蒸馏已将其作为 `draft` 笔记产出，等待确认闸门。本轮「产品维护」补蒸馏（1 条 raw，11 轮）完成，产出 5 条 draft 笔记 + 5 条任务记忆，pending raw 归零。
+
+### 2026-09-07 14:49
+
+2026-09-07 会话（source_session 993f1c39697248b4a2c07b3edec98972）提出并定案 MCP 层中文返回文本的 i18n：YAML 双文件全量（`codewiki/mcp/locales/zh.yaml` 为源、`en.yaml` 全量覆盖）、一次性全做、无运行时回退（缺 key 返回哨兵，靠发版前 key 集一致性测试暴露）、范围含 prompt 元数据 + 22 个正文 + instructions + resources + 工具层散点 + 落盘产物。
+
+### 2026-09-07 14:49
+
+审计结论（已核对）：工具 schema description 与错误消息全部为英文，中文 i18n 工作量不含这部分；中文集中在 prompts.py（正文约 1250 行 + 元数据约 100 行）、resources.py catalog（约 92 行）、server.py instructions（57 行）、工具层散点几十行，合计约 1500 行需英文创作。
+
+### 2026-09-07 14:49
+
+语言来源定案：`~/.codewiki/config.json` 的 lang 字段 > `CODEWIKI_LANG` 环境变量 > 系统 locale 推断 > 兜底 zh；不能放项目级 `repowiki/schema.yaml`（MCP server 启动期无 repo 上下文）。用户侧切换语言的方式是在 MCP 配置里加 `"env": {"CODEWIKI_LANG": "en"}`。
+
+### 2026-09-07 14:49
+
+M1 基建已落地：新增 `codewiki/mcp/i18n.py`（`t()` / `current_lang()` / lru_cache 加载 locales）、`codewiki/mcp/locales/zh.yaml` 与 `en.yaml`；`codewiki/mcp/server.py` 已接线（i18n 导入 + Server 构造前初始化语言 + instructions 改为从语料取）；`pyproject.toml` 的 wheel artifacts 已加入 locales 资源。
+
+### 2026-09-07 14:49
+
+`tests/test_i18n.py` 已建立（key 集一致性、占位符一致性、缺 key 哨兵、语言解析优先级四组断言），尚未运行验证是否全绿。
+
+### 2026-09-07 14:49
+
+待办（未开始，按依赖顺序）：(1) prompts.py 22 个 Prompt 的 title/description 接入语料；(2) 22 个 `_prompt_*` 正文函数重写为「按语言取模板片段 + 保留逻辑」并产出英文版（约 1250 行创作，本次最大工作量）；(3) resources.py 的 `prompts/catalog` 改为从 `list_prompts` 派生（消除 15 vs 22 漂移）；(4) 工具层中文散点；(5) 落盘产物（agents_md / wiki_index / reading_guide / schema_generator）语言跟随；(6) `tool_count` 改运行时计数、instructions 里 11→22 修正。
+
+### 2026-09-07 14:49
+
+风险提示：英文正文初稿由 Agent 创作，定案时建议合入前做一次面向英文可读性的审校，避免机器直译风格拉低产品完成度。

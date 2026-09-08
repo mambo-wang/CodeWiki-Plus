@@ -53,129 +53,52 @@ LANG_BY_EXT = {
     ".rs": "rust",
 }
 
-BUILTIN_CHECKLISTS: Dict[str, List[Dict[str, Any]]] = {
+# Builtin checklist ids grouped by scope.  Titles and questions live in the
+# message catalog (``review_checklist.<group>.<id>.*``) so the delivered
+# checklist follows the resolved language.  Ids stay here and stay stable —
+# project overrides merge on them.
+_BUILTIN_CHECKLIST_GROUPS: Dict[str, List[str]] = {
     "all": [
-        {
-            "id": "err-handling",
-            "title": "错误处理与资源释放",
-            "questions": [
-                "异常/错误是否被吞掉（空 except、忽略返回值、丢失 error）？",
-                "文件、连接、锁等资源是否在 finally / with / defer 中释放？",
-                "错误是否丢失上下文（原始异常、关键参数未随错误传播）？",
-            ],
-        },
-        {
-            "id": "input-validation",
-            "title": "输入校验",
-            "questions": [
-                "外部输入（参数、用户数据、文件内容）是否在入口处校验？",
-                "边界值（空、超长、负数、零、越界）是否处理？",
-                "类型/格式假设是否显式而非依赖调用方自觉？",
-            ],
-        },
-        {
-            "id": "logging",
-            "title": "日志",
-            "questions": [
-                "关键路径（错误、慢路径、状态变更）是否有日志？",
-                "日志是否含定位所需上下文（id、参数摘要）而非只有堆栈？",
-                "是否避免了在循环/热路径中打印高频日志？",
-            ],
-        },
-        {
-            "id": "security",
-            "title": "安全",
-            "questions": [
-                "是否存在注入风险（SQL/命令/模板拼接外部输入）？",
-                "密钥、token、密码是否硬编码或写进日志？",
-                "路径拼接是否存在穿越风险（未校验相对路径）？",
-            ],
-        },
-        {
-            "id": "concurrency",
-            "title": "并发安全",
-            "questions": [
-                "共享可变状态是否有锁或同步机制？",
-                "是否存在竞态（先查后写、非原子更新）？",
-                "新增全局/模块级可变状态是否线程安全？",
-            ],
-        },
-        {
-            "id": "null-boundary",
-            "title": "空值与边界条件",
-            "questions": [
-                "null/None/空集合的访问是否防护？",
-                "集合为空、索引越界、除零等边界是否考虑？",
-                "循环终止条件是否正确（off-by-one）？",
-            ],
-        },
-        {
-            "id": "testability",
-            "title": "可测试性",
-            "questions": [
-                "新逻辑是否可独立测试（无硬编码依赖、时间、随机）？",
-                "副作用（IO、网络、DB）是否集中在可 mock 的边界？",
-                "是否有测试覆盖本次变更的关键分支？",
-            ],
-        },
-        {
-            "id": "backward-compat",
-            "title": "向后兼容",
-            "questions": [
-                "公共接口/数据结构变更是否破坏既有调用方？",
-                "默认行为变更是否可能影响未显式传参的调用方？",
-                "删除/重命名是否有过渡期或同步更新全部引用？",
-            ],
-        },
-        {
-            "id": "performance",
-            "title": "性能",
-            "questions": [
-                "是否存在明显 N+1 查询或循环内重活（IO、正则编译、DB 调用）？",
-                "新引入的数据结构/算法量级是否匹配预期规模？",
-                "是否引入了不必要的拷贝/序列化？",
-            ],
-        },
-        {
-            "id": "code-quality",
-            "title": "代码质量",
-            "questions": [
-                "是否有重复逻辑可抽取（本文件或同模块已有实现）？",
-                "命名是否准确反映行为（无误导性名称）？",
-                "是否有死代码、未使用变量、注释与代码不一致？",
-            ],
-        },
+        "err-handling",
+        "input-validation",
+        "logging",
+        "security",
+        "concurrency",
+        "null-boundary",
+        "testability",
+        "backward-compat",
+        "performance",
+        "code-quality",
     ],
     "python": [
-        {
-            "id": "py-mutable-default",
-            "title": "可变默认参数",
-            "questions": ["函数参数默认值是否为可变对象（list/dict/set）——调用间共享状态？"],
-        },
-        {
-            "id": "py-bare-except",
-            "title": "裸 except",
-            "questions": [
-                "是否使用裸 except / except Exception 吞掉包括 KeyboardInterrupt 在内的异常？"
-            ],
-        },
-        {
-            "id": "py-resource-context",
-            "title": "资源上下文管理",
-            "questions": ["文件、socket、锁是否使用 with 语句管理生命周期？"],
-        },
-        {
-            "id": "py-encoding",
-            "title": "编码处理",
-            "questions": ["文件读写是否显式指定 encoding（跨平台 GBK/UTF-8 差异）？"],
-        },
-        {
-            "id": "py-import-side-effect",
-            "title": "import 副作用",
-            "questions": ["模块导入是否触发重副作用（网络、文件写、DB 连接）？"],
-        },
+        "py-mutable-default",
+        "py-bare-except",
+        "py-resource-context",
+        "py-encoding",
+        "py-import-side-effect",
     ],
 }
+
+
+def builtin_checklists() -> Dict[str, List[Dict[str, Any]]]:
+    """Resolve the builtin checklist for the current language."""
+    from codewiki.mcp import i18n
+
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for group, ids in _BUILTIN_CHECKLIST_GROUPS.items():
+        entries: List[Dict[str, Any]] = []
+        for cid in ids:
+            base = f"review_checklist.{group}.{cid}"
+            questions = i18n.t(base + ".questions")
+            entries.append(
+                {
+                    "id": cid,
+                    "title": i18n.t(base + ".title"),
+                    "questions": [q for q in questions.split("|") if q],
+                }
+            )
+        out[group] = entries
+    return out
 
 
 def load_project_checklist(repo_path: Optional[str]) -> Optional[Dict[str, List[Dict[str, Any]]]]:
@@ -238,7 +161,7 @@ def get_checklist(
 
     merged: Dict[str, Dict[str, Any]] = {}
     for lang in ["all", *langs]:
-        for entry in BUILTIN_CHECKLISTS.get(lang, []):
+        for entry in builtin_checklists().get(lang, []):
             merged[entry["id"]] = dict(entry, lang=lang)
 
     project = load_project_checklist(repo_path)

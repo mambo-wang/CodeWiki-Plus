@@ -62,6 +62,19 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     from codewiki.mcp.tools.workspace_layout import default_output_dir
 
     output_dir = default_output_dir(repo_path)
+
+    # Phase 4 second slice: session-start ff-only pull on the FIRST write
+    # path this process touches.  analyze_repo may run before capture (or
+    # standalone, e.g. CLI / direct handler calls), so it pulls the repo's
+    # knowledge up to date before writing anything.  Once per process per
+    # repo (git_sync._ff_pulled_repos); never raises.
+    try:
+        from codewiki.src.git_sync import session_ff_only
+
+        _pull = session_ff_only(output_dir)
+    except Exception as e:
+        logger.debug("session_ff_only skipped: %s", e)
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
     import tempfile

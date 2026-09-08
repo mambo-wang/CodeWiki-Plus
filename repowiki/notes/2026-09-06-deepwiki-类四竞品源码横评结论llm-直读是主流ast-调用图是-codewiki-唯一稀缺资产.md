@@ -1,19 +1,28 @@
 ---
 type: architecture
-title: "DeepWiki 类四竞品源码横评结论：LLM 直读是主流，AST 调用图是 CodeWiki 唯一稀缺资产"
-tags: ["architecture", "codewiki", "deepwiki", "opendeepwiki"]
+title: DeepWiki 类四竞品源码横评结论：LLM 直读是主流，AST 调用图是 CodeWiki 唯一稀缺资产
+tags:
+- architecture
+- codewiki
+- deepwiki
+- opendeepwiki
 metadata:
   date: 2026-09-06
-  related_modules: ["dependency_analyzer"]
+  related_modules:
+  - dependency_analyzer
   severity: medium
-  source_ref: "conversations/conv-调研-openwiki、deepwiki-open、OpenDeepWiki、deepwiki-rs-四个-DeepWi.md"
-  scene: "竞品调研"
-status: draft
+  source_ref: conversations/conv-调研-openwiki、deepwiki-open、OpenDeepWiki、deepwiki-rs-四个-DeepWi.md
+  scene: 竞品调研
+status: stable
 author: local
-generated: { by: codewiki/5.5.0, at: 2026-09-06T08:23:37Z }
-stale_after: 2027-09-06
+generated:
+  by: codewiki/5.5.0
+  at: 2026-09-06 08:23:37+00:00
+stale_after: '2027-09-07'
 origin: conversation
-
+verified:
+- by: human:mambo-wang
+  at: '2026-09-07T03:50:13Z'
 ---
 
 ## 背景

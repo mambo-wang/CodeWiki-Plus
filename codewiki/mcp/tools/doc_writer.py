@@ -1432,10 +1432,12 @@ async def handle_write_doc_file(
         if doc_path.exists() and new_code_fp:
             old_fp = read_page_code_fingerprint(doc_path)
             if old_fp and old_fp != new_code_fp:
-                stale_code_advisory = (
-                    f"code_fingerprint 漂移：该页面此前基于另一代码状态生成"
-                    f"（旧 {old_fp[:19]}… → 新 {new_code_fp[:19]}…），本次覆盖写入。"
-                    "旧页结论可能已过期，建议 lint_wiki stale_pages 复核。"
+                from codewiki.mcp import i18n as _i18n
+
+                stale_code_advisory = _i18n.t(
+                    "tools.doc_writer.stale_code_advisory",
+                    old_fp=old_fp[:19],
+                    new_fp=new_code_fp[:19],
                 )
     except Exception as e:
         logger.debug("code fingerprint advisory skipped: %s", e)
@@ -1600,6 +1602,17 @@ async def handle_write_doc_file(
     except Exception as e:
         logger.debug("note review reminder skipped: %s", e)
 
+    # Phase 4 second slice: write_doc_file writes a wiki page, so it is its
+    # own push anchor when auto_push is enabled.  Suppressed inside batch
+    # drivers (git_sync.defer_push).  Best-effort, never blocks.
+    try:
+        from codewiki.src.git_sync import auto_push
+
+        _push = auto_push(output_dir, "write_doc_file")
+        if _push:
+            result["git_sync"] = _push
+    except Exception as e:
+        logger.debug("auto_push skipped: %s", e)
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 

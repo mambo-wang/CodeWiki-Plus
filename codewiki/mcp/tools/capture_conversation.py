@@ -341,8 +341,10 @@ def handle_capture_conversation(
         return json.dumps({"error": "conversation is required (list of turns or {turns: [...]})."})
 
     # Phase 4 second slice: session-start ff-only pull on the FIRST write
-    # path this process touches (capture is the earliest knowledge write in
-    # the hook-driven flow). Once per process; gated on D17; never raises.
+    # path this process touches.  capture is usually the earliest knowledge
+    # write in the hook-driven flow; analyze_repo / analyze_workspace /
+    # distill_conversation carry the same guard, so whichever write tool
+    # runs first pulls exactly once.  Per process per repo; never raises.
     try:
         from codewiki.src.git_sync import session_ff_only
 
@@ -435,7 +437,7 @@ def handle_capture_conversation(
     )
 
     # Phase 4 second slice: capture is a batch boundary → auto-push when
-    # enabled and gated (D17). Best-effort, never blocks the capture result.
+    # enabled. Best-effort, never blocks the capture result.
     git_sync_info = None
     try:
         from codewiki.src.git_sync import auto_push

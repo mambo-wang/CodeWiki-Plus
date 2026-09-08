@@ -718,17 +718,17 @@ def _query_mode_by_file(
             logger.debug("by_file telemetry skipped: %s", exc)
 
     total_est = sum(e["est_tokens"] for e in timeline)
+    from codewiki.mcp import i18n as _i18n
+
     if total:
-        hint = (
-            f"该文件有 {total} 条历史知识（约 {total_est} tokens）。"
-            f"已按特异性返回前 {len(timeline)} 条。"
-            "够用即可开始；需要细节用 mode=detail 取单篇全文。"
+        hint = _i18n.t(
+            "tools.note_query.by_file_hint",
+            total=total,
+            total_est=total_est,
+            count=len(timeline),
         )
     else:
-        hint = (
-            "该文件没有关联的历史知识（notes/ 中无 related_modules 命中）。"
-            "可能是知识空白：值得在完成任务后用 ingest_note 沉淀。"
-        )
+        hint = _i18n.t("tools.note_query.by_file_empty")
 
     return json.dumps(
         {

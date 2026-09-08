@@ -8,13 +8,17 @@ compares HEAD with its upstream, and returns an advisory when the remote
 has moved.  Default mode ``advisory``; ``off`` silences it.
 
 **Second slice (D17, design review 2026-09-02)** — :func:`session_ff_only`
-and :func:`auto_push`, gated on the STRUCTURAL rule "the repowiki's repo
-must not contain business code": the repo holding ``repowiki/`` must BE a
-workspace root (``repowiki/.meta/workspace.json`` — centralized OR
-colocated; both keep business sub-repos as separate ignored clones, so the
-root tree is pure knowledge).  Single repos and business repos never carry
-the workspace config, so they never qualify.  Stray untracked business
-files in a root are still protected by session_ff_only's clean-tree gate.
+and :func:`auto_push`.  The D17 structural gate "the repo holding
+``repowiki/`` must be a workspace root" was removed (2026-09-08) for both:
+auto_push stages ONLY the knowledge subtree, and session_ff_only relies on
+git's own ``--ff-only`` overwrite protection (no clean-tree pre-gate: an
+update never touches local edits it would clobber) — so a colocated repo
+(``repowiki/`` shares a git repo with business code) syncs too.  Both
+operate on the whole branch: the branch, not the path, is the unit of
+publication — auto_push's push carries unpushed business commits along,
+and a session ff-only pull fast-forwards the entire working tree (a dirty
+tree fast-forwards when the update skips its edits, refuses untouched when
+they overlap; divergence refuses; no merge, no rebase, no overwrite).
 
 Design-review decisions (2026-09-02):
   - A: auto_push anchors = close_session / batch_ingest /
@@ -32,6 +36,8 @@ push piggy-backs it.  Nothing is ever force-pushed or reset.
 
 from __future__ import annotations
 
+import contextlib
+import json
 import logging
 import os
 import subprocess
@@ -47,6 +53,31 @@ _PUSH_RETRIES = 5  # D10: fetch+rebase retry budget on push races
 # once per process per repository (design §6.2 frequency gate)
 _checked_repos: Set[str] = set()
 _ff_pulled_repos: Set[str] = set()
+# Repos whose auto_push is owned by an enclosing batch boundary.  Keyed by
+# repo root (not output_dir) so nested items that resolve to the same repo
+# are suppressed even when they carry their own output_dir.
+_deferred_repos: Set[str] = set()
+
+
+@contextlib.contextmanager
+def defer_push(output_dir: str | Path):
+    """Suppress :func:`auto_push` for *output_dir*'s repo inside the block.
+
+    Per-item write tools (ingest_note, write_doc_file) push on their own, so
+    a batch driver that loops over them would perform N commit+push round
+    trips.  Wrap the loop in this so only the batch's own anchor push fires.
+    Exception-safe: the flag is always cleared, even on a failed item.
+    """
+    root = _find_repo_root(Path(output_dir or "."))
+    if root is None:
+        yield
+        return
+    key = str(root)
+    _deferred_repos.add(key)
+    try:
+        yield
+    finally:
+        _deferred_repos.discard(key)
 
 
 def _resolve_mode(output_dir: Path) -> str:
@@ -182,17 +213,6 @@ def _resolve_auto_push(output_dir: Path) -> bool:
         return False
 
 
-def _is_workspace_root_repo(output_dir: Path, repo_root: Path) -> bool:
-    """D17 gate: the repo holding repowiki/ IS a workspace root."""
-    try:
-        od = output_dir.resolve()
-        if od.parent != repo_root.resolve():
-            return False
-    except OSError:
-        return False
-    return (od / ".meta" / "workspace.json").is_file()
-
-
 def _find_repo_root(start: Path) -> Optional[Path]:
     cur = start.resolve()
     for candidate in [cur, *cur.parents]:
@@ -256,55 +276,76 @@ def sync_check(output_dir: str | Path, *, force: bool = False) -> Optional[str]:
 def session_ff_only(output_dir: str | Path) -> Optional[str]:
     """Session-start fast-forward pull (second slice, decision C: explicit).
 
-    Runs once per process per repo, only when mode == session_ff_only AND
-    the D17 gate passes (repowiki's repo IS a workspace root).  Pulls with
-    ``--ff-only`` on a CLEAN tree only; divergence/dirty tree skips with a
-    report line.  Never merges, never rebases, never raises.
+    Runs once per process per repo when mode == session_ff_only.  The D17
+    "workspace-root repo" gate was removed (2026-09-08, same call as
+    auto_push).  No clean-tree pre-gate: ``--ff-only`` never merges or
+    rebases, and git itself refuses when an incoming update would touch
+    local uncommitted/untracked work — so a dirty tree whose edits don't
+    collide fast-forwards fine, while an update that WOULD overwrite local
+    state is refused by git with the tree left untouched.  Note the whole
+    branch fast-forwards, not just the knowledge paths (branch =
+    publication unit).
     """
     output_dir = Path(output_dir)
     if not output_dir.is_dir() or _resolve_mode(output_dir) != "session_ff_only":
         return None
     repo_root = _find_repo_root(output_dir)
-    if repo_root is None or not _is_workspace_root_repo(output_dir, repo_root):
+    if repo_root is None:
         return None
     key = str(repo_root)
     if key in _ff_pulled_repos:
         return None
     _ff_pulled_repos.add(key)
 
-    # clean-tree precondition (stray untracked files block the pull)
-    status = _run_git(repo_root, ["status", "--porcelain"])
-    if status is None:
-        return None
-    if status.strip():
-        return "git_sync: 工作树不干净，跳过会话拉取（session_ff_only 仅在干净树上执行）。"
-
+    # No clean-tree pre-gate (2026-09-08): "worktree dirty" does not imply
+    # conflict — git's own overwrite protection decides.  An update that
+    # skips the dirty files fast-forwards cleanly; one that would clobber
+    # them (tracked edits or untracked collisions) is refused untouched.
     proc = _run_git_result(repo_root, ["pull", "--ff-only", "--quiet"])
     if proc is None:
         return None
     if proc.returncode == 0:
         return "git_sync: 已同步远端知识（ff-only）。"
+    # rc != 0: divergence, or the incoming update overlaps local work — git
+    # refuses both and leaves the working tree as-is.  Distinguish so the
+    # report tells the operator whether they must stash/commit first.
+    err = (proc.stderr or "") + " " + (proc.stdout or "")
+    if any(h in err for h in ("would be overwritten", "untracked working tree files", "将被合并操作覆盖")):
+        return (
+            "git_sync: ff-only 拉取被拒——远端更新与本地未提交改动重叠，"
+            "git 未改动任何文件。请先提交/暂存本地改动后手动同步，"
+            "本次会话不再自动拉取。"
+        )
     return (
         "git_sync: ff-only 拉取失败（远端与本地分叉或网络问题），本次会话不再自动拉取，请人工同步。"
     )
 
 
 def auto_push(output_dir: str | Path, tool_name: str) -> Optional[str]:
-    """Commit + push repowiki/ after a batch write (second slice).
+    """Commit + push the knowledge tree after a write (second slice).
 
-    Gated on auto_push enabled (decision C) AND the D17 gate.  Stages ONLY
-    ``<repowiki>/`` paths, commits with the repo's own git identity
-    (decision B — message prefixed ``codewiki:``), pushes with fetch+rebase
-    retry (D10, ≤5) on races.  On exhaustion the local commit is KEPT and
-    the caller is told the next successful push carries it (D12).  Never
-    force-pushes, never resets.
+    Gated on auto_push enabled (decision C).  Stages ONLY ``<repowiki>/``
+    paths, commits with the repo's own git identity (decision B — message
+    prefixed ``codewiki:``), pushes with fetch+rebase retry (D10, <=5) on
+    races.  On exhaustion the local commit is KEPT and the caller is told
+    the next successful push carries it (D12).  Never force-pushes, never
+    resets.
+
+    The D17 "repowiki's repo must be a workspace root" gate was removed
+    (2026-09-08): staging is already confined to the knowledge subtree, so a
+    colocated repo — where ``repowiki/`` shares a git repo with business
+    code — syncs too.  Note that ``git push`` publishes the whole branch, so
+    unpushed business commits ride along with a knowledge sync; that is
+    accepted — the branch, not the path, is the unit of publication.
     """
     output_dir = Path(output_dir)
     if not output_dir.is_dir() or not _resolve_auto_push(output_dir):
         return None
     repo_root = _find_repo_root(output_dir)
-    if repo_root is None or not _is_workspace_root_repo(output_dir, repo_root):
+    if repo_root is None:
         return None
+    if str(repo_root) in _deferred_repos:
+        return None  # an enclosing batch boundary owns this push
 
     try:
         rel = output_dir.resolve().relative_to(repo_root.resolve()).as_posix()
@@ -346,7 +387,20 @@ def auto_push(output_dir: str | Path, tool_name: str) -> Optional[str]:
     if _run_git(repo_root, ["commit", "-q", "-m", msg]) is None:
         return "git_sync(auto_push): 提交失败，改动保留在工作区。"
 
-    # 3) push with fetch+rebase retry (D10)
+    # 3) No content guard: the branch is the user's unit of publication, so
+    # unpushed business commits riding along with a knowledge sync is
+    # accepted.  Only the mechanical case is handled — with no upstream,
+    # pushing cannot succeed at all.
+    upstream = _run_git(
+        repo_root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]
+    )
+    if not upstream or not upstream.strip():
+        # No upstream — pushing cannot succeed.  Swallow it here instead of
+        # burning the whole D10 retry budget on a guaranteed failure; the
+        # local commit is kept and rides along once a branch is published.
+        return "git_sync(auto_push): 知识变更已提交到本地（当前分支未配置 upstream，跳过推送）。"
+
+    # 4) push with fetch+rebase retry (D10)
     for attempt in range(1, _PUSH_RETRIES + 1):
         proc = _run_git_result(repo_root, ["push", "--quiet"])
         if proc is not None and proc.returncode == 0:
@@ -361,3 +415,25 @@ def auto_push(output_dir: str | Path, tool_name: str) -> Optional[str]:
         f"git_sync(auto_push): 推送重试 {_PUSH_RETRIES} 次未成功，本地提交已保留，"
         "下次成功推送时自动搭载；请人工检查远端状态。"
     )
+
+
+def auto_push_into_result(result_json: str, output_dir, tool_name: str) -> str:
+    """Run :func:`auto_push` and merge its report into a JSON tool response.
+
+    Single wiring point for write tools whose handler builds a ``result``
+    dict (or an already-serialized JSON string): call this on the way out so
+    the "did it sync?" line lands in the same place everywhere.
+
+    Never raises and never changes the payload on failure — *result_json* is
+    returned verbatim when auto_push is off, gated, deferred, or errors.
+    """
+    try:
+        _push = auto_push(output_dir, tool_name)
+        if _push:
+            data = json.loads(result_json)
+            if isinstance(data, dict):
+                data["git_sync"] = _push
+                return json.dumps(data, indent=2, ensure_ascii=False)
+    except Exception as e:  # never let sync break a write
+        logger.debug("auto_push_into_result skipped: %s", e)
+    return result_json

@@ -558,6 +558,64 @@ def test_append_direct_stamps_heading_and_tolerates_ghost(tmp_path, monkeypatch)
     # Ghost task_id tolerated: no write, no crash.
     assert tm.append_task_memories_direct(Path(repo) / "repowiki", "ghost-task", ["x"]) == 0
 
+    # at= passes through to the heading: the distilled conversation's real time.
+    from datetime import datetime
+
+    written2 = tm.append_task_memories_direct(
+        Path(repo) / "repowiki",
+        task_id,
+        ["昨天会话的进度"],
+        at=datetime(2026, 9, 5, 11, 30),
+    )
+    assert written2 == 1
+    text2 = (Path(repo) / "repowiki" / "tasks" / task_id / "memories" / "alice.md").read_text(
+        encoding="utf-8"
+    )
+    assert "### 2026-09-05 11:30" in text2
+    assert "昨天会话的进度" in text2
+
+
+def test_distill_memory_heading_uses_captured_at(tmp_path, monkeypatch):
+    """Distilled memory entries carry the conversation's captured_at (dialogue
+    time), not the distillation moment — batch catch-up must not mis-date
+    yesterday's conversations as today."""
+    from datetime import datetime
+    from pathlib import Path
+
+    monkeypatch.setenv("CODEWIKI_USER", "alice")
+    repo = str(tmp_path)
+    r = _call(tm.handle_create_task, repo_path=repo, title="时间戳溯源")
+    task_id = r["task"]["id"]
+
+    # Dialogue captured days ago (UTC) — heading must reflect that moment.
+    _write_raw_capture(tmp_path, "conv-old.md", task_id, "2026-09-05T03:30:00Z")
+
+    sub = _call(
+        distill.handle_distill_conversation,
+        repo_path=repo,
+        mode="submit",
+        distilled={
+            "conv-old": {
+                "notes": [],
+                "memories": ["昨天会话的进度记忆"],
+            }
+        },
+    )
+    assert sub["status"] == "completed"
+    assert sub["distilled"][0]["memories_written"] == 1
+
+    text = (Path(repo) / "repowiki" / "tasks" / task_id / "memories" / "alice.md").read_text(
+        encoding="utf-8"
+    )
+    # captured_at is UTC; headings are local-naive (datetime.now() clock).
+    expect = (
+        datetime.fromisoformat("2026-09-05T03:30:00+00:00")
+        .astimezone()
+        .strftime("%Y-%m-%d %H:%M")
+    )
+    assert text.startswith(f"### {expect}")
+    assert "昨天会话的进度记忆" in text
+
 
 def test_split_memories_three_formats():
     # Headed form: heading + multi-paragraph body stays one entry.

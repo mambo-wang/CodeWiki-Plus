@@ -281,7 +281,7 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     }
     # Phase 4 second slice (design review 2026-09-02, anchor A):
     # close_session is a natural batch boundary — auto-push the knowledge
-    # tree when enabled and gated (D17). Best-effort, never blocks.
+    # tree when enabled. Best-effort, never blocks.
     try:
         from codewiki.src.git_sync import auto_push
 

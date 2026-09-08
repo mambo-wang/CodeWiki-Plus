@@ -1,0 +1,559 @@
+# CodeWiki MCP message catalog (English).
+#
+# en.yaml must cover every key present in zh.yaml — tests/test_i18n.py asserts
+# zh ⊆ en.  The language is resolved once per server process:
+# ~/.codewiki/config.json "lang" > $CODEWIKI_LANG > OS locale > zh.
+
+server:
+  instructions: |-
+    CodeWiki-CN MCP Server — code structure analysis + Wiki documentation generation + LLM knowledge base management platform.
+
+    ## Capability overview
+    - **Code analysis**: Tree-sitter AST parsing → function-level call graph → dependency index → transitive impact analysis (no LLM required)
+    - **Wiki generation**: modular documentation pipeline (analyze → cluster → per-module writing → overview → quality check)
+    - **LLM Wiki knowledge base**: BM25 full-text search + wikilink graph multi-hop expansion + structured notes
+    - **External document management**: import PDF/MD/DOCX/HTML → knowledge extraction → entity/concept pages
+    - **Quality assurance**: documentation-code consistency checks (stale references, broken links, coverage, circular dependencies)
+    - **Workflow prompts**: 22 prompt templates (generate-wiki, extract-knowledge, search-wiki, ingest-note, etc.)
+    - **Context resources**: Wiki catalog (codewiki://wiki/catalog), module tree (codewiki://wiki/module-tree), search index status (codewiki://wiki/index-status)
+
+    ## Core workflows
+
+    ### 1. Code analysis (standalone — no Wiki generation needed)
+    analyze_repo → list_components / list_dependencies / analyze_impact / read_code_components
+
+    Typical scenarios:
+    - Call-chain lookup: list_dependencies(component_ids, direction="both") for direct call relationships
+    - Change impact assessment: analyze_impact(component_ids or file_paths, direction="depended_by") for transitive blast radius (who depends on me), module-level aggregation, high-risk components
+    - Full dependency picture: analyze_impact(direction="both", include_paths=true) for complete call-chain paths
+    - Code reading: read_code_components(component_ids) to inspect source
+
+    Analysis results are persisted in SQLite. Users may analyze without generating docs and later resume Wiki generation from the cached data at any time (incremental mode automatically reuses prior analysis).
+
+    ### 2. Wiki generation (full pipeline)
+    analyze_repo → get_prompt('cluster') → save_module_tree → get_processing_order → per module: get_prompt('user') + read_code_components → write_doc_file → close_session
+
+    When analysis cache already exists, analyze_repo incremental mode skips unchanged files and goes straight to documentation generation.
+
+    ### 3. Knowledge base search
+    query_wiki(query, hop=1) → inspect results → query_wiki(query, expand=true) for deep reading
+
+    ### 4. External document knowledge extraction (two phases)
+    ingest_source → get_prompt('extraction_scan') skeleton extraction (identify only, no writing) → query_wiki + get_prompt('extraction_dedup') dedup (create/merge/drop) → evidence validation (line-range citations must substantively discuss the claim) → write_doc_file / edit_doc_file(page_type='entity'/'concept'/'source') → [[wikilink]] graph building
+
+    ### 5. Knowledge capture
+    ingest_note(note_type, title, content) → auto-indexed → searchable via query_wiki
+
+    ## Key constraints
+    - **Large payload transfer**: analysis results (component index, source code, dependency graph) are written to workspace files and read via the returned file_path — never shipped through the MCP channel
+    - **Session management**: analyze_repo creates a session (2h TTL, up to 10), close_session triggers index rebuild and cleanup
+    - **Incremental updates**: if output_dir already has .meta/metadata.json, analyze_repo returns a changes field identifying what changed
+    - **Mermaid validation**: write_doc_file / edit_doc_file auto-validate Mermaid diagram syntax
+    - **page_type routing**: module→wiki/modules/, entity→wiki/entities/, concept→wiki/concepts/, source→wiki/sources/
+    - **filename rule**: pass only the bare filename (e.g. "UserService.md") to write_doc_file's filename parameter — never a directory path. Routing is handled by page_type; passing "entities/X.md" produces a wrong path
+
+    ## Recommended usage flow
+    1. Code analysis: analyze_repo → analyze_impact / list_dependencies (no Wiki steps required)
+    2. Generate Wiki: invoke Prompt "generate-wiki" for the full procedure
+    3. Knowledge extraction: invoke Prompt "extract-knowledge" for the full procedure
+    4. Knowledge capture: invoke Prompt "ingest-note" to archive design decisions and lessons learned
+    5. Search the knowledge base: invoke Prompt "search-wiki" for the search strategy
+    6. Quality check: lint_wiki(checks=["all"]) → flag_issue to record problems
+    7. Conversation capture: invoke Prompt "team-memory-hook" to enable/disable IDE conversation auto-capture (optional)
+    8. Conversation distillation: invoke Prompt "distill-conversations" to extract experience notes from captured conversations
+
+    ## Language
+    Produce all output in English — Wiki docs, notes, commit messages, code comments, replies to the user, and any text written into on-disk files such as AGENTS.md — unless the user explicitly asks otherwise. The workflow guides themselves may be written in another language; that is your instruction, not your output language.
+
+# ---------------------------------------------------------------------------
+# Prompt metadata (shared by prompts/list, get_prompt and
+# codewiki://prompts/catalog — one structure, resolved per language).
+# ---------------------------------------------------------------------------
+prompts:
+  get:
+    description: "CodeWiki workflow guide: {name}"
+    unknown:
+      title: "Unknown prompt template"
+      text: "Unknown prompt template: {name}. Available: {available}"
+
+  init-wiki:
+    title: "Initialize single-repo Wiki workspace"
+    description: "Zero-config initialization: create the directory layout, copy the annotated schema.yaml template, and write AGENTS.md (usage advice + self-reflection protocol). Run once before any Wiki generation or knowledge management."
+    args:
+      repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
+      enable_task_management: "Enable cross-session task memory: true/1 appends task-management setup instructions (register the SessionEnd capture hook + write the task guidance block into AGENTS.md so new sessions prompt the user to bind or create a task); empty/false skips it. Disabled by default."
+
+  init-workspace:
+    title: "Initialize multi-repo Wiki workspace"
+    description: "Initialize (or re-sync) the current working directory as a multi-repo workspace: bootstrap clone scripts, .gitignore, repo-map navigation skeleton, AGENTS.md workspace conventions and the product-level repowiki. First-time initialization must ask the user for the knowledge layout (colocated/centralized) before calling with layout; the layout is recorded in repowiki/.meta/workspace.json. Re-runs are zero-config and idempotent — when the skeleton is intact it takes over as clone-only (cloning missing business repos without touching the skeleton or AGENTS.md); missing skeleton parts are regenerated and convention blocks force-refreshed. Business repos are registered via add_workspace_repo."
+
+  add-workspace-repo:
+    title: "Register a business repo into the multi-repo workspace"
+    description: "Register a business code repo (by clone URL) into an initialized harness workspace: the directory name is derived from the repo name, and bootstrap.sh/ps1 registry, .gitignore and repo-map.md are updated transactionally, then cloned by default. Re-registering the same name+URL is a no-op."
+    args:
+      workspace_path: "Workspace root directory (defaults to the current working directory)"
+      url: "Business repo git clone URL (required; directory name is derived from the repo name)"
+      clone: "Clone immediately after registering (default true)"
+
+  remove-workspace-repo:
+    title: "Remove a business repo from the multi-repo workspace"
+    description: "Remove a business code repo from the harness workspace by subdirectory name: transactionally clean the bootstrap.sh/ps1 registry, .gitignore and repo-map.md, and delete the local clone directory (irreversible)."
+    args:
+      workspace_path: "Workspace root directory (defaults to the current working directory)"
+      name: "Business repo subdirectory name (the name used at registration time; required)"
+
+  generate-wiki:
+    title: "Generate single-repo code Wiki"
+    description: "Full code-repo Wiki generation pipeline: analyze → cluster → per-module writing → overview → quality check → close session"
+    args:
+      repo_path: "Code repo path to analyze (relative paths resolve against the current working directory; defaults to cwd)"
+
+  incremental-update:
+    title: "Update single-repo code Wiki"
+    description: "Detect code changes and incrementally update the affected Wiki module docs"
+    args:
+      repo_path: "Code repo path (relative paths resolve against the current working directory; defaults to cwd)"
+
+  code-analysis:
+    title: "Single-repo code structure analysis (no Wiki generated)"
+    description: "Parse code structure, build the function-level call graph, query dependencies and assess change impact — without generating any Wiki docs. Analysis results are cached in SQLite so Wiki generation can resume at any time."
+    args:
+      repo_path: "Code repo path to analyze (relative paths resolve against the current working directory; defaults to cwd)"
+
+  workspace-analysis:
+    title: "Generate/update multi-repo Wiki (incl. cross-service topology)"
+    description: "Scan multiple git repos under a parent directory, generate an independent Wiki for each, and run cross-service analysis automatically: RouteNode matching (HTTP+MQ, covering Py/Java/JS/TS/Go), a Mermaid service topology graph, and infrastructure scanning (docker-compose/.env/application.yml). Pair with codebase-memory-mcp for semantic deep tracing."
+    args:
+      workspace_path: "Parent directory containing multiple git repos (relative paths resolve against the current working directory; defaults to cwd)"
+
+  cross-service-trace:
+    title: "Cross-service call chain tracing"
+    description: "Trace the cross-service call chain from a given root service: first CodeWiki RouteNode static matching (HTTP routes + MQ producers/consumers), then codebase-memory-mcp trace_path(mode='cross_service') for multi-hop semantic tracing, producing a call-chain graph plus architecture diagnostics (circular dependencies / fan-in hotspots / unmatched routes)."
+    args:
+      workspace_path: "Workspace root containing multiple git repos (relative paths resolve against the current working directory; defaults to cwd; analyze_workspace must have been run)"
+      filter_value: "Trace origin: service name / HTTP method / URL substring / path prefix (can be supplied during the conversation)"
+
+  search-wiki:
+    title: "Knowledge base search"
+    description: "Strategy guide for searching the Wiki knowledge base efficiently: BM25 search, graph expansion, deep reading"
+    args:
+      query: "Search keywords or a natural-language question"
+
+  quality-check:
+    title: "Documentation quality audit"
+    description: "Run a comprehensive quality check on a generated Wiki: stale references, broken links, coverage, circular dependencies"
+    args:
+      repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
+
+  impact-review:
+    title: "Change impact assessment"
+    description: "Run transitive impact analysis (BFS) for a given component or file to size the blast radius: who depends on me (depended_by) or what I depend on (depends_on), with module-level aggregation, high-risk component identification and full call chains."
+    args:
+      repo_path: "Code repo path (analyze_repo or code-analysis must have been run)"
+      target: "Analysis target: component ID (e.g. src/auth.py::AuthService) or file path (leave empty to fill in during the conversation)"
+
+  change-review:
+    title: "Change assessment and code review"
+    description: "Run impact analysis and code review over recent code changes (a commit range or uncommitted changes): git diff line-level parsing locates changed functions, transitive impact radius plus regression-test suggestions; then review_changes collects review evidence along four axes (spec/convention/module_knowledge/general) to check whether the change is correct and consistent with conventions and past lessons. Complements impact-review: impact-review assesses a specific component BEFORE a change, change-review assesses and reviews the diff AFTER."
+    args:
+      repo_path: "Code repo path (analyze_repo or code-analysis must have been run)"
+      since: "Committed range git diff <since>..HEAD (e.g. HEAD~1 or a commit hash); leave empty to analyze uncommitted changes (worktree)"
+
+  architecture-review:
+    title: "Architecture review and hotspot analysis"
+    description: "Understand the high-level architecture through dependency-graph analysis: identify core/service/application layers, find dependency hotspots and coupling risks, locate entry points and module boundaries."
+    args:
+      repo_path: "Code repo path (relative paths resolve against the current working directory; defaults to cwd)"
+
+  extract-knowledge:
+    title: "External document knowledge extraction"
+    description: "Import an external document and extract entities and concepts from it, generating structured knowledge pages and building the wikilink graph. Two-phase flow: skeleton extraction → dedup check → evidence validation → page writing."
+    args:
+      source_path: "Absolute path of the external document to import and extract from (PDF/MD/DOCX/HTML)"
+      repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
+      granularity: "Extraction granularity: focused (3-7 core items) | standard (balanced coverage) | exhaustive (extract everything). Defaults to schema.yaml extraction_granularity"
+
+  ingest-note:
+    title: "Experience knowledge capture"
+    description: "Archive design decisions, lessons learned, architecture rationale, pitfalls and similar knowledge into the Wiki knowledge base. Supports 8 note types, auto-indexed with BM25 and searchable via query_wiki."
+    args:
+      repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
+      note_type: "Note type: decision | lesson | architecture | bug_fix | pitfall | known_issue | workaround | general (default general)"
+
+  team-memory-hook:
+    title: "Enable/disable task management (cross-session task memory)"
+    description: "Manage cross-session task memory: enabling registers the SessionEnd capture hook and writes the task guidance block into AGENTS.md (new sessions prompt the user to bind an existing task or create one by name); disabling removes both. Capture writes raw transcripts only — no distillation."
+    args:
+      action: "Action to perform: enable | disable; leave empty to inspect the current state first and follow the user's intent"
+      repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
+
+  distill-conversations:
+    title: "Distill conversations into memories and experience"
+    description: "Distill captured conversations in repowiki/raw/ into dual-track output: notes (general experience notes) and memories (task progress). The host Agent acts as the LLM: distill_conversation(mode=prepare) fetches the transcript → the Agent extracts knowledge → mode=submit hands it back for dedup / draft ingestion / memory persistence / review. Fully local; distilled notes require confirm_note, memories are written automatically to the current user's task-memory shard file."
+    args:
+      repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
+
+  task-workflow:
+    title: "Task memory workflow"
+    description: "Carry work context across sessions: create/bind tasks, capture conversations bound to a task_id, produce notes and task memories as dual tracks during distillation, and retrieve/aggregate by task_id. For long-running scenarios such as \"continue the previous task\"."
+    args:
+      repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
+
+  consolidate-knowledge:
+    title: "Knowledge consolidation (L2 scenario blocks)"
+    description: "Consolidate confirmed notes into L2 working-method scenario blocks (wiki/scenarios/): prepare fetches pending notes and capacity warnings → write/update the scenario block → reject_note retires absorbed notes → submit records provenance and resets counters. Triggered by \"consolidate notes\" or an aggregation_hint reminder (ask the user first)."
+    args:
+      repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
+
+  skill-creator:
+    title: "Skill compilation (SKILL.md draft zone)"
+    description: "Compile confirmed knowledge (scenario blocks + stable notes + skill open issues) into a SKILL.md behavioral-instruction draft (repowiki/skills/, two-zone draft area: indexed and linted, not active): prepare gathers candidate material, conflict pre-checks, capacity warnings and writing conventions → the Agent writes → submit validates, persists and writes bidirectional provenance. install/retire are follow-up tickets. For scenarios like \"generate a skill\" or \"turn this experience into a SKILL\"."
+    args:
+      repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
+
+  promote-note:
+    title: "Promote a note to a formal wiki page"
+    description: "Rewrite a frequently adopted stable note (wiki_stats.promotion_candidates) into a de-personalized formal wiki page: type routing (pitfall/bug_fix/workaround → query, lesson/decision/architecture → concept) → write_doc_file creates the new page (must be draft; remind the user to confirm) → edit_doc_file back-annotates the original note's metadata.promoted_to. The original note is neither deleted nor demoted — it stays as an audit trail anchor."
+    args:
+      note_file: "Relative path of the note to promote (e.g. notes/xxx.md); leave empty to let the user pick from wiki_stats promotion_candidates"
+      repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
+
+# ---------------------------------------------------------------------------
+# Resources (codewiki://prompts/catalog is derived from the prompt registry;
+# only the shell strings live here)
+# ---------------------------------------------------------------------------
+resources:
+  catalog:
+    usage: "Use the MCP prompts/get protocol to fetch the full workflow guide, or call the get_prompt tool for code-generation-stage prompt templates"
+    argument: "{name} ({scope}): {description}"
+    optional: "optional"
+    required: "required"
+
+  static:
+    prompts_catalog:
+      name: "Prompt template catalog"
+      title: "CodeWiki prompt template catalog"
+      description: "Every available prompt template and its purpose, so the agent can see which workflow guides exist"
+    capabilities:
+      name: "Capability overview"
+      title: "CodeWiki capabilities and tool inventory"
+      description: "Full tool list, parameter quick reference and workflow notes the agent can plan tasks from"
+    page_types:
+      name: "Page type reference"
+      title: "Wiki page types and routing rules"
+      description: "Purpose, storage path, frontmatter spec and wikilink graph rules for each page_type"
+
+  template:
+    catalog:
+      name: "Wiki page catalog"
+      title: "Page catalog for a given Wiki"
+      description: "Catalog of every Wiki page under an output directory (title, type, path); output_dir in the URI is a URL-encoded absolute path"
+    module_tree:
+      name: "Module cluster tree"
+      title: "Module cluster tree for a given Wiki"
+      description: "Module clustering structure of a Wiki (module names, component counts, hierarchy)"
+    index_status:
+      name: "Search index status"
+      title: "Search index status for a given Wiki"
+      description: "Build status of the BM25 search index and wikilink graph (page count, token count, edge count)"
+
+  capabilities:
+    category:
+      code_analysis: "Code analysis"
+      workspace_management: "Workspace management"
+      cross_service: "Cross-service analysis"
+      doc_generation: "Documentation generation"
+      knowledge_base: "Knowledge base"
+      quality: "Quality assurance"
+      session: "Session management"
+    pattern:
+      workspace_file: "Large results are written to the .codewiki/workspace/ directory and read via the returned file_path"
+      session_lifecycle: "analyze_repo creates → tool calls → close_session cleans up (2h TTL)"
+      page_type_routing: "module→wiki/modules/, entity→wiki/entities/, concept→wiki/concepts/, source→wiki/sources/"
+      search_layers: "BM25 full text → hop graph expansion → expand deep reading"
+      cross_service: "analyze_workspace (multi-repo) or analyze_repo (monorepo) builds the topology automatically → query_cross_service slices it → (optional) CBM trace_path semantic tracing"
+
+  # Sections are pipe-separated (the catalog stays a flat string map).
+  page_types:
+    module:
+      description: "Code module documentation (produced by the analyze_repo pipeline)"
+      sections: "Overview|Architecture diagram|Core components|Dependencies|Usage examples"
+    entity:
+      description: "Entity pages (people/systems/services/components/APIs)"
+      sections: "Definition|Key attributes|Relationships|Source references"
+    concept:
+      description: "Concept pages (patterns/algorithms/protocols/architecture decisions)"
+      sections: "Definition|How it works|Use cases|Related concepts"
+    source:
+      description: "External source document summary pages"
+      sections: "Source metadata|Core content|Extracted entities/concepts|References"
+    comparison:
+      description: "Comparative analysis pages"
+      sections: "Comparison dimensions|Pros and cons|Conclusion"
+    query:
+      description: "Archived query result pages"
+      sections: "Question|Answer|Reference sources"
+
+  wikilink:
+    syntax: "[[Page name]] or [display text](relative/path.md)"
+    graph_build: "build_search_index parses every wikilink into directed edges in the wiki_links table"
+    multi_hop: "query_wiki(hop=N) expands BFS along graph edges, decaying the score 0.5x per hop"
+    aliases: "Aliases in frontmatter_extra.aliases also participate in wikilink resolution"
+
+# ---------------------------------------------------------------------------
+# On-disk artifacts (written into the user's repo and reliably loaded by every
+# IDE — this is the primary channel for the output-language rule)
+# ---------------------------------------------------------------------------
+artifacts:
+  agents_md:
+    modules_overflow: "\n({hidden} more modules omitted — browse `{rel_path}/wiki/index.md` or use `query_wiki`)"
+    modules_block: |
+      **Module list:**
+
+      {module_lines}{overflow}
+    main: |-
+      {begin_marker}
+
+      ## CodeWiki LLM Wiki
+
+      This project uses [CodeWiki](https://github.com/mambo-wang/CodeWiki-Plus) to generate LLM Wiki docs, located under `{rel_path}/`.
+
+      **Entry points:**
+
+      - [`{rel_path}/wiki/overview.md`]({rel_path}/wiki/overview.md) — repo-level architecture overview (with a Mermaid diagram)
+      - [`{rel_path}/wiki/index.md`]({rel_path}/wiki/index.md) — doc catalog and knowledge-note index
+      - [`{rel_path}/schema.yaml`]({rel_path}/schema.yaml) — project documentation conventions (naming rules, required sections, etc.)
+      {modules_block}
+      ### Usage advice
+
+      1. **Before coding**: search `query_wiki` for the relevant module docs to learn the architecture conventions and dependencies
+      2. **When deciding**: search `query_wiki` for existing `decision` notes so the same ground is not covered twice
+      3. **After an important decision**: archive it with `ingest_note` so future agents and teammates can find it
+      4. **Ongoing maintenance**: run `lint_wiki` to catch docs that went stale and keep them in sync with the code
+
+      ### Cite your sources explicitly
+
+      When answering about this repo's knowledge or code, **cite the source at every key claim** — never write "according to the docs/code" without naming it:
+
+      - Citing a doc/note found via `query_wiki` → annotate `（source: <file>）`, where `<file>` matches the `file` field of the search result exactly (e.g. `notes/xxx.md`, `wiki/modules/yyy.md`)
+      - Citing a code fact (function/class/config/behavior assertion) → annotate `<code file>:<line>` (e.g. `codewiki/mcp/tools/adoption.py:32`). Use the line numbers you actually read from the code or search results — **do not copy line numbers from docs that may be stale**
+      - When the basis comes from this session's own code inspection rather than a doc → say so, e.g. `source: code inspection — <code file>:<line>`
+
+      In-body citations are a traceability promise for humans; the trailing `codewiki:referenced-docs` comment remains the machine adoption signal. The two coexist and do not interfere.
+
+      ### Adoption declaration (retrieval feedback)
+
+      When you retrieved a result via `query_wiki` and **actually used it** (as a decision basis, edit reference, or answer source), append a one-line declaration comment to your final reply:
+
+      ```
+      <!-- codewiki:referenced-docs: ["notes/pitfall-xxx.md", "wiki/modules/yyy.md"] -->
+      ```
+
+      Paths must match the `file` field returned by query_wiki exactly. Declared documents earn an adoption count (`usage.adopted_count`) and rank higher in future retrievals (adoption weight is 2x plain recall); notes that are frequently retrieved but never adopted get flagged by the `low_adoption` check in `lint_wiki` as "needs a more actionable rewrite".
+
+      **Note**: only declare docs you genuinely used — this is a signal that teaches the knowledge base what is actually useful, not a polite acknowledgement. Forgetting is fine (missed reports are tolerable); declaring docs you did not use is not.
+
+      ### Correction detection and experience capture
+
+      When the user corrects, complains, or supplies context you lacked, that may be experience worth keeping. Handle it as follows:
+
+      **Correction signals (any one triggers):**
+
+      - The user explicitly rejects your output: "no", "that's wrong", "that's not it", "it should be…"
+      - The user expresses frustration about the same mistake recurring: "again…", "last time too…", "why again…"
+      - The user is still unhappy after you revised your output — the misunderstanding is fundamental
+      - The user adds critical context you did not know: "don't you know…", "this project has always…", "we agreed…"
+      - The user points out that a method name / Javadoc disagrees with actual behavior, or flags a legacy quirk in the code
+
+      **Three-step flow:**
+
+      1. **Reflect**: state plainly what you got wrong, what the correct approach is, and the root cause (missing project context? misread code?)
+      2. **Draft a note**: structure the lesson as background (the scenario where you erred), the correct approach, and root-cause analysis
+      3. **Ask for confirmation**: show the draft to the user and ask "shall I record this to the Wiki?" — **you must get explicit confirmation before calling `ingest_note`**; never save silently
+
+      **Archiving example:**
+
+      ```json
+      {{
+        "note_type": "lesson",
+        "title": "OrderService.process() only validates parameters, it does not run business logic",
+        "content": "## Background\n\nThe agent assumed OrderService.process() contained the full business logic and made a wrong design assumption from the method name.\n\n## Correct approach\n\nprocess() only validates and formats inputs; the actual business handling lives in OrderService.execute(). In legacy projects, method names drifting from behavior is common — read the implementation rather than trusting the name.\n\n## Root cause\n\nA decade-old project: methods were refactored repeatedly but never renamed.",
+        "related_modules": ["order"]
+      }}
+      ```
+
+      **Note**: not every correction deserves a note. Only record what has reuse value — temporary adjustments specific to this task, personal preferences and the like do not. Test: would this help a future agent or a new teammate in the same situation?
+
+      ### Proactive knowledge capture
+
+      Do not wait for a correction. When these signals appear in the conversation, reflect and extract knowledge proactively:
+
+      **Trigger signals (any one activates reflection):**
+
+      - You found the root cause after a multi-step debug session (especially after taking a detour)
+      - Two or more options were discussed and one was chosen
+      - Actual code behavior disagrees with docs / naming / comments
+      - The user supplied implicit project knowledge (conventions, historical reasons, "we always do it this way")
+      - An exploratory investigation converged on a clear conclusion
+      - You found a reusable pattern, toolchain trick, or environment setup tip
+
+      **Four-question filter (all must pass to be worth recording):**
+
+      1. Will it still be useful in a future conversation without this context?
+      2. Would another agent or a new teammate benefit directly in the same situation?
+      3. Did `query_wiki` confirm existing docs do not cover it?
+      4. Is it a "fact / decision / pattern / lesson" rather than "temporary state of this task"?
+
+      **Routing table:**
+
+      | Knowledge type | How to write it |
+      |---------|---------|
+      | Tech choice / trade-off made | `ingest_note(note_type="decision")` |
+      | Pitfall / easy-to-miss trap | `ingest_note(note_type="pitfall")` |
+      | Lesson learned (debugging, corrected assumptions) | `ingest_note(note_type="lesson")` |
+      | Architecture-level finding | `ingest_note(note_type="architecture")` |
+      | Temporary workaround (with restore conditions) | `ingest_note(note_type="workaround")` |
+      | Multi-option comparison (with a table) | `write_doc_file(page_type="comparison")` |
+      | Archived research conclusion | `write_doc_file(page_type="query")` |
+
+      **Execution flow:**
+
+      1. After a trigger fires, review the relevant conversation and extract candidate items
+      2. Run each candidate through the four-question filter and drop those that fail
+      3. Check `query_wiki` for existing coverage (avoid duplicates)
+      4. Pick the write method from the routing table and draft structured content (background → conclusion → root cause → scope)
+      5. Show the draft to the user and ask for confirmation — **write only after confirmation**
+      6. Several candidates may accumulate in one conversation; present them together at a natural pause (task done, topic switch) instead of interrupting repeatedly
+
+      **Do not record:**
+
+      - Temporary variables, paths or parameters relevant only to this task
+      - Personal user preferences (that belongs in agent memory, not the project Wiki)
+      - Information already stated plainly in code comments or the README
+      - Unverified guesses or "maybe / probably" level inferences
+
+      ### Output language (language gate)
+
+      Produce all output in **English** — Wiki docs, notes, code comments, commit messages, replies to the user, and machine-generated docs in this repo — unless the user explicitly asks otherwise. If retrieved historical docs are in another language, new output still follows this rule; do not mix languages.
+
+      {end_marker}
+
+  reading_guide:
+    title: "Reading Guide"
+    description: "> Generated automatically from PageRank dependency analysis. Components ranked higher are depended on by more modules — read them first."
+    heading: "# Reading Guide"
+    intro_line2: "> Ranking is by PageRank score (weighing both how many dependents a component has and how important those dependents are),"
+    intro_line3: "> The \"Direct Dependents\" column is the raw in-degree and is provided for reference only."
+    recommended_order: "## Recommended reading order"
+    table_header: "| # | Component | Type | Module | Direct Dependents | PageRank | File |"
+    module_ranking: "## Module importance ranking"
+    module_table_header: "| # | Module | Cumulative PageRank |"
+    footer: "*Computed from {components} components and {edges} dependency edges.*"
+  index:
+    alias_docs: "Project documentation index"
+    alias_index: "Documentation index"
+    alias_notes: "Knowledge notes index"
+    generated_comment: "<!-- Auto-generated at {generated_at} | Health Score: {health_score}/100 | This file is maintained automatically by the system -->"
+    heading: "# Project Documentation Index"
+    getting_started: "## Getting started"
+    notes: "## Knowledge notes"
+    no_summary: "(no summary)"
+    log_header: "# Operation log · {month_str}\n\n> Appended chronologically (team-layout Phase 1 monthly shards, OKF v0.2 §9 format; maintained automatically by the system)\n\n"
+    page_type:
+      module: "Module docs"
+      entity: "Entity"
+      concept: "Concept"
+      source: "External docs"
+      comparison: "Comparison"
+      query: "Research"
+      scenario: "Scenario guide"
+
+# ---------------------------------------------------------------------------
+# Builtin review checklist (review_changes BUILTIN_CHECKLISTS)
+# questions are pipe-separated (the catalog stays a flat string map)
+# ---------------------------------------------------------------------------
+review_checklist:
+  all:
+    err-handling:
+      title: "Error handling and resource cleanup"
+      questions: "Are exceptions or errors swallowed (bare except, ignored return value, dropped error)?|Are files, connections and locks released in finally / with / defer?|Is error context preserved (original exception, key parameters propagated with the error)?"
+    input-validation:
+      title: "Input validation"
+      questions: "Is external input (arguments, user data, file contents) validated at the entry point?|Are boundary values handled (empty, oversized, negative, zero, out of range)?|Are type/format assumptions explicit rather than relying on callers?"
+    logging:
+      title: "Logging"
+      questions: "Are key paths logged (errors, slow paths, state changes)?|Do logs carry the context needed to locate an issue (ids, argument summaries) rather than only a stack trace?|Are high-frequency logs avoided in loops or hot paths?"
+    security:
+      title: "Security"
+      questions: "Is there injection risk (SQL/command/template built from external input)?|Are secrets, tokens or passwords hardcoded or written to logs?|Does path concatenation allow traversal (unvalidated relative paths)?"
+    concurrency:
+      title: "Concurrency safety"
+      questions: "Is shared mutable state guarded by a lock or synchronization?|Are there races (check-then-write, non-atomic updates)?|Is any new global or module-level mutable state thread-safe?"
+    null-boundary:
+      title: "Null and boundary conditions"
+      questions: "Are null/None/empty-collection accesses guarded?|Are empty collections, index overruns and division by zero handled?|Are loop termination conditions correct (off-by-one)?"
+    testability:
+      title: "Testability"
+      questions: "Can the new logic be tested in isolation (no hardcoded dependencies, time or randomness)?|Are side effects (IO, network, DB) confined to mockable boundaries?|Do tests cover the key branches of this change?"
+    backward-compat:
+      title: "Backward compatibility"
+      questions: "Do public interface or data-structure changes break existing callers?|Could changed default behavior affect callers that pass nothing explicitly?|Is there a transition period for deletions or renames, with every reference updated?"
+    performance:
+      title: "Performance"
+      questions: "Are there obvious N+1 queries or heavy work inside loops (IO, regex compilation, DB calls)?|Do the new data structures or algorithms match the expected scale?|Are unnecessary copies or serializations introduced?"
+    code-quality:
+      title: "Code quality"
+      questions: "Is there duplicated logic worth extracting (already implemented in this file or module)?|Do names accurately reflect behavior (no misleading names)?|Is there dead code, unused variables, or comments that disagree with the code?"
+  python:
+    py-mutable-default:
+      title: "Mutable default arguments"
+      questions: "Is any function argument default a mutable object (list/dict/set) — state shared across calls?"
+    py-bare-except:
+      title: "Bare except"
+      questions: "Is a bare except / except Exception used, swallowing exceptions including KeyboardInterrupt?"
+    py-resource-context:
+      title: "Resource context management"
+      questions: "Are files, sockets and locks managed with the with statement?"
+    py-encoding:
+      title: "Encoding handling"
+      questions: "Do file reads and writes specify encoding explicitly (GBK/UTF-8 differences across platforms)?"
+    py-import-side-effect:
+      title: "Import side effects"
+      questions: "Does importing the module trigger heavy side effects (network, file writes, DB connections)?"
+
+# ---------------------------------------------------------------------------
+# Tool-returned hints (scattered one-liners shown to the agent)
+# ---------------------------------------------------------------------------
+tools:
+  note_query:
+    by_file_hint: "This file has {total} historical knowledge entries (~{total_est} tokens). Returned the top {count} by specificity. Start as soon as you have enough; use mode=detail to read a single note in full."
+    by_file_empty: "No historical knowledge is linked to this file (no related_modules hit in notes/). This may be a knowledge gap worth filling with ingest_note once the task is done."
+  doc_writer:
+    stale_code_advisory: "code_fingerprint drift: this page was generated from a different code state (old {old_fp}… → new {new_fp}…), and this write overwrites it. Conclusions on the old page may be stale — review it with lint_wiki stale_pages."
+  review_changes:
+    no_spec_note: "No SPEC found — only general correctness can be reviewed; missing or out-of-scope work cannot be detected"
+  wiki_lint:
+    stale_note_suggestion: "Unverified for {overdue_days} days. If it is still accurate, renew it with confirm_note(note_file=\"{rel_path}\") (refreshes stale_after per the type window); if it is outdated, retire it with reject_note."
+    low_adoption_suggestion: "Recalled often but adopted zero times: content is likely relevant but not actionable enough. Consider rewriting it in a more executable form (concrete steps / commands / expected results) — draft it via distill_conversation then confirm_note, or update it directly with edit_doc_file on {rel_path}."
+    check_done: "Lint complete: {count} issue(s)"
+  task_manager:
+    compact_instruction: "Read entries_to_compress (if existing_summary is non-empty it holds the previously compressed summary — the new summary should supersede it) and write a Markdown summary of the task's early memories in English, at most {max_chars} characters. Cover: key facts and decisions already made, open questions, and context that may still affect later work (past pitfalls, conventions, external dependencies). Drop pure process detail, keep conclusions. Then call compact_task_memories(mode='submit', task_id=..., summary=...)."
+  prompt_server:
+    draft_template: |
+      📝 Knowledge capture candidates ({n})
+
+      1. [{note_type/page_type}] {title}
+         Background: {one line}
+         Conclusion: {one line}
+         Applies to: {when this applies}
+
+      2. ...
+
+      Which should I record? (all / pick numbers / skip)
+  workspace_bootstrap:
+    layout_question: "First-time initialization of a multi-repo workspace needs a knowledge-layout decision: ask the user first, then re-invoke init_workspace with the layout argument once you have the answer."
+    layout_colocated: "Each business repo carries its own repowiki; docs evolve alongside the code and retrieval takes two hops (product level, then repo level)"
+    layout_centralized: "All knowledge is centralized in this workspace's repowiki; business repos are pure code directories and retrieval takes one hop"
+  distill_conversation:
+    merge_marker: "> Merged from distillation candidate: {title}"
+    friction_hint: "Tip: conversations with friction_score ≥ 20 carry clear friction signals (corrections / interruptions / repetition); distilling them first is more likely to produce valuable experience notes (the list is sorted by captured_at ascending; friction_score lets you reprioritize)."

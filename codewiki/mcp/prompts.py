@@ -16,6 +16,8 @@ import logging
 import os
 from typing import Any
 
+from codewiki.mcp import i18n as _i18n
+
 logger = logging.getLogger(__name__)
 
 
@@ -1371,408 +1373,108 @@ def _prompt_promote_note(args: dict[str, str]) -> str:
 - **repo_path**（必填）：仓库根目录，用于自动推导 Wiki 输出目录"""
 
 
+# ---------------------------------------------------------------------------
+# Prompt registry — single source of truth for prompts/list, the get_prompt
+# result description, and the codewiki://prompts/catalog resource.
+#
+# Human-facing strings are NOT stored here: they live in
+# codewiki/mcp/locales/{zh,en}.yaml under ``prompts.<name>.*`` and are
+# resolved at call time, so the same structure serves every language.
+# ---------------------------------------------------------------------------
+
+_PROMPT_REGISTRY: list[dict[str, Any]] = [
+    {
+        "name": "init-wiki",
+        "args": [("repo_path", False), ("enable_task_management", False)],
+    },
+    {"name": "init-workspace", "args": []},
+    {
+        "name": "add-workspace-repo",
+        "args": [("workspace_path", False), ("url", True), ("clone", False)],
+    },
+    {"name": "remove-workspace-repo", "args": [("workspace_path", False), ("name", True)]},
+    {"name": "generate-wiki", "args": [("repo_path", False)]},
+    {"name": "incremental-update", "args": [("repo_path", False)]},
+    {"name": "code-analysis", "args": [("repo_path", False)]},
+    {"name": "workspace-analysis", "args": [("workspace_path", False)]},
+    {
+        "name": "cross-service-trace",
+        "args": [("workspace_path", False), ("filter_value", False)],
+    },
+    {"name": "search-wiki", "args": [("query", False)]},
+    {"name": "quality-check", "args": [("repo_path", False)]},
+    {"name": "impact-review", "args": [("repo_path", False), ("target", False)]},
+    {"name": "change-review", "args": [("repo_path", False), ("since", False)]},
+    {"name": "architecture-review", "args": [("repo_path", False)]},
+    {
+        "name": "extract-knowledge",
+        "args": [("source_path", False), ("repo_path", False), ("granularity", False)],
+    },
+    {"name": "ingest-note", "args": [("repo_path", False), ("note_type", False)]},
+    {"name": "team-memory-hook", "args": [("action", False), ("repo_path", False)]},
+    {"name": "distill-conversations", "args": [("repo_path", False)]},
+    {"name": "task-workflow", "args": [("repo_path", False)]},
+    {"name": "consolidate-knowledge", "args": [("repo_path", False)]},
+    {"name": "skill-creator", "args": [("repo_path", False)]},
+    {"name": "promote-note", "args": [("note_file", False), ("repo_path", False)]},
+]
+
+
+def prompt_catalog() -> list[dict[str, Any]]:
+    """Localized catalog entries for the ``codewiki://prompts/catalog`` resource.
+
+    Kept next to the registry on purpose: the resource used to carry its own
+    hand-written copy of these strings (and had drifted to 15 of 22 prompts).
+    """
+    return [
+        {
+            "name": meta["name"],
+            "title": _i18n.t("prompts." + meta["name"] + ".title"),
+            "description": _i18n.t("prompts." + meta["name"] + ".description"),
+            "arguments": [
+                _i18n.t(
+                    "resources.catalog.argument",
+                    name=arg_name,
+                    scope=_i18n.t(
+                        "resources.catalog.optional" if not required else "resources.catalog.required"
+                    ),
+                    description=_i18n.t("prompts." + meta["name"] + ".args." + arg_name),
+                )
+                for arg_name, required in meta["args"]
+            ],
+        }
+        for meta in _PROMPT_REGISTRY
+    ]
+
+
 def register(server):
     """Register prompt handlers on the given MCP Server instance."""
     from mcp.types import Prompt, PromptArgument
 
     @server.list_prompts()
     async def list_prompts() -> list:
-        """List available workflow prompt templates."""
+        """List available workflow prompt templates.
+
+        Structure comes from ``_PROMPT_REGISTRY``; every human-facing string
+        is resolved at call time via :mod:`codewiki.mcp.i18n`.
+        """
+        from mcp.types import Prompt, PromptArgument
+
         return [
             Prompt(
-                name="init-wiki",
-                title="初始化单仓Wiki工作区",
-                description=(
-                    "零配置初始化：创建目录结构、拷贝带注释的 schema.yaml 模板、"
-                    "写入 AGENTS.md（含使用建议和自我反思协议）。"
-                    "在开始任何 Wiki 生成或知识管理之前执行一次。"
-                ),
+                name=meta["name"],
+                title=_i18n.t("prompts." + meta["name"] + ".title"),
+                description=_i18n.t("prompts." + meta["name"] + ".description"),
                 arguments=[
                     PromptArgument(
-                        name="repo_path",
-                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="enable_task_management",
-                        description="是否启用任务管理（跨会话任务记忆）：true/1 会在初始化指引中追加任务管理启用说明（注册 SessionEnd 采集 Hook + 向 AGENTS.md 写入任务引导段，新建会话时提示用户关联/新建任务）；留空或 false 则跳过。默认关闭。",
-                        required=False,
-                    ),
+                        name=arg_name,
+                        description=_i18n.t("prompts." + meta["name"] + ".args." + arg_name),
+                        required=required,
+                    )
+                    for arg_name, required in meta["args"]
                 ],
-            ),
-            Prompt(
-                name="init-workspace",
-                title="初始化多仓WIKI工作区",
-                description=(
-                    "把当前工作目录初始化（或重新同步）为多仓工作区：生成 bootstrap 克隆脚本、"
-                    ".gitignore、repo-map 导航骨架、AGENTS.md 工作区约定与产品级 repowiki。"
-                    "首次初始化必须先询问用户知识布局（colocated/centralized）再带 layout 调用，"
-                    "布局记录写入 repowiki/.meta/workspace.json；重跑零配置幂等——痕迹齐备时"
-                    "为 clone-only 接管（只补缺业务仓克隆，不触碰骨架与 AGENTS.md），骨架有"
-                    "缺失才补齐产物并强制刷新约定块。业务仓登记走 add_workspace_repo。"
-                ),
-                arguments=[],
-            ),
-            Prompt(
-                name="add-workspace-repo",
-                title="登记业务仓到多仓工作区",
-                description=(
-                    "按克隆 URL 把业务代码仓库登记进已初始化的 harness 工作区：目录名自动取仓库名，"
-                    "事务式同步 bootstrap.sh/ps1 登记表、.gitignore、repo-map.md，并默认克隆。"
-                    "重复登记同名同 URL 是空操作。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="workspace_path",
-                        description="工作区根目录（默认当前工作目录）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="url",
-                        description="业务仓 git 克隆 URL（必填；目录名自动取仓库名）",
-                        required=True,
-                    ),
-                    PromptArgument(
-                        name="clone",
-                        description="登记后立即克隆（默认 true）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="remove-workspace-repo",
-                title="从多仓工作区移除业务仓",
-                description=(
-                    "按子目录名把业务代码仓库从 harness 工作区移除：事务式清理 bootstrap.sh/ps1 "
-                    "登记表、.gitignore、repo-map.md，并删除本地 clone 目录（不可恢复）。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="workspace_path",
-                        description="工作区根目录（默认当前工作目录）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="name",
-                        description="业务仓子目录名（登记时的目录名，必填）",
-                        required=True,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="generate-wiki",
-                title="生成单仓代码 Wiki",
-                description="完整的代码仓库 Wiki 生成流水线：分析→聚类→逐模块撰写→总览→质检→关闭会话",
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="要分析的代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="incremental-update",
-                title="更新单仓代码 Wiki",
-                description="检测代码变更并增量更新受影响的 Wiki 模块文档",
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="code-analysis",
-                title="单仓代码结构分析（不生成 Wiki）",
-                description=(
-                    "仅解析代码结构、构建函数级调用图、查询依赖和评估修改影响范围，"
-                    "不生成任何 Wiki 文档。分析结果缓存在 SQLite 中，后续可随时继续生成 Wiki。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="要分析的代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="workspace-analysis",
-                title="生成/更新多仓代码Wiki（含跨服务拓扑）",
-                description=(
-                    "扫描父目录下的多个 git 仓库，为每个生成独立 Wiki 并自动执行跨服务分析："
-                    "RouteNode 匹配（HTTP+MQ，覆盖 Py/Java/JS/TS/Go）、Mermaid 服务拓扑图、"
-                    "基础设施扫描（docker-compose/.env/application.yml）。可搭配 codebase-memory-mcp "
-                    "做语义级深度追踪。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="workspace_path",
-                        description="包含多个 git 仓库的父目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="cross-service-trace",
-                title="跨服务调用链追踪",
-                description=(
-                    "对指定根服务执行跨服务调用链分析：先走 CodeWiki RouteNode 静态匹配（HTTP 路由 + "
-                    "MQ 生产者/消费者），再用 codebase-memory-mcp trace_path(mode='cross_service') "
-                    "做多跳语义追踪，产出调用链图 + 架构诊断（循环依赖/扇入热点/未匹配路由）。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="workspace_path",
-                        description="包含多个 git 仓库的工作区根目录（相对路径基于当前工作目录，默认当前目录；须已执行过 analyze_workspace）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="filter_value",
-                        description="追踪起点：服务名 / HTTP 方法 / URL 子串 / 路径前缀（可在对话中补充）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="search-wiki",
-                title="知识库搜索",
-                description="高效搜索 Wiki 知识库的策略指引：BM25 搜索、图谱扩展、深度阅读",
-                arguments=[
-                    PromptArgument(
-                        name="query",
-                        description="搜索关键词或自然语言问题",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="quality-check",
-                title="文档质量审计",
-                description="对已生成的 Wiki 执行全面质量检查：过时引用、断链、覆盖率、循环依赖",
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="impact-review",
-                title="修改影响范围评估",
-                description=(
-                    "对指定组件或文件执行传递性影响分析（BFS 遍历），评估修改的爆炸半径："
-                    "谁依赖我（depended_by）或我依赖谁（depends_on），输出模块级聚合、"
-                    "高风险组件识别和完整调用链路。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="代码仓库路径（须已执行过 analyze_repo 或 code-analysis）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="target",
-                        description="分析目标：组件 ID（如 src/auth.py::AuthService）或文件路径（留空可在对话框中填写）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="change-review",
-                title="变更评估与代码评审",
-                description=(
-                    "对最近代码变更（commit 范围或未提交变更）执行影响范围分析与代码评审："
-                    "git diff 行级解析定位变更函数，传递性影响半径 + 回归测试建议；"
-                    "再经 review_changes 按四轴（spec/convention/module_knowledge/general）"
-                    "收集评审依据，检查变更是否正确、是否符合规范与历史教训。"
-                    "与 impact-review 互补：impact-review 用于修改前对指定组件评估，"
-                    "change-review 用于修改后对 diff 评估与评审。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="代码仓库路径（须已执行过 analyze_repo 或 code-analysis）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="since",
-                        description="已提交范围 git diff <since>..HEAD（如 HEAD~1 或 commit hash）；留空默认分析未提交变更（worktree）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="architecture-review",
-                title="架构审查与热点分析",
-                description=(
-                    "通过依赖图分析理解代码库的高层架构：识别核心层/服务层/应用层、"
-                    "发现依赖热点和耦合风险、定位入口点和模块边界。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="代码仓库路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="extract-knowledge",
-                title="外部文档知识抽取",
-                description="导入外部文档并从中抽取实体和概念，生成结构化知识页面并构建 wikilink 图谱。两阶段流程：骨架提取→去重检查→证据校验→页面撰写。",
-                arguments=[
-                    PromptArgument(
-                        name="source_path",
-                        description="要导入并提取知识的外部文档的绝对路径（支持 PDF/MD/DOCX/HTML）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="repo_path",
-                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="granularity",
-                        description="提取粒度：focused（3-7 核心项）| standard（适中覆盖）| exhaustive（应提尽提）。缺省遵循 schema.yaml 的 extraction_granularity",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="ingest-note",
-                title="经验知识归档",
-                description=(
-                    "将设计决策、经验教训、架构 rationale、踩坑记录等知识归档到 Wiki 知识库。"
-                    "支持 8 种笔记类型，自动 BM25 索引，可通过 query_wiki 检索。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="note_type",
-                        description="笔记类型：decision | lesson | architecture | bug_fix | pitfall | known_issue | workaround | general（默认 general）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="team-memory-hook",
-                title="启用/禁用任务管理（跨会话任务记忆）",
-                description=(
-                    "管理跨会话任务记忆：启用时注册 SessionEnd 采集 Hook 并向 AGENTS.md "
-                    "写入任务引导段（新建会话时提示用户关联已有任务或输入任务名新建），"
-                    "关闭时一并移除。采集仅落 raw 不蒸馏。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="action",
-                        description="要执行的动作：enable（启用）| disable（关闭）；留空则先检查现状再按用户意愿选择",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="repo_path",
-                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="distill-conversations",
-                title="蒸馏对话提取记忆和经验",
-                description=(
-                    "把 repowiki/raw/ 中已采集的对话蒸馏为双轨产物：notes（通用经验笔记）与 "
-                    "memories（任务进度记忆）。宿主 Agent 充当 LLM，distill_conversation(mode=prepare) "
-                    "取 transcript → Agent 提取知识 → mode=submit 交回做去重/草稿入库/记忆落盘/评审。"
-                    "全程本地闭环，蒸馏产出的笔记须 confirm_note 确认，记忆自动写入当前用户的任务记忆分片文件。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="task-workflow",
-                title="任务记忆工作流",
-                description=(
-                    "跨会话延续工作上下文：创建/关联任务、采集对话绑定 task_id、蒸馏时双轨产出"
-                    "笔记与任务记忆、按 task_id 检索与聚合。适用于「继续上一个任务」等长线工作场景。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="consolidate-knowledge",
-                title="知识聚合（L2 场景块）",
-                description=(
-                    "把已确认笔记聚合为 L2 工作方法场景块（wiki/scenarios/）："
-                    "prepare 获取待聚合笔记与容量预警 → 撰写/更新场景块 → "
-                    "reject_note 退役被吸收笔记 → submit 记录溯源并归零计数器。"
-                    "适用于「聚合笔记」或 aggregation_hint 提醒触发时（须先询问用户）。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="skill-creator",
-                title="技能编译（SKILL.md 草稿区）",
-                description=(
-                    "把已确认知识（场景块 + stable 笔记 + 技能 open issues）编译为"
-                    " SKILL.md 行为指令草稿（repowiki/skills/，两区制草稿区：进索引进"
-                    " lint、不生效）：prepare 取候选素材/冲突预检/容量预警/写作规范 → "
-                    "Agent 撰写 → submit 校验落盘并写双向溯源。install/retire 为后续"
-                    "工单。适用于「生成技能」「把经验编成 SKILL」等场景。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="repo_path",
-                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
-            Prompt(
-                name="promote-note",
-                title="笔记晋升为正式 wiki 页面",
-                description=(
-                    "把反复被采纳的 stable 笔记（wiki_stats.promotion_candidates 候选）"
-                    "去个人化重写为正式 wiki 页面：类型路由（pitfall/bug_fix/workaround → query，"
-                    "lesson/decision/architecture → concept）→ write_doc_file 写新页面（必须 draft 状态，"
-                    "写完提醒 confirm）→ edit_doc_file 回标原笔记 metadata.promoted_to。"
-                    "原笔记不删除不降级，保留作审计轨迹锚点。"
-                ),
-                arguments=[
-                    PromptArgument(
-                        name="note_file",
-                        description="要晋升的笔记相对路径（如 notes/xxx.md）；留空则从 wiki_stats 的 promotion_candidates 中由用户选定",
-                        required=False,
-                    ),
-                    PromptArgument(
-                        name="repo_path",
-                        description="仓库根目录路径（相对路径基于当前工作目录，默认当前目录）",
-                        required=False,
-                    ),
-                ],
-            ),
+            )
+            for meta in _PROMPT_REGISTRY
         ]
 
     @server.get_prompt()
@@ -1810,13 +1512,17 @@ def register(server):
         handler = prompts_map.get(name)
         if not handler:
             return GetPromptResult(
-                description=f"Unknown prompt: {name}",
+                description=_i18n.t("prompts.get.unknown.title"),
                 messages=[
                     PromptMessage(
                         role="user",
                         content=PromptTextContent(
                             type="text",
-                            text=f"未知的 Prompt 模板: {name}。可用模板: {', '.join(prompts_map.keys())}",
+                            text=_i18n.t(
+                                "prompts.get.unknown.text",
+                                name=name,
+                                available=", ".join(prompts_map.keys()),
+                            ),
                         ),
                     )
                 ],
@@ -1824,7 +1530,7 @@ def register(server):
 
         text = handler(args)
         return GetPromptResult(
-            description=f"CodeWiki 工作流指引: {name}",
+            description=_i18n.t("prompts.get.description", name=name),
             messages=[
                 PromptMessage(
                     role="user",

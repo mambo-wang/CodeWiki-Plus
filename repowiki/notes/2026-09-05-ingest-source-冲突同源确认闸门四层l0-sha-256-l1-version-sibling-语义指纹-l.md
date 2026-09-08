@@ -8,12 +8,13 @@ metadata:
   source_ref: "conversations/conv-user_command-commands-codewiki-外部文档知识抽取-请导入外部文档并从中抽取结构化知识。采用-2.md"
   scene: "知识生命周期"
   source_conversations: ['conversations/conv-user_command-commands-codewiki-外部文档知识抽取-请导入外部文档并从中抽取结构化知识。采用.md']
-related_modules: ["source_ingest", "doc_similarity", "registry", "README_CN", "README_CN_f03499.md"]
+related_modules: ["source_ingest", "doc_similarity", "registry", "README_CN", "README_CN_f03499.md", "_find_conflict_candidates", "similar_notes"]
 status: stable
 author: iamwangbao-163-com
 generated: { by: codewiki/5.6.0, at: 2026-09-05T11:35:03Z }
 stale_after: 2027-09-05
 origin: conversation
+source_conversations: ['conversations/conv-user_command-commands-codewiki-知识库搜索-请搜索-Wiki-知识库回答-如果用户摄入一篇.md']
 
 ---
 
@@ -55,3 +56,23 @@ origin: conversation
 - name-level conflict guard 加在去重检查之后、落盘复制之前；`overwrite=true` 同意后先把旧 raw 移入 `.trash/`（retract_source 安全删除模式，可恢复）再落新文件。
 - 首发 commit 30c53c4（source_ingest + registry.py + 回归测试 6 项断言）。
 - 后续演进为 L0/L1/L2/L3 四层闸门与本笔记上部一致。
+
+## 摄入冲突守卫分级：ingest_source 三道关卡拦截，ingest_note 仅 advisory 不阻断（设计取向）
+
+> 合并自蒸馏候选：摄入冲突守卫分级：ingest_source 三道关卡拦截，ingest_note 仅 advisory 不阻断（设计取向）
+
+## 背景
+
+「摄入一篇与 repowiki 已有内容类似的文件会提示冲突吗」——经源码核对（2026-09-05，codewiki 5.6.0），两条摄入入口的守卫强度分级不同。既有笔记已详述 ingest_source 的 L0-L3 四层闸门，本节补充两条入口的对比与设计取向。
+
+## 两条入口对比
+
+**ingest_source（外部文档导入 → raw/sources/）**：强守卫，冲突即拦截——任何关卡命中都不落盘并返回 `requires_user_confirmation: true` + 明确选项（duplicate / conflict / version_sibling / supersede_declared，见 codewiki/mcp/tools/source_ingest.py 三道关卡）。
+
+**ingest_note（结构化笔记归档）**：柔性提醒，不阻断写入——
+- 同名且正文完全一致 → 直接判重提示（note_ingest.py）；
+- 内容相似但不完全相同 → `_find_conflict_candidates` 返回 `similar_notes` 列表 + hint（「若本笔记是纠正/取代关系请显式 retire」），仅 advisory、不阻止落盘，可用 `detect_conflicts=false` 跳过。
+
+## 设计取向
+
+外部文档导入是重操作 → 硬闸门；笔记归档是高频轻操作 → advisory 提醒保留流畅性，靠显式 retire 表达取代关系。

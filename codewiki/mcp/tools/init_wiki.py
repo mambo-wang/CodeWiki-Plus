@@ -23,20 +23,25 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Schema template: package-bundled copy is the single source of truth
-_SCHEMA_TEMPLATE = Path(__file__).resolve().parents[2] / "templates" / "schema.yaml"
+# Package-bundled templates are the single source of truth.  A language variant
+# (`<name>.en.yaml`) wins when the resolved language has one.  Resolved at copy
+# time (not at import) so the choice follows the current language.
+def _template(name: str) -> Path | None:
+    """Resolve a package template path for the current language."""
+    from codewiki.mcp import i18n
+
+    base = Path(__file__).resolve().parents[2] / "templates"
+    if i18n.lang() == "en":
+        variant = base / name.replace(".yaml", ".en.yaml")
+        if variant.exists():
+            return variant
+    default = base / name
+    return default if default.exists() else None
+
 
 # Ontology template: project-level term normalization for search
 _ONTOLOGY_TEMPLATE_PKG = Path(__file__).resolve().parents[2] / "templates" / "ontology.yaml"
 _ONTOLOGY_TEMPLATE = _ONTOLOGY_TEMPLATE_PKG if _ONTOLOGY_TEMPLATE_PKG.exists() else None
-
-# Review checklist override template: project-level merge layer for review_changes
-_REVIEW_CHECKLIST_TEMPLATE_PKG = (
-    Path(__file__).resolve().parents[2] / "templates" / "review_checklist.yaml"
-)
-_REVIEW_CHECKLIST_TEMPLATE = (
-    _REVIEW_CHECKLIST_TEMPLATE_PKG if _REVIEW_CHECKLIST_TEMPLATE_PKG.exists() else None
-)
 
 # Subdirectories to create under output_dir
 _WIKI_SUBDIRS = [
@@ -83,17 +88,18 @@ def initialize_wiki_tree(
 
     # ── Copy schema.yaml (preserve comments) ─────────────────────────────
     schema_dest = output_dir_p / "schema.yaml"
-    if _SCHEMA_TEMPLATE.exists():
+    schema_template = _template("schema.yaml")
+    if schema_template:
         if overwrite_schema or not schema_dest.exists():
             # Raw copy preserves all comments and formatting
-            shutil.copy2(str(_SCHEMA_TEMPLATE), str(schema_dest))
+            shutil.copy2(str(schema_template), str(schema_dest))
             results["schema_yaml"] = str(schema_dest)
             logger.info("Copied schema.yaml template to %s", schema_dest)
         else:
             results["schema_yaml"] = str(schema_dest) + " (already exists, skipped)"
     else:
-        results["schema_yaml"] = f"WARNING: template not found at {_SCHEMA_TEMPLATE}"
-        logger.warning("schema.yaml template not found: %s", _SCHEMA_TEMPLATE)
+        results["schema_yaml"] = "WARNING: schema.yaml template not found"
+        logger.warning("schema.yaml template not found")
 
     # ── Copy ontology.yaml (term normalization for search) ──────────────
     if _ONTOLOGY_TEMPLATE and _ONTOLOGY_TEMPLATE.exists():
@@ -107,10 +113,11 @@ def initialize_wiki_tree(
 
     # ── Copy review_checklist.yaml (review_changes override) ────────────
     # Skip when present: users customize this file, init must not clobber it.
-    if _REVIEW_CHECKLIST_TEMPLATE and _REVIEW_CHECKLIST_TEMPLATE.exists():
+    review_template = _template("review_checklist.yaml")
+    if review_template:
         checklist_dest = output_dir_p / "review_checklist.yaml"
         if not checklist_dest.exists():
-            shutil.copy2(str(_REVIEW_CHECKLIST_TEMPLATE), str(checklist_dest))
+            shutil.copy2(str(review_template), str(checklist_dest))
             results["review_checklist_yaml"] = str(checklist_dest)
             logger.info("Copied review_checklist.yaml template to %s", checklist_dest)
         else:

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "codewiki-plus"
-version = "5.7.0"
+version = "5.8.0"
 description = "Transform codebases into comprehensive documentation using AI-powered analysis"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -96,7 +96,7 @@ Repository = "https://github.com/mambo-wang/CodeWiki-Plus"
 Issues = "https://github.com/mambo-wang/CodeWiki-Plus/issues"
 
 [tool.hatch.build]
-artifacts = ["codewiki/templates/**/*", "codewiki/py.typed", "codewiki/agents/**/*"]
+artifacts = ["codewiki/templates/**/*", "codewiki/py.typed", "codewiki/agents/**/*", "codewiki/mcp/locales/**/*"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["codewiki"]

@@ -1,0 +1,563 @@
+# CodeWiki MCP 多语言语料（中文源，唯一事实源）
+#
+# 规则：
+# 1. zh.yaml 是源语言（最全）；en.yaml 必须覆盖本文件全部 key（tests/test_i18n.py 断言）。
+# 2. 缺失 key 不做运行时回退——返回 [missing-i18n-key <key>] 哨兵并告警，
+#    靠发版前的 key 集一致性测试保证不漏。
+# 3. 模板占位符用 str.format 语法：{name} 为占位符，字面 { } 写作 {{ }}。
+#    含占位符的文本必须通过 i18n.t(key, **vars) 获取。
+# 4. key 命名：<领域>.<对象>.<字段/片段>，例如 server.instructions / prompts.init_wiki.title。
+
+server:
+  # MCP initialize 握手时注入给 Agent 的会话指引（原 server.py _SERVER_INSTRUCTIONS）。
+  # 数量表述已按 R3 定案修正：注册 22 个 Prompt，不再是漂移的 "11 个"。
+  instructions: |-
+    CodeWiki-CN MCP Server — 代码结构分析 + Wiki 文档生成 + LLM 知识库管理平台。
+
+    ## 能力概览
+    - **代码分析**: Tree-sitter AST 解析 → 函数级调用图 → 依赖索引 → 传递性影响分析（无需 LLM）
+    - **Wiki 生成**: 模块化文档生成流水线（分析→聚类→逐模块撰写→总览→质检）
+    - **LLM Wiki 知识库**: BM25 全文搜索 + wikilink 图谱多跳扩展 + 结构化笔记
+    - **外部文档管理**: 导入 PDF/MD/DOCX/HTML → 知识抽取 → 实体/概念页面
+    - **质量保障**: 文档-代码一致性检查（过时引用、断链、覆盖率、循环依赖）
+    - **工作流指引**: 22 个 Prompt 模板（generate-wiki, extract-knowledge, search-wiki, ingest-note 等）
+    - **上下文资源**: Wiki 目录 (codewiki://wiki/catalog)、模块树 (codewiki://wiki/module-tree)、搜索索引状态 (codewiki://wiki/index-status)
+
+    ## 核心工作流
+
+    ### 1. 代码分析（独立使用，无需生成 Wiki）
+    analyze_repo → list_components / list_dependencies / analyze_impact / read_code_components
+
+    典型场景：
+    - 调用链查询: list_dependencies(component_ids, direction="both") 查看直接调用关系
+    - 修改影响评估: analyze_impact(component_ids 或 file_paths, direction="depended_by") 查看传递性影响范围（谁依赖我）、模块级聚合、高风险组件
+    - 依赖全景: analyze_impact(direction="both", include_paths=true) 获取完整调用链路径
+    - 代码阅读: read_code_components(component_ids) 读取源码
+
+    分析结果持久化在 SQLite 中。用户可以只做分析不生成文档，之后随时基于缓存数据继续生成 Wiki（增量模式自动复用已有分析）。
+
+    ### 2. Wiki 生成（完整流水线）
+    analyze_repo → get_prompt('cluster') → save_module_tree → get_processing_order → 逐模块: get_prompt('user') + read_code_components → write_doc_file → close_session
+
+    若已有分析缓存，analyze_repo 增量模式自动跳过未变更文件，直接进入文档生成。
+
+    ### 3. 知识库搜索
+    query_wiki(query, hop=1) → 查看结果 → query_wiki(query, expand=true) 深度阅读
+
+    ### 4. 外部文档知识抽取（两阶段）
+    ingest_source → get_prompt('extraction_scan') 骨架提取（只识别不撰写）→ query_wiki + get_prompt('extraction_dedup') 去重（create/merge/drop）→ 证据校验（行范围引用必须实质性讨论）→ write_doc_file / edit_doc_file(page_type='entity'/'concept'/'source') → [[wikilink]] 建图
+
+    ### 5. 经验归档
+    ingest_note(note_type, title, content) → 自动索引 → query_wiki 可检索
+
+    ## 关键约束
+    - **大文件传输**: 分析结果（组件索引、源码、依赖图）写入 workspace 文件，通过返回的 file_path 读取，不经 MCP 通道传输
+    - **会话管理**: analyze_repo 创建会话（2h TTL，最多 10 个），close_session 触发索引重建和清理
+    - **增量更新**: 若 output_dir 已有 .meta/metadata.json，analyze_repo 返回 changes 字段标识变更
+    - **Mermaid 校验**: write_doc_file / edit_doc_file 自动校验 Mermaid 图表语法
+    - **page_type 路由**: module→wiki/modules/, entity→wiki/entities/, concept→wiki/concepts/, source→wiki/sources/
+    - **filename 规则**: write_doc_file 的 filename 参数只传纯文件名（如 "UserService.md"），禁止包含目录路径。目录由 page_type 自动路由，传 "entities/X.md" 会导致路径错误
+
+    ## 推荐使用流程
+    1. 代码分析: analyze_repo → analyze_impact / list_dependencies（无需后续 Wiki 步骤）
+    2. 生成 Wiki: 调用 Prompt "generate-wiki" 获取完整步骤
+    3. 知识抽取: 调用 Prompt "extract-knowledge" 获取完整步骤
+    4. 知识归档: 调用 Prompt "ingest-note" 归档设计决策和经验教训
+    5. 搜索知识库: 调用 Prompt "search-wiki" 获取搜索策略
+    6. 质量检查: lint_wiki(checks=["all"]) → flag_issue 记录问题
+    7. 对话采集: 调用 Prompt "team-memory-hook" 启用/关闭 IDE 对话自动采集（可选）
+    8. 对话蒸馏: 调用 Prompt "distill-conversations" 从已采集对话中提取经验笔记
+
+    ## 语言
+    所有产出使用中文——Wiki 文档、笔记、commit message、代码注释、给用户的回复，以及写入 AGENTS.md 等落盘文件的文案，除非用户明确要求其他语言。工作流指引本身是中文的，但那是给你的指令，不代表产出语言。
+
+# ---------------------------------------------------------------------------
+# Prompt 元数据（prompts/list、get_prompt、codewiki://prompts/catalog 共用同一份）
+# key: prompts.<prompt name>.{title,description,args.<arg name>}
+# ---------------------------------------------------------------------------
+prompts:
+  get:
+    description: "CodeWiki 工作流指引: {name}"
+    unknown:
+      title: "未知的 Prompt 模板"
+      text: "未知的 Prompt 模板: {name}。可用模板: {available}"
+
+  init-wiki:
+    title: "初始化单仓Wiki工作区"
+    description: "零配置初始化：创建目录结构、拷贝带注释的 schema.yaml 模板、写入 AGENTS.md（含使用建议和自我反思协议）。在开始任何 Wiki 生成或知识管理之前执行一次。"
+    args:
+      repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
+      enable_task_management: "是否启用任务管理（跨会话任务记忆）：true/1 会在初始化指引中追加任务管理启用说明（注册 SessionEnd 采集 Hook + 向 AGENTS.md 写入任务引导段，新建会话时提示用户关联/新建任务）；留空或 false 则跳过。默认关闭。"
+
+  init-workspace:
+    title: "初始化多仓WIKI工作区"
+    description: "把当前工作目录初始化（或重新同步）为多仓工作区：生成 bootstrap 克隆脚本、.gitignore、repo-map 导航骨架、AGENTS.md 工作区约定与产品级 repowiki。首次初始化必须先询问用户知识布局（colocated/centralized）再带 layout 调用，布局记录写入 repowiki/.meta/workspace.json；重跑零配置幂等——痕迹齐备时为 clone-only 接管（只补缺业务仓克隆，不触碰骨架与 AGENTS.md），骨架有缺失才补齐产物并强制刷新约定块。业务仓登记走 add_workspace_repo。"
+
+  add-workspace-repo:
+    title: "登记业务仓到多仓工作区"
+    description: "按克隆 URL 把业务代码仓库登记进已初始化的 harness 工作区：目录名自动取仓库名，事务式同步 bootstrap.sh/ps1 登记表、.gitignore、repo-map.md，并默认克隆。重复登记同名同 URL 是空操作。"
+    args:
+      workspace_path: "工作区根目录（默认当前工作目录）"
+      url: "业务仓 git 克隆 URL（必填；目录名自动取仓库名）"
+      clone: "登记后立即克隆（默认 true）"
+
+  remove-workspace-repo:
+    title: "从多仓工作区移除业务仓"
+    description: "按子目录名把业务代码仓库从 harness 工作区移除：事务式清理 bootstrap.sh/ps1 登记表、.gitignore、repo-map.md，并删除本地 clone 目录（不可恢复）。"
+    args:
+      workspace_path: "工作区根目录（默认当前工作目录）"
+      name: "业务仓子目录名（登记时的目录名，必填）"
+
+  generate-wiki:
+    title: "生成单仓代码 Wiki"
+    description: "完整的代码仓库 Wiki 生成流水线：分析→聚类→逐模块撰写→总览→质检→关闭会话"
+    args:
+      repo_path: "要分析的代码仓库路径（相对路径基于当前工作目录，默认当前目录）"
+
+  incremental-update:
+    title: "更新单仓代码 Wiki"
+    description: "检测代码变更并增量更新受影响的 Wiki 模块文档"
+    args:
+      repo_path: "代码仓库路径（相对路径基于当前工作目录，默认当前目录）"
+
+  code-analysis:
+    title: "单仓代码结构分析（不生成 Wiki）"
+    description: "仅解析代码结构、构建函数级调用图、查询依赖和评估修改影响范围，不生成任何 Wiki 文档。分析结果缓存在 SQLite 中，后续可随时继续生成 Wiki。"
+    args:
+      repo_path: "要分析的代码仓库路径（相对路径基于当前工作目录，默认当前目录）"
+
+  workspace-analysis:
+    title: "生成/更新多仓代码Wiki（含跨服务拓扑）"
+    description: "扫描父目录下的多个 git 仓库，为每个生成独立 Wiki 并自动执行跨服务分析：RouteNode 匹配（HTTP+MQ，覆盖 Py/Java/JS/TS/Go）、Mermaid 服务拓扑图、基础设施扫描（docker-compose/.env/application.yml）。可搭配 codebase-memory-mcp 做语义级深度追踪。"
+    args:
+      workspace_path: "包含多个 git 仓库的父目录路径（相对路径基于当前工作目录，默认当前目录）"
+
+  cross-service-trace:
+    title: "跨服务调用链追踪"
+    description: "对指定根服务执行跨服务调用链分析：先走 CodeWiki RouteNode 静态匹配（HTTP 路由 + MQ 生产者/消费者），再用 codebase-memory-mcp trace_path(mode='cross_service') 做多跳语义追踪，产出调用链图 + 架构诊断（循环依赖/扇入热点/未匹配路由）。"
+    args:
+      workspace_path: "包含多个 git 仓库的工作区根目录（相对路径基于当前工作目录，默认当前目录；须已执行过 analyze_workspace）"
+      filter_value: "追踪起点：服务名 / HTTP 方法 / URL 子串 / 路径前缀（可在对话中补充）"
+
+  search-wiki:
+    title: "知识库搜索"
+    description: "高效搜索 Wiki 知识库的策略指引：BM25 搜索、图谱扩展、深度阅读"
+    args:
+      query: "搜索关键词或自然语言问题"
+
+  quality-check:
+    title: "文档质量审计"
+    description: "对已生成的 Wiki 执行全面质量检查：过时引用、断链、覆盖率、循环依赖"
+    args:
+      repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
+
+  impact-review:
+    title: "修改影响范围评估"
+    description: "对指定组件或文件执行传递性影响分析（BFS 遍历），评估修改的爆炸半径：谁依赖我（depended_by）或我依赖谁（depends_on），输出模块级聚合、高风险组件识别和完整调用链路。"
+    args:
+      repo_path: "代码仓库路径（须已执行过 analyze_repo 或 code-analysis）"
+      target: "分析目标：组件 ID（如 src/auth.py::AuthService）或文件路径（留空可在对话框中填写）"
+
+  change-review:
+    title: "变更评估与代码评审"
+    description: "对最近代码变更（commit 范围或未提交变更）执行影响范围分析与代码评审：git diff 行级解析定位变更函数，传递性影响半径 + 回归测试建议；再经 review_changes 按四轴（spec/convention/module_knowledge/general）收集评审依据，检查变更是否正确、是否符合规范与历史教训。与 impact-review 互补：impact-review 用于修改前对指定组件评估，change-review 用于修改后对 diff 评估与评审。"
+    args:
+      repo_path: "代码仓库路径（须已执行过 analyze_repo 或 code-analysis）"
+      since: "已提交范围 git diff <since>..HEAD（如 HEAD~1 或 commit hash）；留空默认分析未提交变更（worktree）"
+
+  architecture-review:
+    title: "架构审查与热点分析"
+    description: "通过依赖图分析理解代码库的高层架构：识别核心层/服务层/应用层、发现依赖热点和耦合风险、定位入口点和模块边界。"
+    args:
+      repo_path: "代码仓库路径（相对路径基于当前工作目录，默认当前目录）"
+
+  extract-knowledge:
+    title: "外部文档知识抽取"
+    description: "导入外部文档并从中抽取实体和概念，生成结构化知识页面并构建 wikilink 图谱。两阶段流程：骨架提取→去重检查→证据校验→页面撰写。"
+    args:
+      source_path: "要导入并提取知识的外部文档的绝对路径（支持 PDF/MD/DOCX/HTML）"
+      repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
+      granularity: "提取粒度：focused（3-7 核心项）| standard（适中覆盖）| exhaustive（应提尽提）。缺省遵循 schema.yaml 的 extraction_granularity"
+
+  ingest-note:
+    title: "经验知识归档"
+    description: "将设计决策、经验教训、架构 rationale、踩坑记录等知识归档到 Wiki 知识库。支持 8 种笔记类型，自动 BM25 索引，可通过 query_wiki 检索。"
+    args:
+      repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
+      note_type: "笔记类型：decision | lesson | architecture | bug_fix | pitfall | known_issue | workaround | general（默认 general）"
+
+  team-memory-hook:
+    title: "启用/禁用任务管理（跨会话任务记忆）"
+    description: "管理跨会话任务记忆：启用时注册 SessionEnd 采集 Hook 并向 AGENTS.md 写入任务引导段（新建会话时提示用户关联已有任务或输入任务名新建），关闭时一并移除。采集仅落 raw 不蒸馏。"
+    args:
+      action: "要执行的动作：enable（启用）| disable（关闭）；留空则先检查现状再按用户意愿选择"
+      repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
+
+  distill-conversations:
+    title: "蒸馏对话提取记忆和经验"
+    description: "把 repowiki/raw/ 中已采集的对话蒸馏为双轨产物：notes（通用经验笔记）与 memories（任务进度记忆）。宿主 Agent 充当 LLM，distill_conversation(mode=prepare) 取 transcript → Agent 提取知识 → mode=submit 交回做去重/草稿入库/记忆落盘/评审。全程本地闭环，蒸馏产出的笔记须 confirm_note 确认，记忆自动写入当前用户的任务记忆分片文件。"
+    args:
+      repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
+
+  task-workflow:
+    title: "任务记忆工作流"
+    description: "跨会话延续工作上下文：创建/关联任务、采集对话绑定 task_id、蒸馏时双轨产出笔记与任务记忆、按 task_id 检索与聚合。适用于「继续上一个任务」等长线工作场景。"
+    args:
+      repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
+
+  consolidate-knowledge:
+    title: "知识聚合（L2 场景块）"
+    description: "把已确认笔记聚合为 L2 工作方法场景块（wiki/scenarios/）：prepare 获取待聚合笔记与容量预警 → 撰写/更新场景块 → reject_note 退役被吸收笔记 → submit 记录溯源并归零计数器。适用于「聚合笔记」或 aggregation_hint 提醒触发时（须先询问用户）。"
+    args:
+      repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
+
+  skill-creator:
+    title: "技能编译（SKILL.md 草稿区）"
+    description: "把已确认知识（场景块 + stable 笔记 + 技能 open issues）编译为 SKILL.md 行为指令草稿（repowiki/skills/，两区制草稿区：进索引进 lint、不生效）：prepare 取候选素材/冲突预检/容量预警/写作规范 → Agent 撰写 → submit 校验落盘并写双向溯源。install/retire 为后续工单。适用于「生成技能」「把经验编成 SKILL」等场景。"
+    args:
+      repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
+
+  promote-note:
+    title: "笔记晋升为正式 wiki 页面"
+    description: "把反复被采纳的 stable 笔记（wiki_stats.promotion_candidates 候选）去个人化重写为正式 wiki 页面：类型路由（pitfall/bug_fix/workaround → query，lesson/decision/architecture → concept）→ write_doc_file 写新页面（必须 draft 状态，写完提醒 confirm）→ edit_doc_file 回标原笔记 metadata.promoted_to。原笔记不删除不降级，保留作审计轨迹锚点。"
+    args:
+      note_file: "要晋升的笔记相对路径（如 notes/xxx.md）；留空则从 wiki_stats 的 promotion_candidates 中由用户选定"
+      repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
+
+# ---------------------------------------------------------------------------
+# Resources（codewiki://prompts/catalog 由 prompt 注册表派生，此处只放外壳文案）
+# ---------------------------------------------------------------------------
+resources:
+  catalog:
+    usage: "通过 MCP prompts/get 协议获取完整工作流指引，或调用 get_prompt 工具获取代码生成阶段的 prompt 模板"
+    argument: "{name}（{scope}）: {description}"
+    optional: "可选"
+    required: "必填"
+
+  static:
+    prompts_catalog:
+      name: "Prompt 模板目录"
+      title: "CodeWiki Prompt 模板目录"
+      description: "所有可用的 Prompt 模板列表及其用途说明，帮助 agent 了解可用的工作流指引"
+    capabilities:
+      name: "服务能力概览"
+      title: "CodeWiki 服务能力与工具清单"
+      description: "完整的工具列表、参数速查、工作流说明，agent 可据此规划任务"
+    page_types:
+      name: "页面类型说明"
+      title: "Wiki 页面类型与路由规则"
+      description: "各 page_type 的用途、存储路径、frontmatter 规范和 wikilink 建图规则"
+
+  template:
+    catalog:
+      name: "Wiki 页面目录"
+      title: "指定 Wiki 的页面目录"
+      description: "获取指定输出目录下所有 Wiki 页面的目录（标题、类型、路径），URI 中 output_dir 使用 URL 编码的绝对路径"
+    module_tree:
+      name: "模块聚类树"
+      title: "指定 Wiki 的模块聚类树"
+      description: "获取指定 Wiki 的模块聚类结构（模块名、组件数、层级关系）"
+    index_status:
+      name: "搜索索引状态"
+      title: "指定 Wiki 的搜索索引状态"
+      description: "获取 BM25 搜索索引和 wikilink 图谱的构建状态（页面数、token 数、边数）"
+
+  capabilities:
+    category:
+      code_analysis: "代码分析"
+      workspace_management: "工作区管理"
+      cross_service: "跨服务分析"
+      doc_generation: "文档生成"
+      knowledge_base: "知识库管理"
+      quality: "质量保障"
+      session: "会话管理"
+    pattern:
+      workspace_file: "大结果写入 .codewiki/workspace/ 目录，通过 file_path 读取"
+      session_lifecycle: "analyze_repo 创建 → 工具调用 → close_session 清理（2h TTL）"
+      page_type_routing: "module→wiki/modules/, entity→wiki/entities/, concept→wiki/concepts/, source→wiki/sources/"
+      search_layers: "BM25 全文 → hop 图谱扩展 → expand 深度阅读"
+      cross_service: "analyze_workspace（多仓库）或 analyze_repo（monorepo 单仓库）自动生成拓扑 → query_cross_service 多维切片 → (可选) CBM trace_path 语义追踪"
+
+  # sections 用 | 分隔（i18n 目录保持扁平字符串映射）
+  page_types:
+    module:
+      description: "代码模块文档（由 analyze_repo 流水线生成）"
+      sections: "概述|架构图|核心组件|依赖关系|使用示例"
+    entity:
+      description: "实体页面（人物/系统/服务/组件/API）"
+      sections: "定义|关键属性|关系|来源引用"
+    concept:
+      description: "概念页面（模式/算法/协议/架构决策）"
+      sections: "定义|原理|应用场景|相关概念"
+    source:
+      description: "外部源文档摘要页"
+      sections: "来源信息|核心内容|抽取的实体/概念|引用"
+    comparison:
+      description: "对比分析页面"
+      sections: "对比维度|各方案优劣|结论"
+    query:
+      description: "查询结果归档页面"
+      sections: "问题|答案|参考来源"
+
+  wikilink:
+    syntax: "[[页面名]] 或 [显示文本](相对路径.md)"
+    graph_build: "build_search_index 自动解析所有 wikilink 为 wiki_links 表中的有向边"
+    multi_hop: "query_wiki(hop=N) 沿图谱边 BFS 扩展，每跳分数衰减 0.5x"
+    aliases: "frontmatter_extra.aliases 中的别名也参与 wikilink 解析"
+
+# ---------------------------------------------------------------------------
+# 落盘产物（写入用户仓库、被各 IDE 稳定加载，是语言闸门的主通道）
+# ---------------------------------------------------------------------------
+artifacts:
+  agents_md:
+    modules_overflow: "\n（其余 {hidden} 个模块省略——用 `{rel_path}/wiki/index.md` 或 `query_wiki` 检索）"
+    modules_block: |
+      **模块列表：**
+
+      {module_lines}{overflow}
+    main: |-
+      {begin_marker}
+
+      ## CodeWiki LLM Wiki
+
+      本项目已使用 [CodeWiki](https://github.com/mambo-wang/CodeWiki-Plus) 生成 LLM Wiki 文档，位于 `{rel_path}/` 目录。
+
+      **入口文件：**
+
+      - [`{rel_path}/wiki/overview.md`]({rel_path}/wiki/overview.md) — 仓库级架构总览（含 Mermaid 架构图）
+      - [`{rel_path}/wiki/index.md`]({rel_path}/wiki/index.md) — 文档目录与知识笔记索引
+      - [`{rel_path}/schema.yaml`]({rel_path}/schema.yaml) — 项目文档约定（命名规范、必填章节等）
+      {modules_block}
+      ### 使用建议
+
+      1. **编码前**：先用 `query_wiki` 搜索相关模块文档，了解架构约定和依赖关系
+      2. **做决策时**：用 `query_wiki` 搜索已有的 `decision` 类型笔记，避免重复讨论
+      3. **完成重要决策后**：用 `ingest_note` 归档，让未来的 Agent 和团队成员都能查到
+      4. **定期维护**：用 `lint_wiki` 检查文档是否过时，保持文档与代码同步
+
+      ### 回答时显式标注依据
+
+      回答涉及本仓库的知识或代码时，在**关键论断处直接标注来源**，不要只写"根据文档/代码"却不给名字：
+
+      - 引用 `query_wiki` 检索到的文档/笔记 → 标注 `（依据：<file>）`，`<file>` 必须与检索结果返回的 `file` 字段完全一致（如 `notes/xxx.md`、`wiki/modules/yyy.md`）；
+      - 引用代码事实（函数/类/配置/行为断言） → 标注 `<代码文件>:<行号>`（如 `codewiki/mcp/tools/adoption.py:32`）。行号以你实际读取代码/检索结果所见为准，**不要照抄文档里可能已过时的行号**；
+      - 依据来自本次代码核对而非文档 → 明说来源，如 `依据本次代码核对：<代码文件>:<行号>`。
+
+      正文标注是给人读的溯源承诺；行尾的 `codewiki:referenced-docs` 注释仍是机器采纳信号，两者并存、互不影响。
+
+      ### 采纳声明（检索反馈）
+
+      当你通过 `query_wiki` 检索并**实际使用了**某条结果（作为决策依据、修改参照或答案来源）时，在最终回复中附带一行声明注释：
+
+      ```
+      <!-- codewiki:referenced-docs: ["notes/pitfall-xxx.md", "wiki/modules/yyy.md"] -->
+      ```
+
+      路径必须与 query_wiki 返回的 `file` 字段完全一致。声明过的文档会获得采纳计数（`usage.adopted_count`），在未来检索中排序提升（采纳权重是单纯召回的 2 倍）；长期高频召回却零采纳的笔记会被 `lint_wiki` 的 `low_adoption` 检查标记为"需要重写得更可操作"。
+
+      **注意**：只声明真正用到的文档——这是帮助知识库学习"什么内容真正有用"的信号，不是礼貌性致谢。忘了声明没关系（漏报可容忍），但不要声明没用过的（误报不可容忍）。
+
+      ### 纠正识别与经验沉淀
+
+      当你被用户纠正、吐槽或补充了未知上下文时，这可能是值得沉淀的经验。按以下规则处理：
+
+      **识别纠正信号（满足任一即触发）：**
+
+      - 用户明确否定你的输出："不对""你搞错了""不是这样的""应该是…"
+      - 用户表达重复犯错的不满："又…""上次就…""为什么又…"
+      - 你修改了自己的输出后用户仍不满意，说明理解有根本偏差
+      - 用户补充了你不知道的关键上下文："你不知道吗…""这个项目一直都是…""我们约定过…"
+      - 用户指出方法名/Javadoc 与实际行为不一致，或指出代码中的历史遗留问题
+
+      **执行三步流程：**
+
+      1. **反思**：明确说出自己错在哪里、正确做法是什么、根因是什么（是缺少项目上下文？还是对代码理解有误？）
+      2. **起草笔记**：将教训整理为结构化内容，包含：背景（什么场景下犯了错）、正确做法、根因分析
+      3. **征求确认**：向用户展示笔记草稿，询问"要把这条经验记录到 Wiki 吗？"——**必须得到用户确认后才执行 `ingest_note`**，不要默默保存
+
+      **归档示例：**
+
+      ```json
+      {{
+        "note_type": "lesson",
+        "title": "OrderService.process() 只做参数校验不做业务处理",
+        "content": "## 背景\n\nAgent 误以为 OrderService.process() 包含完整业务逻辑，基于方法名做了错误的设计假设。\n\n## 正确做法\n\nprocess() 仅做入参校验和格式化，实际业务处理在 OrderService.execute() 中。老项目方法名与实际行为不一致是常见情况，应优先阅读实现而非信任方法名。\n\n## 根因\n\n十几年老项目，方法经过多次重构但名称未更新。",
+        "related_modules": ["order"]
+      }}
+      ```
+
+      **注意**：不是每次纠正都需要沉淀。只记录有复用价值的经验——特定于本次任务的临时调整、用户个人偏好等不需要记录。判断标准：如果未来的 Agent 或新同事遇到同样场景时这条经验有用，就值得记录。
+
+      ### 主动知识沉淀
+
+      不要等用户纠正才记录。当对话中出现以下信号时，主动执行反思并提取知识：
+
+      **触发信号（满足任一即激活反思）：**
+
+      - 完成一个多步骤调试/排查后定位到根因（尤其是走了弯路的情况）
+      - 讨论了两个及以上方案并做出了选择
+      - 发现代码实际行为与文档/命名/注释不一致
+      - 用户补充了隐性项目知识（约定、历史原因、"我们一直这么做"）
+      - 一次探索性调研收敛到明确结论
+      - 发现了可复用的模式、工具链用法或环境配置技巧
+
+      **四问过滤（全部通过才值得记录）：**
+
+      1. 下一次对话（无本次上下文）还能用到吗？
+      2. 另一个 Agent 或新同事遇到同样场景能直接受益吗？
+      3. `query_wiki` 确认现有文档未覆盖？
+      4. 属于"事实/决策/模式/教训"而非"本次任务临时状态"？
+
+      **路由表：**
+
+      | 知识类型 | 写入方式 |
+      |---------|---------|
+      | 做了技术选型/方案取舍 | `ingest_note(note_type="decision")` |
+      | 踩坑/易错点 | `ingest_note(note_type="pitfall")` |
+      | 经验教训（调试过程、认知修正） | `ingest_note(note_type="lesson")` |
+      | 架构层面的事实发现 | `ingest_note(note_type="architecture")` |
+      | 临时绕过方案（含恢复条件） | `ingest_note(note_type="workaround")` |
+      | 多方案横向对比（含表格） | `write_doc_file(page_type="comparison")` |
+      | 调研结论存档 | `write_doc_file(page_type="query")` |
+
+      **执行流程：**
+
+      1. 识别到触发信号后，回顾相关对话片段，提取候选知识项
+      2. 对每个候选项执行四问过滤，丢弃未通过的
+      3. 用 `query_wiki` 检查是否已有覆盖（避免重复）
+      4. 按路由表确定写入方式，起草结构化内容（背景→结论→根因→适用范围）
+      5. 向用户展示草稿并征求确认——**必须确认后才写入**
+      6. 一次对话中可积累多个候选项，在自然停顿点（任务完成、话题切换）统一呈现，避免频繁打断
+
+      **不要记录的内容：**
+
+      - 仅与本次任务相关的临时变量、路径、参数
+      - 用户个人偏好（这属于 Agent 记忆，不属于项目 Wiki）
+      - 已在代码注释或 README 中明确写明的信息
+      - 未经验证的猜测或"可能""也许"级别的推断
+
+      ### 产出语言（语言闸门）
+
+      所有产出使用**中文**——Wiki 文档、笔记、代码注释、commit message、给用户的回复，以及本仓库内机器生成的说明文件，除非用户明确要求其他语言。检索到的历史文档若为其他语言，新产出仍按本规则，不要混用。
+
+      {end_marker}
+
+  reading_guide:
+    title: "阅读指南"
+    description: "> 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。"
+    heading: "# 阅读指南"
+    intro_line2: "> 排序依据为 PageRank 得分（综合考虑被依赖数量及依赖方自身的重要性），"
+    intro_line3: "> 表中「直接被依赖数」列为原始入度，仅供参考。"
+    recommended_order: "## 推荐阅读顺序"
+    table_header: "| # | 组件 | 类型 | 所属模块 | 直接被依赖数 | PageRank | 文件 |"
+    module_ranking: "## 模块重要性排名"
+    module_table_header: "| # | 模块 | 累计 PageRank |"
+    footer: "*基于 {components} 个组件、{edges} 条依赖边计算。*"
+  index:
+    alias_docs: "项目文档索引"
+    alias_index: "文档索引"
+    alias_notes: "知识笔记索引"
+    generated_comment: "<!-- 自动生成于 {generated_at} | Health Score: {health_score}/100 | 本文件由系统自动维护 -->"
+    heading: "# 项目文档索引"
+    getting_started: "## 入门指引"
+    notes: "## 知识笔记"
+    no_summary: "(无摘要)"
+    log_header: "# 操作日志 · {month_str}\n\n> 按时间正序追加（team-layout Phase 1 月度分片，OKF v0.2 §9 格式；由系统自动维护）\n\n"
+    page_type:
+      module: "模块文档"
+      entity: "实体"
+      concept: "概念"
+      source: "外部文档"
+      comparison: "对比分析"
+      query: "研究查询"
+      scenario: "场景方法"
+
+# ---------------------------------------------------------------------------
+# 内置评审清单（review_changes 的 BUILTIN_CHECKLISTS）
+# questions 用 | 分隔（语料保持扁平字符串映射）
+# ---------------------------------------------------------------------------
+review_checklist:
+  all:
+    err-handling:
+      title: "错误处理与资源释放"
+      questions: "异常/错误是否被吞掉（空 except、忽略返回值、丢失 error）？|文件、连接、锁等资源是否在 finally / with / defer 中释放？|错误是否丢失上下文（原始异常、关键参数未随错误传播）？"
+    input-validation:
+      title: "输入校验"
+      questions: "外部输入（参数、用户数据、文件内容）是否在入口处校验？|边界值（空、超长、负数、零、越界）是否处理？|类型/格式假设是否显式而非依赖调用方自觉？"
+    logging:
+      title: "日志"
+      questions: "关键路径（错误、慢路径、状态变更）是否有日志？|日志是否含定位所需上下文（id、参数摘要）而非只有堆栈？|是否避免了在循环/热路径中打印高频日志？"
+    security:
+      title: "安全"
+      questions: "是否存在注入风险（SQL/命令/模板拼接外部输入）？|密钥、token、密码是否硬编码或写进日志？|路径拼接是否存在穿越风险（未校验相对路径）？"
+    concurrency:
+      title: "并发安全"
+      questions: "共享可变状态是否有锁或同步机制？|是否存在竞态（先查后写、非原子更新）？|新增全局/模块级可变状态是否线程安全？"
+    null-boundary:
+      title: "空值与边界条件"
+      questions: "null/None/空集合的访问是否防护？|集合为空、索引越界、除零等边界是否考虑？|循环终止条件是否正确（off-by-one）？"
+    testability:
+      title: "可测试性"
+      questions: "新逻辑是否可独立测试（无硬编码依赖、时间、随机）？|副作用（IO、网络、DB）是否集中在可 mock 的边界？|是否有测试覆盖本次变更的关键分支？"
+    backward-compat:
+      title: "向后兼容"
+      questions: "公共接口/数据结构变更是否破坏既有调用方？|默认行为变更是否可能影响未显式传参的调用方？|删除/重命名是否有过渡期或同步更新全部引用？"
+    performance:
+      title: "性能"
+      questions: "是否存在明显 N+1 查询或循环内重活（IO、正则编译、DB 调用）？|新引入的数据结构/算法量级是否匹配预期规模？|是否引入了不必要的拷贝/序列化？"
+    code-quality:
+      title: "代码质量"
+      questions: "是否有重复逻辑可抽取（本文件或同模块已有实现）？|命名是否准确反映行为（无误导性名称）？|是否有死代码、未使用变量、注释与代码不一致？"
+  python:
+    py-mutable-default:
+      title: "可变默认参数"
+      questions: "函数参数默认值是否为可变对象（list/dict/set）——调用间共享状态？"
+    py-bare-except:
+      title: "裸 except"
+      questions: "是否使用裸 except / except Exception 吞掉包括 KeyboardInterrupt 在内的异常？"
+    py-resource-context:
+      title: "资源上下文管理"
+      questions: "文件、socket、锁是否使用 with 语句管理生命周期？"
+    py-encoding:
+      title: "编码处理"
+      questions: "文件读写是否显式指定 encoding（跨平台 GBK/UTF-8 差异）？"
+    py-import-side-effect:
+      title: "import 副作用"
+      questions: "模块导入是否触发重副作用（网络、文件写、DB 连接）？"
+
+# ---------------------------------------------------------------------------
+# 工具返回给 Agent 的提示文案（散点，随语言切换）
+# ---------------------------------------------------------------------------
+tools:
+  note_query:
+    by_file_hint: "该文件有 {total} 条历史知识（约 {total_est} tokens）。已按特异性返回前 {count} 条。够用即可开始；需要细节用 mode=detail 取单篇全文。"
+    by_file_empty: "该文件没有关联的历史知识（notes/ 中无 related_modules 命中）。可能是知识空白：值得在完成任务后用 ingest_note 沉淀。"
+  doc_writer:
+    stale_code_advisory: "code_fingerprint 漂移：该页面此前基于另一代码状态生成（旧 {old_fp}… → 新 {new_fp}…），本次覆盖写入。旧页结论可能已过期，建议 lint_wiki stale_pages 复核。"
+  review_changes:
+    no_spec_note: "未找到 SPEC——仅能评审通用正确性，无法查缺失/超范围"
+  wiki_lint:
+    stale_note_suggestion: "超过 {overdue_days} 天未验证。确认仍然准确用 confirm_note(note_file=\"{rel_path}\") 续期（将按类型窗口刷新 stale_after），已过时用 reject_note 退役。"
+    low_adoption_suggestion: "高频召回但零采纳：内容相关但可能不够 actionable。建议重写为更可执行的形式（补充具体步骤/命令/预期结果），可用 distill_conversation 产出草稿后 confirm_note，或用 edit_doc_file 直接更新 {rel_path}。"
+    check_done: "检查完成: {count} 个问题"
+  task_manager:
+    compact_instruction: "阅读 entries_to_compress（若 existing_summary 非空，它包含此前压缩的旧摘要，新摘要应覆盖其内容），生成一份任务早期记忆的中文 Markdown 摘要，不超过 {max_chars} 字。摘要应覆盖：关键事实与已完成决策、未决事项、仍可能影响后续工作的上下文（历史坑、约定、外部依赖）。丢掉纯过程性细节，保留结论性信息。完成后调用 compact_task_memories(mode='submit', task_id=..., summary=...)。"
+  prompt_server:
+    draft_template: |
+      📝 知识沉淀候选 ({n} 项)
+
+      1. [{note_type/page_type}] {title}
+         背景: {one line}
+         结论: {one line}
+         适用范围: {when this applies}
+
+      2. ...
+
+      要记录哪些？(全部 / 选择编号 / 跳过)
+  workspace_bootstrap:
+    layout_question: "首次初始化多仓工作区需要选择知识布局：请先询问用户，得到答复后带 layout 参数重新调用 init_workspace。"
+    layout_colocated: "各业务仓自带 repowiki，wiki 与代码同仓演进，检索两跳（先产品级、再仓库级）"
+    layout_centralized: "知识全部集中在本工作区 repowiki，业务仓为纯代码目录，检索一跳"
+  distill_conversation:
+    merge_marker: "> 合并自蒸馏候选：{title}"
+    friction_hint: "提示：friction_score ≥ 20 的会话含明显摩擦信号（纠正/打断/重复），优先蒸馏更可能产出有价值的经验笔记（清单按 captured_at 升序排列，friction_score 供你取舍优先级）。"

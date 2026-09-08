@@ -11,6 +11,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from codewiki.mcp import i18n as _i18n
+
 logger = logging.getLogger(__name__)
 
 
@@ -175,36 +177,91 @@ def _wiki_index_status(output_path: Path) -> str:
 # ===================================================================
 
 
+# ---------------------------------------------------------------------------
+# Stable identifiers for the capability/page-type resources.  Only the display
+# strings are localized; these identifiers stay the same in every language so
+# clients can key off them.
+# ---------------------------------------------------------------------------
+
+_TOOL_CATEGORIES: dict[str, list[str]] = {
+    "code_analysis": [
+        "analyze_repo",
+        "analyze_workspace",
+        "list_components",
+        "list_dependencies",
+        "analyze_impact",
+        "read_code_components",
+        "view_repo_file",
+    ],
+    "workspace_management": [
+        "init_workspace",
+        "add_workspace_repo",
+        "remove_workspace_repo",
+    ],
+    "cross_service": ["query_cross_service"],
+    "doc_generation": [
+        "write_doc_file",
+        "edit_doc_file",
+        "save_module_tree",
+        "get_processing_order",
+        "get_prompt",
+        "get_module_tree",
+        "generate_docs (legacy)",
+    ],
+    "knowledge_base": [
+        "query_wiki",
+        "ingest_note",
+        "confirm_note",
+        "reject_note",
+        "ingest_source",
+        "retract_source",
+        "batch_ingest",
+        "skill_creator",
+    ],
+    "quality": ["lint_wiki", "flag_issue"],
+    "session": ["close_session", "init_wiki"],
+}
+
+_KEY_PATTERNS = [
+    "workspace_file",
+    "session_lifecycle",
+    "page_type_routing",
+    "search_layers",
+    "cross_service",
+]
+
+_PAGE_TYPE_PATHS: dict[str, str] = {
+    "module": "wiki/modules/",
+    "entity": "wiki/entities/",
+    "concept": "wiki/concepts/",
+    "source": "wiki/sources/",
+    "comparison": "wiki/comparisons/",
+    "query": "wiki/queries/",
+}
+
+_WIKILINK_RULES = ["syntax", "graph_build", "multi_hop", "aliases"]
+
+
 def register(server):
     """Register resource and resource-template handlers on the MCP server."""
-
     @server.list_resources()
     async def list_resources() -> list:
         """List available static resources."""
         from mcp.types import Resource
 
+        def _res(uri: str, key: str) -> Resource:
+            return Resource(
+                uri=uri,
+                name=_i18n.t(f"resources.static.{key}.name"),
+                title=_i18n.t(f"resources.static.{key}.title"),
+                description=_i18n.t(f"resources.static.{key}.description"),
+                mimeType="application/json",
+            )
+
         return [
-            Resource(
-                uri="codewiki://prompts/catalog",
-                name="Prompt 模板目录",
-                title="CodeWiki Prompt 模板目录",
-                description="所有可用的 Prompt 模板列表及其用途说明，帮助 agent 了解可用的工作流指引",
-                mimeType="application/json",
-            ),
-            Resource(
-                uri="codewiki://capabilities",
-                name="服务能力概览",
-                title="CodeWiki 服务能力与工具清单",
-                description="完整的工具列表、参数速查、工作流说明，agent 可据此规划任务",
-                mimeType="application/json",
-            ),
-            Resource(
-                uri="codewiki://page-types",
-                name="页面类型说明",
-                title="Wiki 页面类型与路由规则",
-                description="各 page_type 的用途、存储路径、frontmatter 规范和 wikilink 建图规则",
-                mimeType="application/json",
-            ),
+            _res("codewiki://prompts/catalog", "prompts_catalog"),
+            _res("codewiki://capabilities", "capabilities"),
+            _res("codewiki://page-types", "page_types"),
         ]
 
     @server.list_resource_templates()
@@ -212,28 +269,19 @@ def register(server):
         """List available resource templates (parameterized URIs)."""
         from mcp.types import ResourceTemplate
 
+        def _tmpl(uri_template: str, key: str) -> ResourceTemplate:
+            return ResourceTemplate(
+                uriTemplate=uri_template,
+                name=_i18n.t(f"resources.template.{key}.name"),
+                title=_i18n.t(f"resources.template.{key}.title"),
+                description=_i18n.t(f"resources.template.{key}.description"),
+                mimeType="application/json",
+            )
+
         return [
-            ResourceTemplate(
-                uriTemplate="codewiki://wiki/{output_dir}/catalog",
-                name="Wiki 页面目录",
-                title="指定 Wiki 的页面目录",
-                description="获取指定输出目录下所有 Wiki 页面的目录（标题、类型、路径），URI 中 output_dir 使用 URL 编码的绝对路径",
-                mimeType="application/json",
-            ),
-            ResourceTemplate(
-                uriTemplate="codewiki://wiki/{output_dir}/module-tree",
-                name="模块聚类树",
-                title="指定 Wiki 的模块聚类树",
-                description="获取指定 Wiki 的模块聚类结构（模块名、组件数、层级关系）",
-                mimeType="application/json",
-            ),
-            ResourceTemplate(
-                uriTemplate="codewiki://wiki/{output_dir}/index-status",
-                name="搜索索引状态",
-                title="指定 Wiki 的搜索索引状态",
-                description="获取 BM25 搜索索引和 wikilink 图谱的构建状态（页面数、token 数、边数）",
-                mimeType="application/json",
-            ),
+            _tmpl("codewiki://wiki/{output_dir}/catalog", "catalog"),
+            _tmpl("codewiki://wiki/{output_dir}/module-tree", "module_tree"),
+            _tmpl("codewiki://wiki/{output_dir}/index-status", "index_status"),
         ]
 
     @server.read_resource()
@@ -242,180 +290,39 @@ def register(server):
         uri_str = str(uri)
 
         if uri_str == "codewiki://prompts/catalog":
+            # Derived from the prompt registry (single source of truth).  The
+            # previous hand-maintained copy had drifted to 15 of 22 prompts.
+            from codewiki.mcp.prompts import prompt_catalog
+
             return json.dumps(
                 {
-                    "prompts": [
-                        {
-                            "name": "generate-wiki",
-                            "title": "生成代码 Wiki",
-                            "description": "完整的代码仓库 Wiki 生成流水线",
-                            "arguments": [
-                                "repo_path (optional, 默认当前目录)",
-                                "output_dir (optional)",
-                            ],
-                        },
-                        {
-                            "name": "extract-knowledge",
-                            "title": "外部文档知识抽取",
-                            "description": "导入外部文档并从中抽取实体/概念，一步完成导入+提取",
-                            "arguments": ["source_path (required, 文档绝对路径)"],
-                        },
-                        {
-                            "name": "search-wiki",
-                            "title": "知识库搜索",
-                            "description": "BM25 + 图谱扩展 + 深度阅读的分层搜索策略",
-                            "arguments": ["query (required)"],
-                        },
-                        {
-                            "name": "quality-check",
-                            "title": "文档质量审计",
-                            "description": "全面质量检查：过时引用、断链、覆盖率、循环依赖",
-                            "arguments": ["output_dir (optional)"],
-                        },
-                        {
-                            "name": "incremental-update",
-                            "title": "增量更新 Wiki",
-                            "description": "检测代码变更并增量更新受影响的模块文档",
-                            "arguments": ["repo_path (optional, 默认当前目录)"],
-                        },
-                        {
-                            "name": "workspace-analysis",
-                            "title": "多仓库工作区分析（含跨服务拓扑）",
-                            "description": "扫描多 git 仓库，生成独立 Wiki 并自动执行 RouteNode 跨服务匹配 + 拓扑图 + 基础设施扫描",
-                            "arguments": ["workspace_path (optional, 默认当前目录)"],
-                        },
-                        {
-                            "name": "cross-service-trace",
-                            "title": "跨服务调用链追踪",
-                            "description": "对指定根服务做跨服务调用链分析：RouteNode 静态匹配 + CBM trace_path 语义穿透",
-                            "arguments": [
-                                "workspace_path (required)",
-                                "filter_value (optional, 追踪起点)",
-                            ],
-                        },
-                        {
-                            "name": "code-analysis",
-                            "title": "代码结构分析（不生成 Wiki）",
-                            "description": "仅解析代码结构、构建调用图、查询依赖和评估影响范围，不生成文档",
-                            "arguments": ["repo_path (optional, 默认当前目录)"],
-                        },
-                        {
-                            "name": "impact-review",
-                            "title": "修改影响范围评估",
-                            "description": "对指定组件执行传递性影响分析（BFS），评估修改爆炸半径与高风险组件",
-                            "arguments": [
-                                "repo_path (optional)",
-                                "target (optional, 组件 ID 或文件路径)",
-                            ],
-                        },
-                        {
-                            "name": "architecture-review",
-                            "title": "架构审查与热点分析",
-                            "description": "通过依赖图分析识别核心层/服务层/应用层、依赖热点和耦合风险",
-                            "arguments": ["repo_path (optional, 默认当前目录)"],
-                        },
-                        {
-                            "name": "ingest-note",
-                            "title": "经验知识归档",
-                            "description": "将设计决策、经验教训、架构 rationale 等知识归档到 Wiki 知识库",
-                            "arguments": [
-                                "output_dir (optional)",
-                                "note_type (optional, 默认 general)",
-                            ],
-                        },
-                        {
-                            "name": "init-wiki",
-                            "title": "初始化 Wiki 工作区",
-                            "description": "零配置初始化：创建目录结构、schema.yaml 模板、AGENTS.md 注入",
-                            "arguments": [
-                                "repo_path (optional, 默认当前目录)",
-                                "output_dir (optional)",
-                            ],
-                        },
-                        {
-                            "name": "init-workspace",
-                            "title": "初始化多仓 harness 工作区",
-                            "description": "把当前工作目录初始化（或重新同步）为多仓工作区：bootstrap 脚本、.gitignore、repo-map 导航、AGENTS.md 工作区约定与产品级 repowiki；零配置幂等——重跑自动沿用布局、强制刷新约定块、自动克隆登记表中未克隆的业务仓；业务仓登记走 add_workspace_repo",
-                            "arguments": [
-                                "output_dir (optional)",
-                            ],
-                        },
-                        {
-                            "name": "add-workspace-repo",
-                            "title": "登记业务仓到工作区",
-                            "description": "按克隆 URL 登记业务仓：事务式同步 bootstrap 登记表、.gitignore、repo-map.md 并克隆；目录名自动取仓库名",
-                            "arguments": [
-                                "workspace_path (optional, 默认当前目录)",
-                                "url (required)",
-                                "clone (optional)",
-                            ],
-                        },
-                        {
-                            "name": "remove-workspace-repo",
-                            "title": "移除业务仓",
-                            "description": "按子目录名移除业务仓登记（bootstrap 表、.gitignore、repo-map.md），并删除本地 clone 目录（不可恢复）",
-                            "arguments": [
-                                "workspace_path (optional, 默认当前目录)",
-                                "name (required)",
-                            ],
-                        },
-                    ],
-                    "usage": "通过 MCP prompts/get 协议获取完整工作流指引，或调用 get_prompt 工具获取代码生成阶段的 prompt 模板",
+                    "prompts": prompt_catalog(),
+                    "usage": _i18n.t("resources.catalog.usage"),
                 },
                 ensure_ascii=False,
                 indent=2,
             )
 
         elif uri_str == "codewiki://capabilities":
+            from codewiki import __version__
+            from codewiki.mcp.registry import get_all_tools
+
             return json.dumps(
                 {
-                    "server": "CodeWiki-CN MCP Server v5.5.0",
-                    # NOTE: keep in sync with the number of _register() calls in registry.py
-                    "tool_count": 49,
+                    # Derived, not hard-coded: the literal version and tool
+                    # count used to go stale (v5.5.0 / 49).
+                    "server": "CodeWiki-CN MCP Server v" + __version__,
+                    "tool_count": len(get_all_tools()),
                     "tool_categories": {
-                        "代码分析": [
-                            "analyze_repo",
-                            "analyze_workspace",
-                            "list_components",
-                            "list_dependencies",
-                            "analyze_impact",
-                            "read_code_components",
-                            "view_repo_file",
-                        ],
-                        "工作区管理": [
-                            "init_workspace",
-                            "add_workspace_repo",
-                            "remove_workspace_repo",
-                        ],
-                        "跨服务分析": ["query_cross_service"],
-                        "文档生成": [
-                            "write_doc_file",
-                            "edit_doc_file",
-                            "save_module_tree",
-                            "get_processing_order",
-                            "get_prompt",
-                            "get_module_tree",
-                            "generate_docs (legacy)",
-                        ],
-                        "知识库管理": [
-                            "query_wiki",
-                            "ingest_note",
-                            "confirm_note",
-                            "reject_note",
-                            "ingest_source",
-                            "retract_source",
-                            "batch_ingest",
-                            "skill_creator",
-                        ],
-                        "质量保障": ["lint_wiki", "flag_issue"],
-                        "会话管理": ["close_session", "init_wiki"],
+                        cat: {
+                            "label": _i18n.t("resources.capabilities.category." + cat),
+                            "tools": tools,
+                        }
+                        for cat, tools in _TOOL_CATEGORIES.items()
                     },
                     "key_patterns": {
-                        "workspace_file": "大结果写入 .codewiki/workspace/ 目录，通过 file_path 读取",
-                        "session_lifecycle": "analyze_repo 创建 → 工具调用 → close_session 清理（2h TTL）",
-                        "page_type_routing": "module→wiki/modules/, entity→wiki/entities/, concept→wiki/concepts/, source→wiki/sources/",
-                        "search_layers": "BM25 全文 → hop 图谱扩展 → expand 深度阅读",
-                        "cross_service": "analyze_workspace（多仓库）或 analyze_repo（monorepo 单仓库）自动生成拓扑 → query_cross_service 多维切片 → (可选) CBM trace_path 语义追踪",
+                        key: _i18n.t("resources.capabilities.pattern." + key)
+                        for key in _KEY_PATTERNS
                     },
                 },
                 ensure_ascii=False,
@@ -426,48 +333,22 @@ def register(server):
             return json.dumps(
                 {
                     "page_types": {
-                        "module": {
-                            "path": "wiki/modules/",
-                            "description": "代码模块文档（由 analyze_repo 流水线生成）",
-                            "typical_sections": [
-                                "概述",
-                                "架构图",
-                                "核心组件",
-                                "依赖关系",
-                                "使用示例",
-                            ],
-                        },
-                        "entity": {
-                            "path": "wiki/entities/",
-                            "description": "实体页面（人物/系统/服务/组件/API）",
-                            "typical_sections": ["定义", "关键属性", "关系", "来源引用"],
-                        },
-                        "concept": {
-                            "path": "wiki/concepts/",
-                            "description": "概念页面（模式/算法/协议/架构决策）",
-                            "typical_sections": ["定义", "原理", "应用场景", "相关概念"],
-                        },
-                        "source": {
-                            "path": "wiki/sources/",
-                            "description": "外部源文档摘要页",
-                            "typical_sections": ["来源信息", "核心内容", "抽取的实体/概念", "引用"],
-                        },
-                        "comparison": {
-                            "path": "wiki/comparisons/",
-                            "description": "对比分析页面",
-                            "typical_sections": ["对比维度", "各方案优劣", "结论"],
-                        },
-                        "query": {
-                            "path": "wiki/queries/",
-                            "description": "查询结果归档页面",
-                            "typical_sections": ["问题", "答案", "参考来源"],
-                        },
+                        page_type: {
+                            "path": path,
+                            "description": _i18n.t(
+                                "resources.page_types." + page_type + ".description"
+                            ),
+                            # Section lists are stored pipe-separated so the
+                            # catalog stays a flat string map.
+                            "typical_sections": _i18n.t(
+                                "resources.page_types." + page_type + ".sections"
+                            ).split("|"),
+                        }
+                        for page_type, path in _PAGE_TYPE_PATHS.items()
                     },
                     "wikilink_rules": {
-                        "syntax": "[[页面名]] 或 [显示文本](相对路径.md)",
-                        "graph_build": "build_search_index 自动解析所有 wikilink 为 wiki_links 表中的有向边",
-                        "multi_hop": "query_wiki(hop=N) 沿图谱边 BFS 扩展，每跳分数衰减 0.5x",
-                        "aliases": "frontmatter_extra.aliases 中的别名也参与 wikilink 解析",
+                        rule: _i18n.t("resources.wikilink." + rule)
+                        for rule in _WIKILINK_RULES
                     },
                 },
                 ensure_ascii=False,
