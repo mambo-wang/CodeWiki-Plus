@@ -1,6 +1,10 @@
 # CodeWiki-Plus 系列 13：把知识编译成行为——从 WikiSkill 论文到 skill-creator 的两区制闸门
 
-> 前面十二篇，我们把"对话 → 笔记 → 场景块 → Doctrine"这条知识管线修到了能自动生长的程度。但一直有个没解决的问题：**这些知识是"被动等人查"的。** Agent 记不记得 `query_wiki`、查没查到、查到了照不照做，全看缘分。这一篇讲我们怎么把已确认知识再往前推一步——**编译成 SKILL.md 行为指令，让 IDE 主动触发、直接改变 Agent 行为**。为了少走弯路，我们先把 Google Research 的 WikiSkill 论文和它的开源实现 wikiskill 源码通读了一遍，抄了该抄的，也划清了绝不照抄的。
+> 前面十二篇，我们把"对话 → 笔记 → 场景块 → Doctrine"这条管线修到能自动生长，但有个遗留问题——**知识是"被动等人查"的**：Agent 记不记得 `query_wiki`、查没查到、照不照做，全看缘分。
+>
+> 这一篇讲怎么再往前推一步：把已确认知识**编译成 SKILL.md 行为指令**，让 IDE 主动触发、直接改变 Agent 行为。
+>
+> 做法分三步——先通读 WikiSkill 论文与其开源实现 wikiskill 源码；抄了该抄的（两区制闸门、`no_action` 合法）；也划清了绝不照抄的（自动评分门控、Inference Agent 编排）。核心一句话：**install 永远是用户点头的动作，工具只把技能备到草稿区。**
 
 ---
 
@@ -85,6 +89,8 @@ Limitations 里有三条，恰好正对我们的两个未决问题：
 
 ## 二、读完源码，幻想破灭了一半
 
+这一节分三段读：先看实现比论文诚实的地方（六次运行零接受），再看这个工程最有价值的三仓分工，最后是我们必须自己补的三个洞。想直奔结论的，可以直接跳到第三、四节。
+
 论文漂亮，实现是另一回事。wikiskill 仓库里有一份 `docs/RUNS.md`，作者老老实实记了六次真实运行：
 
 | Run | 模型 | 结果 |
@@ -164,7 +170,7 @@ flowchart LR
     E -->|retire 同步移除| G
 ```
 
-- **草稿区** `repowiki/skills/`：与 notes 同层的知识资产，进搜索索引、进 lint 扫描，但 IDE 永远不会扫描 repowiki 内部——**草稿在物理上不可能生效**。`status: draft` 只是标记，**目录边界才是闸门**；
+- **草稿区** `repowiki/skills/`：与 notes 同层的知识资产，进搜索索引、进 lint 扫描，但 IDE 永远不会扫描 repowiki 内部，`status: draft` 只是标记——**目录边界才是闸门**；
 - **生效区** `.codebuddy/skills/`：宿主 IDE 的技能发现目录。只有 `install` 这个**用户显式动作**才写得进去，工具永不自动安装，修订后也永不自动覆盖。
 
 这里有个反直觉但重要的补充：**草稿区进索引，但 `query_wiki` 不召回它**。理由是语义隔离——技能是行为指令，不是检索知识；如果它能被检索召回，Agent 会把 SKILL 正文当知识引用，把两种语义搅在一起。过滤收口在检索入口一处，与既有的新鲜度闸门同位置。
@@ -183,7 +189,7 @@ flowchart LR
 
 ### submit：全量校验后才落盘
 
-任何一条违规，**整批不落盘**，并返回具体规则名：`name_slug` / `description_trigger` / `body_too_large`（>8KB）/ `sensitive_content`（绝对路径、密钥）/ `source_refs_required` / `name_conflict` / `batch_fragmentation` / `capacity_orange|red`。成功后自动写**双向溯源互链**（技能 `source_refs` ⇄ 素材 `compiled_into`）、追加 `revisions` 审计、重建索引。
+任何一条违规，**整批不落盘**，并返回具体规则名：`name_slug` / `description_trigger` / `body_too_large`（>8KB）/ `sensitive_content`（绝对路径、密钥）/ `source_refs_required` / `name_conflict` / `batch_fragmentation` / `capacity_orange|red`。名字看着多，其实分四类，方便对号入座：**格式**（slug、trigger）、**体量**（body_too_large、capacity）、**安全**（sensitive_content）、**协作**（source_refs、name_conflict、batch_fragmentation）。成功后自动写**双向溯源互链**（技能 `source_refs` ⇄ 素材 `compiled_into`）、追加 `revisions` 审计、重建索引。
 
 **空产出合法**：素材不足、不值得编译时，提交空 report 返回 `no_action`——这不是失败，是诚实（这条直接抄自 wikiskill）。
 
@@ -240,7 +246,7 @@ flowchart LR
 
 **3. 素材判据是命令密度，不是结构。** 先看了一轮结构判据：8 个 L2 场景块的**六段骨架 100% 相同**（同一模板生成）、步骤数 5-11 全过阈值——天生零区分度，作废。唯一强信号是命令命中数：唯一被真正编译成技能的那份是 `cmd=11 / fence=4`，第二名只有 2，差 5 倍以上。于是判据定为：命令位命中 ≥3（正则带尾随空白，"提到 git"不算"执行 git"）、未被 `compiled_into` 消费过、`notes/` 回链 ≥2（单笔记背书多半是一次性事件）。
 
-纪律上有一条硬约束：**蒸馏 worker 只把 `skill_hint` 写进汇报摘要，严禁自行调用 `skill_creator`**。install 是用户确认动作。
+纪律上有一条硬约束：蒸馏 worker 只把 `skill_hint` 写进汇报摘要，**严禁自行调用 `skill_creator`**。install 是用户确认动作。
 
 ---
 
