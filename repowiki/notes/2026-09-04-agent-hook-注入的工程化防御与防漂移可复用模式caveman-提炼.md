@@ -10,8 +10,11 @@ metadata:
   severity: medium
   source_ref: conversations/conv-https-github.com-JuliusBrussee-caveman.git-研究下这个技能是如何生效的.md
   scene: 他山之石-caveman研究
-  source_conversations: ['conversations/conv-https-github.com-DietrichGebert-ponytail-研究下这个技能是如何生效的.md']
-status: stable
+  source_conversations:
+  - conversations/conv-https-github.com-DietrichGebert-ponytail-研究下这个技能是如何生效的.md
+  consolidated_into:
+  - wiki/scenarios/IDE-Hook采集链路方法.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.5.1
@@ -21,7 +24,7 @@ origin: conversation
 verified:
 - by: codewiki/5.5.1
   at: '2026-09-04T04:25:35Z'
-
+reject_reason: consolidated into IDE-Hook采集链路方法
 ---
 
 ## Background

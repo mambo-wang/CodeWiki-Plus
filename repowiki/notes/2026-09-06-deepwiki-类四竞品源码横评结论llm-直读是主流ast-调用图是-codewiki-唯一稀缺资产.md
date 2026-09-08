@@ -13,6 +13,10 @@ metadata:
   severity: medium
   source_ref: conversations/conv-调研-openwiki、deepwiki-open、OpenDeepWiki、deepwiki-rs-四个-DeepWi.md
   scene: 竞品调研
+  disposition:
+    verdict: deferred
+    at: '2026-09-08'
+    reason: 竞品调研组候选，属调研结论而非调研方法，需与方法类笔记区分后成块
 status: stable
 author: local
 generated:

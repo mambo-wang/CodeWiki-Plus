@@ -11,7 +11,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-对-docs-claude-mem借鉴详细设计方案.md-做拷问式评审（grill）：先派子代理核对方案引用的全部代码事.md
   scene: 检索透明化
-status: stable
+  consolidated_into:
+  - wiki/scenarios/MCP-Server薄壳架构与参数约定.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.6.0
@@ -21,6 +23,7 @@ origin: conversation
 verified:
 - by: codewiki/5.6.0
   at: '2026-09-05T12:47:35Z'
+reject_reason: consolidated into MCP-Server薄壳架构与参数约定
 ---
 
 ## Decision

@@ -12,7 +12,9 @@ metadata:
   - ide-hook
   severity: medium
   source_ref: conversations/conv-@settings.json-27-38-是不是有问题，python-m-codewiki.mcp._ide_hook.md
-status: stable
+  consolidated_into:
+  - wiki/scenarios/IDE-Hook采集链路方法.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.7.0
@@ -22,6 +24,7 @@ origin: conversation
 verified:
 - by: human:mambo-wang
   at: '2026-09-07T03:50:16Z'
+reject_reason: consolidated into IDE-Hook采集链路方法
 ---
 
 ## 背景

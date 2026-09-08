@@ -15,6 +15,10 @@ metadata:
   severity: medium
   source_ref: conversations/conv-@MCP_Tools_DocWriter.md-23-29-这段内容是如何生成和使用的.md
   scene: 代码证据（OKF sources）
+  disposition:
+    verdict: deferred
+    at: '2026-09-08'
+    reason: OKF sources 组候选，待该组单立场景
 status: stable
 author: iamwangbao-163-com
 generated:

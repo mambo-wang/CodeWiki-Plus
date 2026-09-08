@@ -10,7 +10,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-teammate-message-from-team-lead-from-summary-Initial-task-as-2.md
   scene: Mode C 补蒸馏实战
-status: stable
+  consolidated_into:
+  - wiki/scenarios/对话蒸馏管线与raw暂存区.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.7.0
@@ -20,6 +22,7 @@ origin: conversation
 verified:
 - by: human:mambo-wang
   at: '2026-09-07T03:50:15Z'
+reject_reason: consolidated into 对话蒸馏管线与raw暂存区
 ---
 
 ## 背景

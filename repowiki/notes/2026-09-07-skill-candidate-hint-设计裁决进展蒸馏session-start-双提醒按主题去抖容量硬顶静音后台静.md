@@ -11,6 +11,10 @@ metadata:
   severity: medium
   source_ref: conversations/conv-SKILL-CREATOR需求的PHASE-2是不是还没启动.md
   scene: skill_candidate hint 设计
+  disposition:
+    verdict: excluded
+    at: '2026-09-08'
+    reason: 设计未定稿的中间进展记录，裁决仍在推进，属临时状态而非可复用方法
 status: stable
 author: iamwangbao-163-com
 generated:

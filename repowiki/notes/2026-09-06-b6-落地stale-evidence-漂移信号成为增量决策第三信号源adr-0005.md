@@ -11,7 +11,9 @@ metadata:
   severity: high
   source_ref: conversations/conv-调研-openwiki、deepwiki-open、OpenDeepWiki、deepwiki-rs-四个-DeepWi.md
   scene: 增量更新
-status: stable
+  consolidated_into:
+  - wiki/scenarios/多仓工作区初始化与增量分析.md
+status: deprecated
 author: local
 generated:
   by: codewiki/5.5.0
@@ -21,6 +23,7 @@ origin: conversation
 verified:
 - by: human:mambo-wang
   at: '2026-09-07T03:50:12Z'
+reject_reason: consolidated into 多仓工作区初始化与增量分析
 ---
 
 ## 背景

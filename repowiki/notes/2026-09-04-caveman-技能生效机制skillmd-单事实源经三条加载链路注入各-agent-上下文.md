@@ -11,6 +11,11 @@ metadata:
   severity: medium
   source_ref: conversations/conv-https-github.com-JuliusBrussee-caveman.git-研究下这个技能是如何生效的.md
   scene: 他山之石-caveman研究
+  disposition:
+    verdict: excluded
+    at: '2026-09-08'
+    reason: frontmatter 已带 reject_reason（用户审阅判定不需要此条笔记），且其多宿主分发结论与同批 caveman hook
+      防御笔记重叠
 status: stable
 author: iamwangbao-163-com
 generated:

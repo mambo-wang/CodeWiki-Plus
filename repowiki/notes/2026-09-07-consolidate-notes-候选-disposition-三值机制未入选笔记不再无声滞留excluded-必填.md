@@ -14,7 +14,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-https-mp.weixin.qq.com-s-NwU98lA_P7LpDdyhhkt-cg-调研一下这篇文章，看看对.md
   scene: note 聚合可审计性
-status: stable
+  consolidated_into:
+  - wiki/scenarios/Wiki页面生成约定与数据结构.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.6.1
@@ -24,6 +26,7 @@ origin: conversation
 verified:
 - by: codewiki/5.6.1
   at: '2026-09-07T01:47:01Z'
+reject_reason: consolidated into Wiki页面生成约定与数据结构
 ---
 
 ## Background
