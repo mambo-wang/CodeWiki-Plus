@@ -1602,6 +1602,17 @@ async def handle_write_doc_file(
     except Exception as e:
         logger.debug("note review reminder skipped: %s", e)
 
+    # Phase 4 second slice: write_doc_file writes a wiki page, so it is its
+    # own push anchor when auto_push is enabled.  Suppressed inside batch
+    # drivers (git_sync.defer_push).  Best-effort, never blocks.
+    try:
+        from codewiki.src.git_sync import auto_push
+
+        _push = auto_push(output_dir, "write_doc_file")
+        if _push:
+            result["git_sync"] = _push
+    except Exception as e:
+        logger.debug("auto_push skipped: %s", e)
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 

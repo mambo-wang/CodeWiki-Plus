@@ -60,6 +60,32 @@ REGISTRY: dict[str, ToolDef] = {}
 # note_type 权威表导入移至文件顶部 import 区（E402）；设计说明见顶部注释。
 _NOTE_TYPE_ENUM = sorted(_NOTE_TYPES)
 
+# ---------------------------------------------------------------------------
+#  Knowledge-write sync anchors (Phase 4 second slice)
+# ---------------------------------------------------------------------------
+# These tools write into repowiki/ but have no push anchor of their own, so
+# dispatch() syncs the knowledge tree after them.  Centralising it here
+# avoids instrumenting a dozen handlers that each have several return paths.
+#
+# Tools that ALREADY call auto_push inside their handler are deliberately
+# absent — listing them would push twice per call:
+#   close_session, capture_conversation, distill_conversation,
+#   batch_ingest, ingest_note, write_doc_file
+_PUSH_ON_WRITE = frozenset(
+    {
+        "edit_doc_file",
+        "confirm_note",
+        "reject_note",
+        "batch_set_status",
+        "ingest_source",
+        "retract_source",
+        "consolidate_notes",
+        "refresh_doctrine",
+        "flag_issue",
+        "stamp_evidence",
+    }
+)
+
 
 def _register(schema: Tool, handler_path: str, mode: str, takes_store: bool = True) -> None:
     """Register a tool definition in the global REGISTRY."""
@@ -2979,6 +3005,25 @@ async def dispatch(name: str, arguments: dict[str, Any], store: Any) -> list[Tex
                     text=json.dumps({"error": f"Invalid mode '{tool_def.mode}' for tool '{name}'"}),
                 )
             ]
+
+        # Knowledge-write sync: repowiki/ changed and this handler has no
+        # anchor of its own.  Gated on auto_push (D17 removed 2026-09-08:
+        # staging is confined to the knowledge subtree), suppressed inside
+        # batch boundaries, and never raises (git_sync.auto_push).
+        if name in _PUSH_ON_WRITE:
+            try:
+                _rp = arguments.get("repo_path")
+                if _rp and isinstance(result, str):
+                    from codewiki.mcp.tools.workspace_layout import default_output_dir
+                    from codewiki.src.git_sync import auto_push_into_result
+
+                    result = auto_push_into_result(
+                        result,
+                        default_output_dir(Path(_rp).expanduser().resolve()),
+                        name,
+                    )
+            except Exception as e:
+                logger.debug("auto_push skipped: %s", e)
 
         # --- CBM enrichment (best-effort, async) ---
         result = await _try_cbm_enrichment(name, arguments, result)
