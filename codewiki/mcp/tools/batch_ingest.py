@@ -80,41 +80,51 @@ def handle_batch_ingest(
 
     from codewiki.mcp.tools.knowledge_loop import handle_ingest_note
     from codewiki.mcp.tools.source_ingest import handle_ingest_source
+    from codewiki.src.git_sync import defer_push
 
-    for i, item in enumerate(items):
-        kind = item.pop("kind", None)
-        if kind is None:
-            # Tolerate the common alias 'type' (e.g. {"type": "source"}),
-            # otherwise such items would be silently ingested as notes.
-            kind = item.pop("type", None)
-            if kind is not None:
-                logger.info("batch item %d: accepted 'type' as alias for 'kind'", i)
-        if kind is None:
-            kind = "note"
-        try:
-            if kind == "note":
-                raw = handle_ingest_note(item, store)
-            elif kind == "source":
-                raw = handle_ingest_source(item, store)
-            else:
-                results.append(
-                    {"index": i, "kind": kind, "status": "error", "error": f"Unknown kind: {kind}"}
-                )
-                failed += 1
-                continue
+    # Per-item anchors (ingest_note pushes on its own now) are suppressed
+    # inside this block so an N-item batch pushes once at the boundary
+    # below instead of N times.
+    with defer_push(top_output_dir):
+        for i, item in enumerate(items):
+            kind = item.pop("kind", None)
+            if kind is None:
+                # Tolerate the common alias 'type' (e.g. {"type": "source"}),
+                # otherwise such items would be silently ingested as notes.
+                kind = item.pop("type", None)
+                if kind is not None:
+                    logger.info("batch item %d: accepted 'type' as alias for 'kind'", i)
+            if kind is None:
+                kind = "note"
+            try:
+                if kind == "note":
+                    raw = handle_ingest_note(item, store)
+                elif kind == "source":
+                    raw = handle_ingest_source(item, store)
+                else:
+                    results.append(
+                        {
+                            "index": i,
+                            "kind": kind,
+                            "status": "error",
+                            "error": f"Unknown kind: {kind}",
+                        }
+                    )
+                    failed += 1
+                    continue
 
-            parsed = json.loads(raw)
-            if "error" in parsed:
-                results.append(
-                    {"index": i, "kind": kind, "status": "error", "error": parsed["error"]}
-                )
+                parsed = json.loads(raw)
+                if "error" in parsed:
+                    results.append(
+                        {"index": i, "kind": kind, "status": "error", "error": parsed["error"]}
+                    )
+                    failed += 1
+                else:
+                    results.append({"index": i, "kind": kind, "status": "ok", "detail": parsed})
+                    succeeded += 1
+            except Exception as e:
+                results.append({"index": i, "kind": kind, "status": "error", "error": str(e)})
                 failed += 1
-            else:
-                results.append({"index": i, "kind": kind, "status": "ok", "detail": parsed})
-                succeeded += 1
-        except Exception as e:
-            results.append({"index": i, "kind": kind, "status": "error", "error": str(e)})
-            failed += 1
 
     # Single index rebuild at the end
     output_dir = None
@@ -166,7 +176,7 @@ def handle_batch_ingest(
     else:
         summary["results"] = results
 
-    # Phase 4 second slice: batch boundary → auto-push when enabled (D17).
+    # Phase 4 second slice: batch boundary → auto-push when enabled.
     try:
         from codewiki.src.git_sync import auto_push
 

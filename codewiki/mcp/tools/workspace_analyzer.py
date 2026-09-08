@@ -451,6 +451,19 @@ def handle_analyze_workspace(
     # Output dir for the workspace-level overview (product-level repowiki) is
     # a fixed workspace-root convention; output_dir is retired on writes.
     output_dir = workspace_path / "repowiki"
+
+    # Phase 4 second slice: session-start ff-only pull on the FIRST write
+    # path this process touches.  analyze_workspace may be the session's
+    # earliest knowledge write (before capture / close_session), so pull the
+    # workspace knowledge repo up to date before generating anything.
+    # Once per process per repo (git_sync._ff_pulled_repos); never raises.
+    try:
+        from codewiki.src.git_sync import session_ff_only
+
+        _pull = session_ff_only(output_dir)
+    except Exception as e:
+        logger.debug("session_ff_only skipped: %s", e)
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Layout detection (ticket 08): centralized workspaces keep all knowledge

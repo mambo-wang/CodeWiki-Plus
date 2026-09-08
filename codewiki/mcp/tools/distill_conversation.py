@@ -1560,6 +1560,17 @@ def handle_distill_conversation(
     except ValueError as e:
         return json.dumps({"error": str(e)})
 
+    # Phase 4 second slice: session-start ff-only pull on the FIRST write
+    # path this process touches.  distill submit writes notes; if distillation
+    # runs before capture (or standalone), pull the knowledge repo first.
+    # Once per process per repo (git_sync._ff_pulled_repos); never raises.
+    try:
+        from codewiki.src.git_sync import session_ff_only
+
+        _pull = session_ff_only(output_dir)
+    except Exception as e:
+        logger.debug("session_ff_only skipped: %s", e)
+
     note_type_ov = arguments.get("note_type")
     if note_type_ov and note_type_ov not in _VALID_NOTE_TYPES:
         return json.dumps({"error": f"Invalid note_type '{note_type_ov}'. {_NOTE_TYPE_HINT}"})
@@ -1779,7 +1790,7 @@ def handle_distill_conversation(
             "conflicts_pending": n_conflicts,
         }
         # Phase 4 second slice: submit is a batch boundary → auto-push when
-        # enabled and gated (D17). Best-effort, never blocks the result.
+        # enabled. Best-effort, never blocks the result.
         try:
             from codewiki.src.git_sync import auto_push
 

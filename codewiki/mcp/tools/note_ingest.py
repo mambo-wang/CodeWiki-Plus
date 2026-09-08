@@ -483,6 +483,18 @@ def handle_ingest_note(
             "correction. Only keep both if the knowledge is genuinely distinct."
         )
         result["hint"] = f"{result['hint']} {conflict_hint}" if "hint" in result else conflict_hint
+    # Phase 4 second slice: ingest_note writes a note file, so it is its own
+    # push anchor when auto_push is enabled.  Suppressed inside batch_ingest
+    # (git_sync.defer_push) so an N-item batch still performs exactly one
+    # push.  Best-effort, never blocks.
+    try:
+        from codewiki.src.git_sync import auto_push
+
+        _push = auto_push(output_dir, "ingest_note")
+        if _push:
+            result["git_sync"] = _push
+    except Exception as e:
+        logger.debug("auto_push skipped: %s", e)
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
