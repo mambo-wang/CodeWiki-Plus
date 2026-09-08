@@ -3,10 +3,13 @@
 All against throwaway file:// "remotes" (bare repos) — the fake-remote
 matrix agreed in the design review (2026-09-02):
 
-* D17 gate: single repo (no workspace.json) NEVER auto-syncs; a workspace
-  root (centralized AND colocated) does when enabled.
-* session_ff_only: clean tree pulls ff; dirty tree skips with a report;
-  divergence refuses to merge.
+* D17 structural gate removed (2026-09-08): single repo (no
+  workspace.json), colocated repos and workspace roots all sync when
+  enabled — git's own ``--ff-only`` overwrite protection (session pull)
+  and knowledge-subtree-only staging (auto_push) guard local work.
+* session_ff_only: clean tree pulls ff; a remote update that would
+  clobber local tracked edits is refused by git with the working tree
+  left untouched; divergence refuses to merge.
 * auto_push: stages only repowiki/, commits with repo identity
   (``codewiki:`` prefix), pushes; push races resolve via fetch+rebase
   retry; retry exhaustion keeps the local commit (D12).
@@ -94,43 +97,34 @@ def _reset_state():
 
 
 # --------------------------------------------------------------------------- #
-# D17 gate
+# session_ff_only
 # --------------------------------------------------------------------------- #
 
 
-def test_gate_single_repo_never_auto_syncs(tmp_path):
-    """Single repo (no workspace.json): auto_push and session_ff_only are
-    no-ops even when enabled in schema.yaml."""
+def test_session_ff_only_single_repo_syncs_when_enabled(tmp_path):
+    """D17 workspace-root gate removed (2026-09-08): a single repo with no
+    workspace.json but session_ff_only enabled DOES ff-pull now."""
     _reset_state()
-    remote = _make_remote(tmp_path, "single-origin")
-    repo = _clone(tmp_path, remote, "single")
+    remote = _make_remote(tmp_path, "single-sync-origin")
+    repo = _clone(tmp_path, remote, "single-sync")
     (repo / "repowiki" / "notes").mkdir(parents=True)
     (repo / "repowiki" / "notes" / "n.md").write_text("x\n", encoding="utf-8")
     _enable(repo, mode="session_ff_only", auto_push=True)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "local")
+    _git(repo, "push", "-q", "-u", "origin", "main")
+    # remote moves ahead (via a seed clone)
+    seed = _clone(tmp_path, remote, "single-sync-seed")
+    (seed / "repowiki" / "notes" / "remote.md").write_text(
+        "remote\n", encoding="utf-8"
+    )
+    _git(seed, "add", "-A")
+    _git(seed, "commit", "-q", "-m", "remote work")
+    _git(seed, "push", "-q", "origin", "main")
 
-    assert session_ff_only(repo / "repowiki") is None
-    assert auto_push(repo / "repowiki", "test") is None
-    # nothing was committed/pushed by the tool
-    assert _git(repo, "status", "--porcelain").strip() != ""
-
-
-def test_gate_colocated_and_centralized_roots_qualify(tmp_path):
-    from codewiki.src.git_sync import _is_workspace_root_repo, _find_repo_root
-
-    for layout in ("colocated", "centralized"):
-        repo = _make_workspace_repo(tmp_path, f"gate-{layout}", layout)
-        od = repo / "repowiki"
-        root = _find_repo_root(od)
-        assert root == repo.resolve()
-        assert _is_workspace_root_repo(od, root) is True
-    # and a nested business-style repo does not qualify
-    nested = tmp_path / "gate-colocated" / "sub" / "repowiki"
-    assert _is_workspace_root_repo(nested, tmp_path / "gate-colocated") is False
-
-
-# --------------------------------------------------------------------------- #
-# session_ff_only
-# --------------------------------------------------------------------------- #
+    msg = session_ff_only(repo / "repowiki")
+    assert msg and "ff-only" in msg
+    assert (repo / "repowiki" / "notes" / "remote.md").exists()
 
 
 def test_session_ff_only_pulls_on_clean_tree(tmp_path):
@@ -171,13 +165,30 @@ def test_session_ff_only_reports_on_divergence(tmp_path):
     assert (repo / "repowiki" / "notes" / "local.md").exists()
 
 
-def test_session_ff_only_skips_on_dirty_tree(tmp_path):
+def test_session_ff_only_dirty_conflict_refused_untouched(tmp_path):
+    """Clean-tree pre-gate removed (2026-09-08): git's own --ff-only
+    overwrite protection decides.  A remote update that would clobber a
+    local tracked edit is refused with the working tree left untouched."""
     _reset_state()
-    repo = _make_workspace_repo(tmp_path, "ff-dirty", "colocated")
-    (repo / "repowiki" / "notes" / "uncommitted.md").write_text("dirty\n", encoding="utf-8")
+    repo = _make_workspace_repo(tmp_path, "ff-conflict", "colocated")
+    (repo / "repowiki" / "notes" / "seed.md").write_text(
+        "local edit\n", encoding="utf-8"
+    )
+    # remote moves ahead touching the SAME tracked file
+    seed = tmp_path / "ff-conflict-seed"
+    (seed / "repowiki" / "notes" / "seed.md").write_text(
+        "remote edit\n", encoding="utf-8"
+    )
+    _git(seed, "add", "-A")
+    _git(seed, "commit", "-q", "-m", "remote work")
+    _git(seed, "push", "-q", "origin", "main")
 
     msg = session_ff_only(repo / "repowiki")
-    assert msg and "不干净" in msg
+    assert msg and "拉取被拒" in msg
+    # local edit intact — nothing was overwritten
+    assert (
+        repo / "repowiki" / "notes" / "seed.md"
+    ).read_text(encoding="utf-8") == "local edit\n"
     # once-per-process: the failed attempt claims the slot
     assert session_ff_only(repo / "repowiki") is None
 
