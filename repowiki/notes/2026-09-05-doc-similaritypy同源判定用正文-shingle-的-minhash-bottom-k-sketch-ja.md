@@ -13,6 +13,10 @@ metadata:
   severity: medium
   source_ref: conversations/conv-user_command-commands-codewiki-外部文档知识抽取-请导入外部文档并从中抽取结构化知识。采用-2.md
   scene: 文档去重
+  disposition:
+    verdict: deferred
+    at: '2026-09-08'
+    reason: 文档去重单一素材，待与导入闸门笔记成组
 status: stable
 author: iamwangbao-163-com
 generated:

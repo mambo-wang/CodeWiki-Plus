@@ -12,6 +12,10 @@ metadata:
   severity: medium
   source_ref: conversations/conv-SKILL-CREATOR需求的PHASE-2是不是还没启动.md
   scene: skill-creator Phase 2 评估
+  disposition:
+    verdict: excluded
+    at: '2026-09-08'
+    reason: 一次性项目状态快照（Phase 2 启动与否随时间变化），不是可复用的工作方法
 status: stable
 author: iamwangbao-163-com
 generated:

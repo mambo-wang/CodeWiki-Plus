@@ -11,6 +11,10 @@ metadata:
   severity: medium
   source_ref: conversations/conv-基于本仓库代码逐层说明「准确性-可信度」是怎么保证的。-##-核心立场-工具做确定性簿记，推理决策永远在调用方与用户手里.md
   scene: 知识生命周期
+  disposition:
+    verdict: deferred
+    at: '2026-09-08'
+    reason: 知识生命周期组候选，随该组一并成块
 status: stable
 author: iamwangbao-163-com
 generated:

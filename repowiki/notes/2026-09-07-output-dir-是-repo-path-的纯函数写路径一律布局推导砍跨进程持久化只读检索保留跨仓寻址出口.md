@@ -15,7 +15,9 @@ metadata:
   severity: high
   source_ref: conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in.md
   scene: MCP 工具参数面设计
-status: stable
+  consolidated_into:
+  - wiki/scenarios/MCP-Server薄壳架构与参数约定.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.6.1
@@ -25,8 +27,9 @@ origin: conversation
 verified:
 - by: codewiki/5.6.1
   at: '2026-09-07T01:47:00Z'
-source_conversations: ['conversations/conv-@d-repos-CodeWiki-CN-.codebuddy-plans-output_dir-收敛为repo_pat.md']
-
+source_conversations:
+- conversations/conv-@d-repos-CodeWiki-CN-.codebuddy-plans-output_dir-收敛为repo_pat.md
+reject_reason: consolidated into MCP-Server薄壳架构与参数约定
 ---
 
 ## Background

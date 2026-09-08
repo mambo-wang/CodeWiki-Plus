@@ -126,6 +126,69 @@
       "repo": "CodeWiki-CN",
       "producer": "codewiki/5.6.1",
       "written_at": "2026-09-06T10:14:09Z"
+    },
+    "wiki/scenarios/跨进程锁与临时文件治理方法.md": {
+      "git_head": "f08feabcc27a7f2198e51ce0d085c4c058c2d5dc",
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": "CodeWiki-CN",
+      "producer": "codewiki/5.8.0",
+      "written_at": "2026-09-08T05:54:02Z"
+    },
+    "wiki/scenarios/发布与依赖治理方法.md": {
+      "git_head": "f08feabcc27a7f2198e51ce0d085c4c058c2d5dc",
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": "CodeWiki-CN",
+      "producer": "codewiki/5.8.0",
+      "written_at": "2026-09-08T05:54:14Z"
+    },
+    "wiki/scenarios/对话蒸馏管线与raw暂存区.md": {
+      "git_head": "f08feabcc27a7f2198e51ce0d085c4c058c2d5dc",
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": "CodeWiki-CN",
+      "producer": "codewiki/5.8.0",
+      "written_at": "2026-09-08T05:54:25Z"
+    },
+    "wiki/scenarios/MCP-Server薄壳架构与参数约定.md": {
+      "git_head": "f08feabcc27a7f2198e51ce0d085c4c058c2d5dc",
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": "CodeWiki-CN",
+      "producer": "codewiki/5.8.0",
+      "written_at": "2026-09-08T05:54:39Z"
+    },
+    "wiki/scenarios/IDE-Hook采集链路方法.md": {
+      "git_head": "f08feabcc27a7f2198e51ce0d085c4c058c2d5dc",
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": "CodeWiki-CN",
+      "producer": "codewiki/5.8.0",
+      "written_at": "2026-09-08T05:55:03Z"
+    },
+    "wiki/scenarios/Wiki页面生成约定与数据结构.md": {
+      "git_head": "f08feabcc27a7f2198e51ce0d085c4c058c2d5dc",
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": "CodeWiki-CN",
+      "producer": "codewiki/5.8.0",
+      "written_at": "2026-09-08T05:55:14Z"
+    },
+    "wiki/scenarios/多仓工作区初始化与增量分析.md": {
+      "git_head": "f08feabcc27a7f2198e51ce0d085c4c058c2d5dc",
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": "CodeWiki-CN",
+      "producer": "codewiki/5.8.0",
+      "written_at": "2026-09-08T05:55:26Z"
     }
   }
 }

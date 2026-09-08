@@ -14,6 +14,10 @@ metadata:
   severity: medium
   source_ref: conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in.md
   scene: 技能产物类型建设
+  disposition:
+    verdict: deferred
+    at: '2026-09-08'
+    reason: 技能产物建设组尚在推进中，等定稿落地后再立块
 status: stable
 author: iamwangbao-163-com
 generated:

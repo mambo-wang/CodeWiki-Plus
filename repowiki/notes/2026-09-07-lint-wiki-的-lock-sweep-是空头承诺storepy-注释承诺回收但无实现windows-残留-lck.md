@@ -12,7 +12,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-把项目中的.lck文件清理掉.md
   scene: .lck 清理
-status: stable
+  consolidated_into:
+  - wiki/scenarios/跨进程锁与临时文件治理方法.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.7.0
@@ -22,6 +24,7 @@ origin: conversation
 verified:
 - by: human:mambo-wang
   at: '2026-09-07T03:50:14Z'
+reject_reason: consolidated into 跨进程锁与临时文件治理方法
 ---
 
 ## 背景

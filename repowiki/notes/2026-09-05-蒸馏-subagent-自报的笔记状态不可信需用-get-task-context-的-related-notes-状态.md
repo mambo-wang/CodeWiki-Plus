@@ -13,7 +13,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-@MCP_Tools_DocWriter.md-23-29-这段内容是如何生成和使用的.md
   scene: 知识蒸馏与确认闸门
-status: stable
+  consolidated_into:
+  - wiki/scenarios/对话蒸馏管线与raw暂存区.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.6.0
@@ -23,6 +25,7 @@ origin: conversation
 verified:
 - by: codewiki/5.6.0
   at: '2026-09-05T12:47:52Z'
+reject_reason: consolidated into 对话蒸馏管线与raw暂存区
 ---
 
 ## 背景

@@ -9,7 +9,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-发布新的pypi版本，并发布git-release.md
   scene: 发布流程
-status: stable
+  consolidated_into:
+  - wiki/scenarios/发布与依赖治理方法.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.6.0
@@ -19,6 +21,7 @@ origin: conversation
 verified:
 - by: codewiki/5.6.0
   at: '2026-09-05T12:47:35Z'
+reject_reason: consolidated into 发布与依赖治理方法
 ---
 
 ## Background
