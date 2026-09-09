@@ -57,7 +57,10 @@ _DEFAULT_CONVENTIONS = {
     # Team-layout Phase 4 (D14): git 同步策略。advisory 默认开——只读
     # fetch、每进程每仓一次、失败静默降级；session_ff_only/auto_push
     # （第二刀）仅限 repowiki 所在仓不含业务代码的 harness 根仓。
-    "git_sync": {"mode": "advisory", "auto_push": False},
+    # auto_stage（2026-09-09）默认开：codewiki 写入的文件自动 git add 进
+    # 暂存区（只 stage 不 commit/push）；.gitignore 决定什么不该进；
+    # auto_push 开启时让位。
+    "git_sync": {"mode": "advisory", "auto_push": False, "auto_stage": True},
 }
 
 # V4: fill the note_types placeholder from the authoritative table (import kept

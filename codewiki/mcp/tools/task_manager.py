@@ -1000,6 +1000,11 @@ def handle_compact_task_memories(arguments: Dict[str, Any], store: SessionStore)
         try:
             legacy_path.unlink()
             legacy_removed = True
+            # keep the git index in step with the removal (auto-stage
+            # companion; silent no-op outside a repo / config off)
+            from codewiki.src.store import _stage_removal
+
+            _stage_removal(legacy_path)
         except OSError:
             logger.warning("Failed to remove converged legacy memories.md at %s", legacy_path)
 
