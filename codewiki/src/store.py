@@ -111,6 +111,30 @@ def atomic_write(path: Path, content: str) -> None:
                 tmp.unlink()
         except OSError:
             pass
+    # Team-layout (2026-09-09): best-effort auto-stage — every codewiki
+    # write funnels through here, so this is the single choke point for
+    # putting durable knowledge files into the git index (stage only, never
+    # commit/push).  Silent no-op outside a git repo / under pytest / when
+    # conventions.git_sync.auto_stage is off; never breaks the write.
+    try:
+        from codewiki.src.git_sync import auto_stage
+
+        auto_stage(path)
+    except Exception:
+        pass
+
+
+def _stage_removal(path: Path) -> None:
+    """Companion to the atomic_write auto-stage hook: stage a deletion so a
+    file codewiki once put in the git index does not linger as a ghost
+    "added, then deleted in worktree" pair.  Same silent best-effort contract
+    (no-op outside a repo / under pytest / config off; never raises)."""
+    try:
+        from codewiki.src.git_sync import auto_stage
+
+        auto_stage(path, removed=True)
+    except Exception:
+        pass
 
 
 _LOCK_NAME_DIGEST_LEN = 20  # sha256 hex prefix — lock id per resolved target
@@ -488,7 +512,9 @@ class KnowledgeStore:
 
     def remove_binding(self, source_session_id: str) -> bool:
         try:
-            (self.bindings_dir / f"{source_session_id}.json").unlink(missing_ok=True)
+            p = self.bindings_dir / f"{source_session_id}.json"
+            p.unlink(missing_ok=True)
+            _stage_removal(p)
             return True
         except OSError:
             return False
@@ -506,6 +532,7 @@ class KnowledgeStore:
             if isinstance(data, dict) and data.get("task_id") == task_id:
                 try:
                     bf.unlink()
+                    _stage_removal(bf)
                     cleared += 1
                 except OSError:
                     logger.warning("Failed to remove binding %s", bf)
@@ -537,6 +564,7 @@ class KnowledgeStore:
             if ts < cutoff:
                 try:
                     bf.unlink()
+                    _stage_removal(bf)
                     removed += 1
                 except OSError:
                     logger.debug("gc_bindings: could not remove %s", bf)
@@ -860,6 +888,7 @@ class KnowledgeStore:
         p = self.raw_dir / relpath
         try:
             p.unlink(missing_ok=True)
+            _stage_removal(p)
         except OSError:
             return False
         index = self._raw_index(rebuild_on_missing=False)
@@ -997,6 +1026,7 @@ class KnowledgeStore:
         task_dir = self.tasks_dir / task_id
         if task_dir.exists():
             shutil.rmtree(task_dir, ignore_errors=True)
+            _stage_removal(task_dir)
 
     def delete_task(self, task_id: str) -> int:
         """Full delete cascade: task directory, index entry, and every
