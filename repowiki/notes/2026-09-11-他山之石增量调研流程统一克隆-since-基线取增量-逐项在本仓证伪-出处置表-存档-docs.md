@@ -7,12 +7,14 @@ metadata:
   task_id: 他山之石
   related_modules: ["docs"]
   severity: medium
-  source_ref: "raw\\conv-看一下docs里我们借鉴过的项目，自上次借鉴过后有什么新的合入值得借鉴.md"
+  source_ref: "conversations/conv-看一下docs里我们借鉴过的项目，自上次借鉴过后有什么新的合入值得借鉴.md"
   scene: "他山之石/增量调研"
 status: draft
 author: iamwangbao-163-com
 generated: { by: codewiki/5.9.0, at: 2026-09-10T23:00:39Z }
 stale_after: 2027-03-10
+origin: conversation
+
 ---
 
 ## 适用场景
