@@ -1,20 +1,28 @@
 ---
 type: decision
-title: "i18n 语言来源优先级：config.json lang > CODEWIKI_LANG env > 系统 locale > zh，且不能放项目级配置"
-tags: ["decision"]
+title: i18n 语言来源优先级：config.json lang > CODEWIKI_LANG env > 系统 locale > zh，且不能放项目级配置
+tags:
+- decision
 metadata:
   date: 2026-09-07
   task_id: 产品维护
-  related_modules: ["mcp", "i18n", "config"]
+  related_modules:
+  - mcp
+  - i18n
+  - config
   severity: medium
-  source_ref: "conversations/conv-@d-repos-CodeWiki-CN-codewiki-mcp-prompts.py-代码里的prompt的titl.md"
-  scene: "MCP 国际化"
-status: draft
+  source_ref: conversations/conv-@d-repos-CodeWiki-CN-codewiki-mcp-prompts.py-代码里的prompt的titl.md
+  scene: MCP 国际化
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.7.0, at: 2026-09-07T06:51:05Z }
-stale_after: 2027-09-07
+generated:
+  by: codewiki/5.7.0
+  at: 2026-09-07 06:51:05+00:00
+stale_after: '2027-09-10'
 origin: conversation
-
+verified:
+- by: human:wangbao
+  at: '2026-09-10T07:47:21Z'
 ---
 
 ## 背景

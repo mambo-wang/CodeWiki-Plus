@@ -1672,7 +1672,7 @@ _register(
                 },
                 "note_type": {
                     "type": "string",
-                    "description": "Force note_type for all produced notes (decision/lesson/pitfall/architecture/workaround).",
+                    "description": "Force note_type for all produced notes (decision/lesson/pitfall/architecture/procedure/workaround).",
                 },
                 "related_modules": {
                     "type": "array",
@@ -1872,12 +1872,28 @@ _register(
                 },
                 "mode": {
                     "type": "string",
-                    "enum": ["prepare", "submit"],
+                    "enum": ["prepare", "submit", "install", "retire"],
                     "description": (
                         "prepare: return candidates + skill index + conflict "
                         "pre-check + capacity warning + writing system prompt. "
                         "submit: validate and record the agent-written skill "
-                        "report (install/retire are a later ticket)."
+                        "report. install: copy a draft into the effect zone "
+                        ".codebuddy/skills/ (draft -> stable). retire: mark a "
+                        "draft deprecated and remove its effect copy."
+                    ),
+                },
+                "name": {
+                    "type": "string",
+                    "description": (
+                        "install/retire only: the draft skill slug (directory "
+                        "name under repowiki/skills/)."
+                    ),
+                },
+                "reason": {
+                    "type": "string",
+                    "description": (
+                        "retire only: why the skill is being retired "
+                        "(audit trail; required)."
                     ),
                 },
                 "topic": {

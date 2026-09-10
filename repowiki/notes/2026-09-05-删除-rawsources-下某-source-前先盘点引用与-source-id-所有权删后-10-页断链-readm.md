@@ -35,7 +35,7 @@ verified:
 
 ## 后果（已实测确认）
 
-- WeKnora 系 10 个页面（entities 4 + concepts 6）frontmatter 写 `resource: raw/sources/README_CN.md`、正文用 `[^src:README_CN:59]`，文件删除后**全部断链**，溯源能力丢失。
+- WeKnora 系 10 个页面（entities 4 + concepts 6）frontmatter 写 `resource: raw/sources/README_CN.md`、正文用 ``，文件删除后**全部断链**，溯源能力丢失。
 - 更隐蔽：这些页面继续用 `README_CN` 这个 source id，而它现在归 TAM 独有——按 `README_CN:59` 溯源会跳到 TAM 文档 `.env` 配置段，得到**张冠李戴的错误证据**。
 
 ## 正确做法

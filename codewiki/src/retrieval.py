@@ -445,6 +445,7 @@ def _build_indexable_text(content: str, page_type: Optional[str] = None) -> str:
 _NOTE_TYPE_AUTHORITY: Dict[str, float] = {
     "decision": 0.15,
     "pitfall": 0.12,
+    "procedure": 0.12,
     "lesson": 0.10,
     "architecture": 0.10,
     "workaround": 0.05,

@@ -1,20 +1,28 @@
 ---
 type: pitfall
-title: "hatchling wheel artifacts 不含新增包内资源，新增 locales/*.yaml 需同步改 pyproject"
-tags: ["pitfall"]
+title: hatchling wheel artifacts 不含新增包内资源，新增 locales/*.yaml 需同步改 pyproject
+tags:
+- pitfall
 metadata:
   date: 2026-09-07
   task_id: 产品维护
-  related_modules: ["mcp", "i18n", "打包"]
+  related_modules:
+  - mcp
+  - i18n
+  - 打包
   severity: medium
-  source_ref: "conversations/conv-@d-repos-CodeWiki-CN-codewiki-mcp-prompts.py-代码里的prompt的titl.md"
-  scene: "打包发版"
-status: draft
+  source_ref: conversations/conv-@d-repos-CodeWiki-CN-codewiki-mcp-prompts.py-代码里的prompt的titl.md
+  scene: 打包发版
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.7.0, at: 2026-09-07T06:50:55Z }
-stale_after: 2027-03-06
+generated:
+  by: codewiki/5.7.0
+  at: 2026-09-07 06:50:55+00:00
+stale_after: '2027-03-09'
 origin: conversation
-
+verified:
+- by: human:wangbao
+  at: '2026-09-10T07:47:21Z'
 ---
 
 ## 背景

@@ -208,6 +208,62 @@ def test_build_skill_hint_material_shape():
     assert 'mode="prepare"' in hint["skill_hint"]["message"]
 
 
+# --------------------------------------------------------------------------- #
+# note scoring (2026-09-10): notes are the PRIMARY skill material — a scenario
+# is aggregated and size-capped, a note keeps the sequence at full granularity.
+# --------------------------------------------------------------------------- #
+def test_score_note_procedure_is_worth_compiling():
+    score = sm.score_skill_material(
+        "## 完整流程\n\n1. uv build\n2. uv publish\n3. gh release create\n",
+        kind="note",
+        note_type="procedure",
+    )
+    assert score["kind"] == "note"
+    assert score["worth_compiling"] is True
+
+
+def test_score_note_ignores_note_refs_requirement():
+    # A note cannot self-reference notes/, so that signal is scenario-only
+    score = sm.score_skill_material(
+        "1. uv build\n2. uv publish\n3. gh release create\n",
+        kind="note",
+        note_type="lesson",
+    )
+    assert score["notes_refs"] == 0
+    assert score["worth_compiling"] is True
+
+
+def test_score_note_prose_still_rejected():
+    score = sm.score_skill_material(
+        "先理解整体架构，再梳理模块边界", kind="note", note_type="lesson"
+    )
+    assert score["worth_compiling"] is False
+
+
+def test_score_note_already_compiled_rejected():
+    score = sm.score_skill_material(
+        "metadata:\n  compiled_into: [skills/x]\n"
+        "1. uv build\n2. uv publish\n3. gh release create\n",
+        kind="note",
+        note_type="procedure",
+    )
+    assert score["worth_compiling"] is False
+
+
+def test_note_material_hint_points_at_notes_source():
+    score = sm.score_skill_material(
+        "1. uv build\n2. uv publish\n3. gh release create\n",
+        kind="note",
+        note_type="procedure",
+    )
+    hint = sm.build_skill_hint(
+        "material", {"file": "notes/a.md", "kind": "note", "score": score}
+    )
+    msg = hint["skill_hint"]["message"]
+    assert "笔记" in msg
+    assert 'sources=["notes"]' in msg
+
+
 def test_build_skill_hint_unknown_kind_is_empty():
     assert sm.build_skill_hint("nope", {}) == {}
 

@@ -218,6 +218,13 @@ prompts:
       note_file: "Relative path of the note to promote (e.g. notes/xxx.md); leave empty to let the user pick from wiki_stats promotion_candidates"
       repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
 
+  retract-source:
+    title: "Retract an imported external document"
+    description: "Remove or retire a source document imported by ingest_source: look up its identifier in source_registry.json → dry_run preview → user confirmation → retract_source (flag_stale only marks it and keeps the file / remove_refs moves it to .trash and cleans source_refs) → lint for leftover references."
+    args:
+      name: "Source identifier (the name registered by ingest_source); leave empty to list the registry and let the user choose"
+      repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
+
 # ---------------------------------------------------------------------------
 # Resources (codewiki://prompts/catalog is derived from the prompt registry;
 # only the shell strings live here)

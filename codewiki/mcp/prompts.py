@@ -452,6 +452,52 @@ def _prompt_extract_knowledge(args: dict[str, str]) -> str:
 - 每个页面应包含：定义、关键属性、与其他实体的关系、来源引用"""
 
 
+def _prompt_retract_source(args: dict[str, str]) -> str:
+    name = (args.get("name") or "").strip()
+    repo_path = _resolve_path(args.get("repo_path", ""))
+    name_note = f"\n\n本次目标 name：`{name}`" if name else ""
+    return f"""撤回外部文档工作流。当 `ingest_source` 导入的源文档过时、被新版取代或内容根本错误时，用 `retract_source` 把它从知识库移除或标记退役——这是源文档层唯一有正式删除路径的入口（handler: codewiki/mcp/tools/source_ingest.py:741，注册: codewiki/mcp/registry.py:1458）。{name_note}
+
+## 前置：确定标识符 name
+- `name` 是 `ingest_source` 注册时的**标识符**，不是文件名
+- 清单在 `{repo_path}/repowiki/.meta/source_registry.json`（旧仓可能落在 `repowiki/source_registry.json`），取 `sources` 下的键
+- 也可从 wiki 页面 frontmatter 的 `source_refs: [<name>]` 反查
+- **未指定 name 时不要猜**：向用户展示 registry 清单（name / path / imported_at / status）让其选择；registry 里没有的名字会直接报 "Source not found"（安全无操作）
+
+## 模式选择（让用户拍板，不要替用户选）
+| mode | 行为 | 适用 |
+|------|------|------|
+| `flag_stale`（默认） | 只在 registry 写 `status: retracted` + `retracted_at`，**文件保留**；引用它的页面会在 lint 报 `stale_sources` 提醒 | 文档过时但想保留历史 |
+| `remove_refs` | 文件移入 `{repo_path}/repowiki/.trash/`（软删除、可恢复），并清理所有 wiki 页 frontmatter 里的 `source_refs` | 文档错误或已被取代 |
+
+两种模式都会更新 registry、追加 `wiki/log.md`、重建 BM25 索引。
+
+## 执行步骤
+1. **先 dry_run 预览**（`remove_refs` 必做）：
+   ```json
+   {{
+     "repo_path": "{repo_path}",
+     "name": "<标识符>",
+     "mode": "remove_refs",
+     "dry_run": true
+   }}
+   ```
+   返回 `would_move_to_trash` / `source_file` / `would_clean_refs`（将清理的引用数）。**把这三项展示给用户并等确认**，不要跳过。
+2. 确认后去掉 `dry_run` 再调一次正式执行。
+3. 复核残留：
+   - `lint_wiki(repo_path="{repo_path}", checks=["stale_sources", "stale_refs"])`
+   - `remove_refs` **只**清 frontmatter 的 `source_refs`；正文里的 `[^src:<name>:<行范围>]` 引用与由该源派生的 `wiki/sources/<name>.md` 页面不在其处理范围内，需另行用 `edit_doc_file` 处理或手动删除
+
+## 不要用它做的两件事
+- **换新版本**：不必先撤回——直接 `ingest_source(..., name="<同名>", overwrite=true)`，旧 raw 文件会自动进 `.trash`；只有"连 name 也要换"才需要 `retract_source` 后重新导入
+- **删笔记 / 删 wiki 页面**：笔记走 `reject_note`（置 `deprecated`，从检索剔除）；wiki 页面没有删除工具，`edit_doc_file` 只有 str_replace / insert / undo
+
+## 注意事项
+- 不要用 `rm` 直接删 `raw/sources/` 下的文件：会留下悬空 `source_refs` 与失效 registry 条目，且 BM25 索引不会重建
+- `.trash/` 只是软删除，恢复需人工取回文件并补回 registry 条目
+- 操作不可自动回滚，执行前必须让用户看过 dry_run 结果"""
+
+
 def _prompt_search_wiki(args: dict[str, str]) -> str:
     query = args.get("query", "<query>")
     return f"""请搜索 Wiki 知识库回答: "{query}"
@@ -1276,7 +1322,8 @@ def _prompt_skill_creator(args: dict[str, str]) -> str:
     return f"""技能编译工作流（skill-creator T2+T3，docs/skill-creator需求与设计方案.md，ADR-0004 两区制）。当用户说"把经验编成技能""生成 SKILL""整理出可复用的行为指令"，或希望把已确认知识（场景块 + 精选笔记）升级为 IDE 可触发的 SKILL.md 时，使用本流程。**编译出的技能只落草稿区 `repowiki/skills/`（进索引进 lint、不生效）；install 到生效区 `.codebuddy/skills/` 是单独的用户动作——用户明确确认后才调用。**
 
 ## ⛔ 行为契约（必须遵守）
-- 素材边界：只用**已确认知识**——`wiki/scenarios/` 场景块、stable 状态的 pitfall/lesson/decision 笔记、既有技能名下的 open issues；**任务记忆不是技能素材**（直写落盘无确认闸门，ADR-0002）。
+- 素材边界：只用**已确认知识**——`wiki/scenarios/` 场景块、stable 状态的 procedure/pitfall/lesson/decision 笔记、既有技能名下的 open issues；**任务记忆不是技能素材**（直写落盘无确认闸门，ADR-0002）。
+- **主干优先**：核心 SOP 必须是完整动作序列（有序步骤 + 每步判定点），踩坑只作为步骤注解，不能占据主干位置——通篇是坑的正文不算技能。
 - 永不自动编译、永不自动 install；触发词出现先向用户确认再执行。
 
 ## 步骤 1：准备（零副作用）
@@ -1417,6 +1464,7 @@ _PROMPT_REGISTRY: list[dict[str, Any]] = [
     {"name": "consolidate-knowledge", "args": [("repo_path", False)]},
     {"name": "skill-creator", "args": [("repo_path", False)]},
     {"name": "promote-note", "args": [("note_file", False), ("repo_path", False)]},
+    {"name": "retract-source", "args": [("name", False), ("repo_path", False)]},
 ]
 
 
@@ -1507,6 +1555,7 @@ def register(server):
             "consolidate-knowledge": _prompt_consolidate_knowledge,
             "skill-creator": _prompt_skill_creator,
             "promote-note": _prompt_promote_note,
+            "retract-source": _prompt_retract_source,
         }
 
         handler = prompts_map.get(name)

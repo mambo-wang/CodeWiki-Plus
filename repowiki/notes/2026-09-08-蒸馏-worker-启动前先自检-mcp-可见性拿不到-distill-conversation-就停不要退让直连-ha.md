@@ -1,17 +1,30 @@
 ---
 type: pitfall
-title: "蒸馏 worker 启动前先自检 MCP 可见性，拿不到 distill_conversation 就停，不要退让直连 handler"
-tags: ["pitfall"]
-aliases: ["distill-worker MCP", "MCP 未挂载", "直连 handler", "subagent MCP 授权", "distill 残留文件"]
+title: 蒸馏 worker 启动前先自检 MCP 可见性，拿不到 distill_conversation 就停，不要退让直连 handler
+tags:
+- pitfall
+aliases:
+- distill-worker MCP
+- MCP 未挂载
+- 直连 handler
+- subagent MCP 授权
+- distill 残留文件
 metadata:
   date: 2026-09-08
-  related_modules: ["mcp"]
+  related_modules:
+  - mcp
   severity: medium
-  root_cause: "subagent frontmatter 的 toolsMCP 声明只是意图，不等于运行时授权生效；MCP server 未连接时声明静默失效而非报错，worker 误判为「工具不可用就自己想办法」而非「环境故障需上报」。"
-status: draft
+  root_cause: subagent frontmatter 的 toolsMCP 声明只是意图，不等于运行时授权生效；MCP server 未连接时声明静默失效而非报错，worker
+    误判为「工具不可用就自己想办法」而非「环境故障需上报」。
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.8.0, at: 2026-09-08T05:30:18Z }
-stale_after: 2027-03-07
+generated:
+  by: codewiki/5.8.0
+  at: 2026-09-08 05:30:18+00:00
+stale_after: '2027-03-09'
+verified:
+- by: human:wangbao
+  at: '2026-09-10T07:47:26Z'
 ---
 
 ## 背景

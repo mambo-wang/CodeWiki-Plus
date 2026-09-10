@@ -175,6 +175,38 @@ def _skill_entry(name: str, **overrides) -> dict:
 # --------------------------------------------------------------------------- #
 # 1. prepare
 # --------------------------------------------------------------------------- #
+def test_prepare_candidates_newest_first_and_reports_truncation(tmp_path):
+    import os
+    import time
+
+    repo, od = _mk_repo(tmp_path)
+    old_note = _write_note(od, "old-note", note_type="pitfall")
+    proc_note = _write_note(od, "proc-note", note_type="procedure")
+
+    now = time.time()
+    os.utime(od / "notes" / "old-note.md", (now - 100, now - 100))
+    os.utime(od / "notes" / "proc-note.md", (now, now))
+
+    resp = _call(repo, {"mode": "prepare"})
+    files = [c["file"] for c in resp["candidates"]["notes"]]
+    assert proc_note in files, "procedure notes are skill material"
+    assert files[0] == proc_note, "newest first — name order hid fresh material"
+    assert old_note in files
+    assert resp["candidates"]["available"]["notes"] == 2
+    assert resp["candidates"]["truncated"] is False
+
+    # candidates carry the "worth compiling" verdict (notes are scored too)
+    by_file = {c["file"]: c for c in resp["candidates"]["notes"]}
+    assert by_file[proc_note]["worth_compiling"] is True  # procedure type
+    assert by_file[old_note]["worth_compiling"] is False  # prose, no commands
+
+    # a cap must be reported, never applied silently
+    capped = _call(repo, {"mode": "prepare", "limit": 1})
+    assert len(capped["candidates"]["notes"]) == 1
+    assert capped["candidates"]["truncated"] is True
+    assert capped["candidates"]["available"]["notes"] == 2
+
+
 def test_prepare_lists_unabsorbed_candidates_zero_side_effects(tmp_path):
     repo, od = _mk_repo(tmp_path)
     absorbed_scen = _write_scenario(od, "absorbed-scene")

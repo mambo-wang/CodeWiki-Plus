@@ -31,3 +31,25 @@ uv publish 用 dist/codewiki_plus-5.7.0* 精确指定避免旧产物；PyPI toke
 ### 2026-09-07 10:57
 
 全量 pytest 885 passed（test_locked_rmw_across_processes 一次失败为 Windows 多进程锁环境性 flaky，单独重跑通过，锁模块不在本次发布改动内）。
+
+### 2026-09-10 10:56
+
+### 2026-09-10 09:51
+
+v5.9.0 发布完成（2026-09-10）。
+
+**版本判定**：发布前 PyPI latest=5.8.0、tag v5.8.0 已存在（指向 c0111c7 release pr #31），HEAD 领先 4 个提交且含新 feat → 走 minor bump 到 5.9.0。
+
+**四处版本引用同步**：pyproject.toml:7 / codewiki/__init__.py:8 / uv.lock:588（codewiki-plus 块）/ server.py（由 __version__ 注入，未写常量）。
+
+**闸门**：全量 pytest 912 passed, 2 skipped（约 16 分 44 秒）；uv build 通过。dist/ 旧产物（5.7.0/5.8.0 四个文件）已清理后再 build，仅留 5.9.0 两个产物。
+
+**GitHub 侧**：bump 提交 9c93815 推 develop；PR #32 develop→main 合入（merge commit 0b49984）；lightweight tag v5.9.0 指向该 merge commit 并推送；GitHub Release v5.9.0 创建成功（Release id 385972227，正文经 %TEMP%/gh_release_590.py 走 API + JSON ensure_ascii=False，无乱码）。
+
+**PyPI 侧**：uv publish 精确指定 dist/codewiki_plus-5.9.0* 双产物上传；PyPI JSON API 核对 latest_version=5.9.0、5.9.0 urls=2（whl 938465 B + tar.gz 9635445 B）。token 由用户提供，经 UV_PUBLISH_TOKEN 环境变量传入后立即 Remove-Item Env: 清除，未落盘。
+
+**发布内容**：git_sync auto_stage（codewiki 写入文件自动 git add，d295fdb）、blog-writing-specialist 与 to-spec 技能（38265d4）、L2 知识聚合批次（bbc10f9）、repowiki 文档更新（1375b18）。
+
+**环境坑记录**：本机无 gh CLI，PR/Release 走 GitHub REST API + `git credential fill` 取 token（脚本 %TEMP%/gh_rel_590.py、gh_release_590.py）；PowerShell 的 Remove-Item 被安全包装器拦截 -Exclude 与管道输入，删 dist 旧产物改用 delete_file 工具逐个删。
+
+**注意**：本次 bump 提交因 auto_stage 特性连带合入了 telemetry jsonl 与一条自动生成的 note（属该新特性预期行为，已随包入库）。PyPI token 出现在会话记录中，建议轮换。

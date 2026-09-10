@@ -224,6 +224,13 @@ prompts:
       note_file: "要晋升的笔记相对路径（如 notes/xxx.md）；留空则从 wiki_stats 的 promotion_candidates 中由用户选定"
       repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
 
+  retract-source:
+    title: "撤回已导入的外部文档"
+    description: "把 ingest_source 导入的源文档从知识库移除或标记退役：查 source_registry.json 确认标识符 → dry_run 预览 → 用户确认 → retract_source（flag_stale 只标记并保留文件 / remove_refs 移入 .trash 并清理 source_refs）→ lint 复核残留引用。"
+    args:
+      name: "源文档标识符（ingest_source 注册时的 name）；留空则先列出 registry 清单由用户选择"
+      repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
+
 # ---------------------------------------------------------------------------
 # Resources（codewiki://prompts/catalog 由 prompt 注册表派生，此处只放外壳文案）
 # ---------------------------------------------------------------------------

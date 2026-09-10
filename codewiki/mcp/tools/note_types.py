@@ -74,6 +74,16 @@ DEFAULT_NOTE_TYPES: Dict[str, Dict[str, Any]] = {
         "promote_to": "concept",
         "merge_fields": dict(_DEFAULT_MERGE_FIELDS),
     },
+    # Reusable multi-step action sequences ("how we do X end to end").
+    # Added 2026-09-10: every other type records friction or conclusions, so
+    # procedures that ran clean had nowhere to land and were either dropped by
+    # distillation or misfiled as `architecture`. Procedures are the primary
+    # material for behaviour skills, not for reference retrieval.
+    "procedure": {
+        "freshness_days": 180,
+        "promote_to": "",
+        "merge_fields": dict(_DEFAULT_MERGE_FIELDS),
+    },
 }
 
 

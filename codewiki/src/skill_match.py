@@ -191,28 +191,48 @@ def score_skill_material(
     text: str,
     cmd_threshold: int = DEFAULT_CMD_THRESHOLD,
     min_note_refs: int = DEFAULT_MIN_NOTE_REFS,
+    kind: str = "scenario",
+    note_type: str = "",
 ) -> Dict[str, Any]:
     """Does this material read as behaviour instructions rather than knowledge?
 
-    Command density is the discriminator (see module docstring for the
-    measurement that ruled out section presence and step count).
+    Command density is the discriminator for scenarios (see module docstring
+    for the measurement that ruled out section presence and step count).
+
+    Notes use a different rule (2026-09-10): a note cannot self-reference
+    ``notes/``, so ``min_note_refs`` is meaningless for it; the note TYPE
+    carries the signal instead — ``procedure`` means "a reusable multi-step
+    sequence", which is precisely skill material.
+
+    Notes are the PRIMARY material, scenarios the secondary one: a scenario
+    is already an aggregated, size-capped artefact where step order and
+    checkpoints get flattened into single lines, while a note holds the
+    sequence at original granularity.
     """
     body = text or ""
     cmd_hits = len(_CMD_RE.findall(body))
     code_blocks = body.count("```") // 2
     notes_refs = len(re.findall(r"notes/", body))
     already_compiled = "compiled_into" in body
+    ntype = str(note_type or "").strip().lower()
+    if kind == "note":
+        procedural = ntype == "procedure"
+        worth = bool((procedural or cmd_hits >= cmd_threshold) and not already_compiled)
+    else:
+        worth = bool(
+            cmd_hits >= cmd_threshold
+            and not already_compiled
+            and notes_refs >= min_note_refs
+        )
     return {
+        "kind": kind,
+        "note_type": ntype,
         "cmd_hits": cmd_hits,
         "code_blocks": code_blocks,
         "notes_refs": notes_refs,
         "already_compiled": already_compiled,
         "cmd_threshold": cmd_threshold,
-        "worth_compiling": bool(
-            cmd_hits >= cmd_threshold
-            and not already_compiled
-            and notes_refs >= min_note_refs
-        ),
+        "worth_compiling": worth,
     }
 
 
@@ -249,16 +269,25 @@ def build_skill_hint(kind: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     if kind == "material":
         rel = str(payload.get("file") or "")
         score = payload.get("score") if isinstance(payload.get("score"), dict) else {}
+        is_note = payload.get("kind") == "note"
+        label = "笔记" if is_note else "场景块"
+        sources_arg = "notes" if is_note else "scenarios"
+        if score.get("note_type") == "procedure":
+            detail = "类型为 procedure（可复用的多步动作序列）"
+        else:
+            detail = (
+                f"命令密度为 {score.get('cmd_hits', 0)}"
+                f"（阈值 {score.get('cmd_threshold', DEFAULT_CMD_THRESHOLD)}）"
+            )
         return {
             "skill_hint": {
                 "kind": "material",
                 "file": rel,
                 "score": score,
                 "message": (
-                    f"场景块 `{rel}` 命令密度为 {score.get('cmd_hits', 0)}"
-                    f"（阈值 {score.get('cmd_threshold', DEFAULT_CMD_THRESHOLD)}），"
+                    f"{label} `{rel}` {detail}，"
                     "读起来像可执行的行为指令而非参考知识，可能值得编译成技能。\n"
-                    f"如需评估：skill_creator(mode=\"prepare\", sources=[\"scenarios\"])\n"
+                    f"如需评估：skill_creator(mode=\"prepare\", sources=[\"{sources_arg}\"])\n"
                     "（需你确认后执行；我不会自动编译）"
                 ),
             }

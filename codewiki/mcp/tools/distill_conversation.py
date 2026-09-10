@@ -66,7 +66,9 @@ _DISTILL_SYSTEM = (
     "  - lessons (corrected assumptions, debugging insights)\n"
     "  - pitfalls (gotchas, easy-to-misuse APIs)\n"
     "  - architecture (non-obvious structural facts)\n"
-    "  - workarounds (temporary fixes + recovery condition)\n\n"
+    "  - workarounds (temporary fixes + recovery condition)\n"
+    "  - procedures (reusable multi-step action sequences, even when they ran\n"
+    "    clean — how we do X end to end, with the order and the checkpoints)\n\n"
     "EXTRACTION DISCIPLINES (mandatory):\n"
     "1. Self-contained: every note MUST be understandable outside this "
     "conversation. Include clear subject, object, conclusion or method; never "
@@ -87,7 +89,8 @@ _DISTILL_SYSTEM = (
     '  "notes": [\n'
     "    {\n"
     '      "title": "Short imperative/declarative title",\n'
-    '      "note_type": "decision | lesson | pitfall | architecture | workaround",\n'
+    '      "note_type": "decision | lesson | pitfall | architecture | "'
+    '"procedure | workaround",\n'
     '      "related_modules": ["module_slug"],\n'
     '      "tags": ["optional", "keywords"],\n'
     '      "priority": 85,\n'
@@ -1800,20 +1803,53 @@ def handle_distill_conversation(
         except Exception as e:
             logger.debug("auto_push skipped: %s", e)
 
-        # Skill hint (design §10): distillation only MATCHES existing drafts —
-        # no material scoring here, because freshly distilled notes are not yet
-        # an SOP. Hint only: a background/subagent caller must REPORT it, never
-        # act on it (install remains the user's call).
+        # Skill hint (design §10): distillation MATCHES existing drafts, and
+        # since 2026-09-10 also SCORES freshly distilled notes as skill
+        # material. NOTES come first — they hold the step sequence at
+        # original granularity, whereas a scenario is an aggregated,
+        # size-capped artefact where that sequence gets flattened.
+        # Hint only: a background/subagent caller must REPORT it, never act
+        # on it (install remains the user's call).
         try:
             from codewiki.src.config import SKILLS_DIR
-            from codewiki.src.skill_match import build_skill_hint, match_draft_skills
+            from codewiki.src.skill_match import (
+                build_skill_hint,
+                match_draft_skills,
+                score_skill_material,
+            )
 
             titles: List[str] = []
+            material_hint = None
             for r in results:
                 for n in r.get("notes", []) or []:
-                    if isinstance(n, dict) and n.get("title"):
+                    if not isinstance(n, dict):
+                        continue
+                    if n.get("title"):
                         titles.append(str(n["title"]))
-            if titles:
+                    if material_hint:
+                        continue  # one hint is enough; notes take priority
+                    nf = n.get("note_file")
+                    if not nf or not Path(nf).is_file():
+                        continue
+                    body = Path(nf).read_text(encoding="utf-8", errors="ignore")
+                    score = score_skill_material(
+                        body, kind="note", note_type=str(n.get("note_type") or "")
+                    )
+                    if not score.get("worth_compiling"):
+                        continue
+                    try:
+                        rel = str(
+                            Path(nf).resolve().relative_to(Path(output_dir).resolve())
+                        )
+                    except ValueError:
+                        rel = f"notes/{Path(nf).name}"
+                    material_hint = build_skill_hint(
+                        "material",
+                        {"file": rel, "kind": "note", "score": score},
+                    )["skill_hint"]
+            if material_hint:
+                ret["skill_hint"] = material_hint
+            elif titles:
                 hit = match_draft_skills(" ".join(titles), str(Path(output_dir) / SKILLS_DIR))
                 if hit:
                     ret["skill_hint"] = build_skill_hint("match", hit)["skill_hint"]

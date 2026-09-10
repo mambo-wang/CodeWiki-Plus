@@ -1,20 +1,31 @@
 ---
 type: architecture
-title: "MCP prompts/list 与 prompts/get 无语言协商参数，语言只能在 server 进程启动时确定"
-tags: ["architecture", "getpromptrequestparams", "listpromptsrequestparams", "paginatedrequestparams", "requestparams"]
+title: MCP prompts/list 与 prompts/get 无语言协商参数，语言只能在 server 进程启动时确定
+tags:
+- architecture
+- getpromptrequestparams
+- listpromptsrequestparams
+- paginatedrequestparams
+- requestparams
 metadata:
   date: 2026-09-07
   task_id: 产品维护
-  related_modules: ["mcp", "i18n"]
+  related_modules:
+  - mcp
+  - i18n
   severity: medium
-  source_ref: "conversations/conv-@d-repos-CodeWiki-CN-codewiki-mcp-prompts.py-代码里的prompt的titl.md"
-  scene: "MCP 国际化"
-status: draft
+  source_ref: conversations/conv-@d-repos-CodeWiki-CN-codewiki-mcp-prompts.py-代码里的prompt的titl.md
+  scene: MCP 国际化
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.7.0, at: 2026-09-07T06:50:50Z }
-stale_after: 2027-09-07
+generated:
+  by: codewiki/5.7.0
+  at: 2026-09-07 06:50:50+00:00
+stale_after: '2027-09-10'
 origin: conversation
-
+verified:
+- by: human:wangbao
+  at: '2026-09-10T07:47:22Z'
 ---
 
 ## 背景

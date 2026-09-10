@@ -731,7 +731,7 @@ def test_filename_collision_appends_suffix(tmp_path):
 # --------------------------------------------------------------------------- #
 # skill-creator §9: two-tier tool digestion (command→error→fix chains)
 # --------------------------------------------------------------------------- #
-def test_tool_digest_keeps_calls_drops_success_results():
+def test_tool_digest_keeps_calls_and_success_tails():
     from codewiki.src.tool_digest import digest_blocks
 
     lines = digest_blocks(
@@ -742,7 +742,12 @@ def test_tool_digest_keeps_calls_drops_success_results():
             {"type": "text", "text": "pushed"},
         ]
     )
-    assert lines == ["[tool: Bash · git push origin develop]", "pushed"]
+    # thinking dropped; the call, its success tail and the text survive in order
+    assert lines == [
+        "[tool: Bash · git push origin develop]",
+        "[tool-ok: Everything up-to-date]",
+        "pushed",
+    ]
 
 
 def test_tool_digest_keeps_error_excerpts():
@@ -759,11 +764,12 @@ def test_tool_digest_keeps_error_excerpts():
             {"type": "tool-result", "text": "Installed 42 packages"},
         ]
     )
-    # the command→error→fix chain survives in order; the success result drops
-    assert len(lines) == 3
+    # command→error→fix chain survives in order, and the fix's success tail too
+    assert len(lines) == 4
     assert lines[0] == "[tool: Bash · uv sync --no-dev]"
     assert lines[1].startswith("[tool-error: error: Unknown option '--no-dev'")
     assert lines[2] == "[tool: Bash · uv sync --no-group dev]"
+    assert lines[3] == "[tool-ok: Installed 42 packages]"
 
 
 def test_tool_digest_is_error_flag_and_budget():
@@ -778,3 +784,91 @@ def test_tool_digest_is_error_flag_and_budget():
         [{"type": "tool-call", "toolName": "Bash", "args": {"command": "x" * 500}}]
     )
     assert len(lines[0]) <= 161  # 160 budget + ellipsis char
+
+
+# --------------------------------------------------------------------------- #
+# procedure capture (2026-09-10): successful results of COMMAND tools survive
+# as one-line tails, so a procedure that ran clean is still distillable.
+# --------------------------------------------------------------------------- #
+def test_success_result_survives_as_one_line():
+    from codewiki.src.tool_digest import digest_blocks
+
+    lines = digest_blocks(
+        [
+            {"type": "tool-call", "toolName": "Bash", "args": {"command": "uv build"}},
+            {
+                "type": "tool-result",
+                "text": (
+                    "Successfully built dist/codewiki_plus-5.8.0-py3-none-any.whl\n"
+                    "dist/codewiki_plus-5.8.0.tar.gz"
+                ),
+            },
+        ]
+    )
+    assert lines[0] == "[tool: Bash · uv build]"
+    # tail only — one line of evidence, not the whole output
+    assert lines[1] == "[tool-ok: dist/codewiki_plus-5.8.0.tar.gz]"
+
+
+def test_mcp_tool_success_kept_blocklist_not_allowlist():
+    from codewiki.src.tool_digest import digest_blocks
+
+    # The point of a blocklist: mcp__<server>__ tools are never in any
+    # hand-written name list, yet they ARE the steps of this project's own
+    # workflows (capture/distill/confirm/skill_creator).
+    lines = digest_blocks(
+        [
+            {
+                "type": "tool-call",
+                "toolName": "mcp__codewiki__skill_creator",
+                "args": {"mode": "submit"},
+            },
+            {"type": "tool-result", "text": '{"status": "completed"}'},
+        ]
+    )
+    assert lines[1] == '[tool-ok: {"status": "completed"}]'
+
+
+def test_edit_tool_call_dropped_wholesale():
+    from codewiki.src.tool_digest import digest_blocks
+
+    # Edits dominate the call count and carry old_str/new_str bulk; the
+    # change itself is recoverable from git, so neither call nor result is
+    # recorded (unlike read-only tools, which keep their call line).
+    lines = digest_blocks(
+        [
+            {
+                "type": "tool-call",
+                "toolName": "replace_in_file",
+                "args": {"filePath": "a.py"},
+            },
+            {"type": "tool-result", "text": "Successfully edited a.py"},
+        ]
+    )
+    assert lines == []
+
+
+def test_read_only_tool_success_excluded():
+    from codewiki.src.tool_digest import digest_blocks
+
+    # Read-only output is bulk without procedural signal
+    lines = digest_blocks(
+        [
+            {"type": "tool-call", "toolName": "Read", "args": {"file_path": "a.py"}},
+            {"type": "tool-result", "text": "print('hello')\n" * 200},
+        ]
+    )
+    assert lines == ["[tool: Read · a.py]"]
+
+
+def test_detail_switch_off_restores_legacy_behaviour(monkeypatch):
+    from codewiki.src.tool_digest import digest_blocks
+
+    monkeypatch.setenv("CODEWIKI_RAW_TOOL_DETAIL", "off")
+    lines = digest_blocks(
+        [
+            {"type": "tool-call", "toolName": "Bash", "args": {"command": "uv build"}},
+            {"type": "tool-result", "text": "Successfully built"},
+        ]
+    )
+    assert lines == ["[tool: Bash · uv build]"]

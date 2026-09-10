@@ -1,11 +1,26 @@
 ---
 type: Doctrine
-title: "Team Operating Doctrine"
-status: draft
-generated: { by: codewiki/5.8.0, at: 2026-09-08T06:04:40Z }
+title: Team Operating Doctrine
+status: stable
+generated:
+  by: codewiki/5.8.0
+  at: 2026-09-08 06:04:40+00:00
 metadata:
-  source_scenarios: ["wiki/scenarios/IDE-Hook采集链路方法.md", "wiki/scenarios/MCP-Server薄壳架构与参数约定.md", "wiki/scenarios/Wiki页面生成约定与数据结构.md", "wiki/scenarios/代码评审与分析工具方法.md", "wiki/scenarios/任务记忆系统设计方法.md", "wiki/scenarios/发布与依赖治理方法.md", "wiki/scenarios/多仓工作区初始化与增量分析.md", "wiki/scenarios/对话蒸馏管线与raw暂存区.md", "wiki/scenarios/跨进程锁与临时文件治理方法.md"]
+  source_scenarios:
+  - wiki/scenarios/IDE-Hook采集链路方法.md
+  - wiki/scenarios/MCP-Server薄壳架构与参数约定.md
+  - wiki/scenarios/Wiki页面生成约定与数据结构.md
+  - wiki/scenarios/代码评审与分析工具方法.md
+  - wiki/scenarios/任务记忆系统设计方法.md
+  - wiki/scenarios/发布与依赖治理方法.md
+  - wiki/scenarios/多仓工作区初始化与增量分析.md
+  - wiki/scenarios/对话蒸馏管线与raw暂存区.md
+  - wiki/scenarios/跨进程锁与临时文件治理方法.md
   notes_at_refresh: 73
+verified:
+- by: human:wangbao
+  at: '2026-09-10T07:47:19Z'
+stale_after: '2027-03-09'
 ---
 
 # Team Operating Doctrine

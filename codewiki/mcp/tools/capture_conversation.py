@@ -213,8 +213,8 @@ def _content_blocks_text(content: Any) -> Any:
     """If ``content`` is a list of content blocks (Claude/CodeBuddy format),
     flatten to text lines with two-tier tool digestion: plain text kept,
     tool calls compressed to ``[tool: …]`` lines (command/error/fix chains
-    are skill material — see tool_digest docstring), tool results kept only
-    as error excerpts. Otherwise return it unchanged.
+    are skill material — see tool_digest docstring), tool results kept as
+    error excerpts plus one-line success tails.
     """
     if not isinstance(content, list):
         return content
