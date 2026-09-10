@@ -11,6 +11,8 @@ metadata:
   severity: medium
   source_ref: conversations/conv-推送代码.md
   scene: 发布推送
+  compiled_into:
+  - skills/windows-dev-env/SKILL.md
 status: stable
 author: iamwangbao-163-com
 generated:

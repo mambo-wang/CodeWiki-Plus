@@ -19,6 +19,8 @@ metadata:
     ANSI（zh-CN 为 GBK）解码。
   consolidated_into:
   - wiki/scenarios/发布与依赖治理方法.md
+  compiled_into:
+  - skills/windows-dev-env/SKILL.md
 status: stable
 generated:
   by: codewiki/5.4.5

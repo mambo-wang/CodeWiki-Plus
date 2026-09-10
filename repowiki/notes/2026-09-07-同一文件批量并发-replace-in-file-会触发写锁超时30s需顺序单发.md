@@ -10,6 +10,8 @@ metadata:
   severity: medium
   source_ref: conversations/conv-@d-repos-CodeWiki-CN-.codebuddy-plans-output_dir-收敛为repo_pat.md
   scene: 批量代码编辑
+  compiled_into:
+  - skills/windows-dev-env/SKILL.md
 status: stable
 author: iamwangbao-163-com
 generated:

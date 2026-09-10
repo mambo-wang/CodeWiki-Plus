@@ -73,3 +73,11 @@ M1 基建已落地：新增 `codewiki/mcp/i18n.py`（`t()` / `current_lang()` / 
 ### 2026-09-07 14:49
 
 风险提示：英文正文初稿由 Agent 创作，定案时建议合入前做一次面向英文可读性的审校，避免机器直译风格拉低产品完成度。
+
+### 2026-09-10 09:37
+
+产品维护会话澄清：《系列13》文章「没加提交 prompt 的 hook」是误判——UserPromptSubmit 技能提示 hook 已实现并接线（ide_config.py:107 PROMPT_HOOK_CMD、hooks.yaml:29 claude 家族、.codebuddy/settings.json:27-38 已入库、commit 0db5ae1）。命中面窄（只匹配 status:draft，当前仅 1 份 draft 技能）+ 真机通道未验证是两大原因；结论是补真机探针验证而非加触发点。
+
+### 2026-09-10 09:37
+
+技能反馈 flag_issue 链路通：page_path 写草稿区 skills/<name>/SKILL.md、幂等哈希 FNV-1a(issue_type::page_path)、prepare 聚合 open_issues_by_skill。仓库已有 1 条真反馈 2ceafde2（maintain-fork-pr-merge，类型被降级 custom 且仍 open）。三个坑：生效区路径静默失效 / 未知 type 降级 custom / 无关闭工具。
