@@ -415,3 +415,10 @@
 {"t": "hit", "doc": "notes/2026-08-25-doctrine-不会自动注入-agent-上下文唯一通道是-query-wikimodeoverview.md", "at": "2026-09-08", "n": 2}
 {"t": "adopted", "doc": "notes/2026-09-05-codewiki-plus-发布是手动流程三处版本引用-lightweight-tag-ci-不发布.md", "at": "2026-09-08T13:43:01", "key": "iamwangbao-163-com/85192188862a42848be773a846eaa9bb"}
 {"t": "adopted", "doc": "notes/2026-09-07-serverpy-硬编码-version-与-pyproject-漂移mcp-initialize-返回版本误导客户端.md", "at": "2026-09-08T13:43:01", "key": "iamwangbao-163-com/85192188862a42848be773a846eaa9bb"}
+{"t": "hit", "doc": "notes/2026-09-07-团队化文件冲突治理核心决策git-只存内容派生本地可重建写前自动-pull-否决d10-d12-延迟到达语义.md", "at": "2026-09-10", "n": 1}
+{"t": "hit", "doc": "wiki/doctrine.md", "at": "2026-09-10", "n": 1}
+{"t": "hit", "doc": "notes/2026-08-21-下一期方向资产置信分层与负反馈闭环roadmap-phase-5.md", "at": "2026-09-10", "n": 1}
+{"t": "hit", "doc": "notes/2026-09-05-ingest-source-冲突同源确认闸门四层l0-sha-256-l1-version-sibling-语义指纹-l.md", "at": "2026-09-10", "n": 1}
+{"t": "hit", "doc": "notes/2026-09-05-stale-evidence-只驱动复核提醒仅处理带-content-hash-的条目报-warning-且不自动改写.md", "at": "2026-09-10", "n": 1}
+{"t": "hit", "doc": "notes/2026-08-25-untracked-新文件不在分析图谱内review-changes-changed-sources-切片为空.md", "at": "2026-09-10", "n": 1}
+{"t": "hit", "doc": "notes/2026-09-05-竞品调研必须克隆源码读代码文档站可能系统性滞后claude-mem-文档-v5-说-4-工具代码-v13-实际-19fi.md", "at": "2026-09-10", "n": 1}
