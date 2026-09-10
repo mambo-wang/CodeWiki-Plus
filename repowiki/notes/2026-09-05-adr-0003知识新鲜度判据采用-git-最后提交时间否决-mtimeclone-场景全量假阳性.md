@@ -10,6 +10,10 @@ metadata:
   severity: high
   source_ref: conversations/conv-对-docs-claude-mem借鉴详细设计方案.md-做拷问式评审（grill）：先派子代理核对方案引用的全部代码事.md
   scene: 知识生命周期
+  disposition:
+    verdict: deferred
+    at: '2026-09-08'
+    reason: 知识生命周期组候选，待与 freshness 相关笔记成组后单立场景
 status: stable
 author: iamwangbao-163-com
 generated:

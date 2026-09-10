@@ -41,6 +41,8 @@ import json
 import logging
 import os
 import subprocess
+import sys
+import time
 from pathlib import Path
 from typing import Optional, Set
 
@@ -437,3 +439,129 @@ def auto_push_into_result(result_json: str, output_dir, tool_name: str) -> str:
     except Exception as e:  # never let sync break a write
         logger.debug("auto_push_into_result skipped: %s", e)
     return result_json
+
+
+# --------------------------------------------------------------------------- #
+# auto_stage — stage-only companion to auto_push (2026-09-09)
+# --------------------------------------------------------------------------- #
+#
+# Motivation: codewiki-written knowledge files (notes, wiki pages, task
+# memories, …) landed as untracked noise in ``git status``; operators had to
+# ``git add`` them by hand before every commit.  auto_stage runs a bare
+# ``git add`` on every write that funnels through ``store.atomic_write`` so
+# durable knowledge shows up in the index, ready for the operator's own
+# commit.  Stage only — never a commit, never a push.
+#
+# Policy carrier: the repo's .gitignore.  ``git add`` WITHOUT ``-f`` refuses
+# ignored paths, which is exactly the skip we want — the team-layout ignore
+# list (init_wiki writes it, lint_wiki checks it) already encodes which
+# repowiki files are transient or rebuildable.  Lock/residue name patterns
+# are hard-skipped on top, same defense as auto_push's .lck unstage, for
+# repos whose .gitignore predates the team layout.
+
+# per-parent-dir cache of the nearest ``.meta/``-carrying ancestor (the
+# repowiki root — config lookup anchor), "" = none found
+_wiki_root_cache: dict = {}
+# per-repowiki-root resolved auto_stage decision (schema read is otherwise
+# repeated on every write)
+_stage_decisions: dict = {}
+
+# never staged regardless of .gitignore (transient residue / locks)
+_STAGE_NEVER_SUFFIX = (".lck",)
+_STAGE_NEVER_IN_NAME = (".tmp.",)
+
+
+def _wiki_root_for(path: Path) -> Optional[Path]:
+    """Nearest ancestor carrying ``.meta/`` — the repowiki root.
+
+    Same discovery rule as ``store._lock_path_for``: every repowiki produced
+    by analysis/init has one.  ``None`` means the path is not under a wiki
+    (bare fixture, unrelated file) — no config to read, no staging.
+    """
+    key = str(path.parent)
+    if key in _wiki_root_cache:
+        cached = _wiki_root_cache[key]
+        return Path(cached) if cached else None
+    for cand in path.resolve().parents:
+        if (cand / ".meta").is_dir():
+            _wiki_root_cache[key] = str(cand)
+            return cand
+    _wiki_root_cache[key] = ""
+    return None
+
+
+def _resolve_auto_stage(wiki_root: Path) -> bool:
+    """conventions.git_sync.auto_stage — default True.
+
+    Suppressed (returns False) when ``auto_push`` is enabled for the same
+    wiki: auto_push stages+commits+pushes on its own anchors, and its
+    pre-staged-content guard would false-positive on files auto_stage put in
+    the index.  Push supersedes staging.
+    """
+    key = str(wiki_root)
+    if key in _stage_decisions:
+        return _stage_decisions[key]
+    enabled = True
+    try:
+        from codewiki.mcp.tools.page_router import load_schema
+
+        schema = load_schema(str(wiki_root))
+        git_sync = (schema.get("conventions") or {}).get("git_sync") or {}
+        enabled = not bool(git_sync.get("auto_push", False)) and bool(
+            git_sync.get("auto_stage", True)
+        )
+    except Exception:
+        enabled = True  # unreadable config → safe local default (stage only)
+    _stage_decisions[key] = enabled
+    return enabled
+
+
+def auto_stage(path: str | Path, *, removed: bool = False, _force: bool = False) -> None:
+    """Best-effort ``git add`` of a codewiki-written path (stage only).
+
+    Never raises and never blocks the caller's error path: any failure — no
+    git binary, not a repo, timeout, index contention — degrades to "file
+    stays untracked", exactly as before this hook existed.
+
+    Guards, in order:
+
+    - under pytest → silent no-op (keeps the suite's tmp wikis out of the
+      developer's index and skips a subprocess per write);
+      ``_force=True`` bypasses this for auto_stage's own unit tests.
+    - lock/residue names (``*.lck``, ``*.tmp.<pid>.<tid>``) → never staged,
+      even when a repo's .gitignore predates the team layout.
+    - no repowiki root / no enclosing git repo → nothing to stage.
+    - ``conventions.git_sync.auto_stage: false`` → off; ``auto_push: true``
+      → off (push supersedes; see :func:`_resolve_auto_stage`).
+
+    ``removed=True`` stages a deletion (``git add -A``) so a file codewiki
+    once staged does not linger in the index as a ghost "added, then deleted
+    in worktree" pair after task/raw cleanup.
+    """
+    if not _force and "pytest" in sys.modules:
+        return
+    p = Path(path)
+    name = p.name
+    if name.endswith(_STAGE_NEVER_SUFFIX) or any(s in name for s in _STAGE_NEVER_IN_NAME):
+        return
+    wiki_root = _wiki_root_for(p)
+    if wiki_root is None or not _resolve_auto_stage(wiki_root):
+        return
+    repo_root = _find_repo_root(p)
+    if repo_root is None:
+        return  # knowledge never leaves this machine — nothing to stage
+
+    args = (["add", "-A", "--"] if removed else ["add", "--"]) + [str(p.resolve())]
+    res = _run_git_result(repo_root, args)
+    if res is None:
+        return  # did not run / timeout — silent
+    if res.returncode == 0:
+        return
+    # Non-zero: usually "path is ignored" (the intended skip) or "pathspec
+    # did not match" (removal of a never-staged file) — both fine.  The one
+    # retryable case is transient index.lock contention with a concurrent
+    # MCP writer; retry once, then give up silently.
+    err = res.stderr or ""
+    if "index.lock" in err:
+        time.sleep(0.05)
+        _run_git_result(repo_root, args)

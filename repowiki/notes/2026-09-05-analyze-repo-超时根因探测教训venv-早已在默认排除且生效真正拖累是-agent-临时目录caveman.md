@@ -13,7 +13,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-我们是如何保证生成的代码WIKI的准确性可信度.md
   scene: 代码分析
-status: stable
+  consolidated_into:
+  - wiki/scenarios/多仓工作区初始化与增量分析.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.6.0
@@ -23,6 +25,7 @@ origin: conversation
 verified:
 - by: codewiki/5.6.0
   at: '2026-09-05T12:47:32Z'
+reject_reason: consolidated into 多仓工作区初始化与增量分析
 ---
 
 ## Background

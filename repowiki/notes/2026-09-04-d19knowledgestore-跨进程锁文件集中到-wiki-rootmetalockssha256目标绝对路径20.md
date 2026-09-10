@@ -14,7 +14,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-REVIEW本地变更区代码，测试相关功能.md
   scene: KnowledgeStore 跨进程锁治理
-status: stable
+  consolidated_into:
+  - wiki/scenarios/跨进程锁与临时文件治理方法.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.5.1
@@ -24,6 +26,7 @@ origin: conversation
 verified:
 - by: human:wangbao
   at: '2026-09-04T08:21:04Z'
+reject_reason: consolidated into 跨进程锁与临时文件治理方法
 ---
 
 ## Background

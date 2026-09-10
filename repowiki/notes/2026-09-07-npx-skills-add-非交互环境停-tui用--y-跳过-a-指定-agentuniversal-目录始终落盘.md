@@ -10,7 +10,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-安装-npx-skills-add-tt-a1i-archify-g-技能.md
   scene: 技能安装
-status: stable
+  consolidated_into:
+  - wiki/scenarios/IDE-Hook采集链路方法.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.7.0
@@ -20,6 +22,7 @@ origin: conversation
 verified:
 - by: human:mambo-wang
   at: '2026-09-07T03:50:15Z'
+reject_reason: consolidated into IDE-Hook采集链路方法
 ---
 
 ## 背景

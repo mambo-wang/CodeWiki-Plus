@@ -13,7 +13,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-@d-repos-CodeWiki-CN-repowiki-.meta-telemetry-Administrator.-2.md
   scene: telemetry 原子写入与运维清理
-status: stable
+  consolidated_into:
+  - wiki/scenarios/跨进程锁与临时文件治理方法.md
+status: deprecated
 generated:
   by: codewiki/5.4.5
   at: 2026-08-28 04:17:10+00:00
@@ -23,6 +25,7 @@ author: mambo-wang
 verified:
 - by: human:mambo-wang
   at: '2026-09-04T04:10:53Z'
+reject_reason: consolidated into 跨进程锁与临时文件治理方法
 ---
 
 ## Background

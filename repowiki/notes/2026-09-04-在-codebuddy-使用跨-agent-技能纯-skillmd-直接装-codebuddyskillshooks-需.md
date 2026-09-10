@@ -12,7 +12,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-https-github.com-JuliusBrussee-caveman.git-研究下这个技能是如何生效的-a51ed2.md
   scene: 他山之石-caveman研究
-status: stable
+  consolidated_into:
+  - wiki/scenarios/IDE-Hook采集链路方法.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.5.1
@@ -22,6 +24,7 @@ origin: conversation
 verified:
 - by: codewiki/5.6.0
   at: '2026-09-05T12:47:31Z'
+reject_reason: consolidated into IDE-Hook采集链路方法
 ---
 
 ## Background

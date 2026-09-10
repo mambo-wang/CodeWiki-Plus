@@ -11,7 +11,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-本周改动有点大，请把CODEWIKI-MCP整体测试一遍，重点测试最近一周的改动.md
   scene: MCP 协议层 E2E 测试
-status: stable
+  consolidated_into:
+  - wiki/scenarios/MCP-Server薄壳架构与参数约定.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.7.0
@@ -21,6 +23,7 @@ origin: conversation
 verified:
 - by: human:mambo-wang
   at: '2026-09-07T03:50:14Z'
+reject_reason: consolidated into MCP-Server薄壳架构与参数约定
 ---
 
 ## 背景

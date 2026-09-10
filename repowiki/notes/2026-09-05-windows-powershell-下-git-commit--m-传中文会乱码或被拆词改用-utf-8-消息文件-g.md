@@ -10,7 +10,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-@d-repos-CodeWiki-CN-docs-团队知识库支持优化设计方案.md-@d-repos-CodeWiki-3.md
   scene: 发布流程
-status: stable
+  consolidated_into:
+  - wiki/scenarios/发布与依赖治理方法.md
+status: deprecated
 author: iamwangbao-163-com
 generated:
   by: codewiki/5.6.0
@@ -20,6 +22,7 @@ origin: conversation
 verified:
 - by: codewiki/5.6.0
   at: '2026-09-05T12:47:48Z'
+reject_reason: consolidated into 发布与依赖治理方法
 ---
 
 ## 问题

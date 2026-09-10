@@ -133,6 +133,11 @@ conventions:
   git_sync:
     mode: advisory
     auto_push: false
+    # auto_stage（2026-09-09，默认 true）：codewiki 写入的文件自动 git add
+    # 进暂存区（只 stage，不 commit / 不 push），方便直接提交知识变更；
+    # .gitignore 是唯一取舍依据（被 ignore 的派生物/瞬态文件不会被 add）；
+    # auto_push 开启时自动让位（推送锚点自己负责 stage+commit+push）。
+    auto_stage: true
   # 全局默认标签列表，会自动追加到每个文档的 frontmatter tags 中。
   # 例如 [project-x, v2] 会让所有文档带上这些标签，便于跨项目检索
   okf_tags: []

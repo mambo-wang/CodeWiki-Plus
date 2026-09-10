@@ -11,6 +11,10 @@ metadata:
   severity: medium
   source_ref: conversations/conv-我们是如何保证生成的代码WIKI的准确性可信度.md
   scene: 知识生命周期
+  disposition:
+    verdict: deferred
+    at: '2026-09-08'
+    reason: 知识生命周期组候选，随该组一并成块
 status: stable
 author: iamwangbao-163-com
 generated:
