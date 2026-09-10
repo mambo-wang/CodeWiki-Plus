@@ -319,31 +319,39 @@ def _build_message(event: dict, repo_path: str) -> str:
     )
     lines.append("")
     lines.append(
-        "【必须弹框】请立即调用 ask_followup_question 工具弹出结构化选择框"
+        "【必须弹框：只弹一次，一框列全】请立即调用 ask_followup_question 工具弹出结构化选择框"
         "（这是 IDE 的原生弹框 UI，用户可以直接点击选项），不要用纯文本输出一段话让用户自行回复。"
-        "弹框标题用「任务关联」，提供以下选项："
     )
+    lines.append("  硬约束：")
+    lines.append(
+        "  - 整个流程只允许调用 1 次 ask_followup_question，且 questions 数组里只放 1 个 question"
+        "（标题「任务关联」，multiSelect=false）。"
+    )
+    lines.append(
+        "  - 这唯一一个 question 的 options 必须一次性列全：下面每个进行中任务各占一个选项，"
+        "末尾再加「新建任务…（在输入框直接输入名称）」和「跳过（本次不做任务关联）」。"
+    )
+    lines.append(
+        "  - 严禁因为工具 schema 建议「2-4 个 options」就把任务拆进多个 question 或分多次调用弹框；"
+        "选项条数不受该建议限制，一框列全是硬性要求。"
+    )
+    lines.append(
+        "  - 问题正文里写清：列表里没有想要的任务时，可直接在弹框的输入框里输入新任务名后回车。"
+    )
+    lines.append("  该 question 的 options（按顺序）：")
     if active:
-        lines.append(
-            "- 关联已有任务：把下面每个进行中任务的标题作为弹框选项，用户选中后调用 "
-            f"set_session_task(source_session_id={session_id or '<当前会话id>'}, task_id=<选中任务>) 建立绑定"
-        )
-        lines.append("  当前进行中的任务：")
         for t in active:
             lines.append(f"    - {t.get('title') or t.get('id')}（task_id={t.get('id')}）")
-    else:
-        lines.append(
-            "- 新建任务：选择后会再弹一个输入框让用户输入任务名（可补一句描述），调用 "
-            "create_task(title=<任务名>, description=<可选>) 创建后即关联该新任务"
-        )
-    lines.append("- 跳过：本次会话不做任务关联，直接开始干活")
+    lines.append("    - 新建任务…（在输入框直接输入名称）")
+    lines.append("    - 跳过（本次不做任务关联，直接开始干活）")
     lines.append("")
     lines.append(
-        "【新建任务两步弹框】当用户选择「新建任务」后，必须再次调用 ask_followup_question "
-        "弹出第二个输入框：标题用「新建任务」，问题写「请输入新任务名称」，提供 2 个占位示例选项"
-        "（如「临时任务」「在输入框直接输入名称后回车」）。该弹框自带输入框，用户可自由输入任务名后回车；"
-        "以用户输入的文字为准，立即调用 create_task(title=<任务名>, description=<可选>) 创建并关联该新任务。"
-        "若用户只点击了占位选项，则用文字追问确认真实任务名。"
+        "【结果判定】用户返回的是上面列出的任务标题 → 调用 "
+        f"set_session_task(source_session_id={session_id or '<当前会话id>'}, task_id=<选中任务>) 建立绑定；"
+        "返回的是列表里没有的自由文本 → 先 create_task(title=<该文本>, description=<可选>) 再绑定；"
+        "返回「跳过」→ 本次不关联。"
+        "只有当用户选了「新建任务…」却没给出名字时，才允许再弹一次 ask_followup_question 要名字"
+        "（标题「新建任务」，问题「请输入新任务名称」）——这是唯一允许的第二次弹框，除此之外一律不得再弹框。"
     )
     lines.append("")
     lines.append(

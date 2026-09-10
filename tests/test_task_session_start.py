@@ -216,6 +216,44 @@ def test_qoder_copy_delegates_to_general_purpose(tmp_path):
     assert "「蒸馏 worker」subagent" not in ctx  # custom-agent wording must not leak
 
 
+def test_active_tasks_listed_in_one_chooser_box(tmp_path):
+    """用户反馈「任务关联经常弹多个框」：注入文案必须钉死单框 + 一框列全。
+
+    ask_followup_question 的 schema 建议「2-4 个 options」，Agent 会照做把任务
+    拆进多个 question 或分多次调用 —— 这是多框的根因。注入的硬约束必须显式
+    覆盖该建议，并要求把全部 active 任务放进同一个 question 的 options。
+    """
+    tasks_dir = tmp_path / "repowiki" / "tasks"
+    tasks_dir.mkdir(parents=True)
+    (tasks_dir / ".index.json").write_text(
+        json.dumps(
+            {
+                "tasks": [
+                    {"id": "t1", "title": "任务一", "status": "active"},
+                    {"id": "t2", "title": "任务二", "status": "active"},
+                    {"id": "t3", "title": "已完成任务", "status": "completed"},
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    ctx = _context(_run_hook(tmp_path))
+    assert "只弹一次，一框列全" in ctx
+    assert "1 次 ask_followup_question" in ctx
+    assert "只放 1 个 question" in ctx
+    assert "新建任务两步弹框" not in ctx  # 两步弹框是第二个框的来源，已废止为兜底
+
+    # 全部 active 任务出现在同一个 options 清单里（已完成任务不出现）。
+    options_block = ctx.split("该 question 的 options（按顺序）：")[1].split("【结果判定】")[0]
+    assert "    - 任务一（task_id=t1）" in options_block
+    assert "    - 任务二（task_id=t2）" in options_block
+    assert "已完成任务" not in options_block
+    assert "新建任务…（在输入框直接输入名称）" in options_block
+    assert "跳过" in options_block
+
+
 def test_codebuddy_copy_keeps_worker_delegation(tmp_path):
     _write_raw_file(tmp_path, "conv-a.md", "task-one")
     hook = tmp_path / ".codebuddy" / "hooks" / "task_session_start.py"
