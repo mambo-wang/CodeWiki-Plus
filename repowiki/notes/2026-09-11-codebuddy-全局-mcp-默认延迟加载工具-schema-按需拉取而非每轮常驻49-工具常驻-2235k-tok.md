@@ -7,11 +7,13 @@ metadata:
   task_id: Cli能力
   related_modules: ["MCP_Server"]
   severity: medium
-  source_ref: "raw\\conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in.md"
+  source_ref: "conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in-75d169.md"
 status: draft
 author: iamwangbao-163-com
 generated: { by: codewiki/5.9.0, at: 2026-09-11T13:05:47Z }
 stale_after: 2027-09-11
+origin: conversation
+
 ---
 
 ## CodeBuddy 全局 MCP 默认延迟加载：工具 schema 按需拉取而非每轮常驻

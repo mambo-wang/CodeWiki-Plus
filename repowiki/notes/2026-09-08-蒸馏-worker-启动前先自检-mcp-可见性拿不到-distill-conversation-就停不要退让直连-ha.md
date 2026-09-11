@@ -25,6 +25,8 @@ stale_after: '2027-03-09'
 verified:
 - by: human:wangbao
   at: '2026-09-10T07:47:26Z'
+source_conversations: ['conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in-75d169.md']
+
 ---
 
 ## 背景
@@ -52,3 +54,20 @@ subagent 的 `toolsMCP` 声名为**意图声明**，不等于运行时授权生�
 ## 适用范围
 
 所有依赖 codewiki MCP 的 subagent（distill-worker 等）与主 Agent 的知识飞轮操作（capture / distill / ingest / confirm / query）。
+
+## CodeBuddy 子代理 frontmatter：`tools:` 白名单会挡掉全部 MCP 工具，`toolsMCP` 是无效字段，正确写法是 `mcpServers:`
+
+> 合并自蒸馏候选：CodeBuddy 子代理 frontmatter：`tools:` 白名单会挡掉全部 MCP 工具，`toolsMCP` 是无效字段，正确写法是 `mcpServers:`
+
+## 根因修正（2026-09-11 实测定案）
+
+本条原根因把问题归为「MCP server 未连接时声明静默失效」。后续复现定位到**真正的机制性根因**：
+
+1. **`tools:` 是白名单**——frontmatter 写了 `tools: ReadFile` 就只给这一个工具，MCP 工具全被挡在外面；
+2. **`toolsMCP` 不是官方字段**——CodeBuddy 官方文档里声明子代理 MCP 的字段是 `mcpServers`（可直接引用全局已连接的 server 名），`toolsMCP` 无效。
+
+两者叠加 = 子代理只拿到一个（可能还不存在的）文件读取工具，表现正是「0 tool uses、空转、只回一句话」。
+
+**修复（已验证）**：`.codebuddy/agents/distill-worker.md` 改为 `mcpServers:\n  - codewiki`，或省略 `tools:` 继承全部工具。改后 spawn 实测 0 → 2 tool uses，`distill_conversation(mode="prepare")` 成功返回。
+
+**新排查线索**：子代理「空转、不调工具」时优先怀疑 frontmatter 工具授权配置（白名单/无效字段），而不是 server 连接状态。另有一个独立缺陷：子代理侧 `mcp_get_tool_description` 报 `Server 'codewiki' not found or not connected` 但 `mcp_call_tool` 直调成功（IDE MCP 客户端问题，非本仓代码）。
