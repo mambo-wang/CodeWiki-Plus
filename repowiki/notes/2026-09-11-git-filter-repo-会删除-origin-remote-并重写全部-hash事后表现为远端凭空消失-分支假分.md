@@ -11,6 +11,8 @@ status: stable
 author: iamwangbao-163-com
 generated: { by: codewiki/5.9.0, at: 2026-09-11T05:51:16Z }
 stale_after: 2027-03-10
+source_conversations: ['raw\conv-继续调研.md']
+
 ---
 
 ## 背景
@@ -67,3 +69,13 @@ git push --force-with-lease origin <分支>
 ## 适用范围
 
 本地做过 `git filter-repo` 后、任何试图 push（或「找不到 origin」）的场景。
+
+## git filter-repo --force 重写历史会吞掉未提交改动并 gc 掉可恢复对象，动手前必须先 stash
+
+> 合并自蒸馏候选：git filter-repo --force 重写历史会吞掉未提交改动并 gc 掉可恢复对象，动手前必须先 stash
+
+## filter-repo 的第三个副作用：吞掉未提交改动且无法恢复
+
+同批事故中还发现：filter-repo 重写完成后自动 `reset --hard` 并执行 `repack + clean unreachable objects`，会话开始时三处**未提交**改动（AGENTS.md 精简、`codewiki/mcp/prompts.py` 的 `_TASK_MEMORY_AGENTS_SECTION` 常量精简、cli plan 文档三个章节）被一并吞掉。事后用 `git fsck --unreachable --no-reflogs` 找 dangling blob 抢救失败——收尾 gc 已把恢复通道消灭。
+
+**预防**：重写历史前必须先清空工作区（commit 或 stash），重要未提交内容额外复制到 git 之外的临时位置，只对干净工作树执行 `--force`。部分丢失内容可从「会话系统提示注入的常量原文」「本会话读过的文件全文」手工恢复，但从未读过正文的段落无法恢复。
