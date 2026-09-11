@@ -41,6 +41,8 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
+from codewiki.src.secret_redact import redact_secrets
+
 # Tier 1: dropped unconditionally — internal monologue and system plumbing
 # carry no reusable operational detail.
 PURE_NOISE_BLOCK_TYPES = frozenset(
@@ -270,6 +272,10 @@ def digest_blocks(blocks: List[Any]) -> List[str]:
     Order is preserved — the interleaving of text, ``[tool: …]``,
     ``[tool-error: …]`` and ``[tool-ok: …]`` lines IS the command→error→fix
     (and step→step) chain distillation reads.
+
+    Every emitted line passes through ``secret_redact.redact_secrets``: raw
+    tool I/O is where commands like ``$env:UV_PUBLISH_TOKEN='pypi-…'`` show
+    up, and the archived raw is committed and pushed.
     """
     out: List[str] = []
     last_tool_name = ""
@@ -304,4 +310,4 @@ def digest_blocks(blocks: List[Any]) -> List[str]:
             text = block.get("content") if btype is None else None
         if isinstance(text, str) and text.strip():
             out.append(text.strip())
-    return out
+    return [redact_secrets(line) for line in out]
