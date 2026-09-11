@@ -467,7 +467,7 @@
 {"t": "hit", "doc": "notes/2026-08-03-mcp-工具-schema-不声明-session-idhandler-隐式读取.md", "at": "2026-09-11", "n": 7}
 {"t": "hit", "doc": "wiki/modules/CLI_Adapter.md", "at": "2026-09-11", "n": 2}
 {"t": "hit", "doc": "notes/2026-08-26-load-project-checklist-对-yaml-损坏静默回退-none-无日志难排查.md", "at": "2026-09-11", "n": 2}
-{"t": "hit", "doc": "wiki/modules/CLI_Utils.md", "at": "2026-09-11", "n": 2}
+{"t": "hit", "doc": "wiki/modules/CLI_Utils.md", "at": "2026-09-11", "n": 3}
 {"t": "hit", "doc": "wiki/scenarios/Wiki页面生成约定与数据结构.md", "at": "2026-09-11", "n": 4}
 {"t": "hit", "doc": "notes/2026-08-29-工作区痕迹齐备时跳过-init-workspace直接跑-bootstrap-脚本补-clone.md", "at": "2026-09-11", "n": 2}
 {"t": "hit", "doc": "notes/2026-08-23-distill-worker-subagent-定义随包发布hook-启用时自动拷贝到项目-codebuddyagent.md", "at": "2026-09-11", "n": 2}
@@ -499,4 +499,12 @@
 {"t": "hit", "doc": "notes/2026-09-05-frontmatter-sources-有三个生产者字段形态各不相同.md", "at": "2026-09-11", "n": 1}
 {"t": "hit", "doc": "notes/2026-09-05-stale-evidence-只驱动复核提醒仅处理带-content-hash-的条目报-warning-且不自动改写.md", "at": "2026-09-11", "n": 1}
 {"t": "hit", "doc": "notes/2026-09-10-已落库结论变更的更新流程wiki-页-edit-doc-file-原地改笔记新写reject-note-旧的confir.md", "at": "2026-09-11", "n": 1}
-{"t": "hit", "doc": "notes/2026-09-10-powershell-remove-item-被包装器代理-exclude-与管道输入均报错改用-delete-file.md", "at": "2026-09-11", "n": 1}
+{"t": "hit", "doc": "notes/2026-09-10-powershell-remove-item-被包装器代理-exclude-与管道输入均报错改用-delete-file.md", "at": "2026-09-11", "n": 2}
+{"t": "hit", "doc": "notes/2026-09-08-github-push-protection-拦截含-secret-的提交追加删除提交无效必须改写原提交.md", "at": "2026-09-11", "n": 1}
+{"t": "hit", "doc": "notes/2026-09-11-repowikiconversations-未被-gitignore-忽略且含原始转录提交前必须扫-secret.md", "at": "2026-09-11", "n": 1}
+{"t": "hit", "doc": "notes/2026-08-29-analyze-workspace-增量模式内部自动判断做主路径锚点复用-metadatajson.md", "at": "2026-09-11", "n": 1}
+{"t": "hit", "doc": "notes/2026-08-26-fork-来源的-pr-与目标分支冲突时的维护者合入流程merge-tree-探测-worktree-push-fork.md", "at": "2026-09-11", "n": 1}
+{"t": "hit", "doc": "notes/2026-09-01-teamai-cli-多人文件冲突处理全景靠划分防冲突不靠锁v0210-源码核实.md", "at": "2026-09-11", "n": 1}
+{"t": "hit", "doc": "notes/2026-09-07-团队化文件冲突治理核心决策git-只存内容派生本地可重建写前自动-pull-否决d10-d12-延迟到达语义.md", "at": "2026-09-11", "n": 1}
+{"t": "hit", "doc": "wiki/scenarios/发布与依赖治理方法.md", "at": "2026-09-11", "n": 1}
+{"t": "hit", "doc": "wiki/modules/CLI_Config.md", "at": "2026-09-11", "n": 1}
