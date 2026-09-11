@@ -71,6 +71,31 @@ def test_supersede_inherits_task_id_and_consumes_binding(tmp_path):
     assert r2["task_id"] == "task-a" and r2["task_source"] == "binding-inherited"
 
 
+def test_attribution_survives_distilled_raw_via_archived_binding(tmp_path):
+    """Regression: voucher consumed + previous raw distilled → attribution kept.
+
+    The supersede-inherit path only sees *pending* entries, so once the session's
+    first raw has been distilled (file removed, index entry dropped) there is
+    nothing to inherit from. The retired voucher must still carry the task.
+    """
+    store = _store(tmp_path)
+    store.write_binding("sess", "task-a")
+    r1 = store.capture_raw(_TURNS, source_session_id="sess")
+    assert r1["task_id"] == "task-a" and r1["task_source"] == "binding"
+    # Live voucher retired, not destroyed.
+    assert not store.read_binding("sess")
+    assert store.read_archived_binding("sess") == "task-a"
+
+    # Distillation removes the pending raw and drops its index entry.
+    raw = store.raw_dir / r1["relpath"].split("/", 1)[1]
+    raw.unlink()
+    store.sync_raw_index(r1["relpath"].split("/", 1)[1], removed=True)
+
+    longer = _TURNS + [{"role": "user", "content": "还有呢?"}]
+    r2 = store.capture_raw(longer, source_session_id="sess")
+    assert r2["task_id"] == "task-a" and r2["task_source"] == "binding-archived"
+
+
 def test_task_index_self_heals_from_directory(tmp_path):
     store = _store(tmp_path)
     task = {

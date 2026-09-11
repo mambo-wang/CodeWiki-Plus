@@ -135,6 +135,49 @@ codewiki --version
 
 配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 40 个工具。
 
+#### 环境变量配置
+
+CodeWiki-Plus 开箱即用，**默认无需设置任何环境变量**。少数偏好项与逃生门通过环境变量控制，但它们必须由 MCP Server 的**启动进程**读取——写在 `.bashrc` / 系统环境变量里对 MCP 进程不可见。**设置方式是在 MCP 配置 JSON 的 `mcpServers.<name>` 下加 `env` 块**（即上面的第 2 步配置里追加）：
+
+```json
+{
+  "mcpServers": {
+    "codewiki": {
+      "command": "codewiki",
+      "args": ["mcp"],
+      "maxOutputLength": 500000,
+      "timeout": 36000000,
+      "env": {
+        "CODEWIKI_LANG": "en",
+        "CODEWIKI_USER": "your-pseudonym"
+      }
+    }
+  }
+}
+```
+
+改完重启 MCP Server 生效。修改环境变量后，**必须重启 MCP Server**（进程只在启动时读取一次）。
+
+**真正需要用户设置的只有 2 个（其余均有合理默认值）：**
+
+| 变量 | 作用 | 取值 / 默认 | 何时设 |
+|---|---|---|---|
+| `CODEWIKI_LANG` | 切换 MCP 输出语言 | `zh`（默认）/ `en`；`~/.codewiki/config.json` 的 `lang` 字段优先级更高，会盖掉它 | 想用英文界面时 |
+| `CODEWIKI_USER` | 遥测署名花名（避免用 git 真名） | 任意非空字符串；默认回退 `git config user.name` | 不想用真名署名时 |
+
+**以下是有条件才设（条件不满足请勿动）：**
+
+| 变量 | 作用 | 触发条件 |
+|---|---|---|
+| `CODEWIKI_HOME` | 指向源码 checkout 目录 | 未 `pip install codewiki`、且 hook 进程 cwd 不在 checkout 内时（IDE 以项目根为 cwd 运行通常已能命中，本仓无需设） |
+| `CODEWIKI_NO_KEYRING` | 强制文件存凭据，跳过系统密钥环 | 无密钥环环境（CI / 容器 / headless Linux）；不设也会自动回退 `~/.codewiki/credentials.json` |
+| `CODEWIKI_SERVER_LOG` | MCP Server 生命周期日志路径 | 排查 server 被强杀 / 掉线时；默认 `~/.codewiki/server-lifecycle.log` |
+| `CODEWIKI_RAW_TOOL_DETAIL` | 采集是否保留成功工具结果 | **默认开**；设 `0/off/false/no/none` 会丢弃成功调用细节，导致后续无法编译出含完整步骤的技能——**除非排障否则别关** |
+| `CODEWIKI_CBM_DISABLED` | 关闭 CBM 委派 | CBM 委派出问题时设 `1` |
+| `CODEWIKI_TEAM_MEMORY_HOOK` | 对话采集总闸 | **正常接线无需设**——`codewiki install-hooks` 生成的命令已自带 `--enable`；仅手工调用 `python -m codewiki.mcp._ide_hook` 不传 `--enable` 时才需要 `=1` |
+
+> 注意取值语义三套并存，勿套惯性：`CODEWIKI_TEAM_MEMORY_HOOK` 严格等于 `"1"`；`CODEWIKI_RAW_TOOL_DETAIL` 是反向黑名单（`0/off/false/no/none` 关）；`CODEWIKI_NO_KEYRING` / `CODEWIKI_CBM_DISABLED` 是正向集合（`1/true/yes` 开/关）。`CODEWIKI_HOOK_EVENT_FILE` 为 hook 内部传参，用户**不要**手动设置。
+
 **第 3 步：在 Agent 模式中输入提示词**
 
 打开 CodeBuddy 的 Agent 模式，用 CodeBuddy 打开你要生成文档的目标项目，然后输入：

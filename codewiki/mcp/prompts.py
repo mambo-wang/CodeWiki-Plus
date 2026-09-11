@@ -1262,7 +1262,7 @@ def _prompt_task_workflow(args: dict[str, str]) -> str:
 **关键设计约束(实现时务必遵守)：**
 - task_id 由标题 slugify 生成且**不可变**；同名任务被拒绝；**无重命名**(删除后重建)。
 - `delete_task` 级联删除任务目录与绑定文件，但**不删**已打上 `task_id` 的笔记。
-- **绑定文件是一次性消费凭证**：`set_session_task` 写入 `repowiki/.meta/task_bindings/<session_id>.json` 后，首次 `capture_conversation` 成功落盘即自动删除；显式传 `task_id` 不消费绑定。同会话在绑定删除后再次捕获（supersede）会继承旧 raw 的 task_id，归属不丢。
+- **绑定文件是一次性消费凭证**：`set_session_task` 写入 `repowiki/.meta/task_bindings/<session_id>.json` 后，首次 `capture_conversation` 成功落盘即退役到 `task_bindings/consumed/`（凭证不再生效，但 `task_id` 保留）；显式传 `task_id` 不消费绑定。同会话再次捕获（supersede）继承旧 raw 的 task_id；若旧 raw 已被蒸馏、无 pending 条目可继承，则回退读退役凭证（`task_source=binding-archived`），归属不丢。
 - `query_wiki` 不校验任务存在性(幽灵 `task_id` 允许)。
 - `memories/<user_id>.md` 追加式原子写(临时文件 + `os.replace`)，并发串行；**每人只写自己的文件**(文件所有权即 git 级互斥原语)；条目带 `### YYYY-MM-DD HH:MM` 时间戳头(ADR-0001：保持 markdown 不迁 JSONL，时间戳头是切条/截断/压缩的解析边界，存量无头文件运行时空行回退解析)。
 - `get_task_context`/`get_task` 的 memories 返回**分层有界**：热层=自己(+存量 legacy)文件取最近 20/5 条全量；温层=其他成员仅注入摘要+最近 2 条(超预算降级为一行线索)；`memories_total`/`memories_truncated` 标记截断、`max_memories` 参数翻页；`compaction_due=true` 表示热层超压缩阈值(40 条/24KB)且超出保留窗口，应跑 `compact_task_memories`(两段式无状态：`mode="prepare"` 取待压条目由调用方写摘要 → `mode="submit"` 落盘；**文件域压缩，只压自己的文件(+legacy 并入)，永不动他人文件**；原文按归属归档 `memories-archive/<user_id>.md` 不删，直写不走 confirm 闸门)。"""

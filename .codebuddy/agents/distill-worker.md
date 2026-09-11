@@ -6,8 +6,8 @@ description: >
   主 Agent 用 Task 工具调用本 subagent 后台执行补蒸馏（Mode C：prepare →
   逐条 read_file 提取 → submit），主 Agent 不必亲自读 raw 原文、也不阻塞对用户的回答。
   仅负责蒸馏；笔记草稿的 confirm/reject 由主 Agent 在自然停顿点与用户完成（任务记忆直写落盘，无需确认）。
-tools: ReadFile
-toolsMCP: codewiki
+mcpServers:
+  - codewiki
 agentMode: agentic
 enabled: true
 enabledAutoRun: true

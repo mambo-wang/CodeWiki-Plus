@@ -37,6 +37,10 @@ TASKS_DIR = "tasks"
 TASKS_INDEX_FILENAME = ".index.json"
 TASKS_MEMORIES_FILENAME = "memories.md"
 TASK_BINDINGS_DIR = "task_bindings"
+# Retired (consumed) vouchers live in a subdirectory of TASK_BINDINGS_DIR. They
+# keep session→task attribution alive after the live voucher is consumed, which
+# the directory-scoped gitignore entry already covers.
+CONSUMED_BINDINGS_DIR = "consumed"
 SOURCE_REGISTRY_FILENAME = "source_registry.json"
 ISSUES_FILENAME = "issues.json"
 PROJECT_FILENAME = "project.json"

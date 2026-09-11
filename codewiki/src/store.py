@@ -519,6 +519,43 @@ class KnowledgeStore:
         except OSError:
             return False
 
+    def archive_binding(self, source_session_id: str) -> bool:
+        """Retire a consumed voucher into ``bindings/consumed/``.
+
+        The live voucher is removed (one-shot semantics preserved) but the
+        session→task attribution is kept as a tombstone so a later capture of
+        the same session can still inherit it — see :meth:`read_archived_binding`.
+        Without this, a session whose first raw was already distilled loses its
+        task attribution on every subsequent capture (the supersede-inherit
+        path in :meth:`capture_raw` only sees *pending* entries).
+        """
+        src = self.bindings_dir / f"{source_session_id}.json"
+        if not src.exists():
+            return False
+        try:
+            dest_dir = self.bindings_dir / _cfg.CONSUMED_BINDINGS_DIR
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / src.name
+            if dest.exists():
+                dest.unlink()
+            src.replace(dest)
+            _stage_removal(src)
+            return True
+        except OSError:
+            logger.debug("archive_binding: could not move %s", src, exc_info=True)
+            return False
+
+    def read_archived_binding(self, source_session_id: str) -> str:
+        """task_id from an already-consumed voucher; '' when absent/corrupt."""
+        if not source_session_id:
+            return ""
+        p = self.bindings_dir / _cfg.CONSUMED_BINDINGS_DIR / f"{source_session_id}.json"
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return ""
+        return str(data.get("task_id") or "").strip() if isinstance(data, dict) else ""
+
     def clear_bindings_for_task(self, task_id: str) -> int:
         """Delete every binding pointing at *task_id* (delete_task cascade)."""
         cleared = 0
@@ -552,7 +589,13 @@ class KnowledgeStore:
             return 0
         cutoff = datetime.now(timezone.utc).timestamp() - max_age_days * 86400
         removed = 0
-        for bf in self.bindings_dir.glob("*.json"):
+        candidates = list(self.bindings_dir.glob("*.json"))
+        consumed_dir = self.bindings_dir / _cfg.CONSUMED_BINDINGS_DIR
+        if consumed_dir.exists():
+            # Retired vouchers are attribution tombstones; they must not live
+            # forever either, so they share the same age-based sweep.
+            candidates += list(consumed_dir.glob("*.json"))
+        for bf in candidates:
             try:
                 data = json.loads(bf.read_text(encoding="utf-8"))
                 bound_at = str(data.get("bound_at") or "") if isinstance(data, dict) else ""
@@ -721,6 +764,17 @@ class KnowledgeStore:
                         chash = self.content_hash(turns, link_to, task_id)
                     break
 
+        if not task_id and source_session_id:
+            # Last-resort attribution: the voucher was already consumed AND the
+            # session's previous raw is gone (distilled), so there is no pending
+            # entry left to inherit from. Fall back to the retired voucher
+            # instead of silently dropping the task attribution.
+            archived = self.read_archived_binding(source_session_id)
+            if archived:
+                task_id = archived
+                task_source = "binding-archived"
+                chash = self.content_hash(turns, link_to, task_id)
+
         now = datetime.now(timezone.utc)
         stamp = now.strftime("%Y%m%dT%H%M%SZ")
         now_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -802,7 +856,7 @@ class KnowledgeStore:
         # Only consume when the task_id actually came from the binding —
         # explicit task_id arguments and inherited attribution leave it alone.
         if task_source == "binding" and source_session_id:
-            self.remove_binding(source_session_id)
+            self.archive_binding(source_session_id)
 
         return {
             "kind": "superseded" if superseded else "captured",
