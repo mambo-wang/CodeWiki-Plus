@@ -7,12 +7,14 @@ metadata:
   task_id: 他山之石
   related_modules: ["repowiki", "mcp", "research"]
   severity: medium
-  source_ref: "raw\\conv-继续调研.md"
+  source_ref: "conversations/conv-继续调研.md"
   scene: "他山之石增量调研处置"
 status: draft
 author: iamwangbao-163-com
 generated: { by: codewiki/5.9.0, at: 2026-09-11T01:21:54Z }
 stale_after: 2027-09-11
+origin: conversation
+
 ---
 
 ## 背景

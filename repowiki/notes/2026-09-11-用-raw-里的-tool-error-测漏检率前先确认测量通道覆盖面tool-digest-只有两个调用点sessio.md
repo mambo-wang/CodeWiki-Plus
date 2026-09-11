@@ -7,7 +7,7 @@ metadata:
   task_id: 他山之石
   related_modules: ["capture", "tool_digest", "hooks"]
   severity: medium
-  source_ref: "raw\\conv-继续调研.md"
+  source_ref: "conversations/conv-继续调研.md"
   scene: "采集覆盖率探测 / 借鉴调研证伪"
 status: draft
 author: iamwangbao-163-com
