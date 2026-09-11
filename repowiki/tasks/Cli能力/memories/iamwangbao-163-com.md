@@ -99,3 +99,27 @@ Cli能力方案已归档到 docs/plans/cli-capability-progressive-disclosure.md�
 **未修（且修不了）**：子代理侧 `mcp_get_tool_description` 报 `Server 'codewiki' not found or not connected` —— 该错误串全仓只出现在两处对话记录里，**不是本仓库代码**，是 IDE MCP 客户端的提示；子代理 `mcp_call_tool` 直调可用。
 
 **关联决策冲突（未静默覆盖）**：`repowiki/notes/2026-08-24-task-bindings-绑定文件改为一次性消费凭证...md` 定的是「落盘后删除 + supersede 继承」。本次是把补偿机制补全（删除→退役），未推翻凭证语义；若要正式改结论需走 reject 旧笔记 + 新 decision。
+
+### 2026-09-11 16:16
+
+CLI 能力方案已归档为 docs/plans/cli-capability-progressive-disclosure.md（Status: deferred）：已 settle D1-D4、未 settle O1-O6，恢复判定线写死——/context all 实测 MCP 常驻 token 若只有几百~1k 则整个方案收手，若 22k+ 则 P1（Top 8 描述瘦身）照做；实测前不要再拿估算推进设计。
+
+### 2026-09-11 16:16
+
+AGENTS.md 精简两刀已落地：QwenWork 块删除（10,175→8,952）+ _TASK_MEMORY_AGENTS_SECTION 3,286→836（AGENTS.md 至 6,473，-36.4%），全量回归 924 passed；第三刀（Wiki 块 3,499 与 MCP 工具描述去重）必须等 P1 定下「信息归谁」后再做，顺序反了会丢信息。
+
+### 2026-09-11 16:16
+
+绑定凭证退役机制已落地：store.py 新增 archive_binding/read_archived_binding + binding-archived 回退，修复「绑定已消费+旧 raw 已被蒸馏 → 同会话再捕获归属丢失」漏洞（全量 933 passed，ADR-0006）；2026-08-24 旧决策笔记已 reject，新 decision/pitfall 两条已 stable。
+
+### 2026-09-11 16:16
+
+distill-worker 子代理 MCP 授权已修复（.codebuddy/agents/distill-worker.md 的 tools:ReadFile+toolsMCP 改为 mcpServers: codewiki），spawn 测试 2 tool uses 通过；子代理侧 mcp_get_tool_description 报 Server not found 但 mcp_call_tool 直调是通的（IDE 客户端问题，未修）。
+
+### 2026-09-11 16:16
+
+历史清理完成：filter-repo 清 PyPI token（uvx git-filter-repo --replace-text）+ 82MB gif（--invert-paths），两次 force-with-lease 推送，远端 develop = 068ad3f 与本地一致；d:/repos 6 个副本 .git/config 里同一枚 classic PAT 已全部摘除，待用户去 GitHub 撤销该 PAT 并清 Windows 凭据管理器缓存。
+
+### 2026-09-11 16:16
+
+遗留待办：两条疑似重复的 stable 笔记（2026-09-11-distill-conversation-submit-的-distilled-必须是-conversation-idn 与其 -fc7c66 副本）待读后 reject 一条；telemetry 只有 wiki 检索命中数据（hit/by_file/adopted），无 MCP 工具调用频次，按频次选 core 面暂无数据支撑。
