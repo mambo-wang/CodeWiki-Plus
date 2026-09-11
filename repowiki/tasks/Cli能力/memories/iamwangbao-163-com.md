@@ -77,3 +77,25 @@ Cli能力方案已归档到 docs/plans/cli-capability-progressive-disclosure.md�
 **发现 1（子代理侧）**：worker 报 `mcp_get_tool_description` 返回 `Server 'codewiki' not found or not connected`，但 `mcp_call_tool` 直调成功 → 描述查询通道异常、调用通道正常。worker 靠剧本里硬编码的工具名工作，所以不受影响，但这本身是缺陷。
 
 **发现 2（归属丢失，更重要）**：本会话捕获的 raw `repowiki/raw/conv-manually_attached_skills-*.md` frontmatter **没有 task_id**，而 `repowiki/.meta/task_bindings/c9253615a4a04beb97dbc506d1c2bfe7.json` 已被删除（绑定被消费）。结果：会话开始提示「任务 Cli能力: 1 条积压」，但按 task_id 查是 0 条——归属丢失且绑定是一次性凭证，不可恢复。疑似捕获路径消费了绑定却没把 task_id 写进 frontmatter。
+
+### 2026-09-11 10:35
+
+## 2026-09-11 归属丢失漏洞：已定位、已复现、已修复
+
+**先证伪了自己的假设**：受控实验（绑定在/不在 × 首次/重捕 4 场景）显示 `binding → task_id` 链路**全部正确**，所以「绑定消费导致归属丢失」不是根因，没有盲改。
+
+**真漏洞（可复现）**：`绑定已消费` + `旧 raw 已被蒸馏移除（文件删除 + 索引条目移除）` → 同会话再次捕获时，supersede-inherit 只看 pending 条目，找不到可继承对象 → **task_id 丢失**。复现脚本输出：CAP1 task_id='task-A' / CAP2 task_id=''。
+
+**修复**（语义保持，一次性凭证不变）：
+- `codewiki/src/store.py` 新增 `archive_binding()` / `read_archived_binding()`：凭证消费后从 `task_bindings/<sid>.json` **退役到** `task_bindings/consumed/<sid>.json`（凭证失效，但保留 task_id 作归属墓碑）
+- `capture_raw` 消费动作 `remove_binding` → `archive_binding`；新增兜底：supersede 未命中时回退读退役凭证，`task_source=binding-archived`
+- `gc_bindings` 一并清扫 consumed/（按 bound_at 30 天），不无限堆积
+- `config.py` 新增 `CONSUMED_BINDINGS_DIR`（gitignore 已按目录覆盖 `.meta/task_bindings/`）
+- 回归测试 `tests/test_knowledge_store.py::test_attribution_survives_distilled_raw_via_archived_binding`
+- 同步更正 `prompts.py` 里「绑定落盘即删除」的表述为「退役到 consumed/」
+
+**验证**：复现脚本修复后 CAP2 = task-A / binding-archived；全量 pytest **933 passed, 2 skipped**。
+
+**未修（且修不了）**：子代理侧 `mcp_get_tool_description` 报 `Server 'codewiki' not found or not connected` —— 该错误串全仓只出现在两处对话记录里，**不是本仓库代码**，是 IDE MCP 客户端的提示；子代理 `mcp_call_tool` 直调可用。
+
+**关联决策冲突（未静默覆盖）**：`repowiki/notes/2026-08-24-task-bindings-绑定文件改为一次性消费凭证...md` 定的是「落盘后删除 + supersede 继承」。本次是把补偿机制补全（删除→退役），未推翻凭证语义；若要正式改结论需走 reject 旧笔记 + 新 decision。
