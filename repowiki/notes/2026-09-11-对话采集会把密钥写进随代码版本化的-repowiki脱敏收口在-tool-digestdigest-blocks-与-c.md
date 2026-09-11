@@ -6,11 +6,13 @@ metadata:
   date: 2026-09-11
   related_modules: ["MCP_Tools_Knowledge"]
   severity: medium
-  source_ref: "raw\\conv-继续调研.md"
+  source_ref: "conversations/conv-继续调研-c2bc52.md"
 status: draft
 author: iamwangbao-163-com
 generated: { by: codewiki/5.9.0, at: 2026-09-11T13:01:52Z }
 stale_after: 2027-09-11
+origin: conversation
+
 ---
 
 ## Background
