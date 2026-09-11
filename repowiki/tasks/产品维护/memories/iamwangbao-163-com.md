@@ -81,3 +81,15 @@ M1 基建已落地：新增 `codewiki/mcp/i18n.py`（`t()` / `current_lang()` / 
 ### 2026-09-10 09:37
 
 技能反馈 flag_issue 链路通：page_path 写草稿区 skills/<name>/SKILL.md、幂等哈希 FNV-1a(issue_type::page_path)、prepare 聚合 open_issues_by_skill。仓库已有 1 条真反馈 2ceafde2（maintain-fork-pr-merge，类型被降级 custom 且仍 open）。三个坑：生效区路径静默失效 / 未知 type 降级 custom / 无关闭工具。
+
+### 2026-09-10 20:14
+
+SessionStart 任务关联弹框已改为「单框列全」：只允许 1 次 ask_followup_question、1 个 question，options 一次性列出全部 active 任务 + 新建任务… + 跳过；「新建任务两步弹框」降级为仅在未给名字时的兜底。同步了 hook 源副本、.codebuddy/.qoder 两份生成副本、prompts.py 两处、AGENTS.md 标记块，并新增测试 test_active_tasks_listed_in_one_chooser_box。
+
+### 2026-09-10 20:14
+
+回归结果：tests/test_task_session_start.py + test_install_hooks.py 50 passed；pytest -k "prompt or i18n or task" 113 passed 1 skipped。已 commit 0c9fc2e 并推送 develop（8 文件 +183/−62）。
+
+### 2026-09-10 20:14
+
+产品维护遗留未提交项：README.md 的「第 11 篇」文章链接（上一会话遗留，与本次改动无关），以及 5 个未跟踪的 repowiki/conversations/conv-*.md 与 .codebuddy/skills/repowiki-conclusion-update/，等用户决定是否单独补 commit。
