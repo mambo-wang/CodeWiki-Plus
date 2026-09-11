@@ -141,3 +141,27 @@ grill 拷问后拍板 teamai-cli 借鉴处置（判据=只有实测缺口才做�
 15 项 deferred 分三类：留档照抄（#1-9）、转其他任务裁决（#10 CBM workspace manifest 审批 → 多仓工作区）、自查项（#13 wikilink 重写代码围栏、#14 ADR 是否整文件重写、#15 deprecated 是否会被新 ingest 复活）。
 
 口径提醒：提交数 rev-list --count（含 merge）与 --no-merges 差异很大（CBM 1182 vs 727），报告里已写明，以后别当矛盾。
+
+### 2026-09-11 08:52
+
+整体增量调研报告已落盘 docs/借鉴项目整体增量调研报告-2026-09.md：11 个项目全覆盖（codebase-memory-mcp 1182 / semantica 682 / WeKnora 588 / OpenViking 268 / llm_wiki 183 / claude-mem 36 / openwiki 34 / RepoWiki 23 / MindForge·wikiskill·AIO 无新增），44 候选 → 0 采纳 / 15 deferred / 29 excluded。
+
+### 2026-09-11 08:52
+
+分项目细节：docs/claude-mem-增量调研与借鉴分析-2026-09.md（f92996e/v13.23.1 → d095021d/v13.24.1，36 commit，7 候选 → 0 采纳 / 2 deferred / 5 excluded；核心是对方能力依托 OpenRouter 计费归因 + 插件市场分发，本仓无此前提）。
+
+### 2026-09-11 08:52
+
+三条方法论结论：① 一半候选本仓早有（最典型是 injection_budget.py:1 的 docstring 就写着借鉴自 OpenViking auto-recall）；② 他仓往服务端/队列/多租户走，本仓是本地 markdown + git + 同步 MCP 的主动不同取向，此类不是缺口；③ 主线是「成本/预算从软约束变硬约束」，本仓空档在扫描侧预算与 deprecated 笔记是否被新 ingest 复活。
+
+### 2026-09-11 08:52
+
+15 项 deferred 分三类：留档照抄 9（输入过滤无配置即恒等+编译失败不抛、增量基线失效兜底+单源失败仍写 state、去重 Jaccard 预筛、无损分页只在 end<allowed_count 才发 cursor 等）、转多仓工作区 1（workspace manifest 审批键）、自查项 3（wikilink 代码围栏切分 / ADR 是否整文件重写 / deprecated 是否被复活）——3 个自查项等用户裁决是否现在跑。
+
+### 2026-09-11 08:52
+
+口径修正（重要）：[tool-error] 只由 tool_digest 产生，仅 _ide_hook.py:273 与 capture_conversation.py:222 两个调用点，session-end 补采集不经过它 → 之前「8 条 raw 仅 1 条含 tool-error、漏检率 0%」测的是通道覆盖面而非漏检率，先定覆盖面再谈样本量。
+
+### 2026-09-11 08:52
+
+待办：3 条蒸馏草稿待用户 confirm（repowiki 版本化资产架构事实 / 小样本不能当证否 / 增量调研 SOP），第 2 条建议补入「通道覆盖面」这一层；本地 develop 领先 origin 7 个提交未推送。
