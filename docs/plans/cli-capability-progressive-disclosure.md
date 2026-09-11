@@ -91,6 +91,78 @@
 | O5 | 工作流 skill 怎么切 | 按管线阶段切（采集/蒸馏/归档/治理/检索）；按频次切会导致边界随新工具反复重划 |
 | O6 | 是否实测 description 命中率（造 20 条 query） | 要。这是路径 B 唯一真正的风险点，且可测 |
 
+## 体积拆解实测（2026-09-10 追加）
+
+对 49 个工具做逐项拆解（`get_all_tools()` 全量 JSON 化后统计字符）：
+
+| 部分 | 字符 | 占比 |
+|---|---|---|
+| 工具级 `description` | 38,980 | 44% |
+| 参数级 `description` | 22,839 | 26% |
+| `enum` 取值 | 2,011 | 2% |
+| 结构开销（JSON 键名/类型/嵌套） | 24,799 | 28% |
+| **合计** | **88,629** | 100% |
+
+**关键事实：CJK 字符只有 20 个 / 88,629 —— 工具定义已经是英文。中译英在工具侧收益 ≈ 0。**
+
+分布（中位 1,545 / 最小 525 / 最大 5,655）：
+
+- **Top 8**（`query_wiki` 5,655、`distill_conversation` 4,623、`skill_creator` 3,984、`ingest_source` 3,957、`lint_wiki` 3,832、`write_doc_file` 3,723、`ingest_note` 3,524）合计 29,298 = **33%**
+- **Top 15 合计 47,718 = 54%**
+- **Bottom 15 合计 11,960 = 13.5%**
+
+推论（决定执行优先级）：
+
+1. **描述类文本（70%）是唯一大靶子**，砍半 ≈ 省 31k 字符 ≈ 7.7k token/轮（-35%）
+2. **砍工具数量是低效杠杆**：删掉 15 个最小工具只省 13.5%，却丢 15 个能力
+3. **参数个数是隐性成本**：`query_wiki` 18 参数 / `distill_conversation` 14 / `ingest_note` 14，参数越多结构开销越大
+4. **prompts 正文不常驻**：`prompts.py` 的内联中文经 MCP `prompts/get` 按需返回，不进每轮请求
+
+### prompts 中文的正确落点（不是改成英文）
+
+- `codewiki/mcp/i18n.py` 已有双语机制：`locales/zh.yaml` 为源、`en.yaml` 必须全覆盖，解析顺序 = `~/.codewiki/config.json` 的 `lang` > `$CODEWIKI_LANG` > OS locale > `zh`
+- 但 `prompts.py` 存在**内联中文**（如 `_prompt_search_wiki` 的正文）绕过了 i18n，`lang=en` 对它们无效
+- 因此两条路：① 把内联中文外移到 `locales/*.yaml`（符合 `prompts.py:1427-1428` 注释声明的设计）；② 直接改英文
+- **零改动杠杆**：在 `~/.codewiki/config.json` 设 `lang: en`，已 i18n 化的部分立刻切英文
+
+## AGENTS.md 常驻体积（2026-09-10 追加）
+
+AGENTS.md = **10,175 字符 / 214 行**，逐块拆解：
+
+| 块 | 字符 | 占比 | 归属 | 生成者 |
+|---|---|---|---|---|
+| `<!-- CodeWiki LLM Wiki -->` | 3,499 | 34% | 托管 | `codewiki/mcp/tools/agents_md.py:68,121-139`（`_upsert_marked_section` 只替换标记内） |
+| `<!-- TEAM-MEMORY-TASK -->` | 3,286 | 32% | 托管 | `codewiki/cli/utils/ide_config.py:249-259`，`install-hooks` 时 upsert（`:386-387`） |
+| `<!-- CODEWIKI-QWENWORK -->` | 1,222 | 12% | 托管 | `ide_config.py:261-273`，**仅 `--ide qwenwork` / prompt 模式写入**（`:316-318`） |
+| `## Team memory fusion` | 1,713 | 17% | 手写 | 无标记块 |
+| `## Agent skills` | 395 | 4% | 手写 | 无标记块 |
+
+**79% 由生成器托管 → 改 AGENTS.md 文件本身会在下次 `install-hooks` / `generate` 被覆盖，必须改模板/常量。**
+
+粗估 4–6k token 常驻（中文为主，token 密度高于英文）。绝对值小于 MCP 的 ~22k，但**单位字符收益更高**：AGENTS.md 是 100% 有效载荷，无 MCP 那 28% 的 JSON 结构开销。
+
+## 执行记录
+
+### 2026-09-10 — 第一刀：移除 AGENTS.md 的 QwenWork 块
+
+- **动作**：删除 `<!-- CODEWIKI-QWENWORK:START/END -->` 块（原 1,222 字符 / 12%），未改任何生成器代码
+- **结果**：AGENTS.md 10,175 → **8,952 字符**（-1,223，-12.0%）；214 → 186 行
+- **链路验证**：`upsert_agents_section` 连续两次调用均返回 `False`（无变更），`CODEWIKI-QWENWORK` 标记未回冲；`TEAM-MEMORY-TASK` 与 `CodeWiki LLM Wiki` 两块保持不变
+- **不会回冲的依据**：`upsert_qwenwork_protocol` 只在 `wiring == "prompt"`（千问办公）分支调用，`ide_config.py:315-318`；hook 模式的 `install-hooks` 只调 `upsert_agents_section`（`:386-387`）
+- **可逆性**：QwenWork 用户重跑 `--ide qwenwork` 接线即自动重新写入该块，无需手工恢复
+
+### 2026-09-10 — 第二刀：Task memory 段精简 + 剧本外移（改生成器）
+
+- **改动**：`codewiki/mcp/prompts.py:40` `_TASK_MEMORY_AGENTS_SECTION` 由 3,286 → **836 字符**（-74.6%）。保留 5 条运行时铁律（弹框只弹一次/一框列全、绑定、`get_task_context`、补蒸馏委托 subagent、草稿须 confirm 而记忆直写），外移存储布局与实现约束
+- **外移落点**：同一文件 `_prompt_task_workflow`（MCP prompt `task-workflow`）新增「存储布局与实现约束（改代码 / 排查时查阅）」段，内容不丢
+- **指针**：AGENTS.md 段末尾加 `get_prompt(name="task-workflow")` 一行
+- **联动生效**：该常量同时被 `prompts.py` 的两处安装/卸载指令引用（旧 :151/:1147），一并变短，无第二处真相
+- **本仓库刷新**：`upsert_agents_section` 第一次调用返回 `True`（替换旧块），第二次 `False`（幂等）
+- **累计**：AGENTS.md 10,175 → **6,473 字符（-3,702，-36.4%）**
+- **测试**：全量 `pytest` **924 passed, 2 skipped**
+
+**未完成**：第三刀（Wiki 块 3,499 字符与 MCP 工具描述去重，34%）—— 依赖 P1（MCP 描述瘦身）先定「信息归谁」，顺序不能反；`_QWENWORK_CAPTURE_SECTION`（933 字符）保持不动，它只在 prompt 模式注入，且是该平台的协议正文。
+
 ## 未验证项（全部数字的可信度边界）
 
 - **22k–35k token 是估算**，不是 IDE 实测注入量。IDE 可能截断、改写或缓存工具定义

@@ -158,56 +158,14 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
 <!-- TEAM-MEMORY-TASK:START -->
 ## Task memory (任务记忆)
 
-跨会话延续长线工作上下文。任务记忆是**任务范围内的进度知识**(本次做了什么、下一步、待办)，与 Wiki 笔记(**跨任务的通用经验**)互补。
+跨会话延续长线工作上下文。任务记忆是**任务范围内的进度知识**（本次做了什么、下一步、待办），与 Wiki 笔记（**跨任务的通用经验**）互补。
 
-**会话开始时(推荐)：**
+**会话开始时（必须执行）：**
 1. `list_tasks(status="active")` 列出进行中的任务
-2. **必须用 `ask_followup_question` 工具弹出结构化选择框**（IDE 原生弹框 UI，用户可直接点击），不要用纯文本输出一段话让用户自行回复。**只弹一次、一框列全**：只调用 1 次，questions 数组只放 1 个 question（标题「任务关联」，multiSelect=false），它的 options 一次性列出「每个进行中任务」+「新建任务…（在输入框直接输入名称）」+「跳过」；严禁因为工具 schema 建议 2-4 个 options 就拆成多个 question 或分多次弹框：
-   - **关联已有任务**：用户从列表中选择，用 `set_session_task(source_session_id=<会话id>, task_id=<任务id>)` 建立绑定，本会话采集的对话会自动带上 `task_id`
-   - **新建任务**：弹框自带输入框，用户在输入框直接输入、或作为自由文本返回的任务名（列表里没有的）即视为新任务，调 `create_task(title=<任务名>, description=<可选>)` 创建后即关联该新任务；只有选了「新建任务…」却没给名字时才允许再弹一次输入框要名字——这是唯一允许的第二次弹框
-   - **跳过**：本次会话不做任务关联
-3. `get_task_context(task_id=<任务id>)` 拉取任务描述 + 记忆 + 关联笔记，作为继续工作的上下文
-4. **补蒸馏（委托 subagent，不阻塞）**：若返回的 `pending_raw_count > 0`（本任务有未蒸馏的历史对话），**不要自己在回答前逐条 read_file 蒸馏**——立即用 Task 工具 spawn 蒸馏子代理后台执行（CodeBuddy：spawn「蒸馏 worker」subagent，`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP；claude 家族 Qoder/Claude Code/Gemini CLI：**自定义子代理拿不到 MCP 权限**，改 spawn 内置 general-purpose 子代理，让它先读对应 `.qoder|.claude|.gemini/agents/distill-worker.md` 作为剧本）：`distill_conversation(mode="prepare", task_id=<任务id>)` → 按清单逐条 read_file 提取 notes/memories → `distill_conversation(mode="submit", ...)`，然后**直接开始回答用户提问**。在自然停顿点（任务告一段落/用户空闲）重新 `get_task_context` 拉取最新上下文（任务记忆已直写落盘，`memories_written` 报告条数）→ 只向用户展示待确认的草稿笔记（`confirm_note` 确认后才正式落盘）。用户明确表示紧急时可先答复、草稿笔记在会话结束前展示确认即可
+2. **必须用 `ask_followup_question` 弹框，且只弹一次、一框列全**：只调用 1 次，questions 数组只放 1 个 question（标题「任务关联」，multiSelect=false），options 一次性列出「每个进行中任务」+「新建任务…（在输入框直接输入名称）」+「跳过」。**严禁**因工具 schema 建议 2-4 个 options 就拆成多个 question 或分多次弹框；唯一例外是用户选了「新建任务…」却没给名字，可再弹一次要名字
+3. 用 `set_session_task(source_session_id=<会话id>, task_id=<任务id>)` 绑定；列表里没有的任务名先 `create_task(title=<任务名>)` 再绑定；用户选「跳过」则本次不关联
+4. `get_task_context(task_id=<选中任务>)` 拉取任务描述 + 记忆 + 关联笔记
+5. `pending_raw_count > 0` 时**委托 subagent 后台补蒸馏，不阻塞回答**：蒸馏产出的草稿笔记须 `confirm_note` 确认后才落盘；任务记忆直写、无需确认（ADR-0002）
 
-**工具入口：**
-- `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context` / `compact_task_memories`
-- 存储：`repowiki/tasks/.index.json`（可重建缓存：目录扫描为准，失配/损坏时自动重建）+ `<task_id>/task.md` + `<task_id>/memories/<user_id>.md`（每人只写自己的文件，多人 git 冲突隔离；条目带 `### YYYY-MM-DD HH:MM` 时间戳头；压缩后头部有「早期记忆（摘要）」段）+ `<task_id>/memories-archive/<user_id>.md`（压缩归档，append-only、永不自动加载）；`<task_id>/memories.md` 为存量单文件（只读兼容，热层，首次压缩并入当前用户文件后移除）；会话绑定在 `repowiki/.meta/task_bindings/`
-- `capture_conversation` / `distill_conversation` / `ingest_note` / `query_wiki` 均接受 `task_id`；蒸馏时 LLM 双轨产出 `notes`(通用知识，draft 待确认) 与 `memories`(任务进度，直写落盘——ADR-0002：任务记忆不做确认闸门)
-- MCP prompt `task-workflow`（prompts/list）— 完整工作流指引
-
-**关键设计约束(实现时务必遵守)：**
-- task_id 由标题 slugify 生成且**不可变**；同名任务被拒绝；**无重命名**(删除后重建)。
-- `delete_task` 级联删除任务目录与绑定文件，但**不删**已打上 `task_id` 的笔记。
-- **绑定文件是一次性消费凭证**：`set_session_task` 写入 `repowiki/.meta/task_bindings/<session_id>.json` 后，首次 `capture_conversation` 成功落盘即自动删除；显式传 `task_id` 不消费绑定。同会话在绑定删除后再次捕获（supersede）会继承旧 raw 的 task_id，归属不丢。
-- `query_wiki` 不校验任务存在性(幽灵 `task_id` 允许)。
-- `memories/<user_id>.md` 追加式原子写(临时文件 + `os.replace`)，并发串行；**每人只写自己的文件**(文件所有权即 git 级互斥原语)；条目带 `### YYYY-MM-DD HH:MM` 时间戳头(ADR-0001：保持 markdown 不迁 JSONL，时间戳头是切条/截断/压缩的解析边界，存量无头文件运行时空行回退解析)。
-- `get_task_context`/`get_task` 的 memories 返回**分层有界**：热层=自己(+存量 legacy)文件取最近 20/5 条全量；温层=其他成员仅注入摘要+最近 2 条(超预算降级为一行线索)；`memories_total`/`memories_truncated` 标记截断、`max_memories` 参数翻页；`compaction_due=true` 表示热层超压缩阈值(40 条/24KB)且超出保留窗口，应跑 `compact_task_memories`(两段式无状态：`mode="prepare"` 取待压条目由调用方写摘要 → `mode="submit"` 落盘；**文件域压缩，只压自己的文件(+legacy 并入)，永不动他人文件**；原文按归属归档 `memories-archive/<user_id>.md` 不删，直写不走 confirm 闸门)。
+完整工作流、存储布局与实现约束见 MCP prompt：`get_prompt(name="task-workflow")` —— 按需获取，不在此重复。
 <!-- TEAM-MEMORY-TASK:END -->
-
-<!-- CODEWIKI-QWENWORK:START -->
-### QwenWork 捕获协议（千问办公无 IDE hook，由 Agent 依本协议执行）
-
-千问办公（QwenWork）不提供 SessionStart/SessionEnd shell hook 事件，也不落
-IDE 式磁盘 transcript；任务记忆的注入与捕获改由 Agent 执行：
-
-- **会话开始**：本 AGENTS.md 随项目上下文自动加载（等价于其他 IDE 的
-  SessionStart 注入），按上方「Task memory」段先做项目定向
-  （`query_wiki(mode="overview")` 拉取 Doctrine + 场景导航），再完成任务关联
-  （`set_session_task`）、上下文拉取（`get_task_context`）与补蒸馏。
-- **会话捕获（自然停顿点执行：任务告一段落 / 话题切换 / 用户空闲）**：
-  1. 委托后台子代理执行，**不阻塞回答**：`qw_query` 拉取当前会话列表定位
-     本会话 chatId → `qwenwork_task_get_detail(chatId, offset 分页)` 拉全部轮次
-  2. 按轮次做要点级压缩：保留决策脉络、关键事实、结论与提交号；**保留关键
-     命令原文、报错→修复对、版本/参数钉子**（它们是经验蒸馏与技能编译的素材，
-     不是噪音）；丢弃寒暄与纯过程脚印（重复读文件、失败搜索、确认往返）。
-     判断标准：这条工具信息换个会话还能复用吗？能 → 留。capture_conversation
-     落盘时也会对 content-block 形式的工具调用做两级消化（压缩行 + error 片段，
-     `codewiki/src/tool_digest.py`），压缩阶段无须自行丢弃工具信息
-  3. 调 `capture_conversation(repo_path=<repo>,
-     conversation=[{"role": ..., "content": ...}...], task_id=<绑定的任务id>,
-     source_session_id="qwenwork-<chatId>")` 走标准管线落盘
-     （frontmatter/content_hash/supersede 全套），**勿手写 raw/*.md**
-  4. 同一 source_session 重复捕获由 supersede 替换旧 raw——会话中途可安全
-     增量重捕，无重复堆积；蒸馏与补蒸馏流程与其他 IDE 一致
-     （任务记忆直写，笔记草稿待确认——ADR-0002）
-<!-- CODEWIKI-QWENWORK:END -->
