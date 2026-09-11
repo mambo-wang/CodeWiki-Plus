@@ -41,3 +41,27 @@
 - 全量 pytest：924 passed, 2 skipped。
 - 未做第三刀：Wiki 块（3,499 字符，i18n 文案在 `locales/{zh,en}.yaml` 的 `artifacts.agents_md.main`）与 MCP 工具描述去重——**依赖 P1（MCP 描述瘦身）先定「信息归谁」，顺序不能反，否则可能删掉两边都没有的信息**。
 - `_QWENWORK_CAPTURE_SECTION`（933 字符）保持不动：只在 prompt 模式注入，是千问办公的协议正文。
+
+### 2026-09-11 06:53
+
+Cli能力方案已归档到 docs/plans/cli-capability-progressive-disclosure.md（Status: deferred），含 Problem（49 工具 vs 12 动词、88,629 字符实测、CLI 缺 --json 与 est_tokens 渲染）、三层模型（披露层 skill/command → 执行层 CLI → 后端 MCP 可开关）、已 settle D1–D4 与未 settle O1–O6、被排除候选及原因、恢复条件（A/B 实测每轮差值接近 22–35k 就继续，只有 2–3k 就整个推翻收手）。
+
+### 2026-09-11 06:53
+
+实测拆解（2026-09-10）：MCP tools/list 88,629 字符 = 工具 description 44% + 参数 description 26% + enum 2% + 结构开销 28%；CJK 仅 20 字符→「中译英」无收益；Top 8 占 33%，Bottom 15 仅 13.5% → 先瘦身大工具描述，砍工具数量性价比最差。
+
+### 2026-09-11 06:53
+
+第一刀：删除本仓 AGENTS.md 的 CODEWIKI-QWENWORK 块，10,175 → 8,952 字符（-12%）；验证 upsert 连续两次返回 False、标记未回冲（该块只在 wiring=prompt 分支写入，hook 模式不回冲），tests/test_install_hooks.py + test_strip_system_injection.py 46 passed。
+
+### 2026-09-11 06:53
+
+第二刀：codewiki/mcp/prompts.py 的 _TASK_MEMORY_AGENTS_SECTION 从 3,286 精简到 836 字符（-74.6%），保留 5 条运行时铁律，存储布局/压缩阈值/分层有界等细节外移到同文件 _prompt_task_workflow（MCP prompt task-workflow），段尾加 get_prompt("task-workflow") 指针；本仓 AGENTS.md → 6,473 字符（-36.4%），全量 pytest 924 passed / 2 skipped。
+
+### 2026-09-11 06:53
+
+第三刀（Wiki 块 3,499 字符与 MCP 38,980 字符工具描述去重）暂缓：需先做 P1（MCP Top 8 工具描述瘦身）定下「信息归谁」，否则可能删掉另一边也没有的信息。
+
+### 2026-09-11 06:53
+
+阻塞项/待办：telemetry（repowiki/.meta/telemetry/*.jsonl）只有 hit/by_file/adopted 三种记录，没有 MCP 工具调用数据 → 「按频次选 core 面 / 工具调用量排名」目前无数据支撑；token 估算 injection_budget.py 用 chars/4，中文档案严重低估，/context all 或 /skills 的真实 token 数用户尚未提供。
