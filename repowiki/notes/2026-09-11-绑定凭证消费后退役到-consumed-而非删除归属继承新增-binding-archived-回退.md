@@ -1,16 +1,30 @@
 ---
 type: decision
-title: "绑定凭证消费后退役到 consumed/ 而非删除，归属继承新增 binding-archived 回退"
-tags: ["decision"]
-aliases: ["binding archived", "binding-archived", "归属丢失", "task_bindings consumed"]
+title: 绑定凭证消费后退役到 consumed/ 而非删除，归属继承新增 binding-archived 回退
+tags:
+- decision
+aliases:
+- binding archived
+- binding-archived
+- 归属丢失
+- task_bindings consumed
 metadata:
   date: 2026-09-11
-  related_modules: ["store", "task-bindings", "capture-conversation", "distill-conversation"]
-  source_ref: "docs/adr/0006-session-binding-attribution-tombstone.md"
-status: draft
+  related_modules:
+  - store
+  - task-bindings
+  - capture-conversation
+  - distill-conversation
+  source_ref: docs/adr/0006-session-binding-attribution-tombstone.md
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.9.0, at: 2026-09-11T02:48:35Z }
-stale_after: 2027-09-11
+generated:
+  by: codewiki/5.9.0
+  at: 2026-09-11 02:48:35+00:00
+stale_after: '2027-09-11'
+verified:
+- by: human:wangbao
+  at: '2026-09-11T02:49:24Z'
 ---
 
 ## Background

@@ -1,17 +1,30 @@
 ---
 type: pitfall
-title: "会话归属丢失：绑定已消费 + 旧 raw 已被蒸馏，同会话再捕获 task_id 为空"
-tags: ["pitfall"]
-aliases: ["task_id 为空", "归属丢失", "binding consumed", "raw 无 task_id"]
+title: 会话归属丢失：绑定已消费 + 旧 raw 已被蒸馏，同会话再捕获 task_id 为空
+tags:
+- pitfall
+aliases:
+- task_id 为空
+- 归属丢失
+- binding consumed
+- raw 无 task_id
 metadata:
   date: 2026-09-11
-  related_modules: ["store", "task-bindings", "capture-conversation"]
+  related_modules:
+  - store
+  - task-bindings
+  - capture-conversation
   severity: high
-  root_cause: "supersede 继承源只覆盖 raw/.index.json 中 status=pending 的条目；蒸馏删除文件并摘掉索引条目后继承源消失，而一次性凭证已在首次捕获时被销毁，导致归属无处可取。"
-status: draft
+  root_cause: supersede 继承源只覆盖 raw/.index.json 中 status=pending 的条目；蒸馏删除文件并摘掉索引条目后继承源消失，而一次性凭证已在首次捕获时被销毁，导致归属无处可取。
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.9.0, at: 2026-09-11T02:48:53Z }
-stale_after: 2027-03-10
+generated:
+  by: codewiki/5.9.0
+  at: 2026-09-11 02:48:53+00:00
+stale_after: '2027-03-10'
+verified:
+- by: human:wangbao
+  at: '2026-09-11T02:49:24Z'
 ---
 
 ## 现象
