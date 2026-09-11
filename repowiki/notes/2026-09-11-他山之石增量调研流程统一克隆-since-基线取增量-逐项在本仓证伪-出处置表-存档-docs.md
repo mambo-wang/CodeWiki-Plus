@@ -1,20 +1,28 @@
 ---
 type: procedure
-title: "他山之石增量调研流程：统一克隆 → since 基线取增量 → 逐项在本仓证伪 → 出处置表 → 存档 docs/"
-tags: ["374", "375", "procedure"]
+title: 他山之石增量调研流程：统一克隆 → since 基线取增量 → 逐项在本仓证伪 → 出处置表 → 存档 docs/
+tags:
+- '374'
+- '375'
+- procedure
 metadata:
   date: 2026-09-11
   task_id: 他山之石
-  related_modules: ["docs"]
+  related_modules:
+  - docs
   severity: medium
-  source_ref: "conversations/conv-看一下docs里我们借鉴过的项目，自上次借鉴过后有什么新的合入值得借鉴.md"
-  scene: "他山之石/增量调研"
-status: draft
+  source_ref: conversations/conv-看一下docs里我们借鉴过的项目，自上次借鉴过后有什么新的合入值得借鉴.md
+  scene: 他山之石/增量调研
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.9.0, at: 2026-09-10T23:00:39Z }
-stale_after: 2027-03-10
+generated:
+  by: codewiki/5.9.0
+  at: 2026-09-10 23:00:39+00:00
+stale_after: '2027-03-10'
 origin: conversation
-
+verified:
+- by: human:mambo-wang
+  at: '2026-09-11T00:55:44Z'
 ---
 
 ## 适用场景
