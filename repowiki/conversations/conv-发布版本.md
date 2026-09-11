@@ -82,12 +82,12 @@ assistant: GitHub 侧发布已完成，剩 PyPI 上传需要你的 token。
 [tool: ask_followup_question · {"questions": [{"question": "PyPI 上传需要 token（当前环境未配置 UV_PUBLISH_TOKEN / .pypirc）。如何继续？", "header": "PyPI 上传", "options": [{"labe…
 user: <question>PyPI 上传需要 token（当前环境未配置 UV_PUBLISH_TOKEN / .pypirc）。如何继续？</question>
 <answers>
-PyPitoken： REDACTED
+PyPitoken： <redacted:pypi>
 </answers>
 </question_item>
 </questions>
 </question_answer>
-assistant: [tool: execute_command · cd d:/repos/CodeWiki-CN; $env:UV_PUBLISH_TOKEN='REDACTED…
+assistant: [tool: execute_command · cd d:/repos/CodeWiki-CN; $env:UV_PUBLISH_TOKEN=<redacted:secret>
 assistant: [tool: execute_command · cd d:/repos/CodeWiki-CN; .venv/Scripts/python.exe -c "import urllib.request,json;d=json.load(urllib.request.urlopen('https://pypi.org/…
 assistant: [tool: mcp_get_tool_description · {"toolRequests": "[[\"codewiki\",\"add_task_memory\"]]"}]
 assistant: [tool: mcp_call_tool · {"serverName": "codewiki", "toolName": "add_task_memory", "arguments": "{\"task_id\":\"发版本\",\"repo_path\":\"d:/repos/CodeWiki-CN\",\"co…

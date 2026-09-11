@@ -61,7 +61,7 @@ assistant: Token 仅出现在该文件。为精确脱敏，先获取 301 行（�
 [tool: search_content · d:\repos\CodeWiki-CN\repowiki\conversations\conv-发布新版本.md]
 assistant: 该 token 只出现在这一个文件（294/340 完整 token + 301 行截断前缀）。GitHub 报告的正是 294/340 两处完整 token。现在脱敏：先把两处完整 token 替换为占位符。
 
-[tool: replace_in_file · {"filePath": "d:\\repos\\CodeWiki-CN\\repowiki\\conversations\\conv-发布新版本.md", "old_str": "PyPitoken： REDACTED…
+[tool: replace_in_file · {"filePath": "d:\\repos\\CodeWiki-CN\\repowiki\\conversations\\conv-发布新版本.md", "old_str": "PyPitoken： <redacted:pypi>…
 assistant: 294/340 两处完整 token 已脱敏。还需确认 301 行是否残留 token 后缀，用尾部特征串搜索验证。
 
 [tool: search_content · d:\repos\CodeWiki-CN\repowiki\conversations\conv-发布新版本.md]
@@ -70,7 +70,7 @@ assistant: 完整 token 后缀已不存在。再确认 301 行残留的截断前
 [tool: search_content · d:\repos\CodeWiki-CN\repowiki\conversations\conv-发布新版本.md]
 assistant: 301 行含截断的 token 前缀片段，一并脱敏。
 
-[tool: replace_in_file · {"filePath": "d:\\repos\\CodeWiki-CN\\repowiki\\conversations\\conv-发布新版本.md", "old_str": "$env:UV_PUBLISH_TOKEN = 'pypi-AgEIcHlwaS5vc…
+[tool: replace_in_file · {"filePath": "d:\\repos\\CodeWiki-CN\\repowiki\\conversations\\conv-发布新版本.md", "old_str": "$env:UV_PUBLISH_TOKEN=<redacted:secret>
 assistant: 验证文件中已无任何 token 残留，再确认整个文件干净。
 
 [tool: search_content · d:\repos\CodeWiki-CN\repowiki\conversations\conv-发布新版本.md]
@@ -85,13 +85,13 @@ assistant: amend 已执行，但注意 `git add` 因中文路径编码报错（P
 [tool: execute_command · git status --short && git show 69eaa79:repowiki/conversations/conv-发布新版本.md | Select-String -Pattern "pypi-AgEI" | Select-Object -Firs…
 assistant: `git add` 因中文路径编码乱码而失败，脱敏改动未并入提交 `69eaa79`（工作区仍显示 M）。先确认该提交是否仍含 secret，再正确重做。
 
-[tool: execute_command · git grep -n "REDACTED" 69eaa79 -- "repowiki/conversations/*"]
+[tool: execute_command · git grep -n "<redacted:pypi>" 69eaa79 -- "repowiki/conversations/*"]
 assistant: 提交 `69eaa79` 仍含 secret——之前 `git add` 中文路径乱码失败，amend 只重提了旧内容。用 `git add -u`（避免手写中文路径）暂存脱敏改动后重新 amend。
 
 [tool: execute_command · git add -u; if ($?) { git commit --amend --no-edit }]
 assistant: 新提交 `1feefee` 已创建。验证提交中已无 token 残留，然后重新推送。
 
-[tool: execute_command · git grep -c "REDACTED" 1feefee; if ($LASTEXITCODE -ne 0) { echo "NO-SECRET-FOUND" }]
+[tool: execute_command · git grep -c "<redacted:pypi>" 1feefee; if ($LASTEXITCODE -ne 0) { echo "NO-SECRET-FOUND" }]
 assistant: 提交已无 secret。确认工作区干净后推送。
 
 [tool: execute_command · git status --short; git push origin develop]

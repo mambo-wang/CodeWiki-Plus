@@ -298,7 +298,7 @@ PyPitoken： pypi-<REDACTED>
 </question_answer>
 assistant: 收到 PyPI token，执行发布。
 
-[tool: execute_command · cd d:\repos\CodeWiki-CN; $env:UV_PUBLISH_TOKEN = 'pypi-<REDACTED>…
+[tool: execute_command · cd d:\repos\CodeWiki-CN; $env:UV_PUBLISH_TOKEN=<redacted:secret>
 assistant: 上传成功（exitCode=0，whl + tar.gz 均已 Uploaded）。用 PyPI JSON API 核对上传状态。
 
 [tool: execute_command · python -c "import urllib.request, json, io, sys; sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8'); r = urllib.reques…
