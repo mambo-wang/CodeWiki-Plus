@@ -7,12 +7,14 @@ metadata:
   task_id: Cli能力
   related_modules: ["skills", "mcp", "cli"]
   severity: medium
-  source_ref: "raw\\conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in.md"
+  source_ref: "conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in-83a270.md"
   scene: "MCP 暴露面收缩方案设计"
 status: draft
 author: iamwangbao-163-com
 generated: { by: codewiki/5.9.0, at: 2026-09-11T01:14:03Z }
 stale_after: 2027-03-10
+origin: conversation
+
 ---
 
 ## 背景

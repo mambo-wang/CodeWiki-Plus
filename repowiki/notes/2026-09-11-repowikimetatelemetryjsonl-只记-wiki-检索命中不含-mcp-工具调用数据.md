@@ -7,7 +7,7 @@ metadata:
   task_id: Cli能力
   related_modules: ["telemetry", "mcp", "lint"]
   severity: high
-  source_ref: "raw\\conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in.md"
+  source_ref: "conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in-83a270.md"
   scene: "工具调用量统计与遥测"
 status: draft
 author: iamwangbao-163-com

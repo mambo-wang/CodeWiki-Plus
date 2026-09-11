@@ -7,7 +7,7 @@ metadata:
   task_id: Cli能力
   related_modules: ["agents_md", "ide_config", "prompts", "hooks"]
   severity: high
-  source_ref: "raw\\conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in.md"
+  source_ref: "conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in-83a270.md"
   scene: "AGENTS.md 注入内容精简"
 status: draft
 author: iamwangbao-163-com
