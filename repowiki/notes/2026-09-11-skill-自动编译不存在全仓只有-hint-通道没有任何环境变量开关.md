@@ -1,20 +1,29 @@
 ---
 type: architecture
-title: "skill 自动编译不存在：全仓只有 hint 通道，没有任何环境变量开关"
-tags: ["architecture", "codewiki", "userpromptsubmit"]
+title: skill 自动编译不存在：全仓只有 hint 通道，没有任何环境变量开关
+tags:
+- architecture
+- codewiki
+- userpromptsubmit
 metadata:
   date: 2026-09-11
   task_id: 技能提取
-  related_modules: ["skill_match", "skill-creator"]
+  related_modules:
+  - skill_match
+  - skill-creator
   severity: medium
-  source_ref: "conversations/conv-如何启用skill自动编译功能，是有环境变量控制吗？.md"
-  scene: "技能提取"
-status: draft
+  source_ref: conversations/conv-如何启用skill自动编译功能，是有环境变量控制吗？.md
+  scene: 技能提取
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.9.0, at: 2026-09-11T01:28:04Z }
-stale_after: 2027-09-11
+generated:
+  by: codewiki/5.9.0
+  at: 2026-09-11 01:28:04+00:00
+stale_after: '2027-09-11'
 origin: conversation
-
+verified:
+- by: human:wangbao
+  at: '2026-09-11T03:55:13Z'
 ---
 
 ## 事实

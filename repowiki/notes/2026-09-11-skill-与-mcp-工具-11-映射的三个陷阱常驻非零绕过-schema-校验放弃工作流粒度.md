@@ -1,20 +1,28 @@
 ---
 type: lesson
-title: "skill 与 MCP 工具 1:1 映射的三个陷阱：常驻非零、绕过 schema 校验、放弃工作流粒度"
-tags: ["lesson"]
+title: skill 与 MCP 工具 1:1 映射的三个陷阱：常驻非零、绕过 schema 校验、放弃工作流粒度
+tags:
+- lesson
 metadata:
   date: 2026-09-11
   task_id: Cli能力
-  related_modules: ["skills", "mcp", "cli"]
+  related_modules:
+  - skills
+  - mcp
+  - cli
   severity: medium
-  source_ref: "conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in-83a270.md"
-  scene: "MCP 暴露面收缩方案设计"
-status: draft
+  source_ref: conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in-83a270.md
+  scene: MCP 暴露面收缩方案设计
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.9.0, at: 2026-09-11T01:14:03Z }
-stale_after: 2027-03-10
+generated:
+  by: codewiki/5.9.0
+  at: 2026-09-11 01:14:03+00:00
+stale_after: '2027-03-10'
 origin: conversation
-
+verified:
+- by: human:wangbao
+  at: '2026-09-11T03:55:13Z'
 ---
 
 ## 背景

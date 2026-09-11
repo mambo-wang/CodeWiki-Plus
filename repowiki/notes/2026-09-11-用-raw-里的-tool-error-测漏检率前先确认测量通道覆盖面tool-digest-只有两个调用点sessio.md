@@ -1,20 +1,28 @@
 ---
 type: lesson
-title: "用 raw 里的 [tool-error] 测漏检率前，先确认测量通道覆盖面：tool_digest 只有两个调用点，session-end 补采集不经过它"
-tags: ["lesson"]
+title: 用 raw 里的 [tool-error] 测漏检率前，先确认测量通道覆盖面：tool_digest 只有两个调用点，session-end 补采集不经过它
+tags:
+- lesson
 metadata:
   date: 2026-09-11
   task_id: 他山之石
-  related_modules: ["capture", "tool_digest", "hooks"]
+  related_modules:
+  - capture
+  - tool_digest
+  - hooks
   severity: medium
-  source_ref: "conversations/conv-继续调研.md"
-  scene: "采集覆盖率探测 / 借鉴调研证伪"
-status: draft
+  source_ref: conversations/conv-继续调研.md
+  scene: 采集覆盖率探测 / 借鉴调研证伪
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.9.0, at: 2026-09-11T01:21:09Z }
-stale_after: 2027-03-10
+generated:
+  by: codewiki/5.9.0
+  at: 2026-09-11 01:21:09+00:00
+stale_after: '2027-03-10'
 origin: conversation
-
+verified:
+- by: human:wangbao
+  at: '2026-09-11T03:55:14Z'
 ---
 
 ## 背景

@@ -1,20 +1,30 @@
 ---
 type: pitfall
-title: "AGENTS.md 约 79% 内容由生成器托管，直接编辑文件会被 install-hooks 冲掉，持久改动必须改模板或常量"
-tags: ["codewiki", "pitfall"]
+title: AGENTS.md 约 79% 内容由生成器托管，直接编辑文件会被 install-hooks 冲掉，持久改动必须改模板或常量
+tags:
+- codewiki
+- pitfall
 metadata:
   date: 2026-09-11
   task_id: Cli能力
-  related_modules: ["agents_md", "ide_config", "prompts", "hooks"]
+  related_modules:
+  - agents_md
+  - ide_config
+  - prompts
+  - hooks
   severity: high
-  source_ref: "conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in-83a270.md"
-  scene: "AGENTS.md 注入内容精简"
-status: draft
+  source_ref: conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in-83a270.md
+  scene: AGENTS.md 注入内容精简
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.9.0, at: 2026-09-11T01:13:07Z }
-stale_after: 2027-03-10
+generated:
+  by: codewiki/5.9.0
+  at: 2026-09-11 01:13:07+00:00
+stale_after: '2027-03-10'
 origin: conversation
-
+verified:
+- by: human:wangbao
+  at: '2026-09-11T03:55:10Z'
 ---
 
 ## 背景

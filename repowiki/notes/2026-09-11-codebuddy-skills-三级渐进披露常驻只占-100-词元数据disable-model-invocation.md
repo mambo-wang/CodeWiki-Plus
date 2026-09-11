@@ -1,19 +1,28 @@
 ---
 type: architecture
-title: "CodeBuddy Skills 三级渐进披露：常驻只占 ~100 词元数据，disable-model-invocation 与 user-invocable 语义相反"
-tags: ["architecture", "codebuddy"]
+title: CodeBuddy Skills 三级渐进披露：常驻只占 ~100 词元数据，disable-model-invocation 与 user-invocable
+  语义相反
+tags:
+- architecture
+- codebuddy
 metadata:
   date: 2026-09-11
-  related_modules: ["skills", "mcp"]
+  related_modules:
+  - skills
+  - mcp
   severity: medium
-  source_ref: "conversations/conv-@command-codewiki-蒸馏对话提取记忆和经验.md"
-  scene: "技能上下文开销与安装策略"
-status: draft
+  source_ref: conversations/conv-@command-codewiki-蒸馏对话提取记忆和经验.md
+  scene: 技能上下文开销与安装策略
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.9.0, at: 2026-09-11T01:05:06Z }
-stale_after: 2027-09-11
+generated:
+  by: codewiki/5.9.0
+  at: 2026-09-11 01:05:06+00:00
+stale_after: '2027-09-11'
 origin: conversation
-
+verified:
+- by: human:wangbao
+  at: '2026-09-11T03:55:10Z'
 ---
 
 ## 事实（CodeBuddy 官方 Skills 文档，2026-09 查证）

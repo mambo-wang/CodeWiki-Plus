@@ -1,20 +1,28 @@
 ---
 type: architecture
-title: "repowiki/.meta/telemetry/*.jsonl 只记 wiki 检索命中，不含 MCP 工具调用数据"
-tags: ["architecture"]
+title: repowiki/.meta/telemetry/*.jsonl 只记 wiki 检索命中，不含 MCP 工具调用数据
+tags:
+- architecture
 metadata:
   date: 2026-09-11
   task_id: Cli能力
-  related_modules: ["telemetry", "mcp", "lint"]
+  related_modules:
+  - telemetry
+  - mcp
+  - lint
   severity: high
-  source_ref: "conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in-83a270.md"
-  scene: "工具调用量统计与遥测"
-status: draft
+  source_ref: conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in-83a270.md
+  scene: 工具调用量统计与遥测
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.9.0, at: 2026-09-11T01:12:18Z }
-stale_after: 2027-09-11
+generated:
+  by: codewiki/5.9.0
+  at: 2026-09-11 01:12:18+00:00
+stale_after: '2027-09-11'
 origin: conversation
-
+verified:
+- by: human:wangbao
+  at: '2026-09-11T03:55:13Z'
 ---
 
 ## 事实

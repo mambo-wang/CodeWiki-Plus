@@ -1,19 +1,28 @@
 ---
 type: pitfall
-title: "repowiki/conversations/ 未被 .gitignore 忽略且含原始转录，提交前必须扫 secret"
-tags: ["github", "pitfall"]
+title: repowiki/conversations/ 未被 .gitignore 忽略且含原始转录，提交前必须扫 secret
+tags:
+- github
+- pitfall
 metadata:
   date: 2026-09-11
-  related_modules: ["repowiki", "capture", "git"]
+  related_modules:
+  - repowiki
+  - capture
+  - git
   severity: medium
-  source_ref: "conversations/conv-@command-codewiki-蒸馏对话提取记忆和经验.md"
-  scene: "蒸馏产物提交推送"
-status: draft
+  source_ref: conversations/conv-@command-codewiki-蒸馏对话提取记忆和经验.md
+  scene: 蒸馏产物提交推送
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.9.0, at: 2026-09-11T01:06:04Z }
-stale_after: 2027-03-10
+generated:
+  by: codewiki/5.9.0
+  at: 2026-09-11 01:06:04+00:00
+stale_after: '2027-03-10'
 origin: conversation
-
+verified:
+- by: human:wangbao
+  at: '2026-09-11T03:55:12Z'
 ---
 
 ## 背景

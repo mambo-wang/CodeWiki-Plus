@@ -1,20 +1,29 @@
 ---
 type: architecture
-title: "借鉴调研的排除判据：本仓是本地 markdown + git 版本化 + 同步 MCP 的主动不同取向，服务端/队列/多租户类候选不是缺口"
-tags: ["architecture", "openviking"]
+title: 借鉴调研的排除判据：本仓是本地 markdown + git 版本化 + 同步 MCP 的主动不同取向，服务端/队列/多租户类候选不是缺口
+tags:
+- architecture
+- openviking
 metadata:
   date: 2026-09-11
   task_id: 他山之石
-  related_modules: ["repowiki", "mcp", "research"]
+  related_modules:
+  - repowiki
+  - mcp
+  - research
   severity: medium
-  source_ref: "conversations/conv-继续调研.md"
-  scene: "他山之石增量调研处置"
-status: draft
+  source_ref: conversations/conv-继续调研.md
+  scene: 他山之石增量调研处置
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.9.0, at: 2026-09-11T01:21:54Z }
-stale_after: 2027-09-11
+generated:
+  by: codewiki/5.9.0
+  at: 2026-09-11 01:21:54+00:00
+stale_after: '2027-09-11'
 origin: conversation
-
+verified:
+- by: human:wangbao
+  at: '2026-09-11T03:55:13Z'
 ---
 
 ## 背景
