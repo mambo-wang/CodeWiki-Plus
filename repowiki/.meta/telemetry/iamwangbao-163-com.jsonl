@@ -508,3 +508,5 @@
 {"t": "hit", "doc": "notes/2026-09-07-团队化文件冲突治理核心决策git-只存内容派生本地可重建写前自动-pull-否决d10-d12-延迟到达语义.md", "at": "2026-09-11", "n": 1}
 {"t": "hit", "doc": "wiki/scenarios/发布与依赖治理方法.md", "at": "2026-09-11", "n": 1}
 {"t": "hit", "doc": "wiki/modules/CLI_Config.md", "at": "2026-09-11", "n": 1}
+{"t": "adopted", "doc": "notes/2026-09-08-github-push-protection-拦截含-secret-的提交追加删除提交无效必须改写原提交.md", "at": "2026-09-11T16:17:00", "key": "iamwangbao-163-com/c9253615a4a04beb97dbc506d1c2bfe7"}
+{"t": "adopted", "doc": "notes/2026-09-11-repowikiconversations-未被-gitignore-忽略且含原始转录提交前必须扫-secret.md", "at": "2026-09-11T16:17:00", "key": "iamwangbao-163-com/c9253615a4a04beb97dbc506d1c2bfe7"}
