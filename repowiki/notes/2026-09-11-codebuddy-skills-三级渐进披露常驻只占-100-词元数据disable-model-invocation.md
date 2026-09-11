@@ -6,7 +6,7 @@ metadata:
   date: 2026-09-11
   related_modules: ["skills", "mcp"]
   severity: medium
-  source_ref: "raw\\conv-@command-codewiki-蒸馏对话提取记忆和经验.md"
+  source_ref: "conversations/conv-@command-codewiki-蒸馏对话提取记忆和经验.md"
   scene: "技能上下文开销与安装策略"
 status: draft
 author: iamwangbao-163-com

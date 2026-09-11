@@ -6,7 +6,7 @@ metadata:
   date: 2026-09-11
   related_modules: ["repowiki", "capture", "git"]
   severity: medium
-  source_ref: "raw\\conv-@command-codewiki-蒸馏对话提取记忆和经验.md"
+  source_ref: "conversations/conv-@command-codewiki-蒸馏对话提取记忆和经验.md"
   scene: "蒸馏产物提交推送"
 status: draft
 author: iamwangbao-163-com

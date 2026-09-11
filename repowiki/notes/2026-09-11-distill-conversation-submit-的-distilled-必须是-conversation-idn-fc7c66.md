@@ -6,12 +6,14 @@ metadata:
   date: 2026-09-11
   related_modules: ["distill", "mcp", "capture"]
   severity: high
-  source_ref: "raw\\conv-@command-codewiki-蒸馏对话提取记忆和经验.md"
+  source_ref: "conversations/conv-@command-codewiki-蒸馏对话提取记忆和经验.md"
   scene: "对话蒸馏 Mode C 提交"
 status: draft
 author: iamwangbao-163-com
 generated: { by: codewiki/5.9.0, at: 2026-09-11T01:06:06Z }
 stale_after: 2027-03-10
+origin: conversation
+
 ---
 
 ## 背景
