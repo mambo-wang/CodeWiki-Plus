@@ -22,7 +22,9 @@ origin: conversation
 verified:
 - by: codewiki/5.4.2
   at: '2026-08-24T15:30:14Z'
-reject_reason: 聚合进场景：任务记忆系统设计方法
+reject_reason: 被 2026-09-11《绑定凭证消费后退役到 consumed/ 而非删除，归属继承新增 binding-archived 回退》取代：凭证机制保留，但“消费即删除
+  + supersede 继承 ⇒ 归属不丢”这一保证不成立——supersede 继承源只覆盖 pending 条目，旧 raw 被蒸馏后继承源消失，归属丢失（实测复现，见
+  pitfall《会话归属丢失：绑定已消费 + 旧 raw 已被蒸馏》）。
 author: mambo-wang
 ---
 
