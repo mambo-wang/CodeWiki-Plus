@@ -7,7 +7,7 @@ metadata:
   task_id: 技能提取
   related_modules: ["skill_match", "skill-creator"]
   severity: medium
-  source_ref: "raw\\conv-如何启用skill自动编译功能，是有环境变量控制吗？.md"
+  source_ref: "conversations/conv-如何启用skill自动编译功能，是有环境变量控制吗？.md"
   scene: "技能提取"
 status: draft
 author: iamwangbao-163-com
