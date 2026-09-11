@@ -65,3 +65,15 @@ Cli能力方案已归档到 docs/plans/cli-capability-progressive-disclosure.md�
 ### 2026-09-11 06:53
 
 阻塞项/待办：telemetry（repowiki/.meta/telemetry/*.jsonl）只有 hit/by_file/adopted 三种记录，没有 MCP 工具调用数据 → 「按频次选 core 面 / 工具调用量排名」目前无数据支撑；token 估算 injection_budget.py 用 chars/4，中文档案严重低估，/context all 或 /skills 的真实 token 数用户尚未提供。
+
+### 2026-09-11 09:56
+
+## 2026-09-11 子代理 MCP 授权修复 + 两个新发现
+
+**修复**：`.codebuddy/agents/distill-worker.md:9-10` 的 `tools: ReadFile` + `toolsMCP: codewiki` 改为 `mcpServers:\n  - codewiki`（去掉 tools 白名单，改为继承）。依据：官方文档子代理字段是 `mcpServers`（可引用全局已连接 server），**没有 `toolsMCP` 这个字段**；且 `tools` 是白名单，会挡掉 MCP。
+
+**验证**：改前 spawn 该 worker = 0 tool uses 空转；改后 = 2 tool uses，`distill_conversation(mode="prepare", task_id="Cli能力")` 成功返回 `status=noop`。
+
+**发现 1（子代理侧）**：worker 报 `mcp_get_tool_description` 返回 `Server 'codewiki' not found or not connected`，但 `mcp_call_tool` 直调成功 → 描述查询通道异常、调用通道正常。worker 靠剧本里硬编码的工具名工作，所以不受影响，但这本身是缺陷。
+
+**发现 2（归属丢失，更重要）**：本会话捕获的 raw `repowiki/raw/conv-manually_attached_skills-*.md` frontmatter **没有 task_id**，而 `repowiki/.meta/task_bindings/c9253615a4a04beb97dbc506d1c2bfe7.json` 已被删除（绑定被消费）。结果：会话开始提示「任务 Cli能力: 1 条积压」，但按 task_id 查是 0 条——归属丢失且绑定是一次性凭证，不可恢复。疑似捕获路径消费了绑定却没把 task_id 写进 frontmatter。
