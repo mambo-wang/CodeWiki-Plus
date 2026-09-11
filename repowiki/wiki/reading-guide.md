@@ -1,15 +1,9 @@
 ---
 type: Concept
-title: 阅读指南
-generated:
-  by: codewiki/reading_guide.py
-  at: 2026-09-10 06:33:33+00:00
-stale_after: '2027-03-09'
-description: '> 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。'
-status: stable
-verified:
-- by: human:wangbao
-  at: '2026-09-10T07:47:20Z'
+title: "阅读指南"
+generated: { by: codewiki/reading_guide.py, at: 2026-09-11T02:50:58Z }
+stale_after: 2099-12-31
+description: "> 基于 PageRank 依赖分析自动生成。排名越靠前的组件被越多模块依赖，建议优先阅读。"
 ---
 # 阅读指南
 
