@@ -1,19 +1,28 @@
 ---
 type: architecture
-title: "CodeBuddy 全局 MCP 默认延迟加载：工具 schema 按需拉取而非每轮常驻，「49 工具常驻 22–35k token」前提存疑"
-tags: ["architecture", "codebuddy", "deferexecutetool", "toolsearch"]
+title: CodeBuddy 全局 MCP 默认延迟加载：工具 schema 按需拉取而非每轮常驻，「49 工具常驻 22–35k token」前提存疑
+tags:
+- architecture
+- codebuddy
+- deferexecutetool
+- toolsearch
 metadata:
   date: 2026-09-11
   task_id: Cli能力
-  related_modules: ["MCP_Server"]
+  related_modules:
+  - MCP_Server
   severity: medium
-  source_ref: "conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in-75d169.md"
-status: draft
+  source_ref: conversations/conv-manually_attached_skills-Please-use-the-use_skill-tool-to-in-75d169.md
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.9.0, at: 2026-09-11T13:05:47Z }
-stale_after: 2027-09-11
+generated:
+  by: codewiki/5.9.0
+  at: 2026-09-11 13:05:47+00:00
+stale_after: '2027-09-12'
 origin: conversation
-
+verified:
+- by: human:mambo-wang
+  at: '2026-09-12T00:57:21Z'
 ---
 
 ## CodeBuddy 全局 MCP 默认延迟加载：工具 schema 按需拉取而非每轮常驻
