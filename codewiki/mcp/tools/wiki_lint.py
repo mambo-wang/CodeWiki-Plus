@@ -56,11 +56,18 @@ _ALL_CHECKS = {
     "layout_violations",
     # Team-layout Phase 1 (D1): rebuildable derived files must not be tracked
     "team_layout_gitignore",
+    # ADR-0007 (conflict first-class object): open conflict cases overdue for
+    # adjudication, or cases whose claimant files went missing
+    "open_conflicts",
 }
 
 # 归档/调试暂存目录不参与 wiki 一致性审计：.trash/（deprecated 笔记归档区，
 # 历史快照的相对链接随迁移自然失效，不应误报）与 .hook-debug/（抓包调试输出）。
 _SCRATCH_DIR_NAMES = {".trash", ".hook-debug", ".meta"}
+# ADR-0007：conflicts/ 是治理元数据层而非 wiki 知识页面，不参与通用一致性
+# 审计（stale_refs / broken_links / no_outlinks / okf_conformance 的全树扫描），
+# 其健康度由专门的 open_conflicts check 负责。
+_NON_AUDIT_DIR_NAMES = _SCRATCH_DIR_NAMES | {"conflicts"}
 
 # OKF v0.2 lifecycle vocabulary (see okf/SPEC.md §5)
 _OKF_STATUSES = {"draft", "stable", "deprecated"}
@@ -307,7 +314,7 @@ def _check_stale_refs(
     {f.name for f in output_dir.rglob("*.md")}
 
     for md_file in output_dir.rglob("*.md"):
-        if _SCRATCH_DIR_NAMES.intersection(md_file.parts):
+        if _NON_AUDIT_DIR_NAMES.intersection(md_file.parts):
             continue
         try:
             content = md_file.read_text(encoding="utf-8")
@@ -372,7 +379,7 @@ def _check_broken_links(
     issues: List[Dict[str, Any]] = []
 
     for md_file in output_dir.rglob("*.md"):
-        if _SCRATCH_DIR_NAMES.intersection(md_file.parts):
+        if _NON_AUDIT_DIR_NAMES.intersection(md_file.parts):
             continue
         try:
             content = md_file.read_text(encoding="utf-8")
@@ -650,6 +657,10 @@ def _check_orphan_pages(
     for md_file in scan_root.rglob("*.md"):
         if not md_file.is_file():
             continue
+        # wiki/-missing fallback scans the whole bundle — keep the
+        # non-audit layers (conflicts/, scratch dirs) out of the orphan walk.
+        if _NON_AUDIT_DIR_NAMES.intersection(md_file.parts):
+            continue
         rel = str(md_file.relative_to(output_dir))
         link_sources.append((rel, md_file))
         if md_file.name not in WIKI_SYSTEM_FILES:
@@ -698,7 +709,7 @@ def _check_no_outlinks(
         anchor_map = _build_anchor_map(output_dir)
 
     for md_file in output_dir.rglob("*.md"):
-        if _SCRATCH_DIR_NAMES.intersection(md_file.parts):
+        if _NON_AUDIT_DIR_NAMES.intersection(md_file.parts):
             continue
         if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
             continue
@@ -950,6 +961,10 @@ def _check_unsupported_claims(
     for scan_dir in scan_dirs:
         for md_file in scan_dir.rglob("*.md"):
             if not md_file.is_file() or md_file.name in WIKI_SYSTEM_FILES:
+                continue
+            # wiki/-missing fallback scans the whole bundle — keep the
+            # non-audit layers (conflicts/, scratch dirs) out.
+            if _NON_AUDIT_DIR_NAMES.intersection(md_file.parts):
                 continue
             try:
                 lines = md_file.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -1346,9 +1361,7 @@ def _check_low_adoption(
                     f"but not actionable enough"
                 ),
                 "file": rel_path,
-                "suggestion": _i18n.t(
-                    "tools.wiki_lint.low_adoption_suggestion", rel_path=rel_path
-                ),
+                "suggestion": _i18n.t("tools.wiki_lint.low_adoption_suggestion", rel_path=rel_path),
             }
         )
 
@@ -1757,8 +1770,7 @@ def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
                     "check": "skill_lint",
                     "severity": "error",
                     "message": (
-                        f"Skill '{rel}': sensitive {scan_hit[0]} pattern matched "
-                        f"('{scan_hit[1]}')."
+                        f"Skill '{rel}': sensitive {scan_hit[0]} pattern matched ('{scan_hit[1]}')."
                     ),
                     "file": rel,
                     "suggestion": "Remove absolute paths and secrets; use repo-relative references.",
@@ -1802,8 +1814,7 @@ def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
                         "check": "skill_lint",
                         "severity": "warning",
                         "message": (
-                            f"Skill '{rel}' possibly stale: {stale_reason} "
-                            f"(source: {ref_norm})."
+                            f"Skill '{rel}' possibly stale: {stale_reason} (source: {ref_norm})."
                         ),
                         "file": rel,
                         "suggestion": "Review the skill; revise against current material or retire it.",
@@ -1890,6 +1901,7 @@ def _check_okf_conformance(
     from datetime import date
 
     from codewiki.src.config import (
+        CONFLICTS_DIR,
         CONVERSATIONS_DIR,
         INDEX_FILENAME,
         META_DIR,
@@ -1913,7 +1925,9 @@ def _check_okf_conformance(
     # conversations/ (L0 蒸馏归档层，conv-*.md 的 frontmatter 由蒸馏管线写入,
     # 含 captured_at/content_hash 等私有键)。
     _scratch_dirs = {META_DIR, ".trash", ".hook-debug"}
-    _system_layers = {TASKS_DIR, CONVERSATIONS_DIR}
+    # ADR-0007：conflicts/ 案卷层同样不要求 OKF 合规（治理元数据，
+    # frontmatter 由 conflict_case 工具链自管）
+    _system_layers = {TASKS_DIR, CONVERSATIONS_DIR, CONFLICTS_DIR}
     targets: List[Path] = []
     for _md in output_dir.rglob("*.md"):
         parts = _md.parts
@@ -2253,6 +2267,100 @@ def _check_team_layout_gitignore(output_dir: Path) -> List[Dict[str, Any]]:
     return issues
 
 
+def _check_open_conflicts(output_dir: Path) -> List[Dict[str, Any]]:
+    """ADR-0007: open conflict cases overdue for adjudication, or dangling.
+
+    The conflicts/ directory owns its own health here (it is excluded from
+    the generic audits via ``_NON_AUDIT_DIR_NAMES``). Two failure modes:
+    - an open case older than the adjudication window (default 14 days,
+      overridable via ``lint.open_conflict_max_age_days`` in schema.yaml);
+    - a claimant file that no longer exists (note moved/renamed/deleted —
+      the case is stale and should be closed as ``reject`` or updated).
+    """
+    from datetime import date
+
+    from codewiki.src.config import CONFLICTS_DIR, SCHEMA_FILENAME
+    from codewiki.src.frontmatter import parse_frontmatter
+
+    issues: List[Dict[str, Any]] = []
+    cdir = output_dir / CONFLICTS_DIR
+    if not cdir.is_dir():
+        return issues
+
+    threshold_days = 14
+    try:
+        import yaml
+
+        schema_path = output_dir / SCHEMA_FILENAME
+        if schema_path.exists():
+            schema = yaml.safe_load(schema_path.read_text(encoding="utf-8")) or {}
+            threshold_days = int((schema.get("lint") or {}).get("open_conflict_max_age_days", 14))
+    except Exception:
+        pass
+
+    today = date.today()
+    for case_path in sorted(cdir.glob("*.md")):
+        rel = f"{CONFLICTS_DIR}/{case_path.name}"
+        try:
+            fm, _body = parse_frontmatter(case_path.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        if not fm:
+            issues.append(
+                {
+                    "check": "open_conflicts",
+                    "severity": "warning",
+                    "message": "Conflict case has no readable frontmatter.",
+                    "file": rel,
+                    "line": 1,
+                    "suggestion": "Recreate the case via flag_conflict or fix the frontmatter.",
+                }
+            )
+            continue
+        if str(fm.get("status") or "").lower() != "open":
+            continue  # resolved cases are history — git is the ledger
+
+        for c in fm.get("claimants") or []:
+            ckey = str(c or "").strip().replace("\\", "/")
+            if ckey and not (output_dir / ckey).exists():
+                issues.append(
+                    {
+                        "check": "open_conflicts",
+                        "severity": "warning",
+                        "message": f"Claimant not found: {ckey} (note moved/renamed/deleted?).",
+                        "file": rel,
+                        "line": 1,
+                        "suggestion": (
+                            "Update the case frontmatter with the claimant's new path, "
+                            "or adjudicate it as reject (false positive)."
+                        ),
+                    }
+                )
+
+        created = str(fm.get("created") or "")
+        try:
+            age = (today - date.fromisoformat(created)).days
+        except ValueError:
+            age = None
+        if age is not None and age > threshold_days:
+            issues.append(
+                {
+                    "check": "open_conflicts",
+                    "severity": "warning",
+                    "message": (
+                        f"Conflict case open for {age} days "
+                        f"(adjudication window: {threshold_days} days)."
+                    ),
+                    "file": rel,
+                    "line": 1,
+                    "suggestion": (
+                        "Adjudicate via adjudicate_conflict (keep_a / keep_b / coexist / reject)."
+                    ),
+                }
+            )
+    return issues
+
+
 # ---------------------------------------------------------------------------
 #  Main handler
 # ---------------------------------------------------------------------------
@@ -2448,6 +2556,9 @@ def handle_lint_wiki(
     # Team-layout Phase 1 (D1): rebuildable derived files must stay untracked.
     if "team_layout_gitignore" in checks and output_dir:
         all_issues.extend(_check_team_layout_gitignore(output_dir))
+
+    if "open_conflicts" in checks and output_dir:
+        all_issues.extend(_check_open_conflicts(output_dir))
 
     # Deduplicate: if a link is already reported as stale_refs, don't also
     # report it as broken_links (same file + line = same underlying problem).

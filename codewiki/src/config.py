@@ -89,6 +89,13 @@ PAGE_TYPE_DIRS = {
 SKILLS_DIR = "skills"  # draft zone, relative to output_dir (repowiki root)
 SKILL_EFFECT_DIR = ".codebuddy/skills"  # effect zone, relative to repo root
 
+# ADR-0007 (conflict first-class object): top-level conflicts/ directory —
+# governance metadata (adjudication records), NOT knowledge. Same layout
+# family as skills/: lives at the repowiki ROOT, never indexed into the
+# search corpus, excluded from the generic lint audits; its health is owned
+# by the dedicated open_conflicts lint check.
+CONFLICTS_DIR = "conflicts"
+
 
 # Files excluded from wiki index and search (system files).
 # Team-layout Phase 1: membership also matches monthly log shards

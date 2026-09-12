@@ -12,7 +12,7 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from codewiki.mcp.session import SessionStore
 from codewiki.src.frontmatter import parse_frontmatter
@@ -708,6 +708,20 @@ def _query_mode_by_file(
     max_results = int(cfg.get("max_results", 15))
     timeline = entries[:max_results]
 
+    # ADR-0007: file-scoped timeline entries that are claimants of an OPEN
+    # conflict case carry the marker too — "before you edit this file" is
+    # exactly where an unresolved contradiction must be visible.
+    try:
+        from codewiki.mcp.tools.conflict_case import load_open_conflicts
+
+        _oc = load_open_conflicts(od)
+        for e in timeline:
+            _case = _oc.get(str(e.get("file") or "").replace("\\", "/"))
+            if _case:
+                e["open_conflict"] = _case["file"]
+    except Exception as exc:  # annotation must never break the timeline
+        logger.debug("by_file open-conflict annotation skipped: %s", exc)
+
     # Telemetry only — no usage-heat hit (pre-check discipline, §2.5 Rev.2).
     for e in timeline:
         try:
@@ -1124,6 +1138,24 @@ def handle_query_wiki(
             r for r in results if r.get("source") != "note" or r.get("task_id", "") == wanted_task
         ]
 
+    # ADR-0007 (conflict first-class object): results whose file is a
+    # claimant of an OPEN conflict case carry an inline open_conflict marker,
+    # so the agent never reads one side of an unresolved contradiction
+    # unawares. The case files themselves are never part of the corpus.
+    _open_conflict_annotated = 0
+    try:
+        from codewiki.mcp.tools.conflict_case import load_open_conflicts
+
+        _open_cases = load_open_conflicts(output_dir)
+        for r in results:
+            _case = _open_cases.get(str(r.get("file") or "").replace("\\", "/"))
+            if _case:
+                r["open_conflict"] = _case["file"]
+                _open_conflict_annotated += 1
+    except Exception as e:  # annotation must never break the search path
+        logger.debug("open-conflict annotation skipped: %s", e)
+
+
     # Build context_package summary
     doc_count = sum(1 for r in results if r["source"] == "doc")
     note_count = sum(1 for r in results if r["source"] == "note")
@@ -1141,6 +1173,12 @@ def handle_query_wiki(
     if source_count:
         parts.append(f"{source_count} source(s)")
     context_package = " ".join(parts) if parts else "No relevant results found."
+    if _open_conflict_annotated:
+        context_package += (
+            f"\n⚠ {_open_conflict_annotated} result(s) are claimants of an OPEN "
+            "conflict case (see open_conflict field) — read both sides before "
+            "relying on them, and consider adjudicating via adjudicate_conflict."
+        )
 
     if results:
         top_snippets = [

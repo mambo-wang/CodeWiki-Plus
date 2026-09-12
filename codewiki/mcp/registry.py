@@ -83,6 +83,8 @@ _PUSH_ON_WRITE = frozenset(
         "refresh_doctrine",
         "flag_issue",
         "stamp_evidence",
+        "flag_conflict",
+        "adjudicate_conflict",
     }
 )
 
@@ -788,7 +790,7 @@ _register(
         name="lint_wiki",
         description=(
             "Check documentation-code consistency. Works with or without an active session. "
-            "Runs 22 available checks: stale_refs (docs reference deleted components), "
+            "Runs 25 available checks: stale_refs (docs reference deleted components), "
             "broken_links (markdown links to non-existent pages), "
             "undocumented (high-impact components without docs), "
             "cycles (circular module dependencies), coverage (documentation coverage gaps), "
@@ -819,7 +821,10 @@ _register(
             "trigger semantics / frontmatter completeness / 8KB body cap / "
             "sensitive strings / revisions audit trail; warnings for possibly-"
             "stale source materials and draft-vs-effect-zone drift after "
-            "install). "
+            "install), "
+            "open_conflicts (ADR-0007 conflict cases that are open beyond the "
+            "adjudication window or whose claimant files went missing — "
+            "adjudicate via adjudicate_conflict). "
             "Run checks=['all'] for a comprehensive audit. "
             "After fixing issues, use flag_issue to track remaining problems. "
             "MANDATORY FINAL STEP: after lint passes (or issues are tracked), you MUST call "
@@ -863,6 +868,7 @@ _register(
                             "skill_lint",
                             "layout_violations",
                             "team_layout_gitignore",
+                            "open_conflicts",
                         ],
                     },
                     "description": 'Which checks to run (default: ["all"])',
@@ -1345,6 +1351,108 @@ _register(
         },
     ),
     handler_path="codewiki.mcp.tools.note_lifecycle:handle_reject_note",
+    mode="thread",
+)
+
+# -------------------------------------------------------------------
+#  Conflict cases (ADR-0007, 冲突一等对象)
+# -------------------------------------------------------------------
+
+_register(
+    Tool(
+        name="flag_conflict",
+        description=(
+            "Declare an unresolved contradiction between two repowiki pages "
+            "(usually notes) as a first-class conflict case (ADR-0007). "
+            "Creates conflicts/<case>.md with claimants + status=open. "
+            "Idempotent per open pair: re-flagging a pair with an existing "
+            "OPEN case returns that case instead of creating a duplicate. "
+            "Cases are governance metadata, never indexed into search; "
+            "query_wiki results hitting a claimant of an open case carry an "
+            "open_conflict marker. Manual declaration only — there is no "
+            "auto-detection (deliberate: no slot-registry base, and weak "
+            "conflict candidates measured mostly false positives)."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path. Derives output_dir = repo_path/repowiki.",
+                },
+                "claimants": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Exactly 2 conflicting pages, repowiki-relative "
+                        "(e.g. 'notes/a.md', 'wiki/modules/b.md'; bare "
+                        "'a.md' resolves against notes/)"
+                    ),
+                },
+                "description": {
+                    "type": "string",
+                    "description": "What the contradiction is (required, one or two sentences)",
+                },
+                "group_key": {
+                    "type": "string",
+                    "description": (
+                        "Optional caller-supplied identity for the conflict "
+                        "group; defaults to a hash of the claimant pair"
+                    ),
+                },
+                "by": {
+                    "type": "string",
+                    "description": "Optional OKF actor id recorded as flagged_by",
+                },
+            },
+            "required": ["claimants", "description"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.conflict_case:handle_flag_conflict",
+    mode="thread",
+)
+
+_register(
+    Tool(
+        name="adjudicate_conflict",
+        description=(
+            "Resolve an open conflict case (ADR-0007). Actions: keep_a "
+            "(keep claimant A, deprecate B via the reject_note primitive), "
+            "keep_b (mirror), coexist (both sides valid, no deprecation), "
+            "reject (the conflict was a false positive — both stay, case "
+            "closed). Records resolution / resolved_by / resolved_at in the "
+            "case frontmatter; the ledger is git. Only open cases can be "
+            "adjudicated."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "repo_path": {
+                    "type": "string",
+                    "description": "Repository path. Derives output_dir = repo_path/repowiki.",
+                },
+                "conflict_file": {
+                    "type": "string",
+                    "description": "Conflict case filename (relative to conflicts/ or full relpath)",
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["keep_a", "keep_b", "coexist", "reject"],
+                    "description": "Adjudication action",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Optional adjudication reason (recorded and shown to future readers)",
+                },
+                "by": {
+                    "type": "string",
+                    "description": "Optional OKF actor id recorded as resolved_by",
+                },
+            },
+            "required": ["conflict_file", "action"],
+        },
+    ),
+    handler_path="codewiki.mcp.tools.conflict_case:handle_adjudicate_conflict",
     mode="thread",
 )
 
