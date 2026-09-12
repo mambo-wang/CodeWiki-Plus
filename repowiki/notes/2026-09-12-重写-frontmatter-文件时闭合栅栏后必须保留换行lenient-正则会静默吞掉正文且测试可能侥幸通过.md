@@ -1,17 +1,29 @@
 ---
 type: pitfall
-title: "重写 frontmatter 文件时闭合栅栏后必须保留换行：lenient 正则会静默吞掉正文且测试可能侥幸通过"
-tags: ["pitfall"]
-aliases: ["frontmatter 闭合栅栏换行", "栅栏粘连", "正文被吞"]
+title: 重写 frontmatter 文件时闭合栅栏后必须保留换行：lenient 正则会静默吞掉正文且测试可能侥幸通过
+tags:
+- pitfall
+aliases:
+- frontmatter 闭合栅栏换行
+- 栅栏粘连
+- 正文被吞
 metadata:
   date: 2026-09-12
   task_id: 冲突一等对象
-  related_modules: ["conflict_case", "frontmatter", "note_writer"]
+  related_modules:
+  - conflict_case
+  - frontmatter
+  - note_writer
   severity: medium
-status: draft
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.9.0, at: 2026-09-12T02:18:32Z }
-stale_after: 2027-03-11
+generated:
+  by: codewiki/5.9.0
+  at: 2026-09-12 02:18:32+00:00
+stale_after: '2027-03-11'
+verified:
+- by: human:mambo-wang
+  at: '2026-09-12T02:18:56Z'
 ---
 
 ## 背景
