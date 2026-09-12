@@ -189,6 +189,15 @@
       "repo": "CodeWiki-CN",
       "producer": "codewiki/5.8.0",
       "written_at": "2026-09-08T05:55:26Z"
+    },
+    "wiki/queries/参考项目记忆存储与压缩机制对比-2026-09.md": {
+      "git_head": "81f4c6dc01b272634fcaff6fd428237a661c629f",
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": "CodeWiki-CN",
+      "producer": "codewiki/5.9.0",
+      "written_at": "2026-09-12T00:55:39Z"
     }
   }
 }
