@@ -1,18 +1,25 @@
 ---
 type: decision
-title: "对话采集会把密钥写进随代码版本化的 repowiki，脱敏收口在 tool_digest.digest_blocks 与 capture_conversation._extract_transcript"
-tags: ["decision", "github"]
+title: 对话采集会把密钥写进随代码版本化的 repowiki，脱敏收口在 tool_digest.digest_blocks 与 capture_conversation._extract_transcript
+tags:
+- decision
+- github
 metadata:
   date: 2026-09-11
-  related_modules: ["MCP_Tools_Knowledge"]
+  related_modules:
+  - MCP_Tools_Knowledge
   severity: medium
-  source_ref: "conversations/conv-继续调研-c2bc52.md"
-status: draft
+  source_ref: conversations/conv-继续调研-c2bc52.md
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.9.0, at: 2026-09-11T13:01:52Z }
-stale_after: 2027-09-11
+generated:
+  by: codewiki/5.9.0
+  at: 2026-09-11 13:01:52+00:00
+stale_after: '2027-09-12'
 origin: conversation
-
+verified:
+- by: human:mambo-wang
+  at: '2026-09-12T00:57:12Z'
 ---
 
 ## Background
