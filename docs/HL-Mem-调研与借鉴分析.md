@@ -23,7 +23,7 @@
 | 曝光口径 | **召回即计 hit** | **只有被物化进 Context Packet 的条目**才获得曝光行 |
 | 可答性 | `[unconfirmed]` 前缀 + `deprecated` 跳过 | `no_evidence`（硬弃答）/ `low_confidence`（软弃答）二分 |
 | 删除 | 置 `deprecated`，文件保留，git 兜底 | tombstone sidecar 账本 + fail-closed 物理删除闭包 |
-| 能力登记 | 无 | `docs/capability-matrix.md`：**37 条能力** × 成熟度 / 默认开关 / 降级行为 / 量化晋级标准 |
+| 能力登记 | 无 | `docs/capability-matrix.md`：**39 条能力**（特性 7 + 核心功能 32）× 7 列（成熟度 / 默认模式 / 外部 API / 写数据库 / 降级行为 / 晋级标准） |
 | 工具面 | 48 个 MCP 工具 | 7 个 MCP 工具（`memory_save/recall/get/correct/forget/explain/feedback`） |
 
 **核心结论**
@@ -87,7 +87,7 @@ if feedback_lifecycle_mode == "on" and row["bonus_days"] > 0:
         effective = min(effective, valid_to)      # 延寿不得越过事实有效期
 ```
 
-`bonus_days` 来自 `memory_usefulness.retention_bonus_days`；参数 `feedback_bonus_every=3` / `feedback_bonus_days=14` / `feedback_bonus_cap_days=180`（`config/lifecycle.py:251-258`）。**两层约束让"反馈驱动"不会退化成"热度掩盖过期"。**
+`bonus_days` 来自 `memory_usefulness.retention_bonus_days`；参数 `feedback_bonus_every=3` / `feedback_bonus_days=14` / `feedback_bonus_cap_days=180`（`config/lifecycle.py:251-258`）。**两层约束让"反馈驱动"不会退化成"热度掩盖过期"。**（二次复核补：`ttl.py:44-46` 还有第三层——`state.service_health` 槽位条目再被 `slot_short_ttl_seconds` 二次夹紧，高频状态类知识即使高 usefulness 也不得长于短 TTL。）
 
 ### 3.4 曝光口径：只有被交付的条目才算曝光
 
@@ -97,7 +97,7 @@ if feedback_lifecycle_mode == "on" and row["bonus_days"] > 0:
 
 ### 3.5 能力矩阵：把"能不能上线"变成可测问题
 
-`docs/capability-matrix.md` = 37 条能力 × 4 列：成熟度（stable/beta/experimental）/ 默认模式 / 降级行为 / 量化晋级标准。抽样：
+`docs/capability-matrix.md` = 39 条能力（特性表 7 + 核心功能 32）× 7 列：名称 / 成熟度（stable/beta/experimental）/ 默认模式 / 外部 API / 写数据库 / 降级行为 / 晋级标准。抽样：
 
 | 能力 | 成熟度 | 默认 | 晋级标准（摘） |
 |---|---|---|---|
@@ -121,7 +121,7 @@ if feedback_lifecycle_mode == "on" and row["bonus_days"] > 0:
 | C5 | 曝光口径 = 被物化条目 | `note_query.py:1248-1252`：**每个返回结果都记 hit**，且 fallback 到 title/path | **deferred** |
 | C6 | 来源权威按 provenance 声明 | 按 `note_type`+`status`（`retrieval.py:445-457`）+ 路径（`raw/sources/` −0.20，`:476-477`） | **deferred** |
 | C7 | 可答性二分 | 有 `[unconfirmed]` 软标注 + `deprecated` 跳过（`note_query.py:1014-1018`），未区分"无候选"与"弱候选" | **deferred** |
-| C8 | 双时间模型 | 单轴 `stale_after` + `note_freshness` 窗口；确认时续期（`note_writer.py:209-222`） | **excluded** |
+| C8 | 双时间模型 | 单轴 `stale_after` + `note_freshness` 窗口；确认时续期（`note_writer.py:209-222`） | **excluded**（注：`valid_from`/`valid_to`/`last_verified_at` 已在 Phase5 T7 计划内（`docs/Phase5-资产治理-实现任务拆解.md`），此处排除的是完整四字段双时间与 `recorded_*` 轴；A3 的延寿夹紧与 T7 统一设计） |
 | C9 | tombstone 账本 + manifest v2 + 恢复回放 | `deprecated` 状态 + 文件保留 + git | **excluded** |
 | C10 | CAS + 治理账本 + 60 个不可变迁移 | 无独立 DB；schema 由 `page_router.load_schema` 松加载 | **excluded** |
 | C11 | decay 半衰期 / 多档 TTL / 归档清 embedding | 本仓 `decay` 仅指**图跳衰减**（`wiki_search.py:70`、`cache.py:1277,1748`）与检索分衰减；`TTL` 仅会话级 2h。**知识条目无衰减/归档** | **excluded** |
@@ -156,17 +156,19 @@ if feedback_lifecycle_mode == "on" and row["bonus_days"] > 0:
 **目标**：两条笔记矛盾时能表达"这是一处待裁决冲突"，而非让 Agent 在 prompt 里自记一笔。
 
 **最小实现（刻意降复杂度）**：
-- 新增 `conflict` 页面类型（或 `notes/conflicts/<slug>.md`），frontmatter 携带 `claimants: [notes/a.md, notes/b.md]`、`group_key`、`status: open|resolved`、`resolution`、`resolved_by`、`resolved_at`。
+- 新增顶级 `conflicts/` 页面类型（2026-09-12 定稿：见 ADR-0007；否决 `notes/conflicts/` 子目录——冲突是治理元数据不是知识，不得混入检索语料），frontmatter 携带 `claimants: [notes/a.md, notes/b.md]`、`group_key`、`status: open|resolved`、`resolution`、`resolved_by`、`resolved_at`。
 - 新增 `flag_conflict`（创建）+ `adjudicate_conflict`（裁决，动作集沿用 `keep_a / keep_b / coexist / reject`）。
 - **裁决复用现有原语**：`keep_a` 内部即"对 b 调 `reject_note` 并写明 reason"——`reject_note` 的 deprecated + reason 机制已存在（`note_lifecycle.py:93-123`），**不需要新建状态机**。
 - **账本 = git**，不做独立 ledger；裁决写入 frontmatter 即留痕。
-- **不做的部分**：CAS / fingerprint 并发控制（本仓单写者 + git）、自动裁决（本仓无 `conflict_key` 确定性底座）、`generation` 世代（文件系统足够）。
+- **不做的部分**：CAS / fingerprint 并发控制（本仓单写者 + git）、**自动冲突发现**（2026-09-12 复核后明确排除：HL-Mem 自动发现依赖 slot 注册表底座（`domain/claims/conflicts.py:119-160`），本仓自由 Markdown 无此物，且 Mode C 蒸馏实测「弱冲突多为误报」有前科）、自动裁决（本仓无 `conflict_key` 确定性底座）、`generation` 世代（文件系统足够）。
 - **接入检索**：`open` 冲突双方在 `query_wiki` 结果中标注"存在未裁决冲突"，避免 Agent 只看到一半。
 - **接入 lint**：`open` 冲突超期未裁决 → warning。
 
 **验收**：能创建 → 能裁决 → 败者变 deprecated 且带 reason → 双方检索结果均带冲突标注 → 全程 git 可审计。
 
-### A2 能力成熟度矩阵（`repowiki/capability-matrix.md`）
+**状态（2026-09-12）**：已立项独立任务「冲突一等对象」，排期与 Phase5 批次二（T5/T6，动同一片 note_lifecycle/note_query 区域）错开。
+
+### A2 能力成熟度矩阵（`docs/capability-matrix.md`，2026-09-12 定稿落点：产品元文档住工程 docs/，不混入 repowiki 知识语料）
 
 一张表：能力 / 成熟度（`stable|beta|experimental`）/ 默认开关 / 降级行为 / 晋级标准（可测数字或可测不变量）。首批登记对象：`low_adoption`（现仅 warning）、`usage heat` 三参数（`boost_cap`/`cold_penalty`/`adopted_weight`）、检索各通道（本体扩展、图扩展 hop 衰减、authority 叠加）、`lint_wiki` 各 check 的默认开关与阈值、采集 hook（默认关）、`distill_conversation` 三种 Mode。
 
@@ -174,12 +176,16 @@ if feedback_lifecycle_mode == "on" and row["bonus_days"] > 0:
 
 ### A3 反馈从「排序」走向「生命周期」（对应 Phase5）
 
+**降档说明（2026-09-12 复核后）**：并入 Phase5 负反馈批次（T5/T6 落地后）作顺手项，不独立立项；延寿公式直接移植 HL-Mem `BayesianUsefulnessPolicy` 纯函数（`domain/feedback.py:36-37`：`bonus = floor(正证据/3) × 14 天，cap 180`），夹紧机制与 T7 `valid_to` 统一设计，默认 observe 先行。
+
 信号侧零改动，只加动作：
 1. **采纳加成保留期**（抄 `workers/ttl.py:37-43` 的双重夹紧）：`adopted_count` 达阈值 → 延长 `stale_after`，但**被该笔记类型的新鲜度上限夹住**。默认 `observe`：先只记录"本应延长多少天"，不改实际值。
 2. **零采纳 → 重写候选动作**：对 `hit_count` 高、`adopted_count = 0`、且 `note_type != decision` 的笔记产出**具体重写建议**（现有 suggestion 为 i18n 文案，可升级为动作项）。
 3. **保留冷启动守卫**：`_check_low_adoption` 已有"零 adopted 事件时不报任何 issue"的机制（`wiki_lint.py:1233-1236`），此纪律必须保留。
 
 ### A4 把三态开关写成约定
+
+**状态（2026-09-12 已落地）**：术语进 CONTEXT.md glossary「tri-state gate」，约定段进 CONTRIBUTING.md。
 
 `off / observe / enforce` 三态命名 + "新能力默认 observe，用数据换 enforce"写进 Team Doctrine / `CONTRIBUTING.md`。成本近零，收益是让 A2 的矩阵有统一词汇。**注意**：本仓已有部分等价物（`[unconfirmed]`、`draft`、lint 只报不改），**不要重复造，只需统一命名**。
 
@@ -251,3 +257,15 @@ if feedback_lifecycle_mode == "on" and row["bonus_days"] > 0:
 | 新鲜度窗口 | `codewiki/mcp/tools/note_freshness.py:26,76,94` |
 | draft 标注 `[unconfirmed]` | `codewiki/mcp/tools/note_query.py:1014-1018` |
 | 知识条目无 decay/TTL | `decay` 仅见于 `codewiki/mcp/tools/wiki_search.py:70`、`codewiki/mcp/cache.py:1277,1748` |
+
+---
+
+## 八、二次复核补记（2026-09-12）
+
+初轮拷问后对本仓 `.tmp/hl_mem` 克隆做了第二轮独立源码核实（子代理采集 + 主 Agent 抽读复核），修正与强化如下：
+
+1. **能力矩阵实为 7 列 39 条**（特性表 7 + 核心功能 32），非本文初稿所称「4 列 37 条」；`docs/capability-matrix.md:11` 标题「六大特性」与实际 7 条的漂移属实。矩阵为纯手维护（`scripts/check_docs_consistency.py:158-162` 只校验版本基线），印证「不做发布纪律锚定就不如不做」。
+2. **冲突子系统规模实测**：纯函数约 1800 行（`governance.py` 392 + `claims/conflicts.py` 256 + `temporal_links.py` 429 + `attributes.py` 733），SQLite 绑定约 2200+ 行（`application/conflicts.py` 592 + `conflict_snapshot.py` 542 + `conflict_invariants.py` 172 + `conflict_backlog.py` 243 + `auto_resolve_conflicts.py` 356 + repair 138 + storage 168），依赖 conflict_cases 等四表与 CAS。**剥离 ≈ 重写，代码不可移植**；conflict_key 为规范化 subject+slot+qualifier 的 SHA-256（`domain/claims/conflicts.py:119-160`），依赖 slot 注册表——本仓自由 Markdown 无此底座，故 A1 定稿为**手动声明、不做自动发现**。
+3. **反馈→生命周期第三层夹紧**：除 `valid_to` 外，`state.service_health` 槽位条目再被 `slot_short_ttl_seconds` 二次夹紧（`workers/ttl.py:44-46`，主 Agent 亲读确认）。延寿公式 `bonus = floor(正证据/3) × 14 天，cap 180`（`domain/feedback.py:36-37`，37 行纯函数可直抄）。
+4. **三态为散装约定非机制**：HL-Mem 约 13 个门控项各自独立 Literal 别名、无共享基类（`config/lifecycle.py:8-9`、`config/models.py:29-50`；默认 observe 4 项、默认 enforce 5 项）——抄的只是词汇表，不是代码。
+5. **处置修订**（absorbed/deferred/excluded 总数不变）：C8 补注 Phase5 T7 关系；A2 落点改 `docs/capability-matrix.md`；A3 降档并入 Phase5；A1 排除自动发现、页面形态定稿顶级 `conflicts/` 页面类型（ADR-0007）。

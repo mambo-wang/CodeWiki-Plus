@@ -81,8 +81,27 @@ import 全仓归零。
 _Avoid_: 把 skill 当 scenario 的替身——一个进系统提示改变行为，一个进检索
 供查阅；素材过期联动（stale）走技能自身标注，不改写素材源。
 
+**tri-state gate（三态门控）** — 语义归并类新能力的统一开关词汇：`off`（不采集不
+生效）/ `observe`（采集并记录「本应做什么」，不改核心结果）/ `enforce`（真正改变
+结果）。纪律：新能力默认 `observe`，用离线数据证明收益且无误伤后才升 `enforce`。
+本仓已有等价物（draft 笔记不生效、`low_adoption` 仅 warning、lint 只报不改、采集
+hook 默认关）统一归入此词汇，不另造机制；登记面见 `docs/capability-matrix.md`。
+_Avoid_: 为单个能力发明第四种状态、或绕过 observe 直接 enforce。
+
+**conflict case（冲突案卷）** — 一对互相矛盾的 Wiki 笔记的裁决记录，顶级 `conflicts/`
+页面类型（ADR-0007）：frontmatter 携带 `claimants`（当事笔记）、`status:
+open|resolved`、`resolution` 与裁决人/时间。是治理元数据不是知识——不进检索语料，
+由检索在命中 claimant 时附加「存在未裁决冲突」标注。裁决动作集
+`keep_a/keep_b/coexist/reject`，内部复用 `reject_note` 原语；账本即 git。只做
+Agent 手动声明，不做自动发现（无 slot 底座 + 弱冲突误报前科，ADR-0007）。
+_Avoid_: 把案卷写成普通 note（污染检索语料）、双向 `conflict_with` 引用（易漂移）。
+
 ## Key decisions
 
 - [ADR-0001 — 任务记忆保持 Markdown，不迁移 JSONL](adr/0001-task-memory-stays-markdown.md)（2026-08-24）
 - [ADR-0002 — 任务记忆直写落盘，不设确认闸门](adr/0002-task-memories-direct-write.md)（2026-08-24）
 - [ADR-0003 — 对端新鲜度判据用 git 提交时间而非 mtime](adr/0003-possibly-stale-uses-git-commit-time.md)（2026-09-02）
+- [ADR-0004 — 技能与场景分轨，两区制守确认闸门](adr/0004-skill-scenario-split-two-zone-gate.md)（2026-09-06）
+- [ADR-0005 — 证据漂移信号仅在代码变更路径参与增量决策，no_changes 路径保持静默](adr/0005-evidence-drift-silent-on-no-changes.md)（2026-09-06）
+- [ADR-0006 — 会话绑定凭证退役而非销毁，归属继承三级回退](adr/0006-session-binding-attribution-tombstone.md)（2026-09-11）
+- [ADR-0007 — 冲突案卷是独立页面类型，不是笔记](adr/0007-conflict-case-page-type.md)（2026-09-12）
