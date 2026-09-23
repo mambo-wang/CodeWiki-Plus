@@ -84,8 +84,9 @@ flowchart LR
 
 ```python
 from codewiki.mcp.tools.workspace_layout import resolve_workspace, routing_for_write
+
 res = resolve_workspace(repo_path)
 if res.centralized:
-    out = res.root / "repowiki"        # 共享知识库
+    out = res.root / "repowiki"  # 共享知识库
     name = routing_for_write(out, repo_path)  # 分区名 / None
 ```

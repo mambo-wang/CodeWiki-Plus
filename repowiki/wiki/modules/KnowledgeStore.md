@@ -87,6 +87,7 @@ flowchart LR
 
 ```python
 from codewiki.src.store import KnowledgeStore, locked_rmw
+
 store = KnowledgeStore(root)
 # 跨进程安全更新 tasks/index
 new = locked_rmw(store._task_index_path(), lambda t: transform(t))

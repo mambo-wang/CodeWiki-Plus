@@ -16,7 +16,9 @@ metadata:
   - release
   - ci
   - skills/windows-python-release/SKILL.md
-  compiled_into: ''
+  compiled_into:
+  - ''
+  - skills/windows-python-release/SKILL.md
   confidence_level: shadow
   consolidated_into:
   - wiki/scenarios/发布与依赖治理方法.md

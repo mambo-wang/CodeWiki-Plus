@@ -1,23 +1,7 @@
 ---
 name: windows-python-release
 description: 当要手动发布 Python 包（codewiki-plus）到 PyPI 并建 GitHub Release 时——CI 不发布、Windows 控制台为 GBK、可能无 gh CLI、本机网络对 upload.pypi.org 的 Python TLS 握手有干扰——按 8 步主干执行：同步四处版本→bump 提交→pytest+ruff 闸门→清 dist 构建→PR 合并 main→tag merge commit 建 Release→uv publish（TLS 超时则 curl.exe 直传）→PyPI JSON API 核对
-type: Skill
-status: stable
-generated:
-  by: codewiki/5.8.0
-  at: "2026-09-08T06:04:10Z"
-stale_after: 2026-12-22
-metadata:
-  summary: 手动发布 7 步主干 SOP + 每步避坑注解
-  source_refs: ["wiki/scenarios/发布与依赖治理方法.md", "notes/2026-09-10-codewiki-手动发布完整流程同步四处版本测试build清distpublishrelease核对.md"]
-  revisions: ["at: \"2026-09-08T06:04:10Z\"", {"at": "2026-09-10T02:02:25Z", "reason": "按主干优先重构：原 SOP 8 步中 6 步是避坑，缺发布主流程；改为 7 步主干（每步带判定点），避坑降级为步骤注解。来源为新增的流程型笔记。", "source": "skill_creator"}, {"at": "2026-09-23T04:05:06Z", "reason": "v5.13.0 发布实操回写：①新增步骤 5「PR 合并 main」（check-runs 轮询，非 commit status）；②tag 位置统一为 PR merge commit（main），废弃 v5.12.0 打在 develop bump commit 的旧做法；③步骤 7 补 TLS 握手干扰归因与 curl.exe（schannel）直传 legacy API 绕法，digest 字段名 sha256_digest；④核对端点补版本直查规避 JSON API 缓存延迟。来源：任务「发版本」v5.13.0 发布会话（2026-09-23）。", "source": "skill_creator"}]
-  reason: created from candidate materials
-  source: skill_creator
-  installed_at: "2026-09-23T04:05:26Z"
-  installed_to: .codebuddy/skills/windows-python-release/
-  installed_hash: "sha256:03e81fb6d3c088e3abc0dae79f78c5aabfbeebb5430486a63b9b0404b4b0d7b3"
 ---
-
 
 ## 工作场景
 
@@ -78,4 +62,3 @@ metadata:
 - 不要把 PyPI token 写进任何落盘文件后不清理
 
 依据: notes/2026-09-10-codewiki-手动发布完整流程同步四处版本测试build清distpublishrelease核对.md 的「7 步主干与每步判定点」；wiki/scenarios/发布与依赖治理方法.md 的「dist 残留被一并上传」「Release 正文乱码不可逆」「Windows 参数与 stdin 编码统一绕法」；任务「发版本」v5.13.0 发布实操（2026-09-23）：TLS 握手干扰归因与 curl.exe 绕法、sha256_digest 字段名、tag 打在 merge commit 的约定
-

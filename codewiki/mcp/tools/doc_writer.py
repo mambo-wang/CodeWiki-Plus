@@ -546,15 +546,23 @@ def _build_okf_frontmatter(
     _gen_from = ""
     if session.repo_path:
         try:
+            import os
             import subprocess
 
+            _kw: dict = {
+                "capture_output": True,
+                "stdin": subprocess.DEVNULL,
+                "text": True,
+                "timeout": 5,
+            }
+            if os.name == "nt":
+                # Console-less parent (IDE-spawned MCP server): without this
+                # flag every git child allocates a flashing console window.
+                _kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             _sha = subprocess.run(
                 ["git", "rev-parse", "--short", "HEAD"],
                 cwd=session.repo_path,
-                capture_output=True,
-                stdin=subprocess.DEVNULL,
-                text=True,
-                timeout=5,
+                **_kw,
             ).stdout.strip()
             if _sha:
                 _gen_from = _sha

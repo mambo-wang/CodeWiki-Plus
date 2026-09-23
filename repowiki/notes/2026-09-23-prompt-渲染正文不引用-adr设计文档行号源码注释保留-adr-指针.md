@@ -1,22 +1,26 @@
 ---
 type: decision
-title: "prompt 渲染正文不引用 ADR/设计文档/行号，源码注释保留 ADR 指针"
-tags: ["decision"]
+title: prompt 渲染正文不引用 ADR/设计文档/行号，源码注释保留 ADR 指针
+tags:
+- decision
 metadata:
   date: 2026-09-23
-  confidence_level: weak
+  confidence_level: shadow
   task_id: 产品维护
-  source_session: "bb80ce6d0e5b4cf8a6af19bcb6e6b54a"
-  related_modules: ["codewiki-mcp-prompts"]
+  source_session: bb80ce6d0e5b4cf8a6af19bcb6e6b54a
+  related_modules:
+  - codewiki-mcp-prompts
   severity: medium
-  source_ref: "conversations\\conv-working_memory_content-The-following-is-the-existing-working-4.md"
-  scene: "产品维护/prompts.py 清理"
-status: draft
+  source_ref: conversations\conv-working_memory_content-The-following-is-the-existing-working-4.md
+  scene: 产品维护/prompts.py 清理
+status: deprecated
 author: iamwangbao-163-com
-generated: { by: codewiki/5.12.0, at: 2026-09-23T01:11:28Z }
+generated:
+  by: codewiki/5.12.0
+  at: 2026-09-23 01:11:28+00:00
 stale_after: 2027-09-23
 origin: conversation
-
+reject_reason: '用户拒绝：内容已在任务记忆 #86ba 中记录，无需重复落盘为全局笔记'
 ---
 
 ## Background

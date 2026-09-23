@@ -179,3 +179,19 @@ def test_pytest_guard(wiki_repo: Path):
     auto_stage(note)  # no _force
 
     assert _staged(wiki_repo) == []
+
+
+def test_windows_creationflags_suppresses_console():
+    """Console-less parents (IDE-spawned MCP server) must not flash a cmd
+    window per git child: on Windows the flags must include
+    CREATE_NO_WINDOW (plus CREATE_NEW_PROCESS_GROUP for kill-tree
+    semantics); elsewhere the helper is a no-op 0."""
+    import os
+    import subprocess as sp
+
+    flags = git_sync.windows_creationflags()
+    if os.name == "nt":
+        assert flags & getattr(sp, "CREATE_NO_WINDOW", 0)
+        assert flags & getattr(sp, "CREATE_NEW_PROCESS_GROUP", 0)
+    else:
+        assert flags == 0

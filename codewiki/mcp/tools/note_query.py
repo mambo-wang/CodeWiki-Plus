@@ -528,15 +528,19 @@ def _last_commit_time(target_path: Path, repo_root: Path) -> Optional[datetime]:
     file's mtime to clone time, which would false-positive every note as
     stale. Untracked files / missing git → None (honest "don't know").
     """
+    import os
     import subprocess
 
+    _kw: dict = {"capture_output": True, "text": True, "timeout": 10}
+    if os.name == "nt":
+        # Console-less parent (IDE-spawned MCP server): without this flag
+        # every git child allocates a flashing console window.
+        _kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
         r = subprocess.run(
             ["git", "log", "-1", "--format=%cI", "--", str(target_path)],
             cwd=str(repo_root),
-            capture_output=True,
-            text=True,
-            timeout=10,
+            **_kw,
         )
         if r.returncode != 0 or not r.stdout.strip():
             return None

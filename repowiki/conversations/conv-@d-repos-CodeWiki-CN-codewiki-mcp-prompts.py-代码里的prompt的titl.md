@@ -203,6 +203,7 @@ def _lang() -> str:
     lang = os.environ.get("CODEWIKI_LANG", "").strip().lower()
     return lang if lang in ("zh", "en") else "zh"
 
+
 # 仅 en 覆盖表；zh 用内建文案
 _EN_META: dict[str, tuple[str, str]] = {
     "init-wiki": (
@@ -291,9 +292,11 @@ prompt_description: "CodeWiki 工作流指引: {name}"   # get_prompt 的 descri
 # codewiki/mcp/i18n.py
 _LOCALES = Path(__file__).parent / "locales"
 
+
 def current_lang() -> str:
     lang = os.environ.get("CODEWIKI_LANG", "").strip().lower()
     return lang if lang in ("zh", "en") else "zh"
+
 
 @lru_cache(maxsize=None)
 def _load(lang: str) -> dict:
@@ -302,6 +305,7 @@ def _load(lang: str) -> dict:
         return {}
     with path.open(encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
 
 def t(key: str, **fmt) -> str:
     """按当前语言取词：当前语言缺失 → zh → 返回 key 本身（防静默）"""

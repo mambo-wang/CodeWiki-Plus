@@ -81,3 +81,7 @@ v5.11.0 发布完成（2026-09-20）。关键进展与决策：
 6. 经验教训：该仓库 CI 用 GitHub Actions check-runs，不产生 commit status，轮询 commits/{sha}/status 的 combined state 永远 pending——应轮询 commits/{sha}/check-runs。
 
 下一步：无待办，发布流程全部完成。
+
+### 2026-09-23 11:31 #kskg
+
+v5.13.0 发布完成（2026-09-23）：PyPI 双产物上传成功（whl 0.96MB + sdist 10.37MB，curl.exe 直传绕过 Python TLS 握手超时）、GitHub Release 已发布、tag v5.13.0 打在 merge commit 3e97d30（PR #35 CI 绿后合并，main 一并带入 v5.12.0）。bump commit 33dcca2 含 ruff 全量修复（F401/F841/E741 + 58 文件格式化），全量测试 1152 passed。教训：本机网络对 upload.pypi.org 的 Python OpenSSL TLS 握手被干扰（requests/twine/uv 全超时），curl.exe（schannel）正常；legacy API 直传需 sha256_digest 字段（非 digests_sha256）+ 从 whl METADATA/sdist PKG-INFO 提取元数据构造完整表单。

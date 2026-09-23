@@ -55,6 +55,26 @@ _PUSH_RETRIES = 5  # D10: fetch+rebase retry budget on push races
 # once per process per repository (design §6.2 frequency gate)
 _checked_repos: Set[str] = set()
 _ff_pulled_repos: Set[str] = set()
+
+
+def windows_creationflags() -> int:
+    """Windows creation flags for console-less subprocess launches.
+
+    The MCP server is spawned by the IDE without a console; any child git
+    process would then allocate a fresh console window that flashes on
+    screen for every git call (auto_push runs several per write anchor).
+    ``CREATE_NO_WINDOW`` suppresses that; ``CREATE_NEW_PROCESS_GROUP`` is
+    kept so :func:`_kill_process_tree` semantics stay unchanged.  On
+    non-Windows this returns 0 (callers pass it only when ``os.name ==
+    "nt"``).
+    """
+    if os.name != "nt":
+        return 0
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
+        subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+    )
+
+
 # Repos whose auto_push is owned by an enclosing batch boundary.  Keyed by
 # repo root (not output_dir) so nested items that resolve to the same repo
 # are suppressed even when they carry their own output_dir.
@@ -155,7 +175,7 @@ def run_git_bounded(
         "errors": "replace",
     }
     if os.name == "nt":
-        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        kwargs["creationflags"] = windows_creationflags()
     else:
         kwargs["start_new_session"] = True
     try:

@@ -1,22 +1,26 @@
 ---
 type: pitfall
-title: "每日工作记忆文件是 append-only，用 write_to_file 覆盖会丢当天早前记录"
-tags: ["pitfall"]
+title: 每日工作记忆文件是 append-only，用 write_to_file 覆盖会丢当天早前记录
+tags:
+- pitfall
 metadata:
   date: 2026-09-23
-  confidence_level: weak
+  confidence_level: shadow
   task_id: 产品维护
-  source_session: "bb80ce6d0e5b4cf8a6af19bcb6e6b54a"
-  related_modules: ["agent-memory"]
+  source_session: bb80ce6d0e5b4cf8a6af19bcb6e6b54a
+  related_modules:
+  - agent-memory
   severity: medium
-  source_ref: "conversations\\conv-working_memory_content-The-following-is-the-existing-working-4.md"
-  scene: "产品维护/记忆文件写入"
-status: draft
+  source_ref: conversations\conv-working_memory_content-The-following-is-the-existing-working-4.md
+  scene: 产品维护/记忆文件写入
+status: deprecated
 author: iamwangbao-163-com
-generated: { by: codewiki/5.12.0, at: 2026-09-23T01:11:37Z }
+generated:
+  by: codewiki/5.12.0
+  at: 2026-09-23 01:11:37+00:00
 stale_after: 2027-03-22
 origin: conversation
-
+reject_reason: 用户拒绝：IDE 宿主工作记忆通道的通用纪律，不属于 CodeWiki 项目知识
 ---
 
 ## Background

@@ -168,6 +168,7 @@ user: ## Summary
      - 输出目录解析块整体替换：
        ```python
        from codewiki.mcp.tools.workspace_layout import default_output_dir
+
        output_dir_p = default_output_dir(repo_path_p)
        ```
 

@@ -383,12 +383,17 @@ def _clone_repo(workspace_p: Path, name: str, url: str, timeout: int) -> dict:
             "detail": f"directory {dest} exists but is not a git repository; check manually",
         }
     try:
+        import os
+
+        _kw: dict = {"capture_output": True, "text": True, "timeout": timeout}
+        if os.name == "nt":
+            # Console-less parent (IDE-spawned MCP server): without this
+            # flag every git child allocates a flashing console window.
+            _kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         proc = subprocess.run(
             ["git", "clone", url, str(dest)],
             cwd=str(workspace_p),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+            **_kw,
         )
     except FileNotFoundError:
         return {"status": "error", "detail": "git executable not found in PATH"}

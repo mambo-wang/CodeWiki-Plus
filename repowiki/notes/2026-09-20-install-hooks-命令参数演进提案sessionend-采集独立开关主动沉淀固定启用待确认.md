@@ -1,22 +1,32 @@
 ---
 type: decision
-title: "install-hooks 参数重构定案并实施（ADR-0014）：--capture 独立开关、主动沉淀固定启用、--mode 删除"
-tags: ["decision", "install-hooks", "capture", "ADR-0014"]
+title: install-hooks 参数重构定案并实施（ADR-0014）：--capture 独立开关、主动沉淀固定启用、--mode 删除
+tags:
+- decision
+- install-hooks
+- capture
+- ADR-0014
 metadata:
   date: 2026-09-20
   confidence_level: weak
   task_id: 产品维护
-  source_session: "7c6e728aee994ae8ac04574de53d3cfd"
-  related_modules: ["cli", "mcp"]
+  source_session: 7c6e728aee994ae8ac04574de53d3cfd
+  related_modules:
+  - cli
+  - mcp
   severity: medium
-  source_ref: "conversations/conv-user_command-commands-codewiki-启用-禁用任务管理（跨会话任务记忆）-管理-team-me-37c9c2.md"
-  scene: "产品维护/接线档位"
-status: draft
+  source_ref: conversations/conv-user_command-commands-codewiki-启用-禁用任务管理（跨会话任务记忆）-管理-team-me-37c9c2.md
+  scene: 产品维护/接线档位
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.10.1, at: 2026-09-20T06:59:00Z }
-stale_after: 2027-09-20
+generated:
+  by: codewiki/5.10.1
+  at: 2026-09-20 06:59:00+00:00
+stale_after: '2027-09-23'
 origin: conversation
-
+verified:
+- by: codewiki/5.13.0
+  at: '2026-09-23T07:28:51Z'
 ---
 
 ## Background

@@ -147,15 +147,19 @@ def _git_config_value(key: str) -> str:
     """``git config <key>`` value (cwd-dependent; global fallback); '' on failure."""
     import subprocess
 
+    kwargs: dict = {
+        "capture_output": True,
+        "text": True,
+        "timeout": 2,
+        "encoding": "utf-8",
+        "errors": "replace",
+    }
+    if os.name == "nt":
+        # Console-less parent (IDE-spawned MCP server): without this flag
+        # every git child allocates a flashing console window.
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
-        proc = subprocess.run(
-            ["git", "config", key],
-            capture_output=True,
-            text=True,
-            timeout=2,
-            encoding="utf-8",
-            errors="replace",
-        )
+        proc = subprocess.run(["git", "config", key], **kwargs)
         if proc.returncode == 0:
             return (proc.stdout or "").strip()
     except Exception:

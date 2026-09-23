@@ -455,7 +455,8 @@ user: 好的，我先回顾这次会话，并参考之前那次会话的总结�
     * `supersedes/FrontMatter` 解析
   * **关键代码**（注释级，仅逻辑签名）：
     ```python
-    SIMILAR_HIGH=0.50; SIMILAR_LOW=0.25  # 只用于分类，不参与拼接
+    SIMILAR_HIGH = 0.50
+    SIMILAR_LOW = 0.25  # 只用于分类，不参与拼接
     # body=skeleton+word 集成后阈值只决定告警强度
     ```
 
