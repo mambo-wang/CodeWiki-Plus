@@ -114,28 +114,31 @@ _DEFAULT_RETRIEVAL_COST = {
     "expand_hint": 1,
 }
 
+
 def load_retrieval_cost(schema: Optional[dict]) -> Dict[str, int]:
     """Resolve retrieval-cost config (defaults → schema overrides)."""
     # 与 load_budget() 同构：conventions.retrieval_cost 覆盖默认值
 
-def estimate_tokens(char_count: int, chars_per_token: int = 4) -> int:
-    ...
+
+def estimate_tokens(char_count: int, chars_per_token: int = 4) -> int: ...
 ```
 
 **(2) `codewiki/mcp/tools/wiki_search.py:614-632`** —— JSON fallback 路径的 `out` 组装，entry 增加：
 
 ```python
-out.append({
-    "file": fk,
-    "title": ...,
-    "source": ...,
-    "snippet": ...,
-    "relevance_score": round(s, 4),
-    "authority": round(auth, 2),
-    "est_tokens": estimate_tokens(len(raw)),   # ← 新增
-    "matched_tokens": ...,
-    "usage": {...},
-})
+out.append(
+    {
+        "file": fk,
+        "title": ...,
+        "source": ...,
+        "snippet": ...,
+        "relevance_score": round(s, 4),
+        "authority": round(auth, 2),
+        "est_tokens": estimate_tokens(len(raw)),  # ← 新增
+        "matched_tokens": ...,
+        "usage": {...},
+    }
+)
 ```
 
 **(3) `codewiki/mcp/cache.py:2060-2073`** —— SQLite 主路径 entry，同样增加 `est_tokens`。
@@ -149,7 +152,7 @@ out.append({
 if expand:
     full_text = file_path.read_text(...)
     entry["content"] = full_text[:max_chars].strip()
-    entry["est_tokens"] = estimate_tokens(len(full_text))        # 全篇成本
+    entry["est_tokens"] = estimate_tokens(len(full_text))  # 全篇成本
     entry["content_tokens"] = estimate_tokens(len(entry["content"]))  # 本次实际返回
     if len(full_text) > max_chars:
         entry["content_truncated"] = True
@@ -263,14 +266,14 @@ def _specificity(note_fm: dict, path_segments: set, target_path: str) -> int:
     score = 0
     mods = set(note_fm.get("metadata", {}).get("related_modules") or [])
     comps = set(note_fm.get("metadata", {}).get("related_components") or [])
-    files = set(note_fm.get("metadata", {}).get("files") or [])   # v1.5 可选字段
+    files = set(note_fm.get("metadata", {}).get("files") or [])  # v1.5 可选字段
 
     if target_path in files:
-        score += 3          # 精确命中（v1.5，需 P1-2 落地）
+        score += 3  # 精确命中（v1.5，需 P1-2 落地）
     if comps & path_segments:
-        score += 2          # 组件级命中
+        score += 2  # 组件级命中
     elif mods & path_segments:
-        score += 1          # 模块级命中
+        score += 1  # 模块级命中
     return score
 ```
 
@@ -364,12 +367,12 @@ def _file_staleness(note_date: str, target_path: Path, buffer_days: int = 1) -> 
     """True = 目标文件在笔记之后有过代码提交，知识可能已过期。"""
     try:
         note_dt = datetime.fromisoformat(note_date)
-        commit_dt = _last_commit_time(target_path)   # git log -1 --format=%cI -- <path>
+        commit_dt = _last_commit_time(target_path)  # git log -1 --format=%cI -- <path>
         if commit_dt is None:
             return None
         return commit_dt > note_dt + timedelta(days=buffer_days)
     except (OSError, ValueError):
-        return None      # 拿不到就不知道，不猜
+        return None  # 拿不到就不知道，不猜
 ```
 
 输出为 `possibly_stale: true|false|null`。**null 不是失败**——文件未被 git 跟踪、git 不可用、笔记无日期时，诚实返回"不知道"，比猜测更安全。

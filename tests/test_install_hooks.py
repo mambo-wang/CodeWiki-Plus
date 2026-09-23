@@ -38,9 +38,7 @@ HOOK_SOURCES = {
     "capture_session_end.py": "import json\n\nprint('ok')\n",
     "task_session_start.py": "import os\n\nprint('ok')\n",
 }
-AGENT_SOURCE = (
-    "---\nname: distill-worker\nmcpServers:\n  - codewiki\n---\nworker\n"
-)
+AGENT_SOURCE = "---\nname: distill-worker\nmcpServers:\n  - codewiki\n---\nworker\n"
 AGENT_SOURCE_CLAUDE = (
     "---\nname: distill-worker\n"
     "tools: Read, Write, mcp__codewiki__distill_conversation\n---\nworker\n"
@@ -56,9 +54,7 @@ def fake_pkg(tmp_path, monkeypatch):
     for name, content in HOOK_SOURCES.items():
         (pkg / "hooks" / name).write_text(content, encoding="utf-8")
     (pkg / "agents" / AGENT_FILE).write_text(AGENT_SOURCE, encoding="utf-8")
-    (pkg / "agents" / "distill-worker.claude.md").write_text(
-        AGENT_SOURCE_CLAUDE, encoding="utf-8"
-    )
+    (pkg / "agents" / "distill-worker.claude.md").write_text(AGENT_SOURCE_CLAUDE, encoding="utf-8")
     monkeypatch.setattr("codewiki.cli.utils.ide_config._resolve_pkg_sources", lambda: pkg)
     return pkg
 
@@ -159,9 +155,7 @@ def test_merge_registers_user_prompt_submit():
     up = merged["hooks"]["UserPromptSubmit"]
     assert len(up) == 1
     assert up[0]["matcher"] == ""  # empty matcher = every prompt runs the matcher
-    assert up[0]["hooks"] == [
-        {"type": "command", "command": PROMPT_HOOK_CMD, "timeout": 10}
-    ]
+    assert up[0]["hooks"] == [{"type": "command", "command": PROMPT_HOOK_CMD, "timeout": 10}]
 
 
 def test_merge_keeps_existing_user_prompt_matchers():

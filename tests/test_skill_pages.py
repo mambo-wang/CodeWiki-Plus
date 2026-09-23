@@ -43,13 +43,13 @@ def _mk_repo(tmp_path: Path) -> tuple[str, Path]:
     repo = tmp_path / "repo"
     od = repo / "repowiki"
     (od / "notes").mkdir(parents=True)
-    (od / "schema.yaml").write_text(yaml.safe_dump(_SKILL_SCHEMA, allow_unicode=True), encoding="utf-8")
+    (od / "schema.yaml").write_text(
+        yaml.safe_dump(_SKILL_SCHEMA, allow_unicode=True), encoding="utf-8"
+    )
     return str(repo), od
 
 
-def _write_skill(
-    od: Path, name: str, sections: list[str] | None = None
-) -> Path:
+def _write_skill(od: Path, name: str, sections: list[str] | None = None) -> Path:
     """Write a draft skill at skills/<name>/SKILL.md with the given sections."""
     body_sections = _SECTIONS if sections is None else sections
     body = "\n".join(f"## {s}\n\ncontent for {s}" for s in body_sections)
@@ -59,7 +59,12 @@ def _write_skill(
     p.write_text(
         "---\n"
         + yaml.safe_dump(
-            {"name": name, "description": f"当遇到 {name} 场景时使用", "type": "Skill", "status": "draft"},
+            {
+                "name": name,
+                "description": f"当遇到 {name} 场景时使用",
+                "type": "Skill",
+                "status": "draft",
+            },
             allow_unicode=True,
         )
         + "---\n\n"
@@ -232,7 +237,12 @@ def _mk_recognizable_skill(od: Path, name: str, marker: str) -> Path:
     p.write_text(
         "---\n"
         + yaml.safe_dump(
-            {"name": name, "description": f"当遇到 {name} 场景时使用 {marker}", "type": "Skill", "status": "draft"},
+            {
+                "name": name,
+                "description": f"当遇到 {name} 场景时使用 {marker}",
+                "type": "Skill",
+                "status": "draft",
+            },
             allow_unicode=True,
         )
         + "---\n\n"
@@ -374,9 +384,7 @@ def test_skill_lint_six_error_rules(tmp_path):
     # sensitive content
     _write_raw_skill(od, "leaky", body="## 工作场景\nrun C:\\Users\\john\\s.ps1")
     # revisions missing though generated
-    _write_raw_skill(
-        od, "no-rev", fm_overrides={"metadata": {"revisions": []}}
-    )
+    _write_raw_skill(od, "no-rev", fm_overrides={"metadata": {"revisions": []}})
     issues = _lint_skill(repo)
     errors = {(i["file"], i["message"].split(":")[0]) for i in issues if i["severity"] == "error"}
     rels = {f for f, _ in errors}
@@ -395,7 +403,9 @@ def test_skill_lint_possibly_stale(tmp_path):
     (od / "notes" / "mat.md").write_text(
         "---\ntype: pitfall\ntitle: mat\nstatus: stable\n---\nbody\n", encoding="utf-8"
     )
-    _write_raw_skill(od, "fresh-skill", fm_overrides={"metadata": {"source_refs": ["notes/mat.md"]}})
+    _write_raw_skill(
+        od, "fresh-skill", fm_overrides={"metadata": {"source_refs": ["notes/mat.md"]}}
+    )
     assert not [i for i in _lint_skill(repo) if "stale" in i["message"]]
 
     # material goes deprecated -> warning
@@ -419,9 +429,7 @@ def test_skill_lint_drift_after_revision(tmp_path):
     # simulate install stamping: hash of current content
     p = od / "skills" / "drifty-skill" / "SKILL.md"
     text = p.read_text(encoding="utf-8")
-    h = _normalized_hash(
-        "drifty-skill", "When drifty-skill fires, run the recovery SOP", "## x"
-    )
+    h = _normalized_hash("drifty-skill", "When drifty-skill fires, run the recovery SOP", "## x")
     fm = yaml.safe_load(text[3 : text.find("---", 3)])
     fm["metadata"]["installed_hash"] = h
     p.write_text(

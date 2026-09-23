@@ -130,9 +130,7 @@ def collect_evidence_drift(output_dir: Path) -> List[Dict[str, str]]:
             if not isinstance(entry, dict) or "content_hash" not in entry:
                 continue
             roots = (
-                evidence_roots(output_dir, entry.get("repo"))
-                if entry.get("repo")
-                else base_roots
+                evidence_roots(output_dir, entry.get("repo")) if entry.get("repo") else base_roots
             )
             statuses = [verify_entry(entry, root) for root in roots]
             if "ok" in statuses:

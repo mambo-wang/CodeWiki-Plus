@@ -45,11 +45,10 @@ def fake_pkg(tmp_path, monkeypatch):
     for name, content in HOOK_SOURCES.items():
         (pkg / "hooks" / name).write_text(content, encoding="utf-8")
     (pkg / "agents" / AGENT_FILE).write_text(AGENT_SOURCE, encoding="utf-8")
-    (pkg / "agents" / "distill-worker.claude.md").write_text(
-        AGENT_SOURCE_CLAUDE, encoding="utf-8"
-    )
+    (pkg / "agents" / "distill-worker.claude.md").write_text(AGENT_SOURCE_CLAUDE, encoding="utf-8")
     monkeypatch.setattr("codewiki.cli.utils.ide_config._resolve_pkg_sources", lambda: pkg)
     return pkg
+
 
 # 他人（非 CodeWiki）hook 条目：往返全程必须零改动。
 FOREIGN_END_ENTRY = {
@@ -104,7 +103,6 @@ def test_unwire_keeps_foreign_entries_and_other_keys(tmp_path):
     # 模拟历史 hook 档注册（codebuddy 现为 hook 档宿主，这里直接铺注册条目）
     from codewiki.cli.utils.ide_config import (
         END_HOOK_CMD,
-        PROMPT_HOOK_CMD,
         START_HOOK_CMD,
         merge_settings_json,
     )
@@ -182,9 +180,7 @@ def test_unwire_matches_legacy_entries_and_is_idempotent(tmp_path, legacy_start)
                     "SessionStart": [
                         {
                             "matcher": "startup",
-                            "hooks": [
-                                {"type": "command", "command": legacy_start, "timeout": 15}
-                            ],
+                            "hooks": [{"type": "command", "command": legacy_start, "timeout": 15}],
                         }
                     ]
                 }

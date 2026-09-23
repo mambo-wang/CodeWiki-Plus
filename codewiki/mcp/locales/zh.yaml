@@ -87,12 +87,16 @@ prompts:
     description: "零配置初始化：创建目录结构、拷贝带注释的 schema.yaml 模板、写入 AGENTS.md（含使用建议和自我反思协议）。在开始任何 Wiki 生成或知识管理之前执行一次。"
     args:
       repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
-      enable_task_management: "是否启用任务管理（跨会话任务记忆）：true/1 会在初始化指引中追加任务管理启用说明（注册 SessionEnd 采集 Hook + 向 AGENTS.md 写入任务引导段，新建会话时提示用户关联/新建任务）；留空或 false 则跳过。默认关闭。"
+      enable_task_management: "是否启用任务管理（跨会话任务记忆）：默认启用——无参/任意值在初始化指引中追加任务管理接线步骤（注册 SessionEnd 采集 Hook + 向 AGENTS.md 写入任务引导段，新建会话时提示用户关联/新建任务）；仅显式 false/0/no/off 跳过。"
       capture: "采集开关：off 移除 SessionEnd 采集注册，主动沉淀成为唯一记忆写入通道；默认 on"
 
   init-workspace:
     title: "初始化多仓WIKI工作区"
     description: "把当前工作目录初始化（或重新同步）为多仓工作区：生成 bootstrap 克隆脚本、.gitignore、repo-map 导航骨架、AGENTS.md 工作区约定与产品级 repowiki。首次初始化必须先询问用户知识布局（colocated/centralized）再带 layout 调用，布局记录写入 repowiki/.meta/workspace.json；重跑零配置幂等——痕迹齐备时为 clone-only 接管（只补缺业务仓克隆，不触碰骨架与 AGENTS.md），骨架有缺失才补齐产物并强制刷新约定块。业务仓登记走 add_workspace_repo。"
+    args:
+      workspace_path: "工作区根目录（默认当前工作目录）"
+      enable_task_management: "是否启用任务管理（跨会话任务记忆）：默认启用——接线目标恒为工作区根（harness 仓），业务仓不接线；仅显式 false/0/no/off 跳过。"
+      capture: "采集开关：off 移除 SessionEnd 采集注册，主动沉淀成为唯一记忆写入通道；默认 on"
 
   add-workspace-repo:
     title: "登记业务仓到多仓工作区"
@@ -439,13 +443,16 @@ review_checklist:
     performance:
       title: "性能"
       questions: "是否存在明显 N+1 查询或循环内重活（IO、正则编译、DB 调用）？|新引入的数据结构/算法量级是否匹配预期规模？|是否引入了不必要的拷贝/序列化？"
+      exclusions: "仅确认热路径后才报告：先确认该路径在真实负载下被高频调用，且量级与预期规模不匹配。一次性脚本、测试代码、启动路径不报。"
     code-quality:
       title: "代码质量"
       questions: "是否有重复逻辑可抽取（本文件或同模块已有实现）？|命名是否准确反映行为（无误导性名称）？|是否有死代码、未使用变量、注释与代码不一致？"
+      exclusions: "死代码判定须排除存根文件（.pyi）与 __init__.py 的 re-export；注释与代码不一致仅在注释明显误导时报告，措辞风格差异不报。"
   python:
     py-mutable-default:
       title: "可变默认参数"
       questions: "函数参数默认值是否为可变对象（list/dict/set）——调用间共享状态？"
+      exclusions: ".pyi 存根文件不报（无运行时语义）；默认值从未被修改（只读使用）且语义清晰的不报。"
     py-bare-except:
       title: "裸 except"
       questions: "是否使用裸 except / except Exception 吞掉包括 KeyboardInterrupt 在内的异常？"

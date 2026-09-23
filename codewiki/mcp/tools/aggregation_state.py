@@ -18,7 +18,6 @@ import json
 import logging
 
 from codewiki.src.store import atomic_write
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional

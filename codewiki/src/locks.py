@@ -98,9 +98,7 @@ def _open_lock_file(filepath: Union[str, Path], *, attempts: int = 50, delay: fl
 
 
 @contextmanager
-def file_lock(
-    filepath: Union[str, Path], *, unlink_on_release: bool = False
-) -> Iterator[IO[str]]:
+def file_lock(filepath: Union[str, Path], *, unlink_on_release: bool = False) -> Iterator[IO[str]]:
     """Hold an exclusive lock bound to *filepath* for the ``with`` block.
 
     Yields the UTF-8 text handle that holds the lock; perform all reads and

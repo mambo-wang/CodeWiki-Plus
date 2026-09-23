@@ -126,7 +126,11 @@ def test_enrich_changed_path_aggregates_and_guides_review(tmp_path):
         encoding="utf-8",
     )
 
-    changes = {"no_changes": False, "changed_files": ["src/calc.py"], "hint": "Only 1 module(s) need updating."}
+    changes = {
+        "no_changes": False,
+        "changed_files": ["src/calc.py"],
+        "hint": "Only 1 module(s) need updating.",
+    }
     result = _enrich_stale_evidence(changes, od)
 
     assert result["stale_evidence_pages"] == {"wiki/modules/Calc.md": {"stale": 1}}

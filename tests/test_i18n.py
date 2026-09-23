@@ -107,11 +107,7 @@ def test_placeholder_sets_match_between_languages():
 
 def test_templates_format_placeholders():
     """A template with placeholders renders only when vars are supplied."""
-    example = [
-        key
-        for key in i18n.all_keys("zh")
-        if _placeholders(_text(key, "zh"))
-    ]
+    example = [key for key in i18n.all_keys("zh") if _placeholders(_text(key, "zh"))]
     if not example:
         pytest.skip("no parameterized templates in the catalog yet")
     key = example[0]
@@ -165,21 +161,15 @@ def test_resolve_windows_locale_names(tmp_path):
     """Windows reports locales by language NAME, not by ISO code."""
     cfg = tmp_path / "missing.json"
     assert (
-        i18n.resolve_lang(
-            config_path=cfg, env_value="", locale_code="Chinese (Simplified)_China"
-        )
+        i18n.resolve_lang(config_path=cfg, env_value="", locale_code="Chinese (Simplified)_China")
         == "zh"
     )
     assert (
-        i18n.resolve_lang(
-            config_path=cfg, env_value="", locale_code="Chinese (Traditional)_Taiwan"
-        )
+        i18n.resolve_lang(config_path=cfg, env_value="", locale_code="Chinese (Traditional)_Taiwan")
         == "zh"
     )
     assert (
-        i18n.resolve_lang(
-            config_path=cfg, env_value="", locale_code="English_United States"
-        )
+        i18n.resolve_lang(config_path=cfg, env_value="", locale_code="English_United States")
         == "en"
     )
 
@@ -235,8 +225,8 @@ def test_schema_template_variants_share_structure():
 
     zh_keys, en_keys = _yaml_keys(zh), _yaml_keys(en)
     assert zh_keys, "schema.yaml failed to load"
-    assert not (zh_keys ^ en_keys), (
-        "schema template variants drifted: " + ", ".join(sorted(zh_keys ^ en_keys))
+    assert not (zh_keys ^ en_keys), "schema template variants drifted: " + ", ".join(
+        sorted(zh_keys ^ en_keys)
     )
 
 

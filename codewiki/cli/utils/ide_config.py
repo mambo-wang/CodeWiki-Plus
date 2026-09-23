@@ -337,11 +337,7 @@ def _remove_capture_registration(hooks: dict, end_cmd: str) -> None:
             kept = [
                 h
                 for h in inner
-                if not (
-                    isinstance(h, dict)
-                    and suffix
-                    and norm(h.get("command")).endswith(suffix)
-                )
+                if not (isinstance(h, dict) and suffix and norm(h.get("command")).endswith(suffix))
             ]
             if len(kept) == len(inner):
                 new_entries.append(entry)

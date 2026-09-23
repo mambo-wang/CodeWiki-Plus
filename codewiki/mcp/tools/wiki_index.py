@@ -421,6 +421,7 @@ def _page_type_labels() -> Dict[str, str]:
 
     return {t: i18n.t(f"artifacts.index.page_type.{t}") for t in _PAGE_TYPE_ORDER}
 
+
 # Markdown inline links: [label](target)
 _INLINE_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
 
@@ -443,11 +444,7 @@ def _relocate_summary_links(summary: str, relpath: str) -> str:
 
     def _fix(match: "re.Match[str]") -> str:
         target = match.group(2)
-        if (
-            target.startswith(("/", "#", "mailto:"))
-            or "://" in target
-            or "/" in target
-        ):
+        if target.startswith(("/", "#", "mailto:")) or "://" in target or "/" in target:
             return match.group(0)
         return f"[{match.group(1)}]({base}/{target})"
 

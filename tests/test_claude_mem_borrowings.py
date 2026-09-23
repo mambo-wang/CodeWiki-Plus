@@ -123,9 +123,7 @@ def _schema_with(od: Path, conv: dict) -> Path:
     import yaml
 
     schema = {"conventions": conv}
-    (od / "schema.yaml").write_text(
-        yaml.safe_dump(schema, allow_unicode=True), encoding="utf-8"
-    )
+    (od / "schema.yaml").write_text(yaml.safe_dump(schema, allow_unicode=True), encoding="utf-8")
     return od
 
 
@@ -170,9 +168,7 @@ class TestLoadRetrievalCost:
         assert cfg["chars_per_token"] == 2
 
     def test_invalid_chars_per_token_kept_default(self):
-        cfg = load_retrieval_cost(
-            {"conventions": {"retrieval_cost": {"chars_per_token": "bogus"}}}
-        )
+        cfg = load_retrieval_cost({"conventions": {"retrieval_cost": {"chars_per_token": "bogus"}}})
         assert cfg["chars_per_token"] == 4
 
 
@@ -407,9 +403,7 @@ metadata:
 
     def test_corrupt_frontmatter_skipped_others_survive(self, tmp_path):
         od = _mk_wiki(tmp_path)
-        (od / "notes" / "n-corrupt.md").write_text(
-            "没有 frontmatter 的裸正文", encoding="utf-8"
-        )
+        (od / "notes" / "n-corrupt.md").write_text("没有 frontmatter 的裸正文", encoding="utf-8")
         out = _query(od, by_file="codewiki/mcp/tools/wiki_search.py")
         assert out["file_knowledge"]["total"] >= 2  # others still matched
 
@@ -498,7 +492,6 @@ class TestPossiblyStale:
     def _mk_git_repo(self, tmp_path, commit_note_date: str, commit_after: bool):
         """Temp git repo with a tracked target file + a note dated around it."""
         import subprocess
-        from datetime import datetime, timedelta
 
         repo = tmp_path / "repo"
         (repo / "codewiki" / "mcp" / "tools").mkdir(parents=True)
@@ -519,17 +512,16 @@ class TestPossiblyStale:
             if env_extra:
                 env.update(env_extra)
             subprocess.run(
-                ["git", *args], cwd=str(repo), check=True, capture_output=True,
+                ["git", *args],
+                cwd=str(repo),
+                check=True,
+                capture_output=True,
                 env={**os.environ, **env},
             )
 
         _git("init", "-q")
         # Commit the target file at a controlled committer date.
-        when = (
-            "2021-06-15T12:00:00+00:00"
-            if commit_after
-            else "2019-06-15T12:00:00+00:00"
-        )
+        when = "2021-06-15T12:00:00+00:00" if commit_after else "2019-06-15T12:00:00+00:00"
         _git(
             "commit",
             "--allow-empty",
@@ -539,7 +531,7 @@ class TestPossiblyStale:
         _git("add", ".")
         _git(
             "-c",
-            f"user.name=t",
+            "user.name=t",
             "commit",
             "-m",
             "target",
@@ -585,14 +577,17 @@ class TestPossiblyStale:
     def test_untracked_file_returns_null(self, tmp_path):
         od, target = self._mk_git_repo(tmp_path, "2020-01-01", commit_after=True)
         # Query a file that was never committed.
-        out = _query(od, by_file="codewiki/mcp/tools/never_committed.py")
         # No notes match → empty timeline; staleness itself is untestable
         # through the timeline, so assert the helper directly.
         from codewiki.mcp.tools.knowledge_loop import _file_staleness
 
         repo_root = Path(od).resolve().parent
         assert (
-            _file_staleness("2020-01-01", repo_root / "codewiki" / "mcp" / "tools" / "never_committed.py", repo_root)
+            _file_staleness(
+                "2020-01-01",
+                repo_root / "codewiki" / "mcp" / "tools" / "never_committed.py",
+                repo_root,
+            )
             is None
         )
 

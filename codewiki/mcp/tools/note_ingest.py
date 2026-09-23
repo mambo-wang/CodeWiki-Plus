@@ -310,9 +310,7 @@ def handle_ingest_note(
     if isinstance(evidence, dict):
         _known_evidence = ("test_ref", "commit_ref", "reviewed_by")
         verification = {
-            k: str(v)
-            for k, v in evidence.items()
-            if k in _known_evidence and str(v or "").strip()
+            k: str(v) for k, v in evidence.items() if k in _known_evidence and str(v or "").strip()
         }
         unknown_evidence = set(evidence) - set(_known_evidence)
         if unknown_evidence:
@@ -441,9 +439,7 @@ def handle_ingest_note(
     if reason:
         metadata_lines.append(f"  reason: {json.dumps(reason, ensure_ascii=False)}")
     if verification:
-        metadata_lines.append(
-            f"  verification: {json.dumps(verification, ensure_ascii=False)}"
-        )
+        metadata_lines.append(f"  verification: {json.dumps(verification, ensure_ascii=False)}")
     frontmatter_lines.append("metadata:")
     frontmatter_lines.extend(metadata_lines)
     frontmatter_lines.append(f"status: {note_status}")

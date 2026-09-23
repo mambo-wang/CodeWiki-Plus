@@ -381,6 +381,39 @@ def _resolve_skills_dir(repo_path: str) -> Optional[str]:
     return None
 
 
+# Active-settle reminder injected on UserPromptSubmit when the repo has active
+# tasks (ADR-0015 follow-up, grill 2026-09-21). Mixed phrasing by design:
+# retrospective ("上一轮…补写") is the hook's unique value — the checkpoint
+# moment when the previous turn is complete and still in context — while the
+# prospective tail ("本轮收尾…自查") re-anchors the AGENTS.md protocol that
+# would otherwise be diluted across a long turn. One line, both jobs.
+ACTIVE_SETTLE_REMINDER = (
+    "[active-settle] 若上一轮命中停顿点（里程碑/决策落定/话题转向）且尚未沉淀，"
+    "先 add_task_memory / ingest_note(draft) 补写再回答；本轮收尾按主动沉淀协议自查。"
+)
+
+
+def _repo_has_active_tasks(repo_path: str) -> bool:
+    """True if this repo's task index lists at least one active task.
+
+    Read-only, fail-open: a missing or corrupt index means "no reminder" —
+    the hook must never break the user's prompt over its own bookkeeping.
+    """
+    if not repo_path:
+        return False
+    from codewiki.src.config import TASKS_DIR, TASKS_INDEX_FILENAME
+
+    index_path = Path(repo_path) / "repowiki" / TASKS_DIR / TASKS_INDEX_FILENAME
+    try:
+        data = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    tasks = data.get("tasks") if isinstance(data, dict) else None
+    if not isinstance(tasks, list):
+        return False
+    return any(isinstance(t, dict) and str(t.get("status", "")).lower() == "active" for t in tasks)
+
+
 def _handle_user_prompt(
     args: argparse.Namespace, event: Dict[str, Any], event_file: Optional[str]
 ) -> int:
@@ -401,9 +434,14 @@ def _handle_user_prompt(
         from codewiki.src.skill_match import build_skill_hint, match_draft_skills
 
         hit = match_draft_skills(prompt, skills_dir)
-        if not hit:
+        parts: list = []
+        if hit:
+            hint = build_skill_hint("match", hit)
+            parts.append(hint["skill_hint"]["message"])
+        if _repo_has_active_tasks(repo_path):
+            parts.append(ACTIVE_SETTLE_REMINDER)
+        if not parts:
             return 0
-        hint = build_skill_hint("match", hit)
         try:
             sys.stdout.reconfigure(encoding="utf-8")
         except (AttributeError, ValueError, OSError):
@@ -413,7 +451,7 @@ def _handle_user_prompt(
                 {
                     "hookSpecificOutput": {
                         "hookEventName": "UserPromptSubmit",
-                        "additionalContext": hint["skill_hint"]["message"],
+                        "additionalContext": "\n".join(parts),
                     }
                 },
                 ensure_ascii=False,

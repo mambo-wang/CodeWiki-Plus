@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from codewiki.mcp.tools.distill_conversation import (  # noqa: E402
     _find_existing_note,
     _is_title_subset,
-    _parse_llm_notes,
     _process_llm_output,
     _title_similarity,
     _title_tokens,
@@ -137,12 +136,7 @@ def test_subset_title_not_auto_suppressed(tmp_path):
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir()
     (notes_dir / "existing.md").write_text(
-        "---\n"
-        'title: "任务记忆压缩设计方案"\n'
-        "type: decision\n"
-        "status: stable\n"
-        "---\n"
-        "正文\n",
+        '---\ntitle: "任务记忆压缩设计方案"\ntype: decision\nstatus: stable\n---\n正文\n',
         encoding="utf-8",
     )
     hit = _find_existing_note("任务记忆压缩", "decision", tmp_path, store=None)
@@ -154,12 +148,7 @@ def test_identical_title_still_auto_suppressed(tmp_path):
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir()
     (notes_dir / "existing.md").write_text(
-        "---\n"
-        'title: "任务记忆压缩设计方案"\n'
-        "type: decision\n"
-        "status: stable\n"
-        "---\n"
-        "正文\n",
+        '---\ntitle: "任务记忆压缩设计方案"\ntype: decision\nstatus: stable\n---\n正文\n',
         encoding="utf-8",
     )
     hit = _find_existing_note("任务记忆压缩设计方案", "decision", tmp_path, store=None)

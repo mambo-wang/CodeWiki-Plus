@@ -66,6 +66,56 @@ _HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 _DIFF_FILE_RE = re.compile(r"^diff --git a/(.*?) b/(.*)$")
 _NEW_FILE_RE = re.compile(r"^\+\+\+ b/(.*)$")
 
+# ------------------------------------------------------------------
+# Secret-path gate (ADR-0016, borrowed from OCR default_secret_patterns)
+# ------------------------------------------------------------------
+
+# Exact-name matches (case-insensitive), any directory depth.
+_SECRET_NAMES = {
+    ".netrc",
+    "_netrc",
+    ".npmrc",
+    ".pypirc",
+    ".dockercfg",
+    "credentials.json",  # gcloud
+    "secrets.yaml",  # K8s Secret manifests
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+}
+
+# Suffix matches (case-insensitive).
+_SECRET_SUFFIXES = (".pem", ".key")
+
+# Directory prefixes — everything under these is secret.
+_SECRET_DIRS = (".ssh/",)
+
+# .env family: .env, .env.local, .env.production ... but NOT templates.
+_ENV_TEMPLATE_EXEMPTS = (".example", ".sample", ".template")
+
+
+def _is_secret_path(path: str) -> bool:
+    """True when *path* looks like a credential file (ADR-0016).
+
+    Pure path-string check — never reads file content.  Case-insensitive,
+    forward-slash normalized.  Template files (``.env.example`` etc.) are
+    exempt: they are documentation, not credentials.
+    """
+    p = _norm(path).lower()
+    if not p:
+        return False
+    name = posixpath.basename(p)
+    if name in _SECRET_NAMES:
+        return True
+    if name.endswith(_SECRET_SUFFIXES):
+        return True
+    if any(p.startswith(d) or f"/{d}" in p for d in _SECRET_DIRS):
+        return True
+    if name == ".env" or (name.startswith(".env.") and not name.endswith(_ENV_TEMPLATE_EXEMPTS)):
+        return True
+    return False
+
 
 # ------------------------------------------------------------------
 # Diff parsing (pure text, no git required — unit-testable)
@@ -205,6 +255,14 @@ def _repo_subdir(repo_path: Path, git_root: Path) -> str:
     return "" if rel == Path(".") else rel.as_posix()
 
 
+def _binary_paths_from_diff(diff_text: str) -> Set[str]:
+    """Extract paths of binary files from ``Binary files a/x and b/x differ`` lines."""
+    paths: Set[str] = set()
+    for m in re.finditer(r"^Binary files a/(.*?) and b/(.*?) differ", diff_text, re.MULTILINE):
+        paths.add(_norm(m.group(2)))
+    return paths
+
+
 def collect_git_changes(
     repo_path: str,
     *,
@@ -214,8 +272,13 @@ def collect_git_changes(
     """Collect line-level changes from git for *repo_path*.
 
     Returns ``{"changes": List[FileChange], "untracked": List[FileChange],
-    "git_root": str, "source": "worktree"|"commit:<since>"}``.
-    Raises ``ValueError`` when git is unavailable or no commits exist.
+    "excluded": [{"path", "reason"}], "git_root": str,
+    "source": "worktree"|"commit:<since>"}``.
+
+    Secret and binary files are excluded with a reason (ADR-0016) — they
+    never enter ``changes``/``untracked``, so no credential content can
+    reach callers.  Raises ``ValueError`` when git is unavailable or no
+    commits exist.
     """
     import git
 
@@ -233,23 +296,56 @@ def collect_git_changes(
     def _ext(path: str) -> bool:
         return Path(path).suffix.lower() in _SRC_EXTS
 
+    excluded: List[Dict[str, str]] = []
+
     if since:
         diff_text = _git_diff_since(repo, since)
-        changes = [c for c in parse_unified_diff(diff_text) if _ext(c.path)]
+        binary = _binary_paths_from_diff(diff_text)
+        changes = []
+        for c in parse_unified_diff(diff_text):
+            # ADR-0016: secret/binary gates run BEFORE the extension filter —
+            # .env/.pem/.png etc. would otherwise be silently dropped by _ext
+            # and never recorded in `excluded`.
+            if _is_secret_path(c.path):
+                excluded.append({"path": c.path, "reason": "secret"})
+                continue
+            if c.path in binary:
+                excluded.append({"path": c.path, "reason": "binary"})
+                continue
+            if not _ext(c.path):
+                continue
+            changes.append(c)
         return {
             "changes": changes,
             "untracked": [],
+            "excluded": excluded,
             "git_root": str(git_root),
             "source": f"commit:{since}",
         }
 
     diff_text, untracked_paths = _git_diff_worktree(repo)
-    changes = [c for c in parse_unified_diff(diff_text) if _ext(c.path)]
+    binary = _binary_paths_from_diff(diff_text)
+    changes = []
+    for c in parse_unified_diff(diff_text):
+        if _is_secret_path(c.path):
+            excluded.append({"path": c.path, "reason": "secret"})
+            continue
+        if c.path in binary:
+            excluded.append({"path": c.path, "reason": "binary"})
+            continue
+        if not _ext(c.path):
+            continue
+        changes.append(c)
 
     untracked: List[FileChange] = []
     for up in untracked_paths:
         kept = _keep(up)
-        if not kept or not _ext(kept):
+        if not kept:
+            continue
+        if _is_secret_path(kept):
+            excluded.append({"path": kept, "reason": "secret"})
+            continue
+        if not _ext(kept):
             continue
         full = git_root / up
         try:
@@ -263,6 +359,7 @@ def collect_git_changes(
     return {
         "changes": changes + untracked,
         "untracked": [c.path for c in untracked],
+        "excluded": excluded,
         "git_root": str(git_root),
         "source": "worktree",
     }

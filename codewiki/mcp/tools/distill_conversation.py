@@ -1297,7 +1297,6 @@ def _process_llm_output(
     # 通道互斥（ADR-0010，ADR-0014）：任务记忆唯一通道是主动沉淀
     # （add_task_memory 直写）；蒸馏无条件只产经验笔记，不解析 memories。
     # 跳过不静默：响应显式声明原因。
-    memories: List[Dict[str, Any]] = []
     memories_written = 0
 
     # Mark raw as distilled, then apply the retention policy (L0 archive):
@@ -1462,7 +1461,9 @@ def _mark_parse_failed(raw_path: Path, parse_error: str) -> None:
                 flags=re.MULTILINE,
             )
             if new_text == text:
-                new_text = text.replace("---", f"---\nstatus: pending\nparse_error: {safe_error}", 1)
+                new_text = text.replace(
+                    "---", f"---\nstatus: pending\nparse_error: {safe_error}", 1
+                )
         return new_text
 
     try:

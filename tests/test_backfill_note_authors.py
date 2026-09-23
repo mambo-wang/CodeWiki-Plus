@@ -45,7 +45,9 @@ def _run_cli(repo: Path, *args: str):
     import sys
 
     env = dict(os.environ)
-    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1]) + os.pathsep + env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        str(Path(__file__).resolve().parents[1]) + os.pathsep + env.get("PYTHONPATH", "")
+    )
     env["PYTHONIOENCODING"] = "utf-8"
     return subprocess.run(
         [sys.executable, "-m", "codewiki.cli.main", "backfill-note-authors", str(repo), *args],

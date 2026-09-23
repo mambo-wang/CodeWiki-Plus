@@ -159,13 +159,9 @@ def test_get_task_context_exposes_aggregation(tmp_path):
     from codewiki.mcp.tools.task_manager import handle_create_task, handle_get_task_context
 
     store = SessionStore()
-    r = json.loads(
-        handle_create_task({"repo_path": repo, "title": "P2 smoke task"}, store)
-    )
+    r = json.loads(handle_create_task({"repo_path": repo, "title": "P2 smoke task"}, store))
     task_id = r["task"]["id"]
-    resp = json.loads(
-        handle_get_task_context({"repo_path": repo, "task_id": task_id}, store)
-    )
+    resp = json.loads(handle_get_task_context({"repo_path": repo, "task_id": task_id}, store))
     assert resp["ok"] is True
     assert "aggregation" in resp
     assert resp["aggregation"]["notes_since_last_consolidation"] == 0
@@ -182,9 +178,7 @@ def test_prepare_lists_only_pending_confirmed_notes(tmp_path):
     _ingest(repo, "Draft only note")  # stays draft
     rejected = _ingest(repo, "Rejected candidate note")
     store = SessionStore()
-    handle_reject_note(
-        {"repo_path": repo, "note_file": rejected, "reason": "noise"}, store
-    )
+    handle_reject_note({"repo_path": repo, "note_file": rejected, "reason": "noise"}, store)
 
     resp = _consolidate(repo, {"mode": "prepare"})
     assert resp["status"] == "prepared"
@@ -408,9 +402,7 @@ def test_submit_disposition_excluded_requires_reason(tmp_path):
         repo,
         {
             "mode": "submit",
-            "report": {
-                "dispositions": [{"file": f"notes/{nf}", "verdict": "excluded"}]
-            },
+            "report": {"dispositions": [{"file": f"notes/{nf}", "verdict": "excluded"}]},
         },
     )
     assert resp["status"] == "error"
@@ -431,9 +423,7 @@ def test_submit_disposition_rejects_absorbed_verdict(tmp_path):
         repo,
         {
             "mode": "submit",
-            "report": {
-                "dispositions": [{"file": f"notes/{nf}", "verdict": "absorbed"}]
-            },
+            "report": {"dispositions": [{"file": f"notes/{nf}", "verdict": "absorbed"}]},
         },
     )
     assert resp["status"] == "error"

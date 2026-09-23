@@ -236,7 +236,7 @@ class TestCliQuery:
     def test_delimited_block_output(self, tmp_path):
         from codewiki.cli.commands.query import query_command
 
-        od = _mk_wiki(tmp_path)
+        _mk_wiki(tmp_path)
         res = CliRunner().invoke(query_command, ["端口冲突", "--repo-path", str(tmp_path)])
         assert res.exit_code == 0, res.output
         out = res.output
@@ -250,7 +250,7 @@ class TestCliQuery:
     def test_missing_terms_noted(self, tmp_path):
         from codewiki.cli.commands.query import query_command
 
-        od = _mk_wiki(tmp_path)
+        _mk_wiki(tmp_path)
         res = CliRunner().invoke(query_command, ["端口冲突 量子", "--repo-path", str(tmp_path)])
         assert res.exit_code == 0
         assert "missing_terms: 量子" in res.output
@@ -260,7 +260,9 @@ class TestCliQuery:
         from codewiki.cli.commands.query import query_command
 
         od = _mk_wiki(tmp_path)
-        res = CliRunner().invoke(query_command, ["端口冲突", "--check", "--repo-path", str(tmp_path)])
+        res = CliRunner().invoke(
+            query_command, ["端口冲突", "--check", "--repo-path", str(tmp_path)]
+        )
         assert res.exit_code == 0
         assert "relevant: true" in res.output
         assert "top_score:" in res.output
@@ -291,8 +293,10 @@ class TestCliQuery:
     def test_expand_flag(self, tmp_path):
         from codewiki.cli.commands.query import query_command
 
-        od = _mk_wiki(tmp_path)
-        res = CliRunner().invoke(query_command, ["端口冲突", "--repo-path", str(tmp_path), "--expand"])
+        _mk_wiki(tmp_path)
+        res = CliRunner().invoke(
+            query_command, ["端口冲突", "--repo-path", str(tmp_path), "--expand"]
+        )
         assert res.exit_code == 0
         assert "lsof" in res.output  # full page content included
 
@@ -361,6 +365,31 @@ class TestPromptRegistryDriven:
         assert "centralized" in s  # first-init layout choice guidance
         assert "不要凭记忆猜测" in s  # URL gathering guardrail
         assert "add_workspace_repo" in s
+
+    def test_init_workspace_task_management_default_on(self):
+        from codewiki.mcp.prompts import _prompt_init_workspace
+
+        # 默认启用：接线步骤 + 工作区根原则
+        s = _prompt_init_workspace({})
+        assert "## 步骤 4: 启用任务管理" in s
+        assert "接线目标恒为工作区根" in s
+        assert "业务仓不接线" in s
+        assert "## 步骤 5: 登记业务仓" in s
+        assert "install-hooks" in s
+
+    def test_init_workspace_task_management_explicit_off(self):
+        from codewiki.mcp.prompts import _prompt_init_workspace
+
+        s = _prompt_init_workspace({"enable_task_management": "off"})
+        assert "## 步骤 4: 启用任务管理" not in s
+        assert "## 步骤 4: 登记业务仓" in s  # 步骤编号回落
+
+    def test_init_workspace_args_registered(self):
+        from codewiki.mcp.prompts import _PROMPT_REGISTRY
+
+        meta = next(m for m in _PROMPT_REGISTRY if m["name"] == "init-workspace")
+        names = {n for n, _ in meta["args"]}
+        assert {"workspace_path", "enable_task_management", "capture"} <= names
 
     def test_add_workspace_repo_prompt_renders(self):
         import os

@@ -215,7 +215,13 @@ def test_scenario_confidence_counts():
 def test_query_wiki_shadow_gating_and_exposure(tmp_path):
     from codewiki.mcp.tools.note_query import handle_query_wiki
 
-    r1 = _ingest(tmp_path, "高置信知识：部署采用蓝绿发布", "蓝绿发布流程细节。", status="stable", reason="ADR-0013 回归：预验证知识导入")
+    r1 = _ingest(
+        tmp_path,
+        "高置信知识：部署采用蓝绿发布",
+        "蓝绿发布流程细节。",
+        status="stable",
+        reason="ADR-0013 回归：预验证知识导入",
+    )
     _call(
         nl.handle_confirm_note,
         repo_path=str(tmp_path),
@@ -272,14 +278,26 @@ def test_wiki_stats_confidence_distribution(tmp_path):
 
     # Distinctive per-note words (BM25 on a tiny corpus needs them to clear
     # the score threshold — shared words get df=n and near-zero idf).
-    r1 = _ingest(tmp_path, "统计用强置信", "独占词阿尔法。", status="stable", reason="ADR-0013 回归：统计用例")
+    r1 = _ingest(
+        tmp_path,
+        "统计用强置信",
+        "独占词阿尔法。",
+        status="stable",
+        reason="ADR-0013 回归：统计用例",
+    )
     _call(
         nl.handle_confirm_note,
         repo_path=str(tmp_path),
         note_file=_note_name(r1),
         evidence={"test_ref": "t"},
     )
-    r2 = _ingest(tmp_path, "统计用普通置信", "独占词贝塔。", status="stable", reason="ADR-0013 回归：统计用例")
+    r2 = _ingest(
+        tmp_path,
+        "统计用普通置信",
+        "独占词贝塔。",
+        status="stable",
+        reason="ADR-0013 回归：统计用例",
+    )
     _call(nl.handle_confirm_note, repo_path=str(tmp_path), note_file=_note_name(r2))
     _ingest(
         tmp_path, "统计用影子", "独占词伽马。", confidence_level="shadow"

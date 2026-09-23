@@ -262,7 +262,9 @@ def test_lint_dispatch_reads_schema_config(tmp_path):
         stale_after=(TODAY - timedelta(days=5)).strftime("%Y-%m-%d"),
     )
     store = SessionStore()
-    resp = json.loads(handle_lint_wiki({"repo_path": str(od.parent), "checks": ["stale_notes"]}, store))
+    resp = json.loads(
+        handle_lint_wiki({"repo_path": str(od.parent), "checks": ["stale_notes"]}, store)
+    )
     files = [i["file"] for i in resp.get("issues", []) if i["check"] == "stale_notes"]
     assert files == ["notes/wa.md"]
 

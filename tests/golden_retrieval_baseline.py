@@ -10,6 +10,7 @@ Usage:
     python3 tests/golden_retrieval_baseline.py record <output.json>
     python3 tests/golden_retrieval_baseline.py diff <baseline.json> [<current.json>]
 """
+
 from __future__ import annotations
 
 import json
@@ -187,9 +188,7 @@ def main():
 
         with tempfile.TemporaryDirectory() as td:
             cur = Path(td) / "current.json"
-            subprocess.run(
-                [sys.executable, __file__, "record", str(cur)], check=True
-            )
+            subprocess.run([sys.executable, __file__, "record", str(cur)], check=True)
             base = json.loads(out_file.read_text(encoding="utf-8"))
             now = json.loads(cur.read_text(encoding="utf-8"))
             if base == now:

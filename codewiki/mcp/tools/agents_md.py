@@ -39,7 +39,8 @@ def _upsert_marked_section(agents_path: Path, begin: str, end: str, section: str
     - Markers found → replace only the delimited block, keep the rest.
     - File without markers → append the section at the end.
 
-    Returns ``"created"``, ``"replaced"`` or ``"appended"``.
+    Returns ``"created"``, ``"replaced"``, ``"appended"`` or ``"unchanged"``.
+    Content-identical upserts write nothing (no mtime churn).
     """
     if agents_path.exists():
         content = agents_path.read_text(encoding="utf-8")
@@ -57,6 +58,9 @@ def _upsert_marked_section(agents_path: Path, begin: str, end: str, section: str
             separator = "\n\n" if not content.endswith("\n") else "\n"
             new_content = content + separator + section + "\n"
             action = "appended"
+
+        if new_content == content:  # content-identical: write nothing
+            return "unchanged"
     else:
         new_content = section + "\n"
         action = "created"
@@ -72,8 +76,8 @@ def write_agents_md(*, repo_path: str, output_dir: str, module_tree: dict | None
     - If the section markers are found, only the delimited block is replaced.
     - If the file exists but has no markers, the section is appended.
 
-    Failures are logged and silently swallowed — this must never block
-    session cleanup.
+    Raises on I/O or template failures — callers that must not block
+    (session cleanup, workspace adoption) wrap the call in try/except.
     """
     _write_agents_md(repo_path, output_dir, module_tree or {})
 
@@ -175,7 +179,7 @@ def write_workspace_conventions(
         agents_path, _WORKSPACE_BEGIN_MARKER, _WORKSPACE_END_MARKER, section
     )
     logger.info("Workspace conventions %s in %s", action, agents_path)
-    return "refreshed" if action == "replaced" else "created"
+    return "refreshed" if action in ("replaced", "unchanged") else "created"
 
 
 # ---------------------------------------------------------------------------

@@ -64,8 +64,7 @@ def store_for(session, arguments) -> KnowledgeStore
 
 ```python
 # ingest_note：原 ~60 行手拼 frontmatter + 查重 + write_text
-ref = store.ingest_note(note_type, title, content, task_id=tid,
-                        metadata={"related_modules": mods})
+ref = store.ingest_note(note_type, title, content, task_id=tid, metadata={"related_modules": mods})
 
 # capture：原 ~120 行索引读写 + supersede + 绑定消费
 res = store.capture_raw(turns, source_session_id=sid, task_id=tid)

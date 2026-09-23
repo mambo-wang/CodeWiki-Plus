@@ -277,6 +277,18 @@ def _mk_repo(tmp_path: Path, skills: dict[str, str] | None = None) -> Path:
     return repo
 
 
+def _mk_repo_with_task(tmp_path: Path, status: str = "active") -> Path:
+    """Repo with a task index entry so the active-settle reminder fires."""
+    repo = _mk_repo(tmp_path)
+    tasks_dir = repo / "repowiki" / "tasks"
+    tasks_dir.mkdir()
+    (tasks_dir / ".index.json").write_text(
+        json.dumps({"tasks": [{"id": "t1", "title": "demo", "status": status}]}),
+        encoding="utf-8",
+    )
+    return repo
+
+
 def _run_hook(repo: Path, event: dict, tmp_path: Path, capsys) -> str:
     event_file = tmp_path / "event.json"
     event_file.write_text(json.dumps(event, ensure_ascii=False), encoding="utf-8")
@@ -348,6 +360,95 @@ def test_hook_prompt_event_never_captures(tmp_path: Path, capsys):
         capsys,
     )
     assert not (repo / "repowiki" / "raw").exists()
+
+
+# --------------------------------------------------------------------------- #
+# active-settle reminder (ADR-0015 follow-up, grill 2026-09-21): injected on
+# UserPromptSubmit when the repo has active tasks; mixed phrasing —
+# retrospective catch-up + prospective self-check — in one line.
+# --------------------------------------------------------------------------- #
+def test_active_settle_reminder_injected_with_active_task(tmp_path: Path, capsys):
+    repo = _mk_repo_with_task(tmp_path)
+    out = _run_hook(
+        repo,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "把本周的会议纪要整理成一篇公众号文章",  # no skill match
+            "repo_path": str(repo),
+        },
+        tmp_path,
+        capsys,
+    )
+    payload = json.loads(out)
+    ctx = payload["hookSpecificOutput"]["additionalContext"]
+    assert "[active-settle]" in ctx
+    assert "add_task_memory" in ctx
+
+
+def test_active_settle_reminder_silent_without_active_task(tmp_path: Path, capsys):
+    repo = _mk_repo(tmp_path)  # no tasks/ dir at all
+    out = _run_hook(
+        repo,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "把本周的会议纪要整理成一篇公众号文章",
+            "repo_path": str(repo),
+        },
+        tmp_path,
+        capsys,
+    )
+    assert out == ""
+
+
+def test_active_settle_reminder_silent_when_task_not_active(tmp_path: Path, capsys):
+    repo = _mk_repo_with_task(tmp_path, status="done")
+    out = _run_hook(
+        repo,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "把本周的会议纪要整理成一篇公众号文章",
+            "repo_path": str(repo),
+        },
+        tmp_path,
+        capsys,
+    )
+    assert out == ""
+
+
+def test_active_settle_reminder_concatenates_with_skill_hint(tmp_path: Path, capsys):
+    repo = _mk_repo_with_task(tmp_path)
+    out = _run_hook(
+        repo,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "当合入 fork 来源的 PR 且状态冲突时",  # skill match + reminder
+            "repo_path": str(repo),
+        },
+        tmp_path,
+        capsys,
+    )
+    payload = json.loads(out)
+    ctx = payload["hookSpecificOutput"]["additionalContext"]
+    assert "fork-pr-conflict" in ctx
+    assert "[active-settle]" in ctx
+    # skill hint first (specific), reminder second (generic fallback)
+    assert ctx.index("fork-pr-conflict") < ctx.index("[active-settle]")
+
+
+def test_active_settle_reminder_fail_open_on_corrupt_index(tmp_path: Path, capsys):
+    repo = _mk_repo_with_task(tmp_path)
+    (repo / "repowiki" / "tasks" / ".index.json").write_text("{not json", encoding="utf-8")
+    out = _run_hook(
+        repo,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "把本周的会议纪要整理成一篇公众号文章",
+            "repo_path": str(repo),
+        },
+        tmp_path,
+        capsys,
+    )
+    assert out == ""  # corrupt index → no reminder, never an error
 
 
 # --------------------------------------------------------------------------- #

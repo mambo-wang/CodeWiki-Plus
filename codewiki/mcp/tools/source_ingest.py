@@ -589,7 +589,7 @@ def handle_ingest_source(
                                 f"supersede (recommended): after the user agrees, "
                                 f"retract_source(name='{declared}', mode='remove_refs') to retire the "
                                 "superseded document, then re-import under the intended stable name",
-                                f"keep_both: only if the user disagrees with the declaration, re-run "
+                                "keep_both: only if the user disagrees with the declaration, re-run "
                                 "with allow_sibling=true",
                                 "cancel: drop this import",
                             ],
@@ -636,7 +636,7 @@ def handle_ingest_source(
                             f"supersede (recommended): after the user agrees, "
                             f"retract_source(name='{sibling_name}', mode='remove_refs') to retire the "
                             "old edition, then re-import under a stable name without a version number",
-                            f"keep_both: only if the user confirms this is a genuinely separate "
+                            "keep_both: only if the user confirms this is a genuinely separate "
                             "document, re-run with allow_sibling=true",
                             "cancel: drop this import",
                         ],

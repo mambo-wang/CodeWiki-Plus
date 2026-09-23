@@ -147,8 +147,7 @@ _register_resources(server)
 # stdin 管道；以 reason=signal:N 收尾 → 收到了终止信号。
 
 _LIFECYCLE_LOG = Path(
-    os.environ.get("CODEWIKI_SERVER_LOG")
-    or (Path.home() / ".codewiki" / "server-lifecycle.log")
+    os.environ.get("CODEWIKI_SERVER_LOG") or (Path.home() / ".codewiki" / "server-lifecycle.log")
 )
 _START_TIME = time.monotonic()
 _EXIT_REASON = "unknown"

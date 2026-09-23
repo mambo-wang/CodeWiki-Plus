@@ -115,9 +115,7 @@ def test_session_ff_only_single_repo_syncs_when_enabled(tmp_path):
     _git(repo, "push", "-q", "-u", "origin", "main")
     # remote moves ahead (via a seed clone)
     seed = _clone(tmp_path, remote, "single-sync-seed")
-    (seed / "repowiki" / "notes" / "remote.md").write_text(
-        "remote\n", encoding="utf-8"
-    )
+    (seed / "repowiki" / "notes" / "remote.md").write_text("remote\n", encoding="utf-8")
     _git(seed, "add", "-A")
     _git(seed, "commit", "-q", "-m", "remote work")
     _git(seed, "push", "-q", "origin", "main")
@@ -171,14 +169,10 @@ def test_session_ff_only_dirty_conflict_refused_untouched(tmp_path):
     local tracked edit is refused with the working tree left untouched."""
     _reset_state()
     repo = _make_workspace_repo(tmp_path, "ff-conflict", "colocated")
-    (repo / "repowiki" / "notes" / "seed.md").write_text(
-        "local edit\n", encoding="utf-8"
-    )
+    (repo / "repowiki" / "notes" / "seed.md").write_text("local edit\n", encoding="utf-8")
     # remote moves ahead touching the SAME tracked file
     seed = tmp_path / "ff-conflict-seed"
-    (seed / "repowiki" / "notes" / "seed.md").write_text(
-        "remote edit\n", encoding="utf-8"
-    )
+    (seed / "repowiki" / "notes" / "seed.md").write_text("remote edit\n", encoding="utf-8")
     _git(seed, "add", "-A")
     _git(seed, "commit", "-q", "-m", "remote work")
     _git(seed, "push", "-q", "origin", "main")
@@ -186,9 +180,7 @@ def test_session_ff_only_dirty_conflict_refused_untouched(tmp_path):
     msg = session_ff_only(repo / "repowiki")
     assert msg and "拉取被拒" in msg
     # local edit intact — nothing was overwritten
-    assert (
-        repo / "repowiki" / "notes" / "seed.md"
-    ).read_text(encoding="utf-8") == "local edit\n"
+    assert (repo / "repowiki" / "notes" / "seed.md").read_text(encoding="utf-8") == "local edit\n"
     # once-per-process: the failed attempt claims the slot
     assert session_ff_only(repo / "repowiki") is None
 

@@ -6,17 +6,11 @@ freshness judgement, and the corpus-wide freshness distribution.
 
 from __future__ import annotations
 
-import json
 import logging
-import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional
 
-from codewiki.mcp.session import SessionStore
-from codewiki.src.frontmatter import parse_frontmatter
-from codewiki.src.retrieval import STOPWORDS as _STOPWORDS
-from codewiki.mcp.tools.injection_budget import estimate_tokens
 logger = logging.getLogger(__name__)
 
 _FRESHNESS_FALLBACK_WINDOW_DAYS = 90
@@ -218,7 +212,6 @@ def _freshness_distribution(output_dir: Path) -> Optional[Dict[str, Any]]:
     }
 
 
-
 def _note_age_days(fm: Dict[str, Any], today: datetime) -> int:
     """Age in days from ``metadata.date``, falling back to ``verified[-1].at``.
 
@@ -241,5 +234,3 @@ def _note_age_days(fm: Dict[str, Any], today: datetime) -> int:
     if created is None:
         return 0
     return max(0, (today - created).days)
-
-

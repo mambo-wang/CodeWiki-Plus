@@ -55,6 +55,47 @@ _SPEC_MAX_CHARS = 4000
 _CONVENTION_QUERIES = ("编码规范", "命名约定", "日志约定", "错误处理约定", "测试约定")
 _SLUG_RE = re.compile(r"[^\w\u4e00-\u9fff-]+")
 
+# ADR-0016 review-specific gates (applied in prepare, NOT in collect_git_changes
+# — impact analysis keeps vendor semantics there).
+_NOISE_DIRS = (
+    "vendor/",
+    "node_modules/",
+    "dist/",
+    "build/",
+    ".venv/",
+    "venv/",
+    "third_party/",
+    "thirdparty/",
+)
+_NOISE_SUFFIXES = (
+    ".min.js",
+    ".min.css",
+    ".lock",
+    ".snap",
+    ".pb.go",
+    "_pb2.py",
+)
+# Per-file diff size cap: a single file whose changed lines exceed this is
+# excluded as oversized (review noise, context blowup).
+_OVERSIZED_LINE_CAP = 2000
+
+
+def _review_gate(fc: FileChange) -> Optional[str]:
+    """ADR-0016 review-specific gate: return exclusion reason or None to keep.
+
+    Vendor/generated/snapshot noise and oversized single-file diffs are
+    excluded from the review package (but recorded with a reason).
+    """
+    p = _norm(fc.path).lower()
+    name = posixpath.basename(p)
+    if any(p.startswith(d) or f"/{d}" in p for d in _NOISE_DIRS):
+        return "noise"
+    if name.endswith(_NOISE_SUFFIXES):
+        return "noise"
+    if len(fc.added_lines) + len(fc.deleted_anchors) > _OVERSIZED_LINE_CAP:
+        return "oversized"
+    return None
+
 
 # ------------------------------------------------------------------
 # Source reading (version-aware) + change-line annotation
@@ -152,7 +193,7 @@ def _build_changed_sources(
             f"# file: {rel}  not in analysis graph — full working-tree source\n"
         )
         body = _annotate_lines(all_lines, 1, set(fc.added_lines))
-        by_file[rel] = header + body
+        by_file.setdefault(rel, []).append(header + body)
 
     return {f: "\n\n".join(blocks) for f, blocks in by_file.items()}
 
@@ -506,11 +547,62 @@ def _validate_report(report: Any, repo_path: str) -> tuple[List[str], List[str]]
     return errors, warnings
 
 
+def _coverage_warnings(report: Any, session: Any) -> List[str]:
+    """ADR-0016 soft coverage check: every changed file must have a destination.
+
+    Reads the file list from the last prepare's ``review_context.json`` and
+    compares against the report's findings + skipped entries.  Files with no
+    finding and no skip reason are listed as uncovered — a soft warning, not
+    a rejection (hardening decision deferred to next version, per ADR).
+    """
+    workspace = getattr(session, "workspace", None)
+    if workspace is None:
+        return []
+    ctx_path = workspace.root / "review_context.json"
+    if not ctx_path.exists():
+        return []
+    try:
+        ctx = json.loads(ctx_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+
+    target = ctx.get("target") or {}
+    changed = target.get("changed_sources") or {}
+    if not isinstance(changed, dict) or not changed:
+        return []
+    changed_files = {_norm(p) for p in changed.keys() if p}
+
+    report_dict = report if isinstance(report, dict) else {}
+    covered: Set[str] = set()
+    for f in report_dict.get("findings") or []:
+        if isinstance(f, dict) and isinstance(f.get("file"), str):
+            covered.add(_norm(f["file"]))
+    for s in report_dict.get("skipped") or []:
+        if (
+            isinstance(s, dict)
+            and isinstance(s.get("file"), str)
+            and isinstance(s.get("reason"), str)
+            and s["reason"].strip()
+        ):
+            covered.add(_norm(s["file"]))
+
+    uncovered = sorted(changed_files - covered)
+    if not uncovered:
+        return []
+    return [
+        f"coverage: {len(uncovered)}/{len(changed_files)} changed files have no finding and no skip reason: "
+        + ", ".join(uncovered[:20])
+        + (" ..." if len(uncovered) > 20 else "")
+    ]
+
+
 def _handle_submit(arguments: Dict[str, Any], session: Any) -> str:
     report = arguments.get("report")
     errors, warnings = _validate_report(report, session.repo_path)
     if errors:
         return json.dumps({"status": "rejected", "errors": errors}, ensure_ascii=False)
+
+    warnings = warnings + _coverage_warnings(report, session)
 
     workspace = getattr(session, "workspace", None)
     if workspace is None:
@@ -526,6 +618,7 @@ def _handle_submit(arguments: Dict[str, Any], session: Any) -> str:
         "status": "submitted",
         "report_file": str(fpath),
         "note_hint": "关键发现可用 ingest_note 沉淀（须用户确认）；报告不进 query_wiki 检索",
+        "fix_gate": "评审报告只读：先向用户展示 findings 与修复方案，未经用户明确同意不得自动修复",
     }
     if warnings:
         out["warnings"] = warnings
@@ -600,6 +693,16 @@ def handle_review_changes(
         return json.dumps({"error": f"Git analysis failed: {exc}"}, ensure_ascii=False)
 
     changes: List[FileChange] = git_info["changes"]
+    excluded: List[Dict[str, str]] = list(git_info.get("excluded") or [])
+    # ADR-0016 review-specific gate: vendor/oversized noise excluded with reason.
+    kept: List[FileChange] = []
+    for fc in changes:
+        reason = _review_gate(fc)
+        if reason:
+            excluded.append({"path": fc.path, "reason": reason})
+        else:
+            kept.append(fc)
+    changes = kept
     if not changes:
         # No changes: still go through the workspace file side-channel so the
         # MCP response shape is consistent (always carries "file") regardless
@@ -678,6 +781,13 @@ def handle_review_changes(
         full_result["deleted_unlocated"] = located["deleted_unlocated"]
     if located["untracked_files"]:
         full_result["untracked_files"] = located["untracked_files"]
+    # ADR-0016: per-file exclusion reasons + category summary.
+    if excluded:
+        full_result["excluded"] = excluded
+        summary: Dict[str, int] = {}
+        for e in excluded:
+            summary[e["reason"]] = summary.get(e["reason"], 0) + 1
+        full_result["excluded_summary"] = summary
 
     response = write_result(
         session,

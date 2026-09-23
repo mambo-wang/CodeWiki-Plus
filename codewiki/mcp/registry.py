@@ -736,7 +736,7 @@ _register(
                 },
                 "report": {
                     "type": "object",
-                    "description": "Submit only: the review report {title, findings: [{id, axis, severity, file, line, title, evidence, suggestion, rule_ref}], summary}.",
+                    "description": "Submit only: the review report {title, findings: [{id, axis, severity, file, line, title, evidence, suggestion, rule_ref}], skipped: [{file, reason}] (files not reviewed, reason required to count as covered), summary}.",
                 },
             },
             "required": ["repo_path"],

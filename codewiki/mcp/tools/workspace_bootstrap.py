@@ -411,9 +411,9 @@ def _detect_init_traces(workspace_p: Path, output_dir_p: Path) -> dict:
     All four traces together mean the workspace IS initialized: a re-run of
     ``init_workspace`` may short-circuit to clone-only adoption (fetch the
     missing business-repo clones) instead of walking the full skeleton flow
-    again — no artifact regeneration, no AGENTS.md rewrite.  Hand-built
-    workspaces count too: the registration-table anchors are shared with
-    the templates.
+    again — no artifact regeneration; the tool-maintained AGENTS.md blocks
+    are still content-aware refreshed.  Hand-built workspaces count too:
+    the registration-table anchors are shared with the templates.
     """
     traces = {
         "bootstrap_scripts": (workspace_p / "bootstrap.sh").exists()
@@ -477,6 +477,31 @@ def _adopt_initialized_workspace(
     # Registered repos must stay excluded from the harness git — repair any
     # missing /name/ line (no-op when every exclusion is already present).
     results["gitignore"] = _ensure_gitignore(workspace_p, sorted(info["sh_entries"]))
+
+    # ── AGENTS.md tool-maintained blocks: content-aware upsert ──────────
+    # The conventions block and the CodeWiki usage block are tool-maintained
+    # marker blocks (customizations live outside the markers and survive).
+    # Refreshing them here lets legacy workspaces upgrade their AGENTS.md
+    # blocks on a re-run instead of being frozen at the version they were
+    # initialized with; content-identical upserts write nothing.
+    from codewiki.mcp.tools.agents_md import write_agents_md, write_workspace_conventions
+
+    try:
+        results["agents_md_conventions"] = write_workspace_conventions(
+            workspace_path=str(workspace_p),
+            workspace_name=workspace_p.name,
+            layout=layout,
+        )
+    except Exception as e:  # must not block workspace adoption
+        results["agents_md_conventions"] = f"WARNING: {e}"
+        logger.warning("Failed to write workspace conventions block: %s", e)
+    try:
+        write_agents_md(repo_path=str(workspace_p), output_dir=str(output_dir_p), module_tree=None)
+        results["agents_md_codewiki_block"] = str(workspace_p / "AGENTS.md")
+    except Exception as e:  # must not block workspace adoption
+        results["agents_md_codewiki_block"] = f"WARNING: {e}"
+        logger.warning("Failed to write CodeWiki block in workspace AGENTS.md: %s", e)
+
     return info, None
 
 
@@ -584,11 +609,15 @@ def _run_full_skeleton_flow(
     # Conventions block first so it reads before the CodeWiki usage block.
     # Always force-refreshed: the block is tool-maintained, customizations
     # belong outside the markers.
-    results["agents_md_conventions"] = write_workspace_conventions(
-        workspace_path=str(workspace_p),
-        workspace_name=workspace_p.name,
-        layout=layout,
-    )
+    try:
+        results["agents_md_conventions"] = write_workspace_conventions(
+            workspace_path=str(workspace_p),
+            workspace_name=workspace_p.name,
+            layout=layout,
+        )
+    except Exception as e:  # must not block workspace scaffolding
+        results["agents_md_conventions"] = f"WARNING: {e}"
+        logger.warning("Failed to write workspace conventions block: %s", e)
     try:
         write_agents_md(repo_path=str(workspace_p), output_dir=str(output_dir_p), module_tree=None)
         results["agents_md_codewiki_block"] = str(workspace_p / "AGENTS.md")
@@ -624,8 +653,10 @@ def handle_init_workspace(arguments: dict) -> str:
       workspace is considered initialized, so the re-run short-circuits.
       It git-clones registered business repos that are not yet cloned,
       repairs missing .gitignore exclusions and backfills a missing layout
-      config (legacy workspaces) — nothing else is regenerated and
-      AGENTS.md is left untouched (adopted workspaces stay clean).
+      config (legacy workspaces), and content-aware refreshes the
+      tool-maintained AGENTS.md blocks (conventions + CodeWiki usage;
+      content outside the markers is untouched, identical content writes
+      nothing).
     - **full flow** — any trace missing: the persisted layout is adopted,
       missing artifacts are created, the AGENTS.md conventions block is
       force-refreshed, and registered repos are cloned.
@@ -698,12 +729,8 @@ def handle_init_workspace(arguments: dict) -> str:
                 "traces": traces,
                 "question": _i18n.t("tools.workspace_bootstrap.layout_question"),
                 "options": {
-                    LAYOUT_COLOCATED: _i18n.t(
-                        "tools.workspace_bootstrap.layout_colocated"
-                    ),
-                    LAYOUT_CENTRALIZED: _i18n.t(
-                        "tools.workspace_bootstrap.layout_centralized"
-                    ),
+                    LAYOUT_COLOCATED: _i18n.t("tools.workspace_bootstrap.layout_colocated"),
+                    LAYOUT_CENTRALIZED: _i18n.t("tools.workspace_bootstrap.layout_centralized"),
                 },
                 "next_steps": (
                     "Nothing was written. Present the two layouts to the user, then "

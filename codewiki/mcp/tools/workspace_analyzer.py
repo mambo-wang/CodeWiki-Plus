@@ -409,9 +409,7 @@ def _probe_repo_state(repo_path: Path, output_dir: Path) -> Tuple[Optional[str],
         dirty = repo.is_dirty(untracked_files=False)
         if not dirty:
             try:
-                od_rel = Path(output_dir).resolve().relative_to(
-                    repo_path.resolve()
-                ).as_posix()
+                od_rel = Path(output_dir).resolve().relative_to(repo_path.resolve()).as_posix()
                 if od_rel == ".":
                     od_rel = ""
             except ValueError:
@@ -523,9 +521,7 @@ def handle_analyze_workspace(
         anchor = _read_anchor_commit(repo_path, repo_output_dir)
         cache_present = default_cache_db(repo_path).exists()
         head, dirty = _probe_repo_state(repo_path, repo_output_dir)
-        unchanged = bool(
-            anchor and cache_present and head and head == anchor and not dirty
-        )
+        unchanged = bool(anchor and cache_present and head and head == anchor and not dirty)
         if unchanged:
             mode, should_analyze = "skipped", False
         elif anchor or (not centralized) or generate_repo_wikis:
@@ -549,9 +545,7 @@ def handle_analyze_workspace(
 
         if mode == "skipped":
             # Reuse persisted stats so overview rows stay accurate.
-            summary_path = (
-                SessionWorkspace(repo_path, "incremental-skip").root / "summary.json"
-            )
+            summary_path = SessionWorkspace(repo_path, "incremental-skip").root / "summary.json"
             if summary_path.exists():
                 try:
                     summary = json.loads(summary_path.read_text(encoding="utf-8"))

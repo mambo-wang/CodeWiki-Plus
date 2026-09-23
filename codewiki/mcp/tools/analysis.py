@@ -837,13 +837,10 @@ def _enrich_stale_evidence(
 
     pages: Dict[str, Dict[str, int]] = {}
     for record in drift:
-        counts = pages.setdefault(
-            record["file"], {"stale": 0, "missing": 0, "unresolvable": 0}
-        )
+        counts = pages.setdefault(record["file"], {"stale": 0, "missing": 0, "unresolvable": 0})
         counts[record["status"]] += 1
     changes_info["stale_evidence_pages"] = {
-        page: {k: v for k, v in counts.items() if v}
-        for page, counts in sorted(pages.items())
+        page: {k: v for k, v in counts.items() if v} for page, counts in sorted(pages.items())
     }
     total = sum(sum(c.values()) for c in changes_info["stale_evidence_pages"].values())
     changes_info["hint"] = (

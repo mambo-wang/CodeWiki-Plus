@@ -81,12 +81,16 @@ prompts:
     description: "Zero-config initialization: create the directory layout, copy the annotated schema.yaml template, and write AGENTS.md (usage advice + self-reflection protocol). Run once before any Wiki generation or knowledge management."
     args:
       repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
-      enable_task_management: "Enable cross-session task memory: true/1 appends task-management setup instructions (register the SessionEnd capture hook + write the task guidance block into AGENTS.md so new sessions prompt the user to bind or create a task); empty/false skips it. Disabled by default."
+      enable_task_management: "Enable cross-session task memory: enabled by default — no value or any value appends the task-management wiring steps (register the SessionEnd capture hook + write the task guidance block into AGENTS.md so new sessions prompt the user to bind or create a task); only an explicit false/0/no/off skips it."
       capture: "Capture switch: off removes the SessionEnd capture registration, making active settle the only memory channel; default on"
 
   init-workspace:
     title: "Initialize multi-repo Wiki workspace"
     description: "Initialize (or re-sync) the current working directory as a multi-repo workspace: bootstrap clone scripts, .gitignore, repo-map navigation skeleton, AGENTS.md workspace conventions and the product-level repowiki. First-time initialization must ask the user for the knowledge layout (colocated/centralized) before calling with layout; the layout is recorded in repowiki/.meta/workspace.json. Re-runs are zero-config and idempotent — when the skeleton is intact it takes over as clone-only (cloning missing business repos without touching the skeleton or AGENTS.md); missing skeleton parts are regenerated and convention blocks force-refreshed. Business repos are registered via add_workspace_repo."
+    args:
+      workspace_path: "Workspace root directory (defaults to the current working directory)"
+      enable_task_management: "Enable cross-session task memory: enabled by default — the wiring target is always the workspace root (harness repo), never business repos; only an explicit false/0/no/off skips it."
+      capture: "Capture switch: off removes the SessionEnd capture registration, making active settle the only memory channel; default on"
 
   add-workspace-repo:
     title: "Register a business repo into the multi-repo workspace"
@@ -435,13 +439,16 @@ review_checklist:
     performance:
       title: "Performance"
       questions: "Are there obvious N+1 queries or heavy work inside loops (IO, regex compilation, DB calls)?|Do the new data structures or algorithms match the expected scale?|Are unnecessary copies or serializations introduced?"
+      exclusions: "Report only after confirming the hot path: verify the path is called frequently under real load AND the scale mismatches expectations. One-off scripts, test code and startup paths are not reportable."
     code-quality:
       title: "Code quality"
       questions: "Is there duplicated logic worth extracting (already implemented in this file or module)?|Do names accurately reflect behavior (no misleading names)?|Is there dead code, unused variables, or comments that disagree with the code?"
+      exclusions: "Dead-code findings must exclude stub files (.pyi) and __init__.py re-exports; comment/code disagreement is reportable only when the comment clearly misleads, not for wording style."
   python:
     py-mutable-default:
       title: "Mutable default arguments"
       questions: "Is any function argument default a mutable object (list/dict/set) — state shared across calls?"
+      exclusions: "Do not report .pyi stub files (no runtime semantics); do not report defaults that are never mutated (read-only use) with clear intent."
     py-bare-except:
       title: "Bare except"
       questions: "Is a bare except / except Exception used, swallowing exceptions including KeyboardInterrupt?"

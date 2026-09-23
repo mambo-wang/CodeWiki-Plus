@@ -164,6 +164,11 @@ def test_submit_archive():
         }
         out = json.loads(_handle_submit({"report": report}, fake_session))
         check("submit returns submitted", out.get("status") == "submitted", detail=str(out))
+        check(
+            "fix_gate reminder present",
+            "不得自动修复" in (out.get("fix_gate") or ""),
+            detail=str(out.get("fix_gate")),
+        )
         rdir = Path(tmp) / "review_reports"
         files = list(rdir.glob("*.json"))
         check("report file archived", len(files) == 1)
@@ -175,6 +180,68 @@ def test_submit_archive():
         bad["findings"][0]["severity"] = "fatal"
         out2 = json.loads(_handle_submit({"report": bad}, fake_session))
         check("invalid report rejected on submit", out2.get("status") == "rejected")
+
+
+def test_submit_coverage_warnings():
+    print("[4b] _handle_submit coverage warnings (ADR-0016)")
+    with tempfile.TemporaryDirectory() as tmp:
+        fake_ws = SimpleNamespace(root=Path(tmp))
+        fake_session = SimpleNamespace(workspace=fake_ws, repo_path=REPO_PATH)
+        # Simulate a prepare that saw two changed files.
+        ctx = {
+            "target": {
+                "changed_sources": {
+                    "a.py": ">> line 1",
+                    "b.py": ">> line 1",
+                }
+            }
+        }
+        (Path(tmp) / "review_context.json").write_text(
+            json.dumps(ctx, ensure_ascii=False), encoding="utf-8"
+        )
+        # Report covers a.py only — b.py must surface as uncovered.
+        report = {
+            "title": "覆盖测试",
+            "findings": [
+                {
+                    "id": "f1",
+                    "axis": "general",
+                    "severity": "minor",
+                    "file": "a.py",
+                    "title": "t",
+                    "evidence": "e",
+                    "suggestion": "s",
+                }
+            ],
+        }
+        out = json.loads(_handle_submit({"report": report}, fake_session))
+        check("submit still succeeds", out.get("status") == "submitted", detail=str(out))
+        warns = out.get("warnings") or []
+        check(
+            "uncovered file warned",
+            any("b.py" in w and "coverage" in w for w in warns),
+            detail=str(warns),
+        )
+
+        # skipped with reason counts as covered.
+        report["skipped"] = [{"file": "b.py", "reason": "纯文档注释变更"}]
+        out2 = json.loads(_handle_submit({"report": report}, fake_session))
+        warns2 = out2.get("warnings") or []
+        check(
+            "skipped-with-reason not warned",
+            not any("b.py" in w for w in warns2),
+            detail=str(warns2),
+        )
+
+        # skipped WITHOUT reason does not count as covered.
+        report["skipped"] = [{"file": "b.py"}]
+        out3 = json.loads(_handle_submit({"report": report}, fake_session))
+        warns3 = out3.get("warnings") or []
+        check(
+            "skipped-without-reason still warned",
+            any("b.py" in w for w in warns3),
+            detail=str(warns3),
+        )
 
 
 def test_prepare_end_to_end():
@@ -284,6 +351,7 @@ def main():
     test_spec_auto_discover()
     test_validate_report()
     test_submit_archive()
+    test_submit_coverage_warnings()
     test_prepare_end_to_end()
     test_axis_key_mapping()
     print(f"\n=== Result: {_passed} passed, {_failed} failed ===")

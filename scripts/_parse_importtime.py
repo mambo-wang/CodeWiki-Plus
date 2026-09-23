@@ -1,4 +1,5 @@
 """解析 importtime 输出，排名最慢模块。跑完即删。"""
+
 import re
 
 text = open("d:/repos/CodeWiki-CN/scripts/_importtime.txt", encoding="utf-16").read()
@@ -14,7 +15,7 @@ for ln in lines:
     ln = ln.strip()
     if not ln.startswith("import time:"):
         continue
-    body = ln[len("import time:"):].strip()
+    body = ln[len("import time:") :].strip()
     parts = [p.strip() for p in body.split("|")]
     if len(parts) != 3:
         continue

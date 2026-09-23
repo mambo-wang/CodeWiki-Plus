@@ -61,3 +61,23 @@ v5.9.0 发布完成（2026-09-10）。
 ### 2026-09-10 11:07
 
 安全提醒：本次 PyPI token 经环境变量 UV_PUBLISH_TOKEN 传入但出现在会话记录中，建议轮换。本机无 gh CLI，沿用 %TEMP% 下 GitHub REST API 脚本(git credential fill 取 token)完成 PR/Release。
+
+### 2026-09-20 23:42 #9yxe
+
+v5.11.0 发布完成（2026-09-20）。关键进展与决策：
+
+1. 版本判定：v5.10.1 后 210 个提交含多个 feat（ADR-0011~0015、补蒸馏异步化）→ minor bump 到 5.11.0。四处版本引用（pyproject.toml、codewiki/__init__.py、uv.lock、server.py 经 __version__ 注入）已同步。
+
+2. 发布闸门：本地 pytest 1126 passed / 2 skipped，ruff 全过；PyPI 上传成功（codewiki_plus-5.11.0 whl+tar.gz，latest 已确认 5.11.0）。
+
+3. main/develop 分叉处理：main 停在 v5.9.0，v5.10.x tag 只在 develop 上，PR #34 直接合报大面积 add/add 冲突。决策：本地 git merge -X ours origin/main 进 develop（develop 为权威分支，main 独有提交均为历史 release bump，内容被 develop 覆盖），合并后抽样测试通过再推送。
+
+4. CI 两次失败与修复：
+   - 根因一：tests/conftest.py 无语言固定，i18n 按 OS locale 回退（zh*→zh，其他→en），CI 英文 locale 下 test_team_layout.py::test_append_log_writes_monthly_shard_not_log_md 和 test_openviking_borrowings.py::test_v6_merge_action_applies_field_strategies 断言中文文案失败。修复：conftest.py 加 autouse fixture _pin_language_zh（monkeypatch.setenv CODEWIKI_LANG=zh + i18n.set_lang('zh')）。
+   - 根因二：conftest.py 缺一个空行，ruff format 挂。修复：ruff format 后提交。
+
+5. GitHub 侧完成：PR #34 合入 main（merge commit a40c9b7），lightweight tag v5.11.0 打在 merge commit 上，Release 已发布：https://github.com/mambo-wang/CodeWiki-Plus/releases/tag/v5.11.0
+
+6. 经验教训：该仓库 CI 用 GitHub Actions check-runs，不产生 commit status，轮询 commits/{sha}/status 的 combined state 永远 pending——应轮询 commits/{sha}/check-runs。
+
+下一步：无待办，发布流程全部完成。

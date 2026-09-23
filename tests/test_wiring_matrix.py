@@ -95,9 +95,7 @@ EXPECTED_CODEBUDDY_SETTINGS = {
         "UserPromptSubmit": [
             {
                 "matcher": "",
-                "hooks": [
-                    {"type": "command", "command": PROMPT_HOOK_CMD, "timeout": 10}
-                ],
+                "hooks": [{"type": "command", "command": PROMPT_HOOK_CMD, "timeout": 10}],
             }
         ],
     }
@@ -113,9 +111,7 @@ def fake_pkg(tmp_path, monkeypatch):
     for name, content in HOOK_SOURCES.items():
         (pkg / "hooks" / name).write_text(content, encoding="utf-8")
     (pkg / "agents" / AGENT_FILE).write_text(AGENT_SOURCE, encoding="utf-8")
-    (pkg / "agents" / "distill-worker.claude.md").write_text(
-        AGENT_SOURCE_CLAUDE, encoding="utf-8"
-    )
+    (pkg / "agents" / "distill-worker.claude.md").write_text(AGENT_SOURCE_CLAUDE, encoding="utf-8")
     monkeypatch.setattr("codewiki.cli.utils.ide_config._resolve_pkg_sources", lambda: pkg)
     return pkg
 
@@ -181,9 +177,7 @@ def test_registry_matrix_resolution():
 
 def test_readme_support_matrix_matches_registry():
     """G3：README 宿主验证表 = 注册表生成的矩阵（单一来源，无第二处双源漂移）。"""
-    readme = (
-        Path(__file__).resolve().parents[1] / "README.md"
-    ).read_text(encoding="utf-8")
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
     assert support_matrix_markdown() in readme
 
 
@@ -343,9 +337,7 @@ def test_cursor_not_installable_but_present_in_registry(tmp_path):
 
     # CLI 的 --ide 取自 IDE_SPECS，cursor 不在其中 → 参数校验失败（非 0 退出）
     runner = CliRunner()
-    result = runner.invoke(
-        install_hooks, ["--repo-path", str(repo), "--ide", "cursor"]
-    )
+    result = runner.invoke(install_hooks, ["--repo-path", str(repo), "--ide", "cursor"])
     assert result.exit_code != 0
 
 
@@ -367,9 +359,7 @@ def test_zero_regression_codebuddy_capture_on(tmp_path, fake_pkg):
 
     assert _snapshot(repo_today) == _snapshot(repo_explicit)
     # settings.json 结构等于今日已知契约（零回归锚点，非仅自比较）
-    assert _read_json(repo_today / ".codebuddy" / "settings.json") == (
-        EXPECTED_CODEBUDDY_SETTINGS
-    )
+    assert _read_json(repo_today / ".codebuddy" / "settings.json") == (EXPECTED_CODEBUDDY_SETTINGS)
     # 主动沉淀块恒渲染（ADR-0014）；共享引导块恒在
     text = (repo_today / "AGENTS.md").read_text(encoding="utf-8")
     assert _TASK_MEMORY_AGENTS_START in text

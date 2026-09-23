@@ -244,6 +244,7 @@ _WIKILINK_RULES = ["syntax", "graph_build", "multi_hop", "aliases"]
 
 def register(server):
     """Register resource and resource-template handlers on the MCP server."""
+
     @server.list_resources()
     async def list_resources() -> list:
         """List available static resources."""
@@ -347,8 +348,7 @@ def register(server):
                         for page_type, path in _PAGE_TYPE_PATHS.items()
                     },
                     "wikilink_rules": {
-                        rule: _i18n.t("resources.wikilink." + rule)
-                        for rule in _WIKILINK_RULES
+                        rule: _i18n.t("resources.wikilink." + rule) for rule in _WIKILINK_RULES
                     },
                 },
                 ensure_ascii=False,

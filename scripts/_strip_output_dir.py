@@ -8,6 +8,7 @@ Usage:
     uv run python scripts/_strip_output_dir.py            # dry run (no writes)
     uv run python scripts/_strip_output_dir.py --apply    # rewrite registry.py
 """
+
 from __future__ import annotations
 
 import ast
@@ -22,14 +23,36 @@ NAME_RE = re.compile(r'name="([a-z_0-9]+)"')
 # Write-path / lifecycle / analysis / management tools whose output_dir
 # parameter is retired (output_dir is derived from repo_path by layout).
 DELETE = {
-    "analyze_repo", "write_doc_file", "edit_doc_file", "save_module_tree",
-    "close_session", "stamp_evidence", "ingest_note", "confirm_note",
-    "batch_set_status", "reject_note", "ingest_source", "retract_source",
-    "capture_conversation", "distill_conversation", "consolidate_notes",
-    "refresh_doctrine", "batch_ingest", "flag_issue", "analyze_workspace",
-    "generate_docs", "init_wiki", "init_workspace", "create_task",
-    "list_tasks", "get_task", "complete_task", "delete_task",
-    "set_session_task", "add_task_memory", "get_task_context",
+    "analyze_repo",
+    "write_doc_file",
+    "edit_doc_file",
+    "save_module_tree",
+    "close_session",
+    "stamp_evidence",
+    "ingest_note",
+    "confirm_note",
+    "batch_set_status",
+    "reject_note",
+    "ingest_source",
+    "retract_source",
+    "capture_conversation",
+    "distill_conversation",
+    "consolidate_notes",
+    "refresh_doctrine",
+    "batch_ingest",
+    "flag_issue",
+    "analyze_workspace",
+    "generate_docs",
+    "init_wiki",
+    "init_workspace",
+    "create_task",
+    "list_tasks",
+    "get_task",
+    "complete_task",
+    "delete_task",
+    "set_session_task",
+    "add_task_memory",
+    "get_task_context",
     "compact_task_memories",
 }
 
@@ -76,7 +99,7 @@ def main() -> int:
         drop_lines |= drop
         actions.append(f"{owner}: dropping lines {idx + 1}-{end + 1}")
 
-    new_text = "".join(l for i, l in enumerate(lines) if i not in drop_lines)
+    new_text = "".join(line for i, line in enumerate(lines) if i not in drop_lines)
     try:
         ast.parse(new_text)
     except SyntaxError as exc:

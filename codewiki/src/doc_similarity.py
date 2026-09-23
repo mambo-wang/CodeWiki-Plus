@@ -92,9 +92,7 @@ def _shingles(normalized: str) -> List[str]:
 
 
 def _hash64(token: str) -> int:
-    return int.from_bytes(
-        hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest(), "big"
-    )
+    return int.from_bytes(hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest(), "big")
 
 
 def _bottom_k(hashes: Sequence[int], k: int) -> List[int]:

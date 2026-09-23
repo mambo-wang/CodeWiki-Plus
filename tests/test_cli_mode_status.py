@@ -25,9 +25,7 @@ HOOK_SOURCES = {
     "capture_session_end.py": "import json\n\nprint('ok')\n",
     "task_session_start.py": "import os\n\nprint('ok')\n",
 }
-AGENT_SOURCE = (
-    "---\nname: distill-worker\nmcpServers:\n  - codewiki\n---\nworker\n"
-)
+AGENT_SOURCE = "---\nname: distill-worker\nmcpServers:\n  - codewiki\n---\nworker\n"
 AGENT_SOURCE_CLAUDE = (
     "---\nname: distill-worker\n"
     "tools: Read, Write, mcp__codewiki__distill_conversation\n---\nworker\n"
@@ -43,9 +41,7 @@ def fake_pkg(tmp_path, monkeypatch):
     for name, content in HOOK_SOURCES.items():
         (pkg / "hooks" / name).write_text(content, encoding="utf-8")
     (pkg / "agents" / AGENT_FILE).write_text(AGENT_SOURCE, encoding="utf-8")
-    (pkg / "agents" / "distill-worker.claude.md").write_text(
-        AGENT_SOURCE_CLAUDE, encoding="utf-8"
-    )
+    (pkg / "agents" / "distill-worker.claude.md").write_text(AGENT_SOURCE_CLAUDE, encoding="utf-8")
     monkeypatch.setattr("codewiki.cli.utils.ide_config._resolve_pkg_sources", lambda: pkg)
     return pkg
 
@@ -102,9 +98,7 @@ def test_qwenwork_auto_prompt_wiring(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     runner = CliRunner()
-    result = runner.invoke(
-        install_hooks, ["--repo-path", str(repo), "--ide", "qwenwork"]
-    )
+    result = runner.invoke(install_hooks, ["--repo-path", str(repo), "--ide", "qwenwork"])
     assert result.exit_code == 0, result.output
     assert "prompt wiring" in result.output
     text = (repo / "AGENTS.md").read_text(encoding="utf-8")
@@ -187,8 +181,15 @@ def test_status_table_header_columns(tmp_path, fake_pkg):
     assert result.exit_code == 0, result.output
     header = result.output.splitlines()[0]
     # 七列表头（工单验收至少三列：agent / registry / wiring 均在其中）
-    for col in ("agent", "family", "registry", "wiring", "capture",
-                "wired-on-disk", "capability gap"):
+    for col in (
+        "agent",
+        "family",
+        "registry",
+        "wiring",
+        "capture",
+        "wired-on-disk",
+        "capability gap",
+    ):
         assert col in header, f"missing column: {col}"
 
 
@@ -225,14 +226,14 @@ def test_status_wired_on_disk_reflects_reality(tmp_path, fake_pkg):
     after = runner.invoke(install_hooks, ["--repo-path", str(tmp_path), "--status"])
     assert after.exit_code == 0
     # codebuddy 接线后应显示 hooks+settings
-    cb_row = next(l for l in after.output.splitlines() if l.startswith("| codebuddy"))
+    cb_row = next(row for row in after.output.splitlines() if row.startswith("| codebuddy"))
     assert "hooks+settings" in cb_row
     # capture off 后应显示专用状态值（与 partial 区分）
     runner.invoke(
         install_hooks, ["--repo-path", str(tmp_path), "--ide", "codebuddy", "--capture", "off"]
     )
     off = runner.invoke(install_hooks, ["--repo-path", str(tmp_path), "--status"])
-    cb_off_row = next(l for l in off.output.splitlines() if l.startswith("| codebuddy"))
+    cb_off_row = next(row for row in off.output.splitlines() if row.startswith("| codebuddy"))
     assert "capture off" in cb_off_row
     assert "partial" not in cb_off_row
 
@@ -268,9 +269,9 @@ def test_status_wired_on_disk_matches_legacy_backslash_entries(tmp_path):
 def test_status_gap_column_has_family_gaps(tmp_path):
     runner = CliRunner()
     result = runner.invoke(install_hooks, ["--repo-path", str(tmp_path), "--status"])
-    qw_row = next(l for l in result.output.splitlines() if l.startswith("| qwenwork"))
+    qw_row = next(row for row in result.output.splitlines() if row.startswith("| qwenwork"))
     assert "no auto-capture; agent-mediated" in qw_row
-    tr_row = next(l for l in result.output.splitlines() if l.startswith("| trae"))
+    tr_row = next(row for row in result.output.splitlines() if row.startswith("| trae"))
     assert "no SessionEnd" in tr_row
 
 
@@ -286,9 +287,12 @@ def test_inject_file_override_writes_custom_file(tmp_path):
     result = runner.invoke(
         install_hooks,
         [
-            "--repo-path", str(repo),
-            "--ide", "qwenwork",
-            "--inject-file", "docs/AGENT_INSTRUCTIONS.md",
+            "--repo-path",
+            str(repo),
+            "--ide",
+            "qwenwork",
+            "--inject-file",
+            "docs/AGENT_INSTRUCTIONS.md",
         ],
     )
     assert result.exit_code == 0, result.output

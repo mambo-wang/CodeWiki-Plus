@@ -90,13 +90,16 @@ def builtin_checklists() -> Dict[str, List[Dict[str, Any]]]:
         for cid in ids:
             base = f"review_checklist.{group}.{cid}"
             questions = i18n.t(base + ".questions")
-            entries.append(
-                {
-                    "id": cid,
-                    "title": i18n.t(base + ".title"),
-                    "questions": [q for q in questions.split("|") if q],
-                }
-            )
+            entry: Dict[str, Any] = {
+                "id": cid,
+                "title": i18n.t(base + ".title"),
+                "questions": [q for q in questions.split("|") if q],
+            }
+            # ADR-0016: optional "when NOT to report" exclusions.
+            exclusions = i18n.t(base + ".exclusions")
+            if exclusions and not exclusions.startswith(i18n.MISSING_PREFIX):
+                entry["exclusions"] = exclusions
+            entries.append(entry)
         out[group] = entries
     return out
 

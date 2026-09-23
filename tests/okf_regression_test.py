@@ -788,7 +788,11 @@ def main():
         "外部规范 V2" in new_text,
         new_text[:200],
     )
-    trash_files = list((output_dir / ".trash").glob("ext-spec*.md")) if (output_dir / ".trash").is_dir() else []
+    trash_files = (
+        list((output_dir / ".trash").glob("ext-spec*.md"))
+        if (output_dir / ".trash").is_dir()
+        else []
+    )
     check(
         "ingest_source",
         "overwrite后旧raw文件移入.trash",
@@ -825,7 +829,9 @@ def main():
         bool(r.get("existing", {}).get("path")) and r.get("existing", {}).get("name") == ri_name,
         str(r)[:300],
     )
-    check("ingest_source", "duplicate给出用户选项", len(r.get("user_options", [])) >= 3, str(r)[:300])
+    check(
+        "ingest_source", "duplicate给出用户选项", len(r.get("user_options", [])) >= 3, str(r)[:300]
+    )
 
     # 异名 + overwrite → 拒绝，避免同一内容两份副本污染检索
     r = json.loads(
@@ -919,9 +925,9 @@ def main():
         and r.get("similarity_score", 0) >= 0.25,
         str(r)[:400],
     )
-    reg_now = json.loads(
-        (output_dir / ".meta/source_registry.json").read_text(encoding="utf-8")
-    )["sources"]
+    reg_now = json.loads((output_dir / ".meta/source_registry.json").read_text(encoding="utf-8"))[
+        "sources"
+    ]
     check("ingest_source", "version_sibling不落盘", "rev-doc-v2" not in reg_now, str(list(reg_now)))
     r = json.loads(
         handle_ingest_source(
@@ -934,7 +940,9 @@ def main():
             store,
         )
     )
-    check("ingest_source", "allow_sibling确认后登记成功", r.get("status") == "ingested", str(r)[:200])
+    check(
+        "ingest_source", "allow_sibling确认后登记成功", r.get("status") == "ingested", str(r)[:200]
+    )
 
     # 无关文档名带版本号 → 不应误报 version_sibling
     unrelated_file = base / "annual_report_2025.md"
@@ -986,7 +994,12 @@ def main():
             store,
         )
     )
-    check("ingest_source", "supersede经allow_sibling确认后登记", r.get("status") == "ingested", str(r)[:200])
+    check(
+        "ingest_source",
+        "supersede经allow_sibling确认后登记",
+        r.get("status") == "ingested",
+        str(r)[:200],
+    )
 
     # ================================================================
     print("\n[8] retract_source — dry_run与引用清理")

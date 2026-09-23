@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 """Hook agent registry (H1, docs/Hook多智能体支持设计方案.md §3).
 

@@ -84,7 +84,7 @@ effective = base
 if feedback_lifecycle_mode == "on" and row["bonus_days"] > 0:
     effective = base + timedelta(days=row["bonus_days"])
     if row["valid_to"]:
-        effective = min(effective, valid_to)      # 延寿不得越过事实有效期
+        effective = min(effective, valid_to)  # 延寿不得越过事实有效期
 ```
 
 `bonus_days` 来自 `memory_usefulness.retention_bonus_days`；参数 `feedback_bonus_every=3` / `feedback_bonus_days=14` / `feedback_bonus_cap_days=180`（`config/lifecycle.py:251-258`）。**两层约束让"反馈驱动"不会退化成"热度掩盖过期"。**（二次复核补：`ttl.py:44-46` 还有第三层——`state.service_health` 槽位条目再被 `slot_short_ttl_seconds` 二次夹紧，高频状态类知识即使高 usefulness 也不得长于短 TTL。）

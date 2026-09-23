@@ -31,7 +31,7 @@ def _write_note(notes_dir: Path, filename: str, title: str, status: str = "stabl
     p = notes_dir / filename
     p.write_text(
         f"---\ntype: pitfall\ntitle: {json.dumps(title, ensure_ascii=False)}\n"
-        f"tags: [\"x\"]\nmetadata:\n  date: 2026-08-27\n  related_modules: [\"cache\"]\n"
+        f'tags: ["x"]\nmetadata:\n  date: 2026-08-27\n  related_modules: ["cache"]\n'
         f"status: {status}\n---\n\n写入后必须删除 key，否则读到旧值。\n",
         encoding="utf-8",
     )

@@ -23,6 +23,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
 # Package-bundled templates are the single source of truth.  A language variant
 # (`<name>.en.yaml`) wins when the resolved language has one.  Resolved at copy
 # time (not at import) so the choice follows the current language.

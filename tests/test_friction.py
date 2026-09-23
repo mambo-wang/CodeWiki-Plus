@@ -427,7 +427,9 @@ def test_get_task_context_pending_raws_carry_friction(tmp_path):
     _capture(repo, calm, task_id=task_id)
     _capture(repo, _correction_conversation(), task_id=task_id)
 
-    ctx = json.loads(tm.handle_get_task_context({"repo_path": str(repo), "task_id": task_id}, store))
+    ctx = json.loads(
+        tm.handle_get_task_context({"repo_path": str(repo), "task_id": task_id}, store)
+    )
     assert ctx["ok"] is True
     assert ctx["pending_raw_count"] == 2
     entries = ctx["pending_raws"]

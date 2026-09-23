@@ -94,7 +94,10 @@ def _render_result_block(payload: dict) -> str:
 @click.command(name="query")
 @click.argument("query")
 @click.option(
-    "--repo-path", "-r", default=None, help="Repository root (default: current directory); repowiki is derived from it"
+    "--repo-path",
+    "-r",
+    default=None,
+    help="Repository root (default: current directory); repowiki is derived from it",
 )
 @click.option("--top", type=int, default=10, show_default=True, help="Max results (1-20)")
 @click.option(

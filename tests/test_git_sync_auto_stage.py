@@ -20,9 +20,7 @@ from codewiki.src.git_sync import auto_stage
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True
-    )
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
 
 
 def _staged(repo: Path) -> list:

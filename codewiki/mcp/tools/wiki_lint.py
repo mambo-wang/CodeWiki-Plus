@@ -2336,8 +2336,7 @@ def _check_threshold_drift(output_dir: Path) -> List[Dict[str, Any]]:
                             "check": "threshold_drift",
                             "severity": "warning",
                             "message": (
-                                f"{label} in {fname} copy says {found}, "
-                                f"limits.py says {expected}"
+                                f"{label} in {fname} copy says {found}, limits.py says {expected}"
                             ),
                             "file": f"codewiki/mcp/{fname}",
                             "line": text.count("\n", 0, m.start()) + 1,

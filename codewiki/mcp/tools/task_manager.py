@@ -382,9 +382,7 @@ def _load_memories_layered(
             kept, kept_idx, truncated = entries, idxs, False
         else:
             kept, kept_idx, truncated = entries[-max_memories:], idxs[-max_memories:], True
-        annotated = [
-            _annotate_entry(e, display_ids[i]) for e, i in zip(kept, kept_idx)
-        ]
+        annotated = [_annotate_entry(e, display_ids[i]) for e, i in zip(kept, kept_idx)]
         body = "\n\n".join(annotated)
         rendered = f"{summary}\n\n{body}" if summary else body
         return rendered, total, truncated
@@ -764,9 +762,7 @@ def _write_check(
     # would dilute the ratio of an otherwise-identical duplicate.
     # Short texts (< 20 chars) skip the dedup: a one-char difference in a
     # tiny string yields a high ratio with no meaningful signal (fail-open).
-    scope_texts = [
-        _entry_body(e) for e in live[-_WRITE_CHECK_TAIL:] if len(_entry_body(e)) >= 20
-    ]
+    scope_texts = [_entry_body(e) for e in live[-_WRITE_CHECK_TAIL:] if len(_entry_body(e)) >= 20]
     # Summaries are compared individually (D5): concatenating them into one
     # long text dilutes the ratio and lets "repeats a conclusion the summary
     # already covers" slip through. The canonical summary heading is stripped
@@ -858,13 +854,9 @@ def handle_add_task_memory(arguments: Dict[str, Any], store: SessionStore) -> st
     # return an error and leave no orphan new entry on disk. The real marker
     # write happens after the append (same locked_rmw ordering as before).
     if supersedes:
-        err = ks.supersede_memory(
-            task_id, user=uid, ref=supersedes, new_id="", dry_run=True
-        )
+        err = ks.supersede_memory(task_id, user=uid, ref=supersedes, new_id="", dry_run=True)
         if err:
-            return json.dumps(
-                {"error": err, "supersedes": supersedes}, ensure_ascii=False
-            )
+            return json.dumps({"error": err, "supersedes": supersedes}, ensure_ascii=False)
 
     # Generate the new entry's persistent id first (it is referenced by the
     # supersede marker), then append, then mark the old entry.
@@ -1151,7 +1143,9 @@ def _prepare_compaction_payload(output_dir: Path, task_id: str) -> Optional[Dict
     }
 
 
-def _split_compaction(entries: List[Tuple[str, str]]) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
+def _split_compaction(
+    entries: List[Tuple[str, str]],
+) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
     """ADR-0009 D8: pick the compress set with superseded entries first.
 
     ``entries`` is the chronological hot layer [(owner, entry)]. The compress

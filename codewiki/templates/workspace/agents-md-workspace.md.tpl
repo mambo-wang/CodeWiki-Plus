@@ -34,7 +34,7 @@ query_cross_service(workspace_path=<harness根目录>)
 
 ## 分支策略
 
-本仓分支固定、变动不频繁；各业务仓自由选择主线或个人开发分支，互不感知、无需同步。不要在本仓为业务仓的分支做任何记录（没有指针、没有 manifest 锁定）。
+本仓分支固定、变动不频繁；各业务仓自由选择分支，互不感知。不要在本仓为业务仓的分支做任何记录（没有指针、没有 manifest 锁定）。
 
 ## 知识写入路由
 
@@ -47,10 +47,6 @@ query_cross_service(workspace_path=<harness根目录>)
 
 原则：wiki 与它描述的代码同仓演进。描述某业务仓内部实现的知识绝不写入本仓。
 
-## 新业务仓接入清单
+## 新业务仓接入
 
-优先使用 CodeWiki MCP 工具 `add_workspace_repo(url=<克隆URL>)` 一步完成登记（目录名自动取仓库名）；手工接入时须同步三处：
-
-1. `bootstrap.ps1` / `bootstrap.sh` 的 repos 登记表增加仓库目录名与 URL
-2. `.gitignore` 增加一行 `/<业务仓目录>/`
-3. `repowiki/wiki/repo-map.md` 补充该仓小节（职责、repowiki 路径、检索方式）
+优先使用 CodeWiki MCP 工具 `add_workspace_repo(url=<克隆URL>)` 一步完成登记（目录名自动取仓库名，事务式同步 bootstrap 登记表、`.gitignore`、repo-map）。完整步骤与手工兜底见 `get_prompt(name="add-workspace-repo")`。

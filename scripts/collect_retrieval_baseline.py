@@ -73,13 +73,34 @@ def main() -> None:
 
     entries = []
     for q in DECISION_QUERIES:
-        entries.append({"label": f"decision:{q}", "kind": "decision/lesson", "arguments": {"query": q}, **run_query({"query": q})})
+        entries.append(
+            {
+                "label": f"decision:{q}",
+                "kind": "decision/lesson",
+                "arguments": {"query": q},
+                **run_query({"query": q}),
+            }
+        )
     for label, target in BY_FILE_SCENARIOS:
         q = label  # current behaviour: module-name BM25 search
-        entries.append({"label": f"by_file:{target}", "kind": "by_file", "arguments": {"query": q}, **run_query({"query": q})})
+        entries.append(
+            {
+                "label": f"by_file:{target}",
+                "kind": "by_file",
+                "arguments": {"query": q},
+                **run_query({"query": q}),
+            }
+        )
     for spec in CHECK_EXPAND:
         label = spec.pop("label")
-        entries.append({"label": f"mixed:{label}", "kind": "check/expand", "arguments": spec, **run_query(spec)})
+        entries.append(
+            {
+                "label": f"mixed:{label}",
+                "kind": "check/expand",
+                "arguments": spec,
+                **run_query(spec),
+            }
+        )
 
     head = subprocess.run(
         ["git", "log", "-1", "--format=%H %cI"], cwd=REPO, capture_output=True, text=True
@@ -98,13 +119,17 @@ def main() -> None:
         "queries": entries,
         "summary": {
             "n": len(entries),
-            "avg_response_chars": round(sum(e["response_chars"] for e in entries) / len(entries), 1),
+            "avg_response_chars": round(
+                sum(e["response_chars"] for e in entries) / len(entries), 1
+            ),
             "total_response_chars": sum(e["response_chars"] for e in entries),
         },
     }
     out_path = REPO / opts.out
     out_path.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"baseline written: {out_path} ({len(entries)} queries, avg {out['summary']['avg_response_chars']} chars)")
+    print(
+        f"baseline written: {out_path} ({len(entries)} queries, avg {out['summary']['avg_response_chars']} chars)"
+    )
 
 
 if __name__ == "__main__":

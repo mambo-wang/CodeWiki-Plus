@@ -60,9 +60,7 @@ def fake_pkg(tmp_path, monkeypatch):
     for name, content in HOOK_SOURCES.items():
         (pkg / "hooks" / name).write_text(content, encoding="utf-8")
     (pkg / "agents" / AGENT_FILE).write_text(AGENT_SOURCE, encoding="utf-8")
-    (pkg / "agents" / "distill-worker.claude.md").write_text(
-        AGENT_SOURCE_CLAUDE, encoding="utf-8"
-    )
+    (pkg / "agents" / "distill-worker.claude.md").write_text(AGENT_SOURCE_CLAUDE, encoding="utf-8")
     monkeypatch.setattr("codewiki.cli.utils.ide_config._resolve_pkg_sources", lambda: pkg)
     return pkg
 

@@ -312,7 +312,10 @@ def session_ff_only(output_dir: str | Path) -> Optional[str]:
     # refuses both and leaves the working tree as-is.  Distinguish so the
     # report tells the operator whether they must stash/commit first.
     err = (proc.stderr or "") + " " + (proc.stdout or "")
-    if any(h in err for h in ("would be overwritten", "untracked working tree files", "将被合并操作覆盖")):
+    if any(
+        h in err
+        for h in ("would be overwritten", "untracked working tree files", "将被合并操作覆盖")
+    ):
         return (
             "git_sync: ff-only 拉取被拒——远端更新与本地未提交改动重叠，"
             "git 未改动任何文件。请先提交/暂存本地改动后手动同步，"
@@ -389,9 +392,7 @@ def auto_push(output_dir: str | Path, tool_name: str) -> Optional[str]:
     from datetime import date
 
     msg = f"codewiki: auto-sync knowledge ({tool_name}, {date.today().isoformat()})"
-    if (
-        _run_git(repo_root, ["commit", "-q", "-m", msg, "--", rel]) is None
-    ):
+    if _run_git(repo_root, ["commit", "-q", "-m", msg, "--", rel]) is None:
         return "git_sync(auto_push): 提交失败，改动保留在工作区。"
 
     # 3) No content guard: the branch is the user's unit of publication, so

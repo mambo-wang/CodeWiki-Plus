@@ -159,9 +159,7 @@ class TestQueryRepoFilter:
         # output_dir points into a's partition, but the derived corpus from
         # repo_path covers the whole workspace repowiki — b's partition and
         # shared pools stay reachable, proving the explicit value was ignored.
-        res = _query(
-            ws, repo_path=ws / "a", output_dir=ws / "repowiki" / "wiki" / "modules" / "a"
-        )
+        res = _query(ws, repo_path=ws / "a", output_dir=ws / "repowiki" / "wiki" / "modules" / "a")
         files = _files(res)
         assert "wiki/modules/b/authb.md" in files
         assert "wiki/entities/SharedZebra.md" in files

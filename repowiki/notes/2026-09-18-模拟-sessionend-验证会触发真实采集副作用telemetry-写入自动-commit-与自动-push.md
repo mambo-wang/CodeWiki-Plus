@@ -24,6 +24,8 @@ origin: conversation
 verified:
 - by: human:wangbao
   at: '2026-09-18T01:46:21Z'
+source_conversations: ['conversations/conv-user_command-commands-codewiki-初始化单仓Wiki工作区-请为项目初始化-Wiki-工作区.md']
+
 ---
 
 ## 背景
@@ -40,3 +42,19 @@ verified:
 ## 根因
 
 capture 作为批边界自动 commit+push 是既定行为，模拟事件与真实事件走同一链路，无法只验证落盘而不触发同步。
+
+## install-hooks 验证产物 conv-测试.md 需按 source_session 核对后再清理
+
+> 合并自蒸馏候选：install-hooks 验证产物 conv-测试.md 需按 source_session 核对后再清理
+
+## Background
+
+用模拟事件验证 SessionEnd hook 时，落盘文件名是 `conv-测试.md`（取自 transcript 内容）而非 `conv-verify-1.md`，直接按文件名删测试产物有误删历史 raw 的风险。
+
+## 正确做法
+
+清理前先读文件 frontmatter，确认 `source_session: verify-1`（本次测试标识）再删除；同时核对 raw 目录中历史积压文件未受影响。
+
+## Rationale
+
+采集脚本的文件名来自对话内容而非 session_id，按名字猜测试产物不可靠，按 frontmatter 的 source_session 核对是确定性判据。

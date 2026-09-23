@@ -25,6 +25,8 @@ origin: conversation
 verified:
 - by: human:wangbao
   at: '2026-09-18T01:46:12Z'
+source_conversations: ['conversations/conv-user_command-commands-codewiki-初始化单仓Wiki工作区-请为项目初始化-Wiki-工作区-560d5c.md']
+
 ---
 
 ## 背景
@@ -44,3 +46,11 @@ python -m codewiki.cli.main install-hooks --repo-path d:\repos\CodeWiki-Plus
 ```
 
 这样 `codewiki` 解析到本地源码，功能与 CLI 完全等价。
+
+## 全局 codewiki CLI 因 Python 3.14 缺模块不可用，改用项目 .venv 内 CLI
+
+> 合并自蒸馏候选：全局 codewiki CLI 因 Python 3.14 缺模块不可用，改用项目 .venv 内 CLI
+
+## 补充：另一失败模式——全局 CLI 的 Python 3.14 缺模块（2026-09-21）
+
+全局 `codewiki` CLI 还存在另一种不可用模式：其指向的 Python 解释器（3.14）缺少所需模块，CLI 入口直接报错。此时可改用项目虚拟环境中的 CLI：`d:\repos\CodeWiki-Plus\.venv\Scripts\codewiki.exe install-hooks --repo-path <repo>`。本项目开发会话中应优先使用 `.venv` 内的 codewiki CLI，而非全局安装版。

@@ -94,9 +94,7 @@ def test_add_and_get_task_memory(tmp_path):
         content="完成 schema 迁移脚本",
     )
     assert m1["ok"] is True
-    m2 = _call(
-        tm.handle_add_task_memory, repo_path=repo, task_id=task_id, content="验证数据一致性"
-    )
+    m2 = _call(tm.handle_add_task_memory, repo_path=repo, task_id=task_id, content="验证数据一致性")
     assert m2["ok"] is True
 
     got = _call(tm.handle_get_task, repo_path=repo, task_id=task_id)
@@ -139,9 +137,7 @@ def test_set_session_task_binding(tmp_path):
 
 def test_set_session_task_rejects_missing_task(tmp_path):
     repo = str(tmp_path)
-    r = _call(
-        tm.handle_set_session_task, repo_path=repo, source_session_id="s1", task_id="nope"
-    )
+    r = _call(tm.handle_set_session_task, repo_path=repo, source_session_id="s1", task_id="nope")
     assert "error" in r
 
 
@@ -317,9 +313,7 @@ def test_delete_task_cascades_binding(tmp_path):
 
 def test_get_task_context_aggregates_related_notes(tmp_path):
     repo = str(tmp_path)
-    r = _call(
-        tm.handle_create_task, repo_path=repo, title="聚合任务", description="任务描述体"
-    )
+    r = _call(tm.handle_create_task, repo_path=repo, title="聚合任务", description="任务描述体")
     task_id = r["task"]["id"]
 
     _call(tm.handle_add_task_memory, repo_path=repo, task_id=task_id, content="记忆条目")
@@ -548,7 +542,9 @@ def test_append_direct_stamps_heading_and_tolerates_ghost(tmp_path, monkeypatch)
     task_id = r["task"]["id"]
 
     # Direct write (ADR-0002): timestamp-headed entries land immediately.
-    written = tm.append_task_memories_direct(Path(repo) / "repowiki", task_id, ["蒸馏出的任务进度", ""])
+    written = tm.append_task_memories_direct(
+        Path(repo) / "repowiki", task_id, ["蒸馏出的任务进度", ""]
+    )
     assert written == 1
     text = (Path(repo) / "repowiki" / "tasks" / task_id / "memories" / "alice.md").read_text(
         encoding="utf-8"
@@ -580,7 +576,6 @@ def test_distill_memory_heading_uses_captured_at(tmp_path, monkeypatch):
     """ADR-0014: distillation is notes-only (channel exclusivity) — the
     captured_at heading logic for distilled memories is retired along with
     the memory channel. This test now pins the new contract."""
-    from datetime import datetime
     from pathlib import Path
 
     monkeypatch.setenv("CODEWIKI_USER", "alice")
@@ -615,7 +610,6 @@ def test_distill_task_scoped_skips_memories_by_default(tmp_path):
     """Channel mutual exclusion (ADR-0010/0014): distillation is FIXED to
     notes-only on ALL paths — task memories belong exclusively to the
     active-settle channel (add_task_memory direct writes)."""
-    from pathlib import Path
 
     repo = str(tmp_path)
     r = _call(tm.handle_create_task, repo_path=repo, title="通道互斥任务")
@@ -775,9 +769,7 @@ def test_get_task_context_bounded_memories(tmp_path):
     assert "记忆0" not in ctx2["memories"] and "记忆2" not in ctx2["memories"]
 
     # Invalid max_memories means no limit.
-    ctx3 = _call(
-        tm.handle_get_task_context, repo_path=repo, task_id=task_id, max_memories="bogus"
-    )
+    ctx3 = _call(tm.handle_get_task_context, repo_path=repo, task_id=task_id, max_memories="bogus")
     assert ctx3["memories_truncated"] is False
 
 
@@ -867,9 +859,7 @@ def _make_task_with_entries(tmp_path, title, n_entries, legacy=False):
         mem.write_text("\n\n".join(f"旧条目{i}" for i in range(n_entries)), encoding="utf-8")
     else:
         for i in range(n_entries):
-            _call(
-                tm.handle_add_task_memory, repo_path=repo, task_id=task_id, content=f"记忆{i}"
-            )
+            _call(tm.handle_add_task_memory, repo_path=repo, task_id=task_id, content=f"记忆{i}")
     return repo, task_id
 
 
@@ -1002,9 +992,7 @@ def test_compact_second_round_appends_archive_and_carries_summary(tmp_path, monk
     )
     # 20 kept; add 25 more headed entries -> 45 again.
     for i in range(100, 125):
-        _call(
-            tm.handle_add_task_memory, repo_path=repo, task_id=task_id, content=f"新记忆{i}"
-        )
+        _call(tm.handle_add_task_memory, repo_path=repo, task_id=task_id, content=f"新记忆{i}")
 
     p2 = _call(tm.handle_compact_task_memories, repo_path=repo, task_id=task_id)
     assert p2["compaction_needed"] is True
@@ -1106,9 +1094,7 @@ def test_layered_loading_own_full_others_summary_plus_two(tmp_path, monkeypatch)
     task_id = r["task"]["id"]
 
     for i in range(3):
-        _call(
-            tm.handle_add_task_memory, repo_path=repo, task_id=task_id, content=f"我的记忆{i}"
-        )
+        _call(tm.handle_add_task_memory, repo_path=repo, task_id=task_id, content=f"我的记忆{i}")
 
     bob_text = (
         f"{tm._SUMMARY_HEADING}\n\nbob 的早期工作摘要。\n\n> 指针行。\n\n"
@@ -1223,9 +1209,7 @@ def test_user_id_change_old_file_becomes_warm_layer(tmp_path, monkeypatch):
     r = _call(tm.handle_create_task, repo_path=repo, title="身份变更")
     task_id = r["task"]["id"]
 
-    _call(
-        tm.handle_add_task_memory, repo_path=repo, task_id=task_id, content="alice 时的记忆"
-    )
+    _call(tm.handle_add_task_memory, repo_path=repo, task_id=task_id, content="alice 时的记忆")
     _write_user_mem(
         repo,
         task_id,
@@ -1425,9 +1409,7 @@ def test_supersede_bad_ref_errors_not_silent(tmp_path, monkeypatch):
     assert "error" in r and "ok" not in r
     from pathlib import Path
 
-    mem_file = (
-        Path(repo) / "repowiki" / "tasks" / task_id / "memories" / "alice.md"
-    )
+    mem_file = Path(repo) / "repowiki" / "tasks" / task_id / "memories" / "alice.md"
     assert "新结论" not in mem_file.read_text(encoding="utf-8")
 
 
