@@ -193,7 +193,7 @@ class TestMaybeSelfUpdate:
         monkeypatch.setattr(self_update, "cleanup_stale_old_files", lambda: None)
         self_update._write_state({"last_check": time.time() - 2 * self_update.CHECK_INTERVAL})
         calls = []
-        monkeypatch.setattr(self_update, "_spawn_updater", lambda *a: calls.append(a))
+        monkeypatch.setattr(self_update, "_spawn_updater", lambda: calls.append(1))
         self_update.maybe_self_update()
         assert len(calls) == 1
 

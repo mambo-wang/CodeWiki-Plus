@@ -192,12 +192,20 @@ class _UpdateLock:
 #  detached 升级子进程
 # ===================================================================
 
-# 子进程脚本：独立于父进程已加载的 codewiki 模块，避免版本混跑。
+# 子进程脚本：自包含全部决策逻辑（PyPI 查询、semver 闸门、模式决策、
+# rename-aside），不 import codewiki——避免与父进程已加载模块版本混跑，
+# 也避免父进程升级后子脚本引用的函数消失。
 _CHILD_SCRIPT = r"""
-import json, os, subprocess, sys, time
+import json, os, re, subprocess, sys, time
+import urllib.request
+from pathlib import Path
 
-state_file, package, target, mode, wait_timeout = (
-    sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]))
+state_file, package, current_version, wait_timeout = (
+    sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]))
+
+PYPI_JSON_URL = "https://pypi.org/pypi/%s/json" % package
+NATIVE_DEP_PREFIXES = ("tree-sitter",)
+VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)")
 
 def write_state(**kw):
     try:
@@ -211,8 +219,46 @@ def write_state(**kw):
     except Exception:
         pass
 
+def fetch_pypi():
+    with urllib.request.urlopen(PYPI_JSON_URL, timeout=3) as resp:
+        return json.loads(resp.read().decode())
+
+def parse_version(v):
+    m = VERSION_RE.match(v.strip())
+    return tuple(int(x) for x in m.groups()) if m else None
+
+def native_reqs(info):
+    return sorted(
+        r.split(";")[0].strip()
+        for r in (info.get("requires_dist") or [])
+        if any(r.startswith(p) for p in NATIVE_DEP_PREFIXES))
+
+# ---- 1. 查询 + 决策（fail-open：任何失败直接退出，不写 failed） ----
+try:
+    data = fetch_pypi()
+except Exception:
+    sys.exit(0)  # 网络失败 → 等下个周期，不算失败
+
+latest = data["info"]["version"]
+cur, new = parse_version(current_version), parse_version(latest)
+if not cur or not new or not (cur < new and cur[0] == new[0]):
+    sys.exit(0)  # 无新版 / major 变更 / 解析失败 → 不自动升
+
+# ---- 2. 模式决策：原生依赖约束变化 → wait-for-exit，否则 rename-aside ----
+try:
+    from importlib.metadata import requires
+    current_native = sorted(
+        r.split(";")[0].strip()
+        for r in (requires(package) or [])
+        if any(r.startswith(p) for p in NATIVE_DEP_PREFIXES))
+except Exception:
+    current_native = None  # 查不到 → 保守路径
+
+native_changed = current_native is None or native_reqs(data["info"]) != current_native
+mode = "wait-for-exit" if native_changed else "rename-aside"
+
+# ---- 3. wait-for-exit：等父进程退出（Windows 轮询句柄 / POSIX ppid 变化） ----
 if mode == "wait-for-exit":
-    # 等父进程退出（Windows: 轮询句柄；POSIX: os.getppid 变为 1/reaper）
     deadline = time.time() + wait_timeout
     parent = os.getppid()
     while time.time() < deadline:
@@ -232,39 +278,13 @@ if mode == "wait-for-exit":
         time.sleep(2)
     # 超时后仍尝试一次——锁可能已被中途重启释放
 
-result = "upgraded"
-try:
-    # rename-aside：把被锁的原生模块挪到 .old，pip 即可写入新版
-    if mode == "rename-aside":
-        _rename_locked_native_modules()
-
-    r = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--upgrade", f"{package}=={target}"],
-        capture_output=True, text=True, timeout=1800)
-    if r.returncode != 0:
-        result = "failed"
-        write_state(last_result=result, last_error=r.stderr[-2000:])
-        sys.exit(0)
-except Exception as e:
-    result = "failed"
-    write_state(last_result=result, last_error=str(e)[:2000])
-    sys.exit(0)
-
-write_state(last_result=result, last_version=target)
-"""
-
-
-def _rename_locked_native_modules() -> None:
-    """把当前环境里 codewiki 依赖的原生 .pyd/.so 重命名到 .old。
-
-    运行中的进程靠已映射的句柄继续用旧文件（实测可行）；pip 随即可写入
-    新文件。.old 残留在下次启动时清理（此时旧句柄已释放）。
-    """
+# ---- 4. rename-aside：仅当 pip 将重装原生包时，把被锁文件挪到 .old ----
+def rename_locked_native_modules():
     site = Path(sys.prefix)
     for prefix in NATIVE_DEP_PREFIXES:
         for pattern in (
-            f"Lib/site-packages/{prefix}*/**/*.pyd",
-            f"lib/python*/site-packages/{prefix}*/**/*.so*",
+            "Lib/site-packages/%s*/**/*.pyd" % prefix,
+            "lib/python*/site-packages/%s*/**/*.so*" % prefix,
         ):
             for p in site.glob(pattern):
                 old = p.with_suffix(p.suffix + ".old")
@@ -272,6 +292,24 @@ def _rename_locked_native_modules() -> None:
                     p.rename(old)
                 except OSError:
                     pass  # 未被锁的会被 pip 正常覆盖，无需处理
+
+if mode == "rename-aside":
+    rename_locked_native_modules()
+
+# ---- 5. pip 安装 ----
+try:
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--upgrade", "%s==%s" % (package, latest)],
+        capture_output=True, text=True, timeout=1800)
+    if r.returncode != 0:
+        write_state(last_result="failed", last_error=r.stderr[-2000:])
+        sys.exit(0)
+except Exception as e:
+    write_state(last_result="failed", last_error=str(e)[:2000])
+    sys.exit(0)
+
+write_state(last_result="upgraded", last_version=latest)
+"""
 
 
 def cleanup_stale_old_files() -> None:
@@ -292,10 +330,16 @@ def cleanup_stale_old_files() -> None:
         pass  # fail-open
 
 
-def _spawn_updater(target: str, mode: str) -> None:
-    """派生 detached 子进程执行升级，主进程立即返回。"""
+def _spawn_updater() -> None:
+    """派生 detached 子进程执行升级，主进程立即返回。
+
+    子脚本自包含全部决策（PyPI 查询、semver 闸门、模式选择），主进程
+    只传状态文件路径、包名、当前版本号。
+    """
     script_path = STATE_DIR / "autoupdate_child.py"
     try:
+        from codewiki import __version__
+
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         script_path.write_text(_CHILD_SCRIPT, encoding="utf-8")
         kwargs = {}
@@ -303,7 +347,7 @@ def _spawn_updater(target: str, mode: str) -> None:
             kwargs["creationflags"] = 0x00000008  # DETACHED_PROCESS
         subprocess.Popen(
             [sys.executable, str(script_path), str(STATE_FILE), PACKAGE_NAME,
-             target, mode, str(WAIT_FOR_EXIT_TIMEOUT)],
+             __version__, str(WAIT_FOR_EXIT_TIMEOUT)],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, **kwargs,
         )
@@ -363,7 +407,7 @@ def maybe_self_update() -> None:
             return  # 别的实例正在升级
         try:
             _write_state({**state, "last_check": time.time()})
-            _spawn_updater(state.get("pending_target") or "auto", "auto")
+            _spawn_updater()
         finally:
             lock.release()
     except Exception:
