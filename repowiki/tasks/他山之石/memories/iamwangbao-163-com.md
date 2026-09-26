@@ -141,3 +141,11 @@ HL-Mem 调研（docs/HL-Mem-调研与借鉴分析.md，基线 v1.1.7/aa5d0688）
 六参考项目（hl_mem/claude-mem/mem0/CBM/OpenViking/teamai-cli）存储与压缩机制对比已完成，产出 repowiki/wiki/queries/参考项目记忆存储与压缩机制对比-2026-09.md。要点：①「压缩」四分类（写入时/归纳式/上下文预算/衰减）不可混用；②全场只有 teamai-cli self 模式与本仓一样知识随业务仓 git 版本化；③OpenViking merge_policy 与本仓 Doctrine 合并纪律几乎逐句对应（独立收敛互证）；④HL-Mem Mental Model 归纳 ⇔ compact_task_memories 同一形态。
 
 **重要修正（作废一条转注）**：整体调研报告 deferred #10「CBM workspace manifest 审批键」系误读——CBM 的 workspace manifest 实为 Rust Cargo.toml workspace 清单（跨 crate 导入解析，pass_lsp_cross.c:478-488），与审批/多仓无关。此前转注到「多仓工作区」任务的这条参考已失效，实施多仓工作区时勿再消费该参考。
+
+### 2026-09-25 21:35 #dvsa
+
+skill hint 评估裁决（2026-09-25）：蒸馏 worker 提示笔记「hook 注册命令用 python -m 包内入口」命令密度 4 可能值得编译成技能。经 skill_creator prepare + 材料实读裁决不编译（no_action 已提交）：① 该笔记是 architecture 类型，不在 skill 素材边界内（素材只收 scenarios + stable pitfall/lesson/decision）；② 内容是结构认知（回答「hook 行为更新要不要改 settings.json」），非可触发行为指令，编译无触发场景。顺带发现：prepare 标记 worth_compiling=true 的同主题 pitfall「全局 codewiki.exe 无法 import 本地包，install-hooks 需用 python -m codewiki.cli.main」——deferred：信息量单薄（一条命令选择），单独成技能碎片化，等同类素材积累后并入。
+
+### 2026-09-25 22:03 #o805
+
+agentmemory Round 2 小优化 grill 定案（2026-09-25，用户裁决「按推荐」）：① MCP 工具面裁剪开关立项（P2）——CODEWIKI_TOOLS=core 环境变量，registry 加 filter，参考 agentmemory core-8 思路按本仓场景重定义核心集，归产品维护；② 会话多样性约束 deferred（等 lint_wiki 重复笔记数据）；③ RRF 融合 excluded（单流 BM25 无第二路可融，未来加向量检索时再议）；④ related_notes 语义召回 excluded（注入场景要确定性，task_id 精确匹配是特性不是缺陷）。已核对本仓等价物：同义词扩展（ontology.yaml）、CJK 分词（jieba+regex 降级）、SHA-256 去重（capture content_hash）均已有，无需行动。调研文档已更新第六节+处置表（repowiki/wiki/queries/agentmemory-调研.md）。

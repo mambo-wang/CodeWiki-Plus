@@ -1,22 +1,30 @@
 ---
 type: decision
-title: "Workspace Conventions 模板接入清单收敛为工具指针（ADR-0015 同款双通道重复病灶）"
-tags: ["codewiki", "decision"]
+title: Workspace Conventions 模板接入清单收敛为工具指针（ADR-0015 同款双通道重复病灶）
+tags:
+- codewiki
+- decision
 metadata:
   date: 2026-09-24
   confidence_level: weak
   task_id: 他山之石
-  source_session: "1b5f06c022ab4dcd9dfabc02661535f2"
-  related_modules: ["templates/workspace", "mcp/prompts"]
+  source_session: 1b5f06c022ab4dcd9dfabc02661535f2
+  related_modules:
+  - templates/workspace
+  - mcp/prompts
   severity: medium
-  source_ref: "conversations/conv-working_memory_content-The-following-is-the-existing-working-2-670adf.md"
-  scene: "集中式工作区 AGENTS.md 约定块精简"
-status: draft
+  source_ref: conversations/conv-working_memory_content-The-following-is-the-existing-working-2-670adf.md
+  scene: 集中式工作区 AGENTS.md 约定块精简
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.13.0, at: 2026-09-24T12:57:19Z }
-stale_after: 2027-09-24
+generated:
+  by: codewiki/5.13.0
+  at: 2026-09-24 12:57:19+00:00
+stale_after: '2027-09-25'
 origin: conversation
-
+verified:
+- by: human:iamwangbao
+  at: '2026-09-25T13:32:43Z'
 ---
 
 ## Background

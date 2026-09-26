@@ -139,8 +139,22 @@ schema.ts:95-100 注释：CJK 文本无词间空格，`split(/\s+/)` 会把整�
 | 合成压缩（零 LLM） | absorbed（认知） | 与确认闸门冲突，仅作未来降本备选认知 |
 | 记忆衰减/自动驱逐 | deferred | 与「候选必有去向」Doctrine 冲突，等 lint_wiki 数据 |
 | slots 固定槽位 | excluded | MEMORY.md+AGENTS.md+任务记忆三件套已覆盖 |
+| PreCompact 重注入 | excluded | UserPromptSubmit 薄触发是超集（2026-09-21 定案再确认） |
+| RRF 多路融合 | excluded | 前提是多路召回，本仓单流 BM25，为 RRF 而 RRF 是伪需求；未来加向量检索时再议 |
+| related_notes 语义召回 | excluded | 注入场景要确定性（task_id 精确匹配），语义召回违背「显式优于缓存」与「工具不持模型」 |
+| 会话多样性约束 | deferred | 单源霸屏未实测出现，等 lint_wiki 重复笔记数据 |
+| **MCP 工具面裁剪开关** | **立项（P2）** | 真缺口：60+ 工具 schema 全量注入占上下文；registry 加 filter 成本低，与「成本可见性」Doctrine 正向 |
 
 **总体判断**：agentmemory 是「重运行时」路线的极致——常驻 iii-engine、hooks 全量自动采集、264 函数大而全。CodeWiki 是「轻文件」路线——Markdown 即真相、显式确认、零常驻。两者哲学相反，直接移植任何组件都会破坏 CodeWiki 的架构前提（Doctrine：竞品机制价值取决于自身架构前提）。本次调研价值主要在确认边界：**自动采集/自动巩固/自动驱逐这条全自动路线，CodeWiki 明确不走**。
+
+## 六、Round 2 小优化 grill 定案（2026-09-25）
+
+对「存储格式/检索优化」级小候选二次过 grill，事实基础为本仓代码核对（retrieval.py / wiki_search.py / task_manager.py / capture_conversation.py）：
+
+- **已有等价、无需行动**：同义词扩展（ontology.yaml，retrieval.py:281-345）、CJK 分词（jieba 可选+regex 降级，retrieval.py:197-238）、SHA-256 去重（capture_conversation.py:14,394-428）、BM25 参数微调（无实测数据支撑）。
+- **deferred**：会话多样性约束（等 lint_wiki 重复笔记数据）；
+- **excluded**：RRF 融合（单流无第二路可融）、related_notes 语义召回（注入场景要确定性）。
+- **立项（P2）**：MCP 工具面裁剪开关——`CODEWIKI_TOOLS=core` 环境变量，registry 加 filter，参考 agentmemory 的 core-8 清单思路按本仓场景重定义核心集。
 
 ## 附：关键文件索引
 

@@ -1,22 +1,30 @@
 ---
 type: decision
-title: "SubagentStart hook 评估定案：不做，沉淀责任留主 Agent，subagent 只报告沉淀原料"
-tags: ["decision", "subagentstart"]
+title: SubagentStart hook 评估定案：不做，沉淀责任留主 Agent，subagent 只报告沉淀原料
+tags:
+- decision
+- subagentstart
 metadata:
   date: 2026-09-24
   confidence_level: weak
   task_id: 他山之石
-  source_session: "1b5f06c022ab4dcd9dfabc02661535f2"
-  related_modules: ["mcp/prompts", "cli/utils/ide_config"]
+  source_session: 1b5f06c022ab4dcd9dfabc02661535f2
+  related_modules:
+  - mcp/prompts
+  - cli/utils/ide_config
   severity: medium
-  source_ref: "conversations/conv-working_memory_content-The-following-is-the-existing-working-2-670adf.md"
-  scene: "通用 subagent（编码/调研/测试/review）要不要注入沉淀提示"
-status: draft
+  source_ref: conversations/conv-working_memory_content-The-following-is-the-existing-working-2-670adf.md
+  scene: 通用 subagent（编码/调研/测试/review）要不要注入沉淀提示
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.13.0, at: 2026-09-24T13:00:17Z }
-stale_after: 2027-09-24
+generated:
+  by: codewiki/5.13.0
+  at: 2026-09-24 13:00:17+00:00
+stale_after: '2027-09-25'
 origin: conversation
-
+verified:
+- by: human:iamwangbao
+  at: '2026-09-25T13:32:41Z'
 ---
 
 ## Background

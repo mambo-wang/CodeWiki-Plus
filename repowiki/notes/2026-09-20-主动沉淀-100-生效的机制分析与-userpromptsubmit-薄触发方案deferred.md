@@ -1,23 +1,32 @@
 ---
 type: decision
-title: "主动沉淀 100% 生效的机制分析与 UserPromptSubmit 薄触发方案（deferred）"
-tags: ["decision", "userpromptsubmit"]
+title: 主动沉淀 100% 生效的机制分析与 UserPromptSubmit 薄触发方案（deferred）
+tags:
+- decision
+- userpromptsubmit
 metadata:
   date: 2026-09-20
   confidence_level: weak
   task_id: 他山之石
-  source_session: "1b5f06c022ab4dcd9dfabc02661535f2"
-  related_modules: ["mcp/_ide_hook", "hooks/task_session_start"]
+  source_session: 1b5f06c022ab4dcd9dfabc02661535f2
+  related_modules:
+  - mcp/_ide_hook
+  - hooks/task_session_start
   severity: medium
-  source_ref: "conversations/conv-working_memory_content-The-following-is-the-existing-working-848ca6.md"
-  scene: "主动沉淀协议生效链路优化"
-status: draft
+  source_ref: conversations/conv-working_memory_content-The-following-is-the-existing-working-848ca6.md
+  scene: 主动沉淀协议生效链路优化
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.10.1, at: 2026-09-24T13:00:14Z }
-stale_after: 2027-09-20
+generated:
+  by: codewiki/5.10.1
+  at: 2026-09-24 13:00:14+00:00
+stale_after: '2027-09-25'
 origin: conversation
-source_conversations: ['conversations/conv-working_memory_content-The-following-is-the-existing-working-2-670adf.md']
-
+source_conversations:
+- conversations/conv-working_memory_content-The-following-is-the-existing-working-2-670adf.md
+verified:
+- by: human:iamwangbao
+  at: '2026-09-25T13:32:40Z'
 ---
 
 ## Background

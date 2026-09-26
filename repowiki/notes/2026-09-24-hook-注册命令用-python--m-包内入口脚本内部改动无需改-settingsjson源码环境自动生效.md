@@ -1,22 +1,31 @@
 ---
 type: architecture
-title: "hook 注册命令用 python -m 包内入口：脚本内部改动无需改 settings.json，源码环境自动生效"
-tags: ["architecture", "codewiki", "userpromptsubmit"]
+title: hook 注册命令用 python -m 包内入口：脚本内部改动无需改 settings.json，源码环境自动生效
+tags:
+- architecture
+- codewiki
+- userpromptsubmit
 metadata:
   date: 2026-09-24
   confidence_level: weak
   task_id: 他山之石
-  source_session: "1b5f06c022ab4dcd9dfabc02661535f2"
-  related_modules: ["cli/utils/ide_config", "mcp/_ide_hook"]
+  source_session: 1b5f06c022ab4dcd9dfabc02661535f2
+  related_modules:
+  - cli/utils/ide_config
+  - mcp/_ide_hook
   severity: medium
-  source_ref: "conversations/conv-working_memory_content-The-following-is-the-existing-working-2-670adf.md"
-  scene: "hook 脚本加新分支后用户问配置要不要改"
-status: draft
+  source_ref: conversations/conv-working_memory_content-The-following-is-the-existing-working-2-670adf.md
+  scene: hook 脚本加新分支后用户问配置要不要改
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.13.0, at: 2026-09-24T12:57:28Z }
-stale_after: 2027-09-24
+generated:
+  by: codewiki/5.13.0
+  at: 2026-09-24 12:57:28+00:00
+stale_after: '2027-09-25'
 origin: conversation
-
+verified:
+- by: human:iamwangbao
+  at: '2026-09-25T13:32:45Z'
 ---
 
 ## Background

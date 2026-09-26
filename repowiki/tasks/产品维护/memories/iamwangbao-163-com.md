@@ -128,3 +128,7 @@ prompts.py 渲染正文清理决策引用完成：用户提出 prompt 正文不�
 ### 2026-09-23 15:31 #33j9
 
 澄清产品机制：CodeBuddy subagent frontmatter 支持 model 字段（可选，默认跟随主 Agent），distill-worker 当前未写 model 所以跑主 Agent 同款模型；若要给蒸馏 worker 换弱模型，须改随包源变体 codewiki/agents/distill-worker.md（claude 家族变体 distill-worker.claude.md 取值不同需分别写），且因 toolsMCP 教训需真机验证 model 字段确实生效。用户尚未决定是否加。
+
+### 2026-09-26 20:20 #lol0
+
+待办（P2，来自 agentmemory 调研 Round 2 grill 定案 2026-09-25，用户指示先存档不实施）：MCP 工具面裁剪开关——CODEWIKI_TOOLS=core 环境变量，registry 加 filter，60+ 工具 schema 全量注入占上下文是真缺口。参考 agentmemory 的 AGENTMEMORY_TOOLS=core（裁到 8 个）思路，按本仓场景重定义核心集。依据：repowiki/wiki/queries/agentmemory-调研.md 第六节。
