@@ -145,6 +145,24 @@ fail-open（超限警告放行不硬拒），一个 LLM 重活、draft→confirm
 写入检查防"灌爆"，确认闸门防"噪声知识进库"。
 _Avoid_: 把写入检查做成硬拒绝（违反 fail-open 边界）；与确认闸门混用术语。
 
+**prompt registry（提示词注册表）** — 工作流提示词的单一真源（`prompts.py` 的
+`prompts_map`，23 条）：name 固定 kebab-case，title/description/args 全走 i18n，
+语言由 `config.json lang > $CODEWIKI_LANG > OS locale > zh` 决定。宿主命令文件
+从它编译（ADR-0017），`get_prompt` 是唯一权威出口——任何落盘副本都是快照不是真源。
+_Avoid_: 在 registry 之外另起提示词副本（双源漂移）。
+
+**命令薄壳（command stub）** — 命令文件的内容形态：只写"如何获取全文"（标题 +
+描述 + `get_prompt(name=..., arguments={...})` 调用块 + "以 get_prompt 返回内容为准"），
+不渲染提示词全文。权威在 MCP，薄壳只是可见入口（ADR-0017）。_Avoid_: 把提示词全文
+渲染进命令文件（快照与真源必然漂移）。
+
+**宿主判定（host detection）** — 编译命令文件时对当前 IDE 的判定：能从 MCP
+ClientInfo 判定 → 只写该宿主 `commands/codewiki/`；判定不到 → 枚举仓库根 IDE 配置
+目录全写；**均排除 .codebuddy**（Trae 自动把 MCP prompt 转成命令，仓库内重复生成无
+意义）。兜底写 `.trae/commands/codewiki/` 作仓库级登记处（ADR-0017）。_Avoid_: 为
+codebuddy 生成命令文件（IDE 自动转化已覆盖）、把 `.trae/commands/codewiki/` 当宿主
+原生目录（只有 Trae 识别，其他宿主靠各自 commands 目录）。
+
 ## Key decisions
 
 - [ADR-0001 — 任务记忆保持 Markdown，不迁移 JSONL](adr/0001-task-memory-stays-markdown.md)（2026-08-24）
@@ -157,3 +175,4 @@ _Avoid_: 把写入检查做成硬拒绝（违反 fail-open 边界）；与确认
 - [ADR-0008 — 主动沉淀与蒸馏双写路径用原料标记确定性去重](adr/0008-active-settle-deterministic-dedup.md)（2026-09-17）
 - [ADR-0009 — 任务记忆退役（supersede）与写入检查](adr/0009-task-memory-supersede-and-write-check.md)（2026-09-18）
 - [ADR-0010 — 任务记忆通道互斥：补蒸馏路径固定只产经验笔记](adr/0010-task-memory-channel-mutual-exclusion.md)（2026-09-18）
+- [ADR-0017 — MCP prompt 编译为宿主命令文件（sync-commands）](adr/0017-sync-commands-compile-mcp-prompts.md)（2026-09-27）

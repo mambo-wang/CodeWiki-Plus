@@ -315,6 +315,9 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 - **知识管理**：直接使用 ingest_note / query_wiki 进行知识归档和检索
 - **代码分析**：使用 code-analysis prompt 仅做结构分析不生成文档
 
+## 编译宿主命令文件
+调用 `codewiki sync-commands`，把全部工作流提示词编译为当前宿主 IDE 的斜杠命令文件（`<宿主配置目录>/commands/codewiki/`）。非 Trae/codebuddy 宿主（如 Qoder）不会自动把 MCP prompt 映射为命令，本步骤为它们提供可见入口；Trae 会自动转化，跳过也无妨。命令文件是命令薄壳（只写如何获取全文），权威仍在 MCP `get_prompt`。
+
 ## 注意事项
 - init_wiki 是幂等的：重复执行不会破坏已有内容
 - AGENTS.md 使用 HTML 注释标记隔离 CodeWiki 段落，用户自有内容不受影响
@@ -374,7 +377,10 @@ def _prompt_init_workspace(args: dict[str, str]) -> str:
 ## 注意事项
 - 首次初始化必须显式选择布局：不传 layout 时工具返回 needs_layout_decision 且不写任何产物；重跑自动沿用 `repowiki/.meta/workspace.json` 中持久化的布局（显式传冲突值才报错）
 - init_workspace 幂等：痕迹齐备时重跑为 clone-only 接管（只补缺克隆、不触碰骨架与 AGENTS.md，布局配置缺失会补写）——因此该场景优先直接跑 bootstrap 脚本补克隆，无需经过 MCP；骨架有缺失时才调用 init_workspace 补齐产物并强制刷新约定块
-- 后续新增/移除业务仓分别用 `add_workspace_repo` / `remove_workspace_repo` prompt 或工具，不要手工改四个文件"""
+- 后续新增/移除业务仓分别用 `add_workspace_repo` / `remove_workspace_repo` prompt 或工具，不要手工改四个文件
+
+## 编译宿主命令文件
+调用 `codewiki sync-commands`，把全部工作流提示词编译为当前宿主 IDE 的斜杠命令文件（`<宿主配置目录>/commands/codewiki/`）。非 Trae/codebuddy 宿主（如 Qoder）不会自动把 MCP prompt 映射为命令，本步骤为它们提供可见入口；Trae 会自动转化，跳过也无妨。命令文件是命令薄壳（只写如何获取全文），权威仍在 MCP `get_prompt`。"""
 
 
 def _prompt_add_workspace_repo(args: dict[str, str]) -> str:

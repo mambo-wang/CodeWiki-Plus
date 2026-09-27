@@ -209,6 +209,9 @@ def _install_lifecycle_diagnostics() -> None:
 
 async def main():
     """Run the MCP server with stdio transport."""
+    from codewiki.utils.self_update import maybe_self_update
+
+    maybe_self_update()  # fail-open：只读本地状态文件+派生子进程，零网络零阻塞
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,

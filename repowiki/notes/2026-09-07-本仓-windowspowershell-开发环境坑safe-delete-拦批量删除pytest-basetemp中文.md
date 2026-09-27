@@ -13,7 +13,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-@d-repos-CodeWiki-CN-.codebuddy-plans-output_dir-收敛为repo_pat-2.md
   scene: output_dir 收敛大重构
-  compiled_into: ''
+  compiled_into:
+  - ''
+  - skills/windows-dev-env/SKILL.md
   confidence_level: weak
   disposition:
     verdict: excluded
@@ -29,8 +31,8 @@ origin: conversation
 verified:
 - by: human:mambo-wang
   at: '2026-09-07T03:50:23Z'
-source_conversations: ['conversations/conv-user_command-commands-codewiki-启用-禁用任务管理（跨会话任务记忆）-管理-team-me-158abe.md']
-
+source_conversations:
+- conversations/conv-user_command-commands-codewiki-启用-禁用任务管理（跨会话任务记忆）-管理-team-me-158abe.md
 ---
 
 ## 背景

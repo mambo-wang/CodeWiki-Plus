@@ -15,6 +15,8 @@ metadata:
   severity: medium
   source_ref: conversations/conv-user_command-commands-codewiki-启用-禁用任务管理（跨会话任务记忆）-管理-team-me.md
   scene: hook 接线 / CLI 使用
+  compiled_into:
+  - skills/windows-dev-env/SKILL.md
 status: stable
 author: iamwangbao-163-com
 generated:
@@ -25,8 +27,8 @@ origin: conversation
 verified:
 - by: human:wangbao
   at: '2026-09-18T01:46:12Z'
-source_conversations: ['conversations/conv-user_command-commands-codewiki-初始化单仓Wiki工作区-请为项目初始化-Wiki-工作区-560d5c.md']
-
+source_conversations:
+- conversations/conv-user_command-commands-codewiki-初始化单仓Wiki工作区-请为项目初始化-Wiki-工作区-560d5c.md
 ---
 
 ## 背景

@@ -11,7 +11,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-@d-repos-CodeWiki-CN-.codebuddy-plans-output_dir-收敛为repo_pat.md
   scene: 批量代码编辑
-  compiled_into: ''
+  compiled_into:
+  - ''
+  - skills/windows-dev-env/SKILL.md
   confidence_level: shadow
   consolidated_into:
   - wiki/scenarios/发布与依赖治理方法.md

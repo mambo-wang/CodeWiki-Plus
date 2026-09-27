@@ -12,7 +12,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-推送代码.md
   scene: 发布推送
-  compiled_into: ''
+  compiled_into:
+  - ''
+  - skills/windows-dev-env/SKILL.md
   confidence_level: shadow
   consolidated_into:
   - wiki/scenarios/发布与依赖治理方法.md

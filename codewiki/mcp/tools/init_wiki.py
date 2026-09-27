@@ -57,7 +57,7 @@ _WIKI_SUBDIRS = [
 
 
 def initialize_wiki_tree(
-    repo_path_p: Path, output_dir_p: Path, *, overwrite_schema: bool = True
+    repo_path_p: Path, output_dir_p: Path, *, overwrite_schema: bool = False
 ) -> dict:
     """Create the wiki directory tree and copy template assets.
 
@@ -88,6 +88,9 @@ def initialize_wiki_tree(
         results["created_dirs"].insert(0, str(output_dir_p))
 
     # ── Copy schema.yaml (preserve comments) ─────────────────────────────
+    # Idempotent by default: an existing schema.yaml is the user's customized
+    # copy and must never be clobbered by re-runs (same rule as ontology.yaml /
+    # review_checklist.yaml).  Analyze-time incremental merge updates it later.
     schema_dest = output_dir_p / "schema.yaml"
     schema_template = _template("schema.yaml")
     if schema_template:
@@ -197,10 +200,10 @@ def handle_init_wiki(arguments: dict) -> str:
     }
 
     # ── Steps 1-2: Create directory structure and copy template assets ──
-    # Under centralized the corpus already carries the workspace's customized
-    # schema.yaml — a business-repo re-run must not clobber it (same rule as
-    # workspace re-runs, see initialize_wiki_tree).
-    tree = initialize_wiki_tree(repo_path_p, output_dir_p, overwrite_schema=not _centralized)
+    # Existing schema.yaml is the user's customized copy and is never
+    # clobbered on re-runs (single-repo or centralized alike); analyze-time
+    # incremental merge is the only update path for schema.yaml.
+    tree = initialize_wiki_tree(repo_path_p, output_dir_p, overwrite_schema=False)
     results["created_dirs"] = tree["created_dirs"]
     results["schema_yaml"] = tree["schema_yaml"]
     results["ontology_yaml"] = tree["ontology_yaml"]

@@ -14,7 +14,9 @@ metadata:
   severity: medium
   source_ref: conversations/conv-user_command-commands-codewiki-知识聚合（L2-场景块）-知识聚合工作流（团队记忆融合-P.md
   scene: 版本控制 / 提交落盘
-  compiled_into: ''
+  compiled_into:
+  - ''
+  - skills/windows-dev-env/SKILL.md
   confidence_level: shadow
   consolidated_into:
   - wiki/scenarios/发布与依赖治理方法.md

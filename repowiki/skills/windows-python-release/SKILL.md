@@ -55,7 +55,9 @@ metadata:
    ⚠️ 给 `git credential fill` 喂 stdin 不用 PowerShell 管道（stdin 常为空、引号被破坏），用 `subprocess` 精确传字节；凭据只留进程内。
 
 7. **发布到 PyPI**：优先 `uv publish dist/codewiki_plus-<version>*`（精确指定，默认传 dist/ 全部）。
+   **token 来源：Windows 凭据管理器（keyring）**——`keyring.get_password('pypi', 'upload')`，首次配置：`keyring.set_password('pypi', 'upload', '<token>')`。**不要让用户把 token 粘贴到对话里**（本仓库 4 次泄露事故全部源于此），也不要写进仓库内任何文件（gitignore 不是安全边界，`.codebuddy/` 是被跟踪目录）。
    ⚠️ **本机网络对 upload.pypi.org 的 Python OpenSSL TLS 握手会被干扰**：uv publish / twine / requests 全部连接超时（TCP 通、curl 秒通）。绕法：curl.exe（schannel 栈）直传 legacy API——Python 从 whl 的 `*.dist-info/METADATA`、sdist 的 `PKG-INFO` 提取元数据构造完整表单（`:action=file_upload`、`protocol_version=1`、`filetype`、`pyversion` + 全部元数据字段 + `description` 正文），写 curl `-K` 配置文件（`form-string`，命令行会超长），`-u __token__:<token>` POST。**digest 字段名是 `sha256_digest`**（不是 `digests_sha256`，400 报 missing digest）。token 经参数传进程内，用完删临时文件。
+   ⚠️ **email.parser 提取元数据时 `Message.keys()` 对重复头返回 N 次**（如 4 个 `Project-URL`），循环内再 `get_all(key)` 会产生 N×N 重复字段（v5.13.1 时 project_urls 重复 16 条被 400 拒绝）。遍历前必须对 key 去重。
 
 8. **核对真实上传**：`https://pypi.org/pypi/codewiki-plus/json` 查最新版本（JSON API 有缓存延迟，可直接查 `/pypi/codewiki-plus/<version>/json`）。
    判定点：API 返回版本 == 目标版本，双产物 size 正确。
@@ -76,6 +78,8 @@ metadata:
 - 不要试图反向还原 GBK 乱码文本（字符已丢失，只能重写）
 - PyPI 上传超时不要盲目加超时重试——先区分是读取慢（加超时有用）还是 TLS 握手被掐（换 curl.exe）
 - 不要把 PyPI token 写进任何落盘文件后不清理
+- 不要把 PyPI token 存进仓库内文件（含 gitignore 的文件）——统一走 keyring（Windows 凭据管理器）
+- 不要让用户把 token 粘贴到对话里——对话采集 hook 会把它原样写进 repowiki/conversations/ 并随提交推送
 
 依据: notes/2026-09-10-codewiki-手动发布完整流程同步四处版本测试build清distpublishrelease核对.md 的「7 步主干与每步判定点」；wiki/scenarios/发布与依赖治理方法.md 的「dist 残留被一并上传」「Release 正文乱码不可逆」「Windows 参数与 stdin 编码统一绕法」；任务「发版本」v5.13.0 发布实操（2026-09-23）：TLS 握手干扰归因与 curl.exe 绕法、sha256_digest 字段名、tag 打在 merge commit 的约定
 

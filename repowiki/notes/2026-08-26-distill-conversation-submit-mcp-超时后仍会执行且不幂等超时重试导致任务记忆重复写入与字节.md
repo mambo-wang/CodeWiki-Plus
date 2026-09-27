@@ -21,6 +21,8 @@ generated:
   at: '2026-08-26 04:31:03+00:00'
 stale_after: '2027-02-22'
 author: mambo-wang
+source_conversations: ['conversations/conv-working_memory_content-The-following-is-the-existing-working-2-c11099.md']
+
 ---
 
 ## 背景
@@ -44,3 +46,19 @@ distill_conversation(mode="submit") 连续三次 MCP 调用超时无响应，调
 ## 恢复条件
 
 文件损坏时：删除重复组、保留最后一次完整组重建；清理非法字节（Python 二进制读 + errors='replace' 定位）；`get_task` 验证恢复。
+
+## MCP 工具 edit_doc_file 超时但实际写入成功：超时≠失败，须读文件验证后再决定是否重试
+
+> 合并自蒸馏候选：MCP 工具 edit_doc_file 超时但实际写入成功：超时≠失败，须读文件验证后再决定是否重试
+
+## 现象
+
+调用 `edit_doc_file`（str_replace 更新调研文档处置表）返回超时错误，以为编辑失败准备重试。
+
+## 真相
+
+超时是假警报：工具实际已写入成功（文档 152→166 行，尾部长了 14 行）。MCP 工具可能因落盘后的交叉链接注入等处理耗时超时，但内容已落盘。
+
+## 做法
+
+MCP 工具超时≠失败：先读目标文件验证实际内容（本仓用 view_repo_file / 直接读文件）再决定是否重试；不要凭超时信号直接重试，避免重复写入或误判。

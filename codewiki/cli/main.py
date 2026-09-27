@@ -36,6 +36,8 @@ from codewiki.cli.commands.backfill_note_authors import backfill_note_authors_co
 from codewiki.cli.commands.install_hooks import install_hooks
 from codewiki.cli.commands.migrate_team_layout import migrate_team_layout_command
 from codewiki.cli.commands.query import query_command
+from codewiki.cli.commands.sync_commands import sync_commands
+from codewiki.cli.commands.upgrade import upgrade_command
 
 # Register command groups
 cli.add_command(config_group)
@@ -44,6 +46,8 @@ cli.add_command(install_hooks)
 cli.add_command(migrate_team_layout_command)
 cli.add_command(backfill_note_authors_command)
 cli.add_command(query_command)
+cli.add_command(sync_commands)
+cli.add_command(upgrade_command)
 
 
 @cli.command(name="mcp")
@@ -71,6 +75,9 @@ def mcp_command():
 
 def main():
     """Entry point for the CLI."""
+    from codewiki.utils.self_update import maybe_self_update
+
+    maybe_self_update()  # fail-open：任何失败静默跳过，绝不阻塞 CLI
     try:
         cli(obj={})
     except KeyboardInterrupt:
