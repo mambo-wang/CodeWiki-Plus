@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "codewiki-plus"
-version = "5.14.0"
+version = "5.14.1"
 description = "Transform codebases into comprehensive documentation using AI-powered analysis"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -77,6 +77,9 @@ dev = [
 
 # Keep pip-compatible extra for `pip install -e .[dev]` fallback (uv canonical is dependency-groups above)
 [project.optional-dependencies]
+convert = [
+    "markitdown[all]>=0.1.0",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",

@@ -585,7 +585,7 @@ wheels = [
 
 [[package]]
 name = "codewiki-plus"
-version = "5.14.0"
+version = "5.14.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

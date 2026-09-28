@@ -16,7 +16,7 @@ import re
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from codewiki.mcp.session import SessionState, SessionStore
 
@@ -283,18 +283,88 @@ def _inject_source_refs(output_dir: Path, related_pages: List[str], source_name:
 _TEXT_SUFFIXES = {".md", ".markdown", ".html", ".htm", ".txt", ".rst"}
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
+# Binary formats markitdown can convert to a Markdown sidecar (ADR-0018).
+# The sidecar is the readable projection: fingerprinting, [^src:...] line-range
+# citations and the extraction workflow all anchor on it, never on raw bytes.
+# Keep in sync with the official tool description (registry.py) — only formats
+# we promise in the docs belong here.
+_CONVERTIBLE_SUFFIXES = {".pdf", ".docx", ".xlsx"}
+_CONVERTED_SUFFIX = ".converted.md"
+
 
 def _plain_text(path: Path) -> Optional[str]:
-    """UTF-8 text of *path* if it is a text document, else None (HTML tags stripped)."""
-    if path.suffix.lower() not in _TEXT_SUFFIXES:
+    """UTF-8 text of *path* if it is a text document, else None (HTML tags stripped).
+
+    Binary sources fall back to their converted Markdown sidecar when one
+    exists (ADR-0018) — that keeps the version-sibling gate working for
+    pdf/docx without touching the fingerprint logic.
+    """
+    suffix = path.suffix.lower()
+    if suffix not in _TEXT_SUFFIXES:
+        if suffix in _CONVERTIBLE_SUFFIXES:
+            sidecar = path.with_name(path.stem + _CONVERTED_SUFFIX)
+            if sidecar.exists():
+                try:
+                    return sidecar.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    return None
         return None
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
-    if path.suffix.lower() in (".html", ".htm"):
+    if suffix in (".html", ".htm"):
         text = _HTML_TAG_RE.sub(" ", text)
     return text
+
+
+def _convert_to_markdown(src: Path, name: str) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Convert a binary source to Markdown text via markitdown (ADR-0018).
+
+    Pure in-memory conversion — the sidecar is persisted by the caller only
+    after all version gates pass. Fail-open by design: any failure (missing
+    dependency, empty output, converter exception) is recorded structurally
+    and the import proceeds unchanged. Returns ``(registry_fields,
+    converted_text)``; ``derived_text`` is filled in by the caller at persist
+    time.
+    """
+
+
+def _convert_to_markdown(src: Path, name: str) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Convert a binary source to Markdown text via markitdown (ADR-0018).
+
+    Pure in-memory conversion — the sidecar is persisted by the caller only
+    after all version gates pass. Fail-open by design: any failure (missing
+    dependency, empty output, converter exception) is recorded structurally
+    and the import proceeds unchanged. Returns ``(registry_fields,
+    converted_text)``; ``derived_text`` is filled in by the caller at persist
+    time.
+    """
+    result: Dict[str, Any] = {"derived_text": None, "convert_error": None}
+    if src.suffix.lower() not in _CONVERTIBLE_SUFFIXES:
+        return result, None
+    try:
+        from markitdown import MarkItDown
+    except ImportError:
+        logger.info(
+            "markitdown not installed — skipping conversion for %s "
+            "(pip install codewiki-plus[convert])",
+            src.name,
+        )
+        result["convert_error"] = "dependency_missing"
+        return result, None
+    try:
+        md = MarkItDown()
+        converted = md.convert(str(src))
+        text = (converted.text_content or "").strip()
+        if not text:
+            result["convert_error"] = "empty_output"
+            return result, None
+        return result, text
+    except Exception as e:  # noqa: BLE001 — fail-open: converter bugs must not block import
+        logger.warning("markitdown conversion failed for %s: %s", src.name, e)
+        result["convert_error"] = "converter_exception"
+        return result, None
 
 
 def _frontmatter_dict(text: str) -> Dict[str, Any]:
@@ -562,7 +632,18 @@ def handle_ingest_source(
     from codewiki.src import doc_similarity
 
     allow_sibling = bool(arguments.get("allow_sibling", False))
+    # ADR-0018: binary sources get an in-memory markitdown conversion BEFORE the
+    # version gates, so fingerprinting and supersede detection cover pdf/docx.
+    # The converted text stays in memory here; the sidecar is written to disk
+    # only after all gates pass (next to the stored raw file) — a blocked
+    # import must not leave an orphan sidecar behind.
+    convert_result: Dict[str, Any] = {"derived_text": None, "convert_error": None}
+    converted_text: Optional[str] = None
+    if src.suffix.lower() in _CONVERTIBLE_SUFFIXES:
+        convert_result, converted_text = _convert_to_markdown(src, name)
     source_text = _plain_text(src)
+    if source_text is None and converted_text is not None:
+        source_text = converted_text
     fingerprint: Optional[Dict[str, Any]] = None
     if source_text is not None:
         fingerprint = doc_similarity.compute_fingerprint(_body_without_frontmatter(source_text))
@@ -683,6 +764,19 @@ def handle_ingest_source(
     except OSError as e:
         return json.dumps({"error": f"Failed to copy source file: {e}"})
 
+    # ADR-0018: persist the converted sidecar next to the raw file — all
+    # version gates have passed by now, so the import is committed. The
+    # sidecar name follows the final dest_name (hash-suffixed collisions
+    # included) so it stays paired with its raw file.
+    if converted_text is not None:
+        final_sidecar = dest_path.with_name(dest_path.stem + _CONVERTED_SUFFIX)
+        try:
+            final_sidecar.write_text(converted_text + "\n", encoding="utf-8")
+            convert_result["derived_text"] = f"raw/sources/{final_sidecar.name}"
+        except OSError as e:
+            logger.warning("Failed to write sidecar %s: %s", final_sidecar, e)
+            convert_result["convert_error"] = "converter_exception"
+
     # OKF v0.2 §11: raw/sources/*.md are part of the bundle — ensure frontmatter
     _ensure_source_frontmatter(dest_path, name, description, output_dir)
 
@@ -699,7 +793,9 @@ def handle_ingest_source(
         "related_pages": related_pages,
         "status": "active",
         "content_hash": f"sha256:{content_hash}" if content_hash else "",
-        "similarity": fingerprint,  # body sketch + headings; None for binary formats
+        "similarity": fingerprint,  # body sketch + headings; None when no text
+        "derived_text": convert_result.get("derived_text"),
+        "convert_error": convert_result.get("convert_error"),
     }
     _save_registry(output_dir, registry)
 
@@ -732,6 +828,8 @@ def handle_ingest_source(
             "stored_at": str(dest_path.relative_to(output_dir)),
             "description": description,
             "version": version,
+            "derived_text": convert_result.get("derived_text"),
+            "convert_error": convert_result.get("convert_error"),
         },
         indent=2,
         ensure_ascii=False,
@@ -810,6 +908,24 @@ def handle_retract_source(
                 shutil.move(str(source_abs), str(dest))
             except OSError as e:
                 logger.warning("Failed to move source file to trash: %s", e)
+
+        # ADR-0018: retire the converted sidecar together with the raw file.
+        sidecar_rel = source_info.get("derived_text", "")
+        if sidecar_rel:
+            sidecar_abs = output_dir / sidecar_rel
+            if sidecar_abs.exists():
+                try:
+                    trash_dir = output_dir / ".trash"
+                    trash_dir.mkdir(parents=True, exist_ok=True)
+                    dest = trash_dir / sidecar_abs.name
+                    if dest.exists():
+                        dest = (
+                            trash_dir
+                            / f"{sidecar_abs.stem}_{int(datetime.now().timestamp())}{sidecar_abs.suffix}"
+                        )
+                    shutil.move(str(sidecar_abs), str(dest))
+                except OSError as e:
+                    logger.warning("Failed to move sidecar to trash: %s", e)
 
         # Clean source_refs from wiki pages
         cleaned_refs = _clean_source_refs(output_dir, name)

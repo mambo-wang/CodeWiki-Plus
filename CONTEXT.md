@@ -163,6 +163,14 @@ ClientInfo 判定 → 只写该宿主 `commands/codewiki/`；判定不到 → �
 codebuddy 生成命令文件（IDE 自动转化已覆盖）、把 `.trae/commands/codewiki/` 当宿主
 原生目录（只有 Trae 识别，其他宿主靠各自 commands 目录）。
 
+**derived text（转换文本）** — 二进制源（pdf/docx/xlsx）经 markitdown 转换出的 Markdown
+sidecar（`raw/sources/<name>.converted.md`），registry 条目以 `derived_text` 字段指向它。
+它是二进制源的可读投影：版本去重门的指纹、`[^src:...]` 行范围引用、抽取流程的通读
+对象都锚定 sidecar 而非原始字节（原始文件保留仅供哈希锚定与重转，ADR-0018）。
+转换 fail-open：未装 `[convert]` extra 或转换失败时 `derived_text: null` +
+`convert_error` 结构化记录，导入照常成功。_Avoid_: 伪造原始 PDF 页码引用（markitdown
+不保留页码）、转换失败硬拒入库、按需转换不落盘（去重门够不着）。
+
 ## Key decisions
 
 - [ADR-0001 — 任务记忆保持 Markdown，不迁移 JSONL](adr/0001-task-memory-stays-markdown.md)（2026-08-24）
@@ -176,3 +184,4 @@ codebuddy 生成命令文件（IDE 自动转化已覆盖）、把 `.trae/command
 - [ADR-0009 — 任务记忆退役（supersede）与写入检查](adr/0009-task-memory-supersede-and-write-check.md)（2026-09-18）
 - [ADR-0010 — 任务记忆通道互斥：补蒸馏路径固定只产经验笔记](adr/0010-task-memory-channel-mutual-exclusion.md)（2026-09-18）
 - [ADR-0017 — MCP prompt 编译为宿主命令文件（sync-commands）](adr/0017-sync-commands-compile-mcp-prompts.md)（2026-09-27）
+- [ADR-0018 — 二进制源文件保留 + markitdown 转换 sidecar](adr/0018-binary-source-keep-and-markitdown-sidecar.md)（2026-09-27）

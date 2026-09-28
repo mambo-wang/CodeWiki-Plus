@@ -136,3 +136,15 @@ prompts.py 渲染正文清理决策引用完成：用户提出 prompt 正文不�
 ### 2026-09-27 15:53 #x7ef
 
 澄清产品机制：ingest_source 官方口径支持 PDF/MD/DOCX/HTML 四种格式，但代码无扩展名白名单（source_type 默认取后缀，任意文件可存储注册）。文本格式 .md/.markdown/.html/.htm/.txt/.rst 走完整链路（存储+注册+版本感知去重门）；pdf/docx 为二进制格式，_plain_text() 返回 None——无文本提取器，跳过版本去重门，且外部文档知识抽取流程读不回正文，实际只对文本格式可完整走通。PDF/DOCX 建议先转 Markdown 再导入。
+
+### 2026-09-27 19:51 #xerc
+
+ADR-0018 已拍板并实现：ingest_source 引入 markitdown 转换 sidecar。8 项决策全按推荐：①原始文件无条件保留（哈希锚点+可重转）；②ingest 时一次性转换存 raw/sources/<name>.converted.md；③markitdown 为 optional extra [convert]，未装 fail-open 降级（行为同现状）；④转换失败结构化记录 convert_error（dependency_missing/empty_output/converter_exception）；⑤[^src:...] 引用锚定 sidecar 行号；⑥sidecar 随 auto_push 入库；⑦跨格式 version_sibling 门生效（指纹基于转换文本）；⑧工具描述保守口径。实现要点：转换在去重门之前内存完成（指纹覆盖 pdf/docx），门通过后才落盘 sidecar；_plain_text() 扩展读 sidecar 回退；retract remove_refs 把 sidecar 一并移 .trash。新增 tests/test_source_convert.py 9 个测试，全量 1208 通过。
+
+### 2026-09-27 21:04 #tx6y
+
+代码评审（两轴 subagent + 主 Agent 复核）发现并修复孤儿 sidecar bug：_convert_to_markdown 原在版本门之前就落盘 sidecar，门拦下时残留孤儿文件。修复为纯内存转换（返回 (registry_fields, converted_text)），门通过后随最终 dest_name（含哈希后缀）落盘。测试补孤儿文件断言。其余发现：①ADR「转换只做一次确定性缓存」与实现（每次 ingest 重转）不一致——待对齐；②_CONVERTIBLE_SUFFIXES 含 pptx/xlsx/epub 超出 ADR 决策⑧保守口径——待对齐（要么收窄后缀集，要么扩 ADR 口径）；③决策⑤引用锚定仅文档约定无实现（属抽取 command 层职责，可接受）；④retract 中移 .trash 逻辑重复（judgement call，暂不动）。全量 1208 通过。
+
+### 2026-09-27 22:24 #k6kk
+
+评审遗留项已拍板并闭环：①官方口径扩为 PDF/MD/DOCX/HTML/XLSX，_CONVERTIBLE_SUFFIXES 收窄为 {.pdf,.docx,.xlsx}（pptx/epub 未验证不承诺，测试断言同步）；②ADR §2 改为如实描述「每次 ingest 重转，sidecar 随导入覆盖」。ADR-0018 决策⑧已修订并标注修订日期。全量 1208 通过。

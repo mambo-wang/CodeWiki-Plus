@@ -85,3 +85,7 @@ v5.11.0 发布完成（2026-09-20）。关键进展与决策：
 ### 2026-09-23 11:31 #kskg
 
 v5.13.0 发布完成（2026-09-23）：PyPI 双产物上传成功（whl 0.96MB + sdist 10.37MB，curl.exe 直传绕过 Python TLS 握手超时）、GitHub Release 已发布、tag v5.13.0 打在 merge commit 3e97d30（PR #35 CI 绿后合并，main 一并带入 v5.12.0）。bump commit 33dcca2 含 ruff 全量修复（F401/F841/E741 + 58 文件格式化），全量测试 1152 passed。教训：本机网络对 upload.pypi.org 的 Python OpenSSL TLS 握手被干扰（requests/twine/uv 全超时），curl.exe（schannel）正常；legacy API 直传需 sha256_digest 字段（非 digests_sha256）+ 从 whl METADATA/sdist PKG-INFO 提取元数据构造完整表单。
+
+### 2026-09-27 19:27 #hjoy
+
+v5.14.0 发布完成（2026-09-27）。版本判定：v5.13.1 后 9 个提交含 2 feat + 1 fix → minor bump 到 5.14.0。四处版本引用同步。闸门：pytest 1199 passed/2 skipped（15:59）；ruff 修复 2 个 F401 + 4 文件格式化（提交 de9183e）。GitHub 侧：bump 22b4d2b 推 develop；PR #37 合入 main（merge commit e5b39e8）；lightweight tag v5.14.0 打在 merge commit 上；Release id 397618991 已创建。PyPI 侧：twine upload --disable-progress-bar 双产物上传成功（whl 1016151 B + sdist 11230141 B），JSON API 核对 urls=2。关键教训：twine 在 Python 3.14 下 rich progress 报错，加 --disable-progress-bar 绕过；本次 TLS 握手未超时，twine 直传成功，未需 curl.exe 绕法。
