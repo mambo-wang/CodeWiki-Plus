@@ -11,7 +11,9 @@ Covered:
 """
 
 import json
+import os
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -21,11 +23,14 @@ import codewiki
 from codewiki.cli.commands.install_hooks import install_hooks
 from codewiki.cli.utils.ide_config import (
     AGENT_FILE,
+    END_HOOK_CMD,
     HOOK_FILES,
     PROMPT_HOOK_CMD,
+    START_HOOK_CMD,
     detect_ide_dirs,
     install_for_ide,
     merge_settings_json,
+    unwire_hook_registration,
 )
 from codewiki.mcp.prompts import (
     _ACTIVE_SETTLE_END,
@@ -183,8 +188,10 @@ def test_merge_keeps_existing_user_prompt_matchers():
 # must be migrated in place to the project-relative form instead of being
 # duplicated when install-hooks is re-run after a path-format change.
 
-NEW_START = 'python ".qoder/hooks/task_session_start.py"'
-NEW_END = 'python ".qoder/hooks/capture_session_end.py"'
+# 期望值由常量派生：解释器口径按平台解析（Windows `python`、mac/Linux
+# `python3`），这些断言要钉的是「迁移/生成后落到项目相对路径命令」这一行为。
+NEW_START = START_HOOK_CMD.format(ide_dir=".qoder")
+NEW_END = END_HOOK_CMD.format(ide_dir=".qoder")
 
 
 @pytest.mark.parametrize(
@@ -291,8 +298,8 @@ def test_install_for_ide_copies_and_wires(tmp_path, fake_pkg):
     settings = json.loads((tmp_path / ".qoder" / "settings.json").read_text(encoding="utf-8"))
     start = settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     end = settings["hooks"]["SessionEnd"][0]["hooks"][0]["command"]
-    assert start == 'python ".qoder/hooks/task_session_start.py"'
-    assert end == 'python ".qoder/hooks/capture_session_end.py"'
+    assert start == NEW_START
+    assert end == NEW_END
 
     agents_md = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     assert _TASK_MEMORY_AGENTS_START in agents_md
@@ -437,11 +444,11 @@ def test_install_trae_writes_hooks_json(tmp_path, fake_pkg):
     assert set(data["hooks"]) == {"SessionStart", "Stop", "UserPromptSubmit"}
     start = data["hooks"]["SessionStart"][0]
     assert "matcher" not in start  # matcher 对这三个事件无效，不写
-    assert start["hooks"][0]["command"] == 'python ".trae/hooks/task_session_start.py"'
+    assert start["hooks"][0]["command"] == START_HOOK_CMD.format(ide_dir=".trae")
     assert start["hooks"][0]["timeout"] == 15
     stop = data["hooks"]["Stop"][0]
     assert "matcher" not in stop
-    assert stop["hooks"][0]["command"] == 'python ".trae/hooks/capture_session_end.py"'
+    assert stop["hooks"][0]["command"] == END_HOOK_CMD.format(ide_dir=".trae")
     assert stop["hooks"][0]["timeout"] == 30
     prompt = data["hooks"]["UserPromptSubmit"][0]
     assert prompt["hooks"][0]["command"] == PROMPT_HOOK_CMD
@@ -714,3 +721,104 @@ def test_cli_auto_detect_skips_qwenwork_hint(tmp_path):
     result = runner.invoke(install_hooks, ["--repo-path", str(repo)])
     assert result.exit_code == 0
     assert "--ide qwenwork" in result.output
+
+
+# ---------------------------------------------------------------------------
+# 解释器口径：命令里写死 `python` 时，mac/Linux（只有 python3）上三个 hook 全部
+# 以 exit 127 静默失败——任务关联弹框与对话采集都不触发（2026-09-30 Qoder CN
+# 日志实测定案）。命令仍不得含路径，保持随仓库共享可移植。
+# ---------------------------------------------------------------------------
+
+
+def test_hook_commands_use_this_platform_interpreter():
+    expected = "python"
+    if os.name != "nt":
+        expected = "python3" if shutil.which("python3") else "python"
+    for cmd in (
+        START_HOOK_CMD.format(ide_dir=".qoder"),
+        END_HOOK_CMD.format(ide_dir=".qoder"),
+        PROMPT_HOOK_CMD,
+    ):
+        assert cmd.split()[0] == expected, cmd
+        assert "/" not in cmd.split()[0] and "\\" not in cmd.split()[0], cmd
+
+
+@pytest.mark.parametrize(
+    "os_name,available,expected",
+    [
+        ("nt", {}, "python"),
+        ("nt", {"python3": 1}, "python"),
+        ("posix", {"python3": 1}, "python3"),
+        ("posix", {"python": 1}, "python"),
+        ("posix", {}, "python"),
+    ],
+)
+def test_resolve_python_cmd_platform_matrix(monkeypatch, os_name, available, expected):
+    from codewiki.cli.utils import ide_config
+
+    monkeypatch.setattr(ide_config.os, "name", os_name)
+    monkeypatch.setattr(
+        ide_config.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in available else None,
+    )
+    assert ide_config._resolve_python_cmd() == expected
+
+
+def test_merge_migrates_legacy_interpreter_prompt_cmd():
+    """`python -m` → `python3 -m` 口径变更：原地迁移，不得同命令注册两份。
+
+    两份会让 IDE 每次提交都触发两遍采集提示。绝对解释器路径的手工条目同样命中
+    （按 `-m codewiki.mcp._ide_hook` 尾部特征，不看解释器）。
+    """
+    for legacy in (
+        "python -m codewiki.mcp._ide_hook --enable",
+        '"/usr/local/bin/python3" -m codewiki.mcp._ide_hook --enable',
+    ):
+        existing = {
+            "hooks": {
+                "UserPromptSubmit": [
+                    {
+                        "matcher": "",
+                        "hooks": [{"type": "command", "command": legacy, "timeout": 10}],
+                    }
+                ]
+            }
+        }
+        merged = merge_settings_json(existing, "start-cmd", "end-cmd")
+        up = merged["hooks"]["UserPromptSubmit"]
+        assert len(up) == 1
+        assert up[0]["hooks"] == [{"type": "command", "command": PROMPT_HOOK_CMD, "timeout": 10}]
+        # 再跑一次仍是一条（幂等）
+        again = merge_settings_json(merged, "start-cmd", "end-cmd")
+        assert again["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"] == PROMPT_HOOK_CMD
+
+
+def test_unwire_removes_legacy_interpreter_prompt_cmd(tmp_path):
+    (tmp_path / ".qoder").mkdir()
+    settings_path = tmp_path / ".qoder" / "settings.json"
+    settings_path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "UserPromptSubmit": [
+                        {
+                            "matcher": "",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "python -m codewiki.mcp._ide_hook --enable",
+                                    "timeout": 10,
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    assert unwire_hook_registration(str(tmp_path), "qoder") is True
+    assert "hooks" not in json.loads(settings_path.read_text(encoding="utf-8"))

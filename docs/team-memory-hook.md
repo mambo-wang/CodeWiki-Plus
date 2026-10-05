@@ -15,7 +15,7 @@
 
 ## 前置条件
 
-wrapper 通过 `python -m codewiki.mcp._ide_hook` 调起采集脚本，因此要求 hook 所用的 `python` 能导入 `codewiki` 包。满足其一即可：
+wrapper 通过 `<python> -m codewiki.mcp._ide_hook` 调起采集脚本（`install-hooks` 生成的解释器名按本机平台解析：Windows 为 `python`，mac/Linux 一般为 `python3`），因此要求该解释器能导入 `codewiki` 包。满足其一即可：
 
 1. `codewiki` 已通过 pip 安装（如 `pip install codewiki-plus`）；
 2. hook 位于 CodeWiki 源码仓库内（`.codebuddy/` 随仓库分发，子进程以仓库为 cwd 运行，本地包直接可导入）；
@@ -57,7 +57,7 @@ wrapper 通过 `python -m codewiki.mcp._ide_hook` 调起采集脚本，因此要
 | `SessionStart` | 新会话开始 | `startup` | 同步返回 `hookSpecificOutput.additionalContext`，注入任务关联引导（脚本 `task_session_start.py`，纯 stdlib，不 import codewiki） |
 | `SessionEnd` | 会话终止（切换/删除/清空） | `other`（目前唯一支持的 reason 值） | 唯一可靠携带 `transcript_path` 的事件；采集脚本经 wrapper 转发落盘 |
 
-**命令路径用项目相对形式（如 `python ".codebuddy/hooks/capture_session_end.py"`），不写机器相关绝对路径**——`.<ide>/settings.json` 随仓库共享，绝对路径（如 `d:/repos/CodeWiki-CN/...`）提交后队友克隆到其他目录即失效。相对路径可行的前提是宿主以项目根为工作目录执行 hook 命令（已实测）；各宿主的 `$*_PROJECT_DIR` 环境变量展开曾尝试（CodeBuddy `$CODEBUDDY_PROJECT_DIR`、Qoder `$QODER_PROJECT_DIR`、Claude Code `$CLAUDE_PROJECT_DIR`、Gemini CLI `$GEMINI_PROJECT_DIR`），实测不可靠故弃用。重跑 `codewiki install-hooks` 会把旧格式条目（绝对路径/环境变量占位符）原地迁移为相对形式，不产生重复注册。接线后建议开一个新会话验证 hook 触发。
+**命令路径用项目相对形式（如 `python ".codebuddy/hooks/capture_session_end.py"`），不写机器相关绝对路径**——`.<ide>/settings.json` 随仓库共享，绝对路径（如 `d:/repos/CodeWiki-CN/...`）提交后队友克隆到其他目录即失效。相对路径可行的前提是宿主以项目根为工作目录执行 hook 命令（已实测）；各宿主的 `$*_PROJECT_DIR` 环境变量展开曾尝试（CodeBuddy `$CODEBUDDY_PROJECT_DIR`、Qoder `$QODER_PROJECT_DIR`、Claude Code `$CLAUDE_PROJECT_DIR`、Gemini CLI `$GEMINI_PROJECT_DIR`），实测不可靠故弃用。重跑 `codewiki install-hooks` 会把旧格式条目（绝对路径/环境变量占位符）原地迁移为相对形式，不产生重复注册。接线后建议开一个新会话验证 hook 触发。**解释器名是安装机平台的快照**（Windows `python`，mac/Linux `python3`）：`install-hooks` 每次按本机重新解析并原地迁移旧条目，所以换机器或刚克隆后，`install-hooks` 是每机一次的固定动作——跳过它，hook 会以 exit 127（command not found）静默失败：任务关联弹框不出现、对话不采集，只在宿主日志里留一行。宿主 hook「没反应」时先看退出码再看接线档位：127 是命令本身起不来（解释器/路径），不是宿主不支持该事件。
 
 事件触发时，CodeBuddy 通过 **stdin** 向 wrapper 传入事件 JSON（以 SessionEnd 为例）：
 

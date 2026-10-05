@@ -243,6 +243,24 @@
       "repo": "CodeWiki-Plus",
       "producer": "codewiki/5.13.1",
       "written_at": "2026-09-25T14:02:32Z"
+    },
+    "wiki/modules/MCP_Prompts.md": {
+      "git_head": "0269aca877da2e61cbfa590dd17901414555cb6e",
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": "CodeWiki-Plus",
+      "producer": "codewiki/5.14.1",
+      "written_at": "2026-10-03T02:12:42Z"
+    },
+    "wiki/modules/MCP_Core.md": {
+      "git_head": "0269aca877da2e61cbfa590dd17901414555cb6e",
+      "components": [],
+      "files": [],
+      "source_fingerprint": null,
+      "repo": "CodeWiki-Plus",
+      "producer": "codewiki/5.14.1",
+      "written_at": "2026-10-03T02:12:59Z"
     }
   }
 }

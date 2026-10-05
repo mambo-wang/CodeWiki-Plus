@@ -72,7 +72,7 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
 
 跨会话延续长线工作上下文。任务记忆是**任务范围内的进度知识**，与 Wiki 笔记（**跨任务的通用经验**）互补。
 
-**会话开始时（必须执行）**：若本会话已收到 SessionStart hook 注入的任务关联指引，按其执行（弹框规则、补蒸馏、收尾采集以注入为准）；**未收到注入时**，按 `get_prompt(name="task-workflow")` 的「会话开始：关联任务」一节执行——用 `ask_followup_question` 弹一次任务关联框（一框列全所有进行中任务 + 新建 + 跳过），绑定后 `get_task_context` 拉取上下文。
+**会话开始时（必须执行）**：若本会话已收到 SessionStart hook 注入的任务关联指引，按其执行（弹框规则、补蒸馏、收尾采集以注入为准）；**未收到注入时**，按 `get_prompt(name="task-workflow")` 的「会话开始：关联任务」一节执行——用宿主原生结构化提问工具弹一次任务关联框（CodeBuddy 系 `ask_followup_question`：一框列全所有进行中任务 + 新建 + 跳过；Qoder 系 `AskUserQuestion`：单题 options 硬上限 4、硬下限 2，取最近的 3 个任务 + 跳过（选项位有富余时补「新建任务」），其余任务写进问题正文、由「其他」自由输入承接），绑定后 `get_task_context` 拉取上下文。
 
 完整工作流（补蒸馏、会话中采集、收尾、检索、存储布局与实现约束）见 MCP prompt：`get_prompt(name="task-workflow")` —— 按需获取。
 <!-- TEAM-MEMORY-TASK:END -->

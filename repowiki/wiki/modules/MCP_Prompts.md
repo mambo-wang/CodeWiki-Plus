@@ -38,6 +38,11 @@ MCP_Prompts 是 CodeWiki MCP Server 的**提示词（Prompt）叶子模块**，�
 | `_prompt_incremental_update` | 函数 | codewiki/mcp/prompts.py | 基于变更检测增量更新受影响模块指引 |
 | `_prompt_cross_service_trace` | 函数 | codewiki/mcp/prompts.py | 跨服务调用链追踪（[RouteNode](../../../codewiki/src/be/dependency_analyzer/models/cross_service.py) + CBM 语义）指引 |
 | `_prompt_workspace_analysis` | 函数 | codewiki/mcp/prompts.py | 多仓库工作区分析+跨服务拓扑生成指引 |
+| `_prompt_init_workspace` | 函数 | codewiki/mcp/prompts.py | 初始化多仓工作区（子仓登记 + 全局拓扑 + 任务管理接线）指引 |
+| `_prompt_add_workspace_repo` | 函数 | codewiki/mcp/prompts.py | 业务仓登记到多仓工作区（clone/仅登记）指引 |
+| `_prompt_remove_workspace_repo` | 函数 | codewiki/mcp/prompts.py | 从多仓工作区移除业务仓（保留/清理已生成拓扑）指引 |
+| `_prompt_skill_creator` | 函数 | codewiki/mcp/prompts.py | 从任务记忆/笔记编译可复用 SKILL.md 草稿区指引 |
+| `_prompt_retract_source` | 函数 | codewiki/mcp/prompts.py | 已导入外部文档的撤回（反向清理引用/注册表/sidecar）指引 |
 | `_prompt_code_analysis` | 函数 | codewiki/mcp/prompts.py | 纯结构分析（不生成 Wiki）指令指引 |
 | `_prompt_impact_review` | 函数 | codewiki/mcp/prompts.py | 修改影响范围评估（爆炸半径/风险分层）指引 |
 | `_prompt_change_review` | 函数 | codewiki/mcp/prompts.py | 变更评审指引（analyze_changes 行级爆炸半径 → 回归测试计划 → review_changes 四轴证据收集/裁决/沉淀） |
@@ -50,12 +55,12 @@ MCP_Prompts 是 CodeWiki MCP Server 的**提示词（Prompt）叶子模块**，�
 | `_prompt_consolidate_knowledge` | 函数 | codewiki/mcp/prompts.py | 草稿笔记合并/精炼（批量 confirm/reject 评审）指引 |
 | `_prompt_promote_note` | 函数 | codewiki/mcp/prompts.py | 笔记升级为正式模块/实体文档（wikilink 重写）指引 |
 
-> 注：`list_prompts`、`get_prompt` 由 [MCP_Core](MCP_Core.md) 模块所有权登记，本叶子模块聚焦其上方的 18 个 `_prompt_*` 构建器（11 个 Wiki 工作流 + 7 个任务记忆/知识类）。
+> 注：`list_prompts`、`get_prompt` 由 [MCP_Core](MCP_Core.md) 模块所有权登记，本叶子模块聚焦其上方的 23 个 `_prompt_*` 构建器（Wiki 工作流 + 任务记忆/知识类）。
 
 ## 关键设计
 ### 1. 模板注册与路由
-- `list_prompts()` 用 `@server.list_prompts()`（`mcp.server.Server`）异步返回 18 个 `Prompt` 对象，含 `name/title/description/arguments`，供客户端发现。构建器定义于 `codewiki/mcp/prompts.py`，`register(server)` 一次性挂载到 `server.py`。
-- `get_prompt(name, arguments)` 用 `@server.get_prompt()` 装饰，内部维护 `prompts_map`（name → `_prompt_*` 函数）。未知 name 返回友好的 `GetPromptResult` 错误文案；命中则调用构建器生成文本，包成 `PromptMessage(role="user", TextContent)`。
+- `list_prompts()` 用 `@server.list_prompts()`（`mcp.server.Server`）异步返回 23 个 `Prompt` 对象，含 `name/title/description/arguments`，供客户端发现。构建器定义于 `codewiki/mcp/prompts.py`，`register(server)` 一次性挂载到 `server.py`。
+- `get_prompt(name, arguments)` 用 `@server.get_prompt()` 装饰，按模块级路由表 `_WORKFLOW_PROMPTS`（name → `_prompt_*` 函数）分发。未知 name 返回友好的 `GetPromptResult` 错误文案；命中则调用构建器生成文本，包成 `PromptMessage(role="user", TextContent)`。同一张表也被 `get_prompt` **工具**复用（`prompt_type` 的 enum 由 `workflow_prompt_names()` 生成，`name` 作别名）：只暴露 MCP 工具、没有 `prompts/get` 协议通道的宿主，照命令薄壳写 `get_prompt(name="task-workflow")` 也能取到全文（ADR-0017 补充）。
 - 路径统一经 `_resolve_path()`：相对路径基于 `os.getcwd()` join，绝对路径 `normpath`，保证与 [MCP_Core](MCP_Core.md) 的会话/workspace 解析一致。
 
 ### 2. 按职责分组的提示词构建器
@@ -75,7 +80,7 @@ MCP_Prompts 是 CodeWiki MCP Server 的**提示词（Prompt）叶子模块**，�
 flowchart LR
     Client[MCP 客户端] -->|list_prompts| LP[list_prompts]
     Client -->|get_prompt name+args| GP[get_prompt]
-    GP --> PM[prompts_map 路由]
+    GP --> PM[_WORKFLOW_PROMPTS 路由]
     PM --> B1[_prompt_generate_wiki]
     PM --> B2[_prompt_extract_knowledge]
     PM --> B3[_prompt_search_wiki]
@@ -118,7 +123,7 @@ Agent 依据返回文本逐条调用 `analyze_repo → save_module_tree → get_
 自定义参数触发路径解析示例：`get_prompt("impact-review", {"repo_path":"./svc","target":"src/auth.py::AuthService"})`，构建器自动识别含 `::` 走 `component_ids` 分支。`workspace-analysis` 则依赖已分析的 `analyze_workspace` 输出 `workspace_session_id` 与 `overview_path`。
 
 ## 扩展点
-- **新增工作流**：在 `list_prompts()` 追加 `Prompt(...)` 声明，并在 `get_prompt()` 的 `prompts_map` 注册新 `_prompt_xxx` 构建器即可，无需改动工具层。
+- **新增工作流**：在 `_PROMPT_REGISTRY` 追加条目，并在模块级 `_WORKFLOW_PROMPTS` 注册新 `_prompt_xxx` 构建器即可——`list_prompts()`、MCP `prompts/get`、`get_prompt` 工具的 enum 与命令薄壳全部从这两处派生，无需改动工具层或手抄名字。
 - **参数标准化**：所有构建器复用 `_resolve_path()`，扩展参数时建议保持「可选默认当前目录、必填未提供用占位符」的容错约定。
 - **提示词互链**：可在新提示词中引用既有 `get_prompt(prompt_type=...)` 模板，复用撰写/分析方法论，保持一致性。
 - **外部能力增强**：`cross_service_trace`/`workspace_analysis` 已设计为可插拔（检测 `trace_path`=CBM、`index_repository`=codebase-memory、`codegraph_status`=CodeGraph），新增增强源只需在步骤 0 检测分支追加。

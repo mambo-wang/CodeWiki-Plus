@@ -124,20 +124,45 @@ HOOK_FILES = ("capture_session_end.py", "task_session_start.py")
 # distill-worker subagent 定义文件（安装后的目标文件名；源变体见 IDE_SPECS.agent_file）
 AGENT_FILE = "distill-worker.md"
 
+
 # command 用项目相对路径（宿主以项目根为工作目录执行 hook 命令），不写机器
 # 相关绝对路径——settings.json 随仓库共享，绝对路径提交后队友克隆到其他目录
 # 即失效；各宿主的 $*_PROJECT_DIR 变量展开经实测不可靠，故不用占位符。
 # 脚本本体经 __file__ 定位仓库，不依赖工作目录。
-START_HOOK_CMD = 'python "{ide_dir}/hooks/task_session_start.py"'
-END_HOOK_CMD = 'python "{ide_dir}/hooks/capture_session_end.py"'
+#
+# 解释器名按平台解析：Windows 只保证 `python`（`py` 启动器是另一回事），
+# mac/Linux 的系统 Python 普遍只有 `python3`——写死 `python` 会让 hook 以
+# exit 127 (command not found) 静默失败，任务关联弹框与对话采集全不触发
+# （2026-09-30 Qoder CN 实测定案）。命令仍不含路径，随仓库共享可移植。
+#
+# 代价要认下来：命令是**安装机解释器的快照**，而 settings.json 随仓库共享——
+# 谁最后跑 install-hooks，提交的 hook 命令就跟谁的机器走（mac 生成 python3，
+# Windows 同事拉取后须自己重跑一次 install-hooks 才迁回 python，否则同样 127）。
+# 换机/克隆后重跑 install-hooks 是每机一次的固定动作，不是可选优化。
+def _resolve_python_cmd() -> str:
+    """Pick the interpreter name hook commands should invoke on this platform."""
+    if os.name == "nt":
+        return "python"
+    for name in ("python3", "python"):
+        if shutil.which(name):
+            return name
+    return "python"
 
-# UserPromptSubmit（技能草稿提示，skill-creator §10）：走包内入口 `python -m`
-# 而非物理脚本——IDE 以项目根为工作目录执行 hook 命令，cwd 在 sys.path 上，
-# checkout 内或已 pip 安装的 codewiki 包即可 import。命令不含任何路径，
-# settings.json 随仓库共享天然可移植。脚本同步读 stdin 事件，内部按
-# containment 阈值过滤，命中 `status: draft` 草稿才输出 hookSpecificOutput
-# （advisory：只提示、不自动 install）。
-PROMPT_HOOK_CMD = "python -m codewiki.mcp._ide_hook --enable"
+
+_PYTHON_CMD = _resolve_python_cmd()
+START_HOOK_CMD = f'{_PYTHON_CMD} "{{ide_dir}}/hooks/task_session_start.py"'
+END_HOOK_CMD = f'{_PYTHON_CMD} "{{ide_dir}}/hooks/capture_session_end.py"'
+
+# UserPromptSubmit（技能草稿提示，skill-creator §10）：走包内入口 `-m` 而非物理
+# 脚本——IDE 以项目根为工作目录执行 hook 命令，cwd 在 sys.path 上，checkout 内或
+# 已 pip 安装的 codewiki 包即可 import。命令不含任何路径，settings.json 随仓库
+# 共享天然可移植。脚本同步读 stdin 事件，内部按 containment 阈值过滤，命中
+# `status: draft` 草稿才输出 hookSpecificOutput（advisory：只提示、不自动 install）。
+PROMPT_HOOK_CMD = f"{_PYTHON_CMD} -m codewiki.mcp._ide_hook --enable"
+# 我们这条 UserPromptSubmit 命令的识别特征（解释器名可变，尾部恒定）：
+# 解释器口径切换（python → python3）后，历史注册项必须仍被认作「我们自己的」，
+# 否则去重/摘除都会漏掉它，同一 hook 被 IDE 双重触发。
+_PROMPT_HOOK_TAIL = "-m codewiki.mcp._ide_hook --enable"
 
 # hook 事件注册骨架，command 运行时补全为相对路径命令。matcher 语义：
 # SessionStart 的 "startup" 匹配会话启动；SessionEnd 的 "other" 匹配任意原因；
@@ -293,15 +318,19 @@ def merge_settings_json(
 
         # 迁移旧格式：既有命令以同一相对脚本路径结尾（含 IDE 配置目录，足够
         # 特异）即视为 CodeWiki 历史注册，原地替换为相对路径命令、保留原
-        # timeout；随后去重检查会跳过追加。
+        # timeout；随后去重检查会跳过追加。UserPromptSubmit 的 `-m` 入口没有
+        # 路径，按尾部特征认我们自己的条目（解释器口径变更时同样迁移）。
         suffix = _relative_hook_suffix(command)
-        if suffix:
-            for h in inner:
-                if not isinstance(h, dict):
-                    continue
-                old = norm(h.get("command"))
-                if old and old != norm(command) and old.endswith(suffix):
-                    h["command"] = command
+        for h in inner:
+            if not isinstance(h, dict):
+                continue
+            old = norm(h.get("command"))
+            if not old or old == norm(command):
+                continue
+            ours_script = bool(suffix) and old.endswith(suffix)
+            ours_prompt = command == PROMPT_HOOK_CMD and _is_codewiki_prompt_cmd(old)
+            if ours_script or ours_prompt:
+                h["command"] = command
 
         if not any(isinstance(h, dict) and norm(h.get("command")) == norm(command) for h in inner):
             inner.append({"type": "command", "command": command, "timeout": timeout})
@@ -366,20 +395,31 @@ def _relative_hook_suffix(command: str) -> str:
     return command[m.start(1) :]
 
 
+def _is_codewiki_prompt_cmd(cmd: Optional[str]) -> bool:
+    """命令是否是我们的 UserPromptSubmit 注册（解释器名无关）。
+
+    ``python`` → ``python3`` 这类口径变更会让整串相等匹配漏掉历史条目，同一 hook
+    被 IDE 双重触发；故除常量本身外，再认尾部特征 ``_PROMPT_HOOK_TAIL``（含绝对
+    解释器路径的手工接线条目）。
+    """
+    c = (cmd or "").replace("\\", "/")
+    return c == PROMPT_HOOK_CMD.replace("\\", "/") or c.endswith(_PROMPT_HOOK_TAIL)
+
+
 def unwire_hook_registration(repo: str, ide: str) -> bool:
     """换档清理（设计方案 §3.10）：移除配置文件中属于 CodeWiki 的 hook 注册条目。
 
     ``hook → prompt`` 换档时调用。只删 command 命中我们相对脚本后缀的条目
     （复用 ``_relative_hook_suffix`` 口径，归一化路径分隔符后 endswith 匹配，
-    兼容历史绝对路径/反斜杠/``$*_PROJECT_DIR`` 旧格式条目）与常量命令
-    ``PROMPT_HOOK_CMD``（``python -m`` 入口无路径，按整串归一化后相等匹配）；
+    兼容历史绝对路径/反斜杠/``$*_PROJECT_DIR`` 旧格式条目）与 UserPromptSubmit
+    的 ``-m`` 入口（无路径，按 ``_is_codewiki_prompt_cmd`` 尾部特征匹配，
+    解释器口径变更后的历史条目同样命中）；
     他人条目与 settings 其他键一律原样保留（沿用 ``merge_settings_json`` 的
     preserve-all 契约）。
 
     **绝不整段清空 ``hooks`` 键**：只从命中的条目内部摘除我们的命令；某条目
     内命令被删空才移除该条目，某事件数组被删空才移除该事件键，全部事件键
     都删空才移除 ``hooks`` 键本身——每一步都只因我们自己的条目消失而发生。
-
     配置文件不存在 / 无 ``hooks`` 键 / 无我们的条目 → 无操作返回 False
     （重跑幂等：第二次不产生任何写入）。返回是否发生了变更。
     """
@@ -403,7 +443,8 @@ def unwire_hook_registration(repo: str, ide: str) -> bool:
         # Windows 下反斜杠/正斜杠等价，与 merge_settings_json 的去重口径一致
         return (cmd or "").replace("\\", "/")
 
-    # 我们的命令特征：两个相对脚本后缀 + 常量 PROMPT_HOOK_CMD
+    # 我们的命令特征：两个相对脚本后缀 + UserPromptSubmit 的 `-m` 入口
+    # （解释器名无关，见 _is_codewiki_prompt_cmd）
     suffixes = [
         s
         for s in (
@@ -412,13 +453,12 @@ def unwire_hook_registration(repo: str, ide: str) -> bool:
         )
         if s
     ]
-    prompt_cmd = norm(PROMPT_HOOK_CMD)
 
     def is_ours(cmd) -> bool:
         if not isinstance(cmd, str):
             return False
         c = norm(cmd)
-        return c == prompt_cmd or any(c.endswith(s) for s in suffixes)
+        return _is_codewiki_prompt_cmd(c) or any(c.endswith(s) for s in suffixes)
 
     changed = False
     for event in list(hooks.keys()):

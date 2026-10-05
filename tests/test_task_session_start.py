@@ -15,6 +15,7 @@ Covered:
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -268,3 +269,195 @@ def test_codebuddy_copy_keeps_worker_delegation(tmp_path):
     assert "「蒸馏 worker」subagent" in ctx
     assert ".codebuddy/agents/distill-worker.md" in ctx
     assert "general-purpose" not in ctx
+
+
+# ---------------------------------------------------------------------------
+# 弹框通道按宿主分档：Qoder 的 AskUserQuestion 单题 options 是硬上限 4（超了调用
+# 直接失败），CodeBuddy 的 ask_followup_question 只是「建议 2-4」。写死前者会让
+# Qoder 用户在任务数 >2 时一个框都弹不出来（2026-09-30 Qoder CN 实测定案）。
+# ---------------------------------------------------------------------------
+
+_LONG_TITLE = "统一知识存储层（KnowledgeStore 动词式门面）"
+
+
+def _write_tasks_index(repo: Path, tasks: list) -> None:
+    tasks_dir = repo / "repowiki" / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    (tasks_dir / ".index.json").write_text(
+        json.dumps({"tasks": tasks}, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def _install_qoder_copy(tmp_path: Path) -> Path:
+    hook = tmp_path / ".qoder" / "hooks" / "task_session_start.py"
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(HOOK, hook)
+    return hook
+
+
+def _five_active_tasks() -> list:
+    tasks = [{"id": f"t{i}", "title": f"任务{i}", "status": "active"} for i in range(1, 6)]
+    tasks[0]["title"] = _LONG_TITLE
+    return tasks
+
+
+def test_qoder_copy_uses_capped_chooser_and_lists_rest_in_body(tmp_path):
+    _write_tasks_index(tmp_path, _five_active_tasks())
+
+    ctx = _context(_run_hook(tmp_path, hook=_install_qoder_copy(tmp_path)))
+    assert "AskUserQuestion" in ctx
+    assert "ask_followup_question" not in ctx  # 宿主没有这个工具，照做必然调用失败
+    assert "硬上限 4 个" in ctx
+    assert "拆成多个 question" in ctx
+
+    options_block = ctx.split("该 question 的 options（按顺序）：")[1].split("正文任务清单")[0]
+    # 3 个任务 + 跳过 = 恰好 4 个 options
+    assert options_block.count("label=") == 4
+    assert "label=「跳过」" in options_block
+    assert "任务4" not in options_block and "任务5" not in options_block
+
+    # 长中文标题截断成短 label，完整标题与 task_id 留在 description
+    assert f"label=「{_LONG_TITLE[:12]}」" in options_block
+    assert f"description=「{_LONG_TITLE}」（task_id=t1）" in options_block
+
+    # 未进选项的任务仍然可见（正文清单），由「其他」自由输入承接
+    # 「正文任务清单」在硬约束段落里也被提到一次，取最后一次出现的那段
+    body_block = ctx.rsplit("正文任务清单", 1)[1].split("【结果判定】")[0]
+    assert "任务4（task_id=t4）" in body_block
+    assert "任务5（task_id=t5）" in body_block
+    assert "选「其他」" in ctx
+
+
+def test_qoder_copy_options_are_the_most_recent_tasks(tmp_path):
+    # t4/t5 最近在推进（memories 最新），created 最早也不该被挤掉。
+    _write_tasks_index(tmp_path, _five_active_tasks())
+    tasks_dir = tmp_path / "repowiki" / "tasks"
+    for tid in ("t1", "t2", "t3", "t4", "t5"):
+        d = tasks_dir / tid / "memories"
+        d.mkdir(parents=True, exist_ok=True)
+        m = d / "u.md"
+        m.write_text("x", encoding="utf-8")
+        os.utime(m, (1_700_000_000, 1_700_000_000))
+    for tid, ts in (("t4", 1_800_000_000), ("t5", 1_900_000_000)):
+        m = tasks_dir / tid / "memories" / "u.md"
+        os.utime(m, (ts, ts))
+
+    ctx = _context(_run_hook(tmp_path, hook=_install_qoder_copy(tmp_path)))
+    options_block = ctx.split("该 question 的 options（按顺序）：")[1].split("正文任务清单")[0]
+    assert "任务5" in options_block and "任务4" in options_block
+    # t1..t3 里最近的一条补位，其余进正文清单
+    assert "任务3" not in options_block and "任务2" not in options_block
+
+
+def _options_block(ctx: str) -> str:
+    """截出「该 question 的 options（按顺序）：」之后的选项段。"""
+    return ctx.split("该 question 的 options（按顺序）：")[1].split("【结果判定】")[0]
+
+
+def _active_index(n: int) -> list:
+    return [{"id": f"t{i}", "title": f"任务{i}", "status": "active"} for i in range(1, n + 1)]
+
+
+def test_qoder_channel_option_count_stays_within_tool_bounds(tmp_path):
+    """AskUserQuestion 的 options 是硬区间 2-4：0 个任务时只给「跳过」弹不出来。
+
+    0 个进行中任务 = 新仓库/新克隆的首个会话，正是最该引导建任务的一次，不能
+    让选项数越界把整条任务关联流程废掉。
+    """
+    for n in (0, 1, 2, 3, 4, 9):
+        repo = tmp_path / f"r{n}"
+        if n:
+            _write_tasks_index(repo, _active_index(n))
+        ctx = _context(_run_hook(repo, hook=_install_qoder_copy(repo)))
+        labels = re.findall(r"label=「([^」]+)」", _options_block(ctx))
+        assert 2 <= len(labels) <= 4, f"{n} 个任务 → {len(labels)} 个选项: {labels}"
+        assert labels[-1] == "跳过"
+        assert len(set(labels)) == len(labels)
+        if n < 3:
+            assert "新建任务" in labels  # 空位补「新建任务」，新建不只靠「其他」
+        else:
+            assert "新建任务" not in labels
+
+
+def test_qoder_channel_no_dangling_body_list_when_all_tasks_fit(tmp_path):
+    # 任务全进了选项 → 不该再指着一份并不存在的「正文任务清单」下指令
+    _write_tasks_index(tmp_path, _active_index(2))
+
+    ctx = _context(_run_hook(tmp_path, hook=_install_qoder_copy(tmp_path)))
+    assert "进行中共" not in ctx
+    assert "正文任务清单" not in ctx
+
+
+def test_qoder_channel_labels_stay_distinct_on_shared_prefix(tmp_path):
+    # 长中文标题前 12 字相同（task_id 由标题生成，换 id 也一样撞），重复 label
+    # 会让用户在弹框里分不清选项，故撞车时按前缀逐步延长。
+    _write_tasks_index(
+        tmp_path,
+        [
+            {
+                "id": f"k{i}",
+                "title": f"统一知识存储层（KnowledgeStore 变体{i} 门面）",
+                "status": "active",
+            }
+            for i in (1, 2, 3)
+        ],
+    )
+
+    ctx = _context(_run_hook(tmp_path, hook=_install_qoder_copy(tmp_path)))
+    labels = re.findall(r"label=「([^」]+)」", _options_block(ctx))
+    assert len(labels) == 4 and len(set(labels)) == 4
+
+
+def test_unlimited_channel_still_lists_every_task(tmp_path):
+    """CodeBuddy 档不受本次改动影响：仍然一框列全 5 个任务。"""
+    _write_tasks_index(tmp_path, _five_active_tasks())
+
+    ctx = _context(_run_hook(tmp_path))  # 包内源副本 = 无限选项档
+    assert "ask_followup_question" in ctx
+    assert "AskUserQuestion" not in ctx
+    options_block = ctx.split("该 question 的 options（按顺序）：")[1].split("【结果判定】")[0]
+    for i in range(1, 6):
+        assert f"（task_id=t{i}）" in options_block
+
+
+# ---------------------------------------------------------------------------
+# 任务索引缺失/损坏时的回退：.index.json 是 gitignored 的本机可重建缓存，
+# 刚克隆或刚换机器的仓库往往没有它——不回退就弹不出已有任务。
+# ---------------------------------------------------------------------------
+
+
+def _write_task_md(repo: Path, task_id: str, title: str, status: str) -> None:
+    d = repo / "repowiki" / "tasks" / task_id
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "task.md").write_text(
+        f"---\ntype: task\ntask_id: {task_id}\ntitle: {title}\nstatus: {status}\n---\n\n正文\n",
+        encoding="utf-8",
+    )
+
+
+def test_active_tasks_fallback_scan_when_index_absent(tmp_path):
+    _write_task_md(tmp_path, "keep", "回退任务", "active")
+    _write_task_md(tmp_path, "drop", "已完成任务", "completed")
+    # 故意不写 .index.json
+
+    ctx = _context(_run_hook(tmp_path))
+    assert "回退任务（task_id=keep）" in ctx
+    assert "已完成任务" not in ctx
+
+
+def test_active_tasks_fallback_scan_when_index_corrupt(tmp_path):
+    _write_task_md(tmp_path, "keep", "损坏索引仍可见", "active")
+    tasks_dir = tmp_path / "repowiki" / "tasks"
+    (tasks_dir / ".index.json").write_text("{not valid json", encoding="utf-8")
+
+    ctx = _context(_run_hook(tmp_path))
+    assert "损坏索引仍可见（task_id=keep）" in ctx
+
+
+def test_empty_index_also_falls_back_to_scan(tmp_path):
+    # 索引存在但 tasks 为空（新克隆后被清空的缓存）——同样要回退到目录扫描
+    _write_task_md(tmp_path, "keep", "空索引用目录扫描", "active")
+    _write_tasks_index(tmp_path, [])
+
+    ctx = _context(_run_hook(tmp_path))
+    assert "空索引用目录扫描（task_id=keep）" in ctx

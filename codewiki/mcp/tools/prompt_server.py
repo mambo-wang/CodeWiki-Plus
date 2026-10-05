@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from codewiki.mcp import i18n as _i18n
+from codewiki.mcp.prompts import render_workflow_prompt, workflow_prompt_names
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.tools.workspace_result import _FILE_THRESHOLD
 
@@ -360,17 +361,108 @@ _PROMPT_CATALOG: Dict[str, Dict[str, str]] = {
 }
 
 
+def _workflow_params(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Collect a workflow builder's params from either calling style.
+
+    命令薄壳写嵌套形式 ``arguments={...}``，宿主则常把参数平铺在工具入参上。
+    两种都得接住：平铺的 ``action``/``url`` 若被丢掉，构建器会静默按默认值渲染
+    （用户要 status 却拿到接线指引），比报错更难察觉。嵌套值优先。
+    """
+    params: Dict[str, Any] = {}
+    for key in ("arguments", "variables"):
+        value = arguments.get(key)
+        if isinstance(value, dict):
+            params.update(value)
+    plumbing = {"prompt_type", "arguments", "variables", "session_id"}
+    if arguments.get("prompt_type"):
+        # prompt_type 已担当标识符时，平铺的 name 是工作流参数
+        # （remove-workspace-repo 必填 name），不是 `name` 别名。
+        plumbing.discard("name")
+    for key, value in arguments.items():
+        if key not in plumbing:
+            params.setdefault(key, value)
+    return params
+
+
+def _render_workflow_through_tool(name: str, arguments: Dict[str, Any]) -> Optional[str]:
+    """Serve an MCP workflow prompt through the tool channel.
+
+    Returns JSON, or ``None`` when ``name`` isn't a registered workflow (the
+    caller then reports the unknown-prompt error).
+    """
+    params = _workflow_params(arguments)
+    try:
+        content = render_workflow_prompt(name, params)
+    except Exception as exc:  # 渲染失败也要给出可读错误，不能让工具通道抛栈
+        logger.warning("workflow prompt %s render failed: %s", name, exc)
+        return json.dumps(
+            {"error": f"Failed to render workflow prompt: {name}", "detail": str(exc)},
+            indent=2,
+            ensure_ascii=False,
+        )
+    if content is None:
+        return None
+    return json.dumps(
+        {
+            "prompt_type": name,
+            "workflow": True,
+            "content": content,
+        },
+        indent=2,
+        ensure_ascii=False,
+    )
+
+
 def handle_get_prompt(
     arguments: Dict[str, Any],
     store: SessionStore,
 ) -> str:
     """Return a prompt template, optionally with variables filled in.
 
+    Two prompt families share this tool:
+
+    * 模板类（``_PROMPT_CATALOG``，snake_case）——代码生成各阶段的模板，
+      接受 ``variables`` 填充占位符。
+    * 工作流类（``_WORKFLOW_PROMPTS``，kebab-case，即 MCP ``prompts/list``
+      的那 23 条）——斜杠命令薄壳与 AGENTS.md 引用的正是这批，参数走
+      ``arguments``。命令薄壳写的是 ``get_prompt(name="task-workflow",
+      arguments={...})``（ADR-0017 的契约，与 MCP prompts/get 同形），而只
+      暴露工具的宿主没有 prompts/get 通道，故工具必须接得住这批名字，
+      否则薄壳指引的调用在宿主侧直接失败。
+
     When variables are provided and the filled content exceeds 4KB, the
     prompt is written to a workspace file and only the file path is
     returned through MCP stdio.
     """
-    prompt_type = arguments["prompt_type"]
+    requested = arguments.get("prompt_type") or arguments.get("name")
+    if not requested:
+        return json.dumps(
+            {
+                "error": ("Missing prompt name: pass prompt_type (template) or name (workflow)"),
+                "available_types": list(_PROMPT_CATALOG.keys()),
+                "available_workflows": workflow_prompt_names(),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+
+    # 模板类优先精确匹配：code_analysis / impact_review / architecture_review
+    # 两边同名（连字符↔下划线归一后也会撞），薄壳引用的工作流名一律带连字符。
+    if requested not in _PROMPT_CATALOG:
+        workflow = _render_workflow_through_tool(requested, arguments)
+        if workflow is not None:
+            return workflow
+        return json.dumps(
+            {
+                "error": f"Unknown prompt_type: {requested}",
+                "available_types": list(_PROMPT_CATALOG.keys()),
+                "available_workflows": workflow_prompt_names(),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+
+    prompt_type = requested
     variables = arguments.get("variables", {})
     # Bundle locators, most-direct first:
     #   repo_path   → derives the bundle dir under the active layout (also

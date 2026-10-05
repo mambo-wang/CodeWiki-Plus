@@ -102,21 +102,150 @@ def _resolve_repo_path(event: dict) -> str:
     return str(REPO)
 
 
-def _load_active_tasks(repo_path: str) -> list:
-    """Read repowiki/tasks/.index.json and return active (non-completed) tasks.
+# ---------------------------------------------------------------------------
+# 任务清单：索引优先，缺失回退扫描 task.md
+# ---------------------------------------------------------------------------
 
-    Returns [] when the index is absent/corrupt (the task layer has never been
-    initialized) — the caller then prompts the user to create a task instead.
+
+def _task_recent_ts(task_dir: Path) -> float:
+    """任务目录的最近活动时间（task.md 与 memories/ 里最新的 mtime）。
+
+    ``.index.json`` 只记 created_at；长线工作要的是「最近在推进的排前面」，否则
+    最早创建的维护类任务永远占着截断后的选项位。取不到时间返回 0.0（排到最后）。
+    """
+    newest = 0.0
+    try:
+        for p in [task_dir / "task.md", *task_dir.glob("memories/*.md")]:
+            if p.is_file():
+                newest = max(newest, p.stat().st_mtime)
+    except OSError:
+        return 0.0
+    return newest
+
+
+def _scan_active_tasks(repo_path: str) -> list:
+    """.index.json 缺席/损坏时的回退：扫 tasks/*/task.md 的 frontmatter。
+
+    任务目录是真源，索引只是 gitignored 的本机可重建缓存——刚克隆/刚换机器的仓库
+    往往没有它。不回退会让任务关联弹框列出 0 个任务，用户误以为任务层是空的。
+    stdlib 逐行扫描（与 raw 回退同一口径），只读 frontmatter 内的 status/title。
+    """
+    tasks_dir = Path(repo_path) / "repowiki" / "tasks"
+    found: list = []
+    try:
+        if not tasks_dir.is_dir():
+            return []
+        for d in sorted(p for p in tasks_dir.iterdir() if p.is_dir()):
+            md = d / "task.md"
+            if not md.is_file():
+                continue
+            try:
+                lines = md.read_text(encoding="utf-8-sig", errors="replace").splitlines()
+            except OSError:
+                continue
+            status, title = "", d.name
+            # lines[0] 是 frontmatter 的开栏 '---'，从第二行起读，遇闭栏即停
+            for line in lines[1:20]:
+                if line.startswith("status:"):
+                    status = line[len("status:") :].strip().strip("\"'")
+                elif line.startswith("title:"):
+                    title = line[len("title:") :].strip().strip("\"'") or d.name
+                elif line.strip() == "---":
+                    break
+            if status == "active":
+                found.append({"id": d.name, "title": title, "recent": _task_recent_ts(d)})
+    except OSError:
+        return []
+    return found
+
+
+def _load_active_tasks(repo_path: str) -> list:
+    """Return active tasks, most recently touched first.
+
+    ``repowiki/tasks/.index.json`` is the cheap primary source; when it is
+    absent or corrupt (typical right after a clone, since it is a gitignored
+    rebuildable cache) this falls back to scanning ``tasks/*/task.md``
+    frontmatter. Never raises — total failure yields [] and the caller then
+    offers to create a task.
     """
     idx = Path(repo_path) / "repowiki" / "tasks" / ".index.json"
-    if not idx.is_file():
-        return []
-    try:
-        data = json.loads(idx.read_text(encoding="utf-8-sig", errors="replace"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    tasks = data.get("tasks", []) if isinstance(data, dict) else []
-    return [t for t in tasks if isinstance(t, dict) and t.get("status") == "active"]
+    tasks: list = []
+    if idx.is_file():
+        try:
+            data = json.loads(idx.read_text(encoding="utf-8-sig", errors="replace"))
+            entries = data.get("tasks", []) if isinstance(data, dict) else []
+            tasks = [t for t in entries if isinstance(t, dict) and t.get("status") == "active"]
+        except (OSError, json.JSONDecodeError):
+            tasks = []
+    if not tasks:
+        tasks = _scan_active_tasks(repo_path)
+    tasks_dir = Path(repo_path) / "repowiki" / "tasks"
+
+    def recent(t: dict) -> float:
+        ts = t.get("recent")
+        if isinstance(ts, (int, float)):
+            return float(ts)
+        return _task_recent_ts(tasks_dir / str(t.get("id") or ""))
+
+    return sorted(tasks, key=recent, reverse=True)
+
+
+# ---------------------------------------------------------------------------
+# 弹框通道差异：宿主的结构化提问工具决定「一框列全」是否物理可行
+# ---------------------------------------------------------------------------
+# CodeBuddy 的 ask_followup_question 只受 schema「建议 2-4 个 options」这种软约束，
+# 注入文案历来硬性压过它、要求一框列全（多框是用户明确反对过的行为）。
+# Qoder（含 Qoder CN）的 AskUserQuestion 是硬约束：单题 2-4 个 options、最多 4 题、
+# header ≤12 字符、label 建议 1-5 词——进行中任务一多就物理放不下，硬凑会让弹框调用
+# 直接失败。故按宿主分档：截断到选项上限，其余任务写进问题正文，由该工具自带的
+# 「其他」自由输入承接（输入列表内任务名 → 关联该任务；列表外 → 新建）。
+_QODER_OPTION_CAP = 4
+_QODER_LABEL_MAX = 12  # 中文长标题截断为 label，完整标题与 task_id 放 description
+
+
+def _chooser_channel() -> dict:
+    """Return the host's structured-question channel."""
+    if IDE_DIR_NAME == ".qoder":
+        return {"tool": "AskUserQuestion", "option_cap": _QODER_OPTION_CAP}
+    return {"tool": "ask_followup_question", "option_cap": None}
+
+
+# capped 档的保留选项 label：与任务选项共用命名空间，渲染任务 label 时须避开
+_RESERVED_LABELS = ("新建任务", "跳过")
+
+
+def _capped_label(title: str, used: set) -> str:
+    """任务选项 label：先取短标题，截断撞车时逐步延长直到可区分。
+
+    长中文标题共享前 12 字是常态（task_id 多由标题生成，换用 id 反而一样撞），而
+    重复 label 会让用户在弹框里分不清选项。label 没有硬字符上限（只有 header 限
+    12 字符），所以延长付出的只是观感，比截断丢信息划算。
+    """
+    label = title[:_QODER_LABEL_MAX]
+    while label in used and len(label) < len(title):
+        label = title[: min(len(label) + 4, len(title))]
+    n = 2
+    while label in used:
+        label = f"{title}（{n}）"
+        n += 1
+    used.add(label)
+    return label
+
+
+def _option_lines(tasks: list, capped: bool) -> list:
+    """Render the option list lines for the chooser section."""
+    lines = []
+    used: set = set(_RESERVED_LABELS) if capped else set()
+    for t in tasks:
+        title = str(t.get("title") or t.get("id") or "")
+        if capped:
+            lines.append(
+                f"    - label=「{_capped_label(title, used)}」 "
+                f"description=「{title}」（task_id={t.get('id')}）"
+            )
+        else:
+            lines.append(f"    - {title}（task_id={t.get('id')}）")
+    return lines
 
 
 def _count_pending_raws(repo_path: str) -> dict:
@@ -302,11 +431,17 @@ def _build_message(event: dict, repo_path: str) -> str:
 
     IMPORTANT: the user expects an interactive chooser, NOT a text paragraph.
     The message below must instruct the agent to surface the choice through the
-    ``ask_followup_question`` tool (the IDE's structured-question UI), so the
-    user can click an option or type a task name, exactly like a native dialog.
+    host's structured-question tool (see ``_chooser_channel``), so the user can
+    click an option or type a task name, exactly like a native dialog. Hosts
+    differ in whether "list every task in one box" is physically possible —
+    Qoder's AskUserQuestion caps options at 4, so that channel truncates the
+    option list and pushes the remainder into the question body + free-text
+    "Other" input.
     """
     session_id = str(event.get("session_id") or "").strip()
     active = _load_active_tasks(repo_path)
+    channel = _chooser_channel()
+    cap = channel["option_cap"]
 
     lines = ["[task-memory] 本会话开始前，请先处理「任务关联」（跨会话任务记忆）。"]
     lines.append("")
@@ -317,41 +452,96 @@ def _build_message(event: dict, repo_path: str) -> str:
         "见下方「补蒸馏」段落，蒸馏完成后再回答）。严禁先探索代码或直接回答，事后再补弹任务关联框。"
     )
     lines.append("")
-    lines.append(
-        "【必须弹框：只弹一次，一框列全】请立即调用 ask_followup_question 工具弹出结构化选择框"
-        "（这是 IDE 的原生弹框 UI，用户可以直接点击选项），不要用纯文本输出一段话让用户自行回复。"
+    tool = str(channel["tool"])
+    bind_call = (
+        f"set_session_task(source_session_id={session_id or '<当前会话id>'}, task_id=<选中任务>)"
     )
-    lines.append("  硬约束：")
-    lines.append(
-        "  - 整个流程只允许调用 1 次 ask_followup_question，且 questions 数组里只放 1 个 question"
-        "（标题「任务关联」，multiSelect=false）。"
-    )
-    lines.append(
-        "  - 这唯一一个 question 的 options 必须一次性列全：下面每个进行中任务各占一个选项，"
-        "末尾再加「新建任务…（在输入框直接输入名称）」和「跳过（本次不做任务关联）」。"
-    )
-    lines.append(
-        "  - 严禁因为工具 schema 建议「2-4 个 options」就把任务拆进多个 question 或分多次调用弹框；"
-        "选项条数不受该建议限制，一框列全是硬性要求。"
-    )
-    lines.append(
-        "  - 问题正文里写清：列表里没有想要的任务时，可直接在弹框的输入框里输入新任务名后回车。"
-    )
-    lines.append("  该 question 的 options（按顺序）：")
-    if active:
-        for t in active:
-            lines.append(f"    - {t.get('title') or t.get('id')}（task_id={t.get('id')}）")
-    lines.append("    - 新建任务…（在输入框直接输入名称）")
-    lines.append("    - 跳过（本次不做任务关联，直接开始干活）")
-    lines.append("")
-    lines.append(
-        "【结果判定】用户返回的是上面列出的任务标题 → 调用 "
-        f"set_session_task(source_session_id={session_id or '<当前会话id>'}, task_id=<选中任务>) 建立绑定；"
-        "返回的是列表里没有的自由文本 → 先 create_task(title=<该文本>, description=<可选>) 再绑定；"
-        "返回「跳过」→ 本次不关联。"
-        "只有当用户选了「新建任务…」却没给出名字时，才允许再弹一次 ask_followup_question 要名字"
-        "（标题「新建任务」，问题「请输入新任务名称」）——这是唯一允许的第二次弹框，除此之外一律不得再弹框。"
-    )
+    if cap is None:
+        # 无限选项宿主（CodeBuddy 系）：一框列全，压过 schema 的「建议 2-4」。
+        lines.append(
+            f"【必须弹框：只弹一次，一框列全】请立即调用 {tool} 工具弹出结构化选择框"
+            "（这是 IDE 的原生弹框 UI，用户可以直接点击选项），不要用纯文本输出一段话让用户自行回复。"
+        )
+        lines.append("  硬约束：")
+        lines.append(
+            f"  - 整个流程只允许调用 1 次 {tool}，且 questions 数组里只放 1 个 question"
+            "（标题「任务关联」，multiSelect=false）。"
+        )
+        lines.append(
+            "  - 这唯一一个 question 的 options 必须一次性列全：下面每个进行中任务各占一个选项，"
+            "末尾再加「新建任务…（在输入框直接输入名称）」和「跳过（本次不做任务关联）」。"
+        )
+        lines.append(
+            "  - 严禁因为工具 schema 建议「2-4 个 options」就把任务拆进多个 question 或分多次调用弹框；"
+            "选项条数不受该建议限制，一框列全是硬性要求。"
+        )
+        lines.append(
+            "  - 问题正文里写清：列表里没有想要的任务时，可直接在弹框的输入框里输入新任务名后回车。"
+        )
+        lines.append("  该 question 的 options（按顺序）：")
+        lines.extend(_option_lines(active, capped=False))
+        lines.append("    - 新建任务…（在输入框直接输入名称）")
+        lines.append("    - 跳过（本次不做任务关联，直接开始干活）")
+        lines.append("")
+        lines.append(
+            "【结果判定】用户返回的是上面列出的任务标题 → 调用 "
+            f"{bind_call} 建立绑定；"
+            "返回的是列表里没有的自由文本 → 先 create_task(title=<该文本>, description=<可选>) 再绑定；"
+            "返回「跳过」→ 本次不关联。"
+            f"只有当用户选了「新建任务…」却没给出名字时，才允许再弹一次 {tool} 要名字"
+            "（标题「新建任务」，问题「请输入新任务名称」）——这是唯一允许的第二次弹框，除此之外一律不得再弹框。"
+        )
+    else:
+        # 硬上限宿主（Qoder 系 AskUserQuestion）：截断到上限，余量走「其他」自由输入。
+        # options 同时有**硬下限 2**：0 个进行中任务时只给「跳过」会让弹框调用直接
+        # 失败——而那恰是新仓库首个会话（最该引导建任务的一次），故有空位时补「新建任务」。
+        shown = active[: max(cap - 1, 0)]
+        rest = active[len(shown) :]
+        lines.append(
+            f"【必须弹框：只弹一次，选项 {cap} 个以内】请立即调用 {tool} 工具弹出结构化选择框"
+            "（这是 Qoder 的原生弹框 UI，用户可以直接点击选项，也可以选「其他」直接输入任务名），"
+            "不要用纯文本输出一段话让用户自行回复。"
+        )
+        lines.append("  硬约束：")
+        lines.append(
+            f"  - 整个流程只允许调用 1 次 {tool}，且 questions 数组里只放 1 个 question"
+            "（header 用「任务关联」，不超过 12 字符，multiSelect=false）。"
+        )
+        lines.append(
+            f"  - 该工具的 options 是**硬上限 {cap} 个、硬下限 2 个**（都不是建议）：本框只放"
+            "下面这几个选项 +「跳过」；严禁为列全所有任务而拆成多个 question 或分多次弹框。"
+        )
+        if rest:
+            lines.append(
+                f"  - 进行中共 {len(active)} 个任务，未进选项的 {len(rest)} 个写进 question 正文"
+                "（下面「正文任务清单」），并在正文里写明：想要列表里没有的任务时选「其他」"
+                "输入任务名即可。"
+            )
+        lines.append(
+            "  - label 要短（工具建议 1-5 词），完整标题与 task_id 放 description；"
+            "标题前缀相同导致 label 撞车时按给出的 label 原样使用，不要自行截短。"
+        )
+        lines.append("  该 question 的 options（按顺序）：")
+        lines.extend(_option_lines(shown, capped=True))
+        if len(shown) + 1 < cap:
+            lines.append(
+                "    - label=「新建任务」 description=「没有合适的进行中任务，新建一个（名称在本框直接输入）」"
+            )
+        lines.append("    - label=「跳过」 description=「本次不做任务关联，直接开始干活」")
+        if rest:
+            lines.append("  正文任务清单（未进选项，写进 question 正文供用户选「其他」输入）：")
+            lines.extend(_option_lines(rest, capped=False))
+        lines.append("")
+        lines.append(
+            "【结果判定】用户点选某个任务选项 → 取该选项 description 里的 task_id 调用 "
+            f"{bind_call} 建立绑定；"
+            "用户选「其他」输入的文本 → 命中上面任一任务标题或 task_id 就关联该任务，"
+            "否则先 create_task(title=<该文本>, description=<可选>) 再绑定；"
+            "用户点「新建任务」但没给名字 → 在回复正文里请用户给出任务名"
+            f"（本宿主不得二次弹框），拿到名字后 create_task(title=<名称>) 再 {bind_call}；"
+            "选「跳过」→ 本次不关联。除此之外一律不得再弹框。"
+        )
+
     lines.append("")
     lines.append(
         "关联完成后调用 get_task_context(task_id=<选中任务>) 拉取该任务上下文继续工作。"

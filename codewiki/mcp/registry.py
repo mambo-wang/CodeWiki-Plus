@@ -30,6 +30,7 @@ from mcp.types import TextContent, Tool
 # registry inputSchema / distill _VALID_NOTE_TYPES / promotion 路由同源。
 # 项目 schema 的自定义类型受 MCP 静态校验所限仍走包内默认表（重启生效），
 # 已知约束记录于 docs/OpenViking借鉴详细设计方案-P3四项.md §1.2。
+from codewiki.mcp.prompts import workflow_prompt_names
 from codewiki.mcp.tools.note_types import DEFAULT_NOTE_TYPES as _NOTE_TYPES
 from codewiki.mcp.tools.workspace_layout import VALID_LAYOUTS
 
@@ -422,8 +423,9 @@ _register(
     Tool(
         name="get_prompt",
         description=(
-            "Retrieve CodeWiki's prompt templates for each pipeline stage. "
-            "Available prompt types and their purposes: "
+            "Retrieve CodeWiki's prompts. Two families share this tool. "
+            "(1) TEMPLATE prompts (prompt_type, snake_case) — stage guides for "
+            "wiki generation, optionally filled with `variables`. "
             "Code analysis (standalone, no wiki): code_analysis (full analysis workflow), "
             "impact_review (interpret analyze_impact results + risk assessment), "
             "architecture_review (layer/hotspot/boundary analysis). "
@@ -440,7 +442,12 @@ _register(
             "Advanced: comparison_page (comparison template), query_page (query result template), "
             "taxonomy_plan (knowledge taxonomy planning), "
             "reflection (proactive knowledge extraction from conversations). "
-            "Optionally pass variables to fill in template placeholders. "
+            "(2) WORKFLOW prompts (kebab-case, e.g. task-workflow, ingest-note, init-wiki) — "
+            "the same 23 workflows exposed over the MCP prompts protocol; pass them as "
+            '`name` with an `arguments` object (e.g. name="task-workflow", '
+            'arguments={"repo_path": "."}). Slash-command stubs instruct exactly this '
+            "call, so hosts that only surface MCP tools can still reach the workflows. "
+            "An unknown name returns both available lists instead of failing silently. "
             "When variables produce content >4KB and a repo_path is provided, "
             "the prompt is written to a workspace file."
         ),
@@ -473,8 +480,26 @@ _register(
                         "extraction_dedup",
                         "reflection",
                         "consolidate",
+                        # 工作流名（registry 生成，与 MCP prompts/list 同源）：
+                        # 命令薄壳/AGENTS.md 指示的 get_prompt(name="task-workflow")
+                        # 走的就是这批。宿主按 enum 校验时不能把它们挡在门外。
+                        *workflow_prompt_names(),
                     ],
-                    "description": "Which prompt template to retrieve",
+                    "description": (
+                        "Which prompt to retrieve: a snake_case template type or a "
+                        "kebab-case workflow name"
+                    ),
+                },
+                "name": {
+                    "type": "string",
+                    "description": (
+                        "Alias of prompt_type, accepted because command stubs write "
+                        "get_prompt(name=..., arguments=...). Prefer it for workflow names."
+                    ),
+                },
+                "arguments": {
+                    "type": "object",
+                    "description": "Parameters for a workflow prompt (repo_path, action, …)",
                 },
                 "variables": {
                     "type": "object",
@@ -485,7 +510,7 @@ _register(
                     "description": "Optional repository path — derives <repo>/repowiki and enables writing large prompts to workspace files",
                 },
             },
-            "required": ["prompt_type"],
+            "required": [],
         },
     ),
     handler_path="codewiki.mcp.tools.prompt_server:handle_get_prompt",

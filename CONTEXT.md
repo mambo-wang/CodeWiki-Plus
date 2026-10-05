@@ -146,7 +146,7 @@ fail-open（超限警告放行不硬拒），一个 LLM 重活、draft→confirm
 _Avoid_: 把写入检查做成硬拒绝（违反 fail-open 边界）；与确认闸门混用术语。
 
 **prompt registry（提示词注册表）** — 工作流提示词的单一真源（`prompts.py` 的
-`prompts_map`，23 条）：name 固定 kebab-case，title/description/args 全走 i18n，
+`_PROMPT_REGISTRY` + `_WORKFLOW_PROMPTS`，23 条）：name 固定 kebab-case，title/description/args 全走 i18n，
 语言由 `config.json lang > $CODEWIKI_LANG > OS locale > zh` 决定。宿主命令文件
 从它编译（ADR-0017），`get_prompt` 是唯一权威出口——任何落盘副本都是快照不是真源。
 _Avoid_: 在 registry 之外另起提示词副本（双源漂移）。

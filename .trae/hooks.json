@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \".trae/hooks/task_session_start.py\"",
+            "command": "python3 \".trae/hooks/task_session_start.py\"",
             "timeout": 15
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \".trae/hooks/capture_session_end.py\"",
+            "command": "python3 \".trae/hooks/capture_session_end.py\"",
             "timeout": 30
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -m codewiki.mcp._ide_hook --enable",
+            "command": "python3 -m codewiki.mcp._ide_hook --enable",
             "timeout": 10
           }
         ]

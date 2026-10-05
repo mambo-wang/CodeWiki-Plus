@@ -139,3 +139,6 @@ repowiki/.meta/locks/
 .pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/.meta/locks/
 .pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/tasks/.index.json
 .pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/distill-jobs.json
+
+# 本机专用 qoder 覆盖配置（python3 路径），不提交
+.qoder/settings.local.json
