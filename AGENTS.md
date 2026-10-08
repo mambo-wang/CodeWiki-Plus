@@ -51,17 +51,19 @@
 
 ## Agent skills
 
-### Issue tracker
+Matt Pocock 工程技能（v1.3.1，27 个）装在共享库 `~/.agents/skills/`；标了 `disable-model-invocation` 的那些（`grill-me`、`to-spec`、`to-tickets`、`handoff`、`retro`、`implement` 等）只能 `/斜杠` 手动调用，不会自动命中。
 
-Issues live in this repo's GitHub Issues (uses the `gh` CLI). See `docs/agents/issue-tracker.md`.
+### Issue tracker（工单去向）
+
+对外来件与分诊队列走本仓库的 GitHub Issues（`gh` CLI）；会话内部拆出的实现工单落 `.scratch/<feature>/issues/`，不进公开仓库。判据与两套约定见 `docs/agents/issue-tracker.md`。
 
 ### Triage labels
 
-Five canonical roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+五个规范角色：`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix`。映射见 `docs/agents/triage-labels.md`。
 
 ### Domain docs
 
-Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+单上下文布局：根 `CONTEXT.md`（术语表事实源，`GLOSSARY.md` 是指向它的符号链接）+ `docs/adr/`。消费规则与写回口径见 `docs/agents/domain.md`。
 
 ## Team memory fusion (conversation → Wiki)
 

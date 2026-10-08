@@ -3,6 +3,10 @@
 > Domain glossary and key decisions for this repo. Created by the engineering skills setup.
 > Populate this lazily as terms get resolved — see `docs/agents/domain.md` and the
 > `/domain-modeling` skill. You don't need to fill it in upfront.
+>
+> 根目录的 `GLOSSARY.md` 是指向本文件的符号链接：工程技能（`/tdd`、`/diagnosing-bugs`、
+> `/domain-modeling` 等）按 `GLOSSARY.md` 读取时，读到的就是这里。**更新词条请写本文件**——
+> 用编辑器直接保存 `GLOSSARY.md` 可能把软链接替换成独立副本，出现两份术语表。
 
 ## Glossary
 

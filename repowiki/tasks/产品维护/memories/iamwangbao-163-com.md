@@ -103,6 +103,8 @@ get_prompt 工作流名缺口已修（选定「补实现不改契约」路线）
 
 ### 2026-10-04 20:44 #scvp
 
+> [superseded 2026-10-05 by #b0tu]
+
 第三轮 OCR 委托评审（get_prompt 工具通道那一轮改动）：13/13 文件全覆盖，4 条发现均确认并已修。最有价值的一条（Medium）：工作流分支最初只把平铺的 repo_path/workspace_path 转给构建器，其余平铺参数（action/url/name…）会被静默丢弃——要 action=status 却拿到默认接线指引，属静默错路；现提 `_workflow_params()`（prompt_server.py:364）平铺全量转发（工具 plumbing 键除外）+ 嵌套优先，且 `prompt_type` 已作标识符时把 `name` 归还构建器（remove-workspace-repo 的必填参数正好叫 name）。另外三条 Low：`arguments`/`variables` 非 dict 时在 try 外抛栈（改 isinstance 逐项合并）；新增缺名错误用了本文件唯一的中文运行时字符串（改回与 `Unknown prompt_type` 同构的英文）；新测试硬编码 `/tmp/...` 而 `_resolve_path` 走 `os.path.normpath`，Windows 必红（改用 `os.path.join(os.getcwd(), …)`，仓库已有平台安全例：tests/test_hook_registry.py:425）。真机 stdio 三路径复验全绿（嵌套/平铺/平铺 name），全量 pytest 1237 passed / 1 skipped，ruff 干净。仍未提交；热层 34/40 到压缩线。
 
 ### 2026-08-26 会话蒸馏完成（4 条 raw 对话 → 6 条 stable 笔记）
@@ -118,3 +120,11 @@ get_prompt 工作流名缺口已修（选定「补实现不改契约」路线）
 - 结果：6 条 store + 2 条 skip（与 2026-08-25 已有 stable 笔记重复）+ 2 条无知识（SessionEnd 信封、命令重复），均已清理/归档
 - 6 条确认 stable 笔记：query_wiki 全量重建索引、type-filter 单值精确匹配、analyze-repo 并行时序竞态、load-project-checklist 静默回退、changed-components 行区间近似、read-versioned-lines untracked 空列表
 - 待办：aggregation_hint 提示 consolidate_notes（58 条确认、阈值 10）与 refresh_doctrine（阈值 25）到期，已询问用户，待用户决定是否执行
+
+### 2026-10-05 21:55 #b0tu
+
+任务管理适配 Qoder CN + get_prompt 工具通道接工作流名这两轮改动已于 2026-10-05 提交到 develop（1 个 commit，31 文件，含 .codebuddy/.qoder/.trae 接线刷新与 repowiki 知识层同步），working tree 干净，**未 push**（用户只说提交）。上一轮 #scvp 的「仍未提交」作废；其评审结论保留：第三轮 OCR 委托评审 13/13 覆盖、4 条发现全修（关键 Medium=平铺工作流参数被静默丢弃，现由 `_workflow_params()` 全量转发）。验证口径：全量 pytest 1237 passed / 1 skipped、ruff check 干净、真机 stdio 三种调用形状（薄壳嵌套/宿主平铺/平铺 name）全绿。剩余待办：历史草稿笔记仍积压未裁决（consolidate_notes 阈值 10，当前 notes_since=3 未到线）。
+
+### 2026-10-05 21:59 #tse6
+
+澄清宿主配置查找位置（2026-10-05 实测，否掉了「.qoder-cn 还要再适配一轮」这个潜在工作项）：Qoder CN 读**项目级 .qoder/**（不是 .qoder-cn/），本会话 [active-settle] UserPromptSubmit 注入即来自 .qoder/settings.json 的 `python3 -m codewiki.mcp._ide_hook`；~/.qoder-cn/settings.json **无 hooks 键**、~/.qoder-cn/hooks/ 不存在。~/.qoder-cn/ 只管**用户级**：mcp.json 与 settings.json.mcpServers 里的 codewiki（python3）就是当前连上的 53 工具那条（pid 94312 父进程 Qoder CN，cmd 为 python3 -m codewiki.mcp.server，证明项目 settings.json 里那条 Windows `.venv\Scripts\python.exe` 未生效）。同一项目 .qoder/ 被 5 个同源目录（.qoder/.qoder-cli/.qoder-cn/.qoderwork/.qoderworkcn，进程名相同）共用 → install-hooks --ide qoder 装一次全版本受益，不按版本分叉。
