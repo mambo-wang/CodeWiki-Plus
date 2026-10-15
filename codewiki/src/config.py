@@ -59,6 +59,7 @@ TEAM_LAYOUT_REBUILDABLE_FILES = [
     ".meta/overview_refs.json",
     ".meta/aggregate_state.json",
     ".meta/source_registry.json",
+    ".meta/user_id",  # repo-local identity pin (see resolve_user_id); machine-local
     ".meta/task_bindings/",  # session-scoped one-shot vouchers, no repo value
     ".meta/locks/",  # centralized cross-process lock files, machine-local runtime
     "tasks/.index.json",  # self-heals from tasks/*/task.md frontmatter scan
@@ -133,20 +134,33 @@ def actor_id() -> str:
 # T2 identity (docs/团队知识库支持优化设计方案.md §4.1)
 # --------------------------------------------------------------------------- #
 
-# Per-user git identity is process-stable: resolve it once. The env override
-# (CODEWIKI_USER) is checked live on every call so pseudonyms apply immediately.
-_GIT_USER_NAME_CACHE: Optional[str] = None
-_GIT_USER_EMAIL_CACHE: Optional[str] = None
+# Per-user git identity: resolved per lookup dir and cached. The env override
+# (CODEWIKI_USER) and the repo pin are checked live on every call so a
+# pseudonym applies immediately and a re-pinned clone is picked up at once.
+# Key '' means "this process' cwd" (no ``git -C`` prefix given).
+_GIT_USER_NAME_CACHE: dict = {}
+_GIT_USER_EMAIL_CACHE: dict = {}
 
 # Filename-safe charset for the telemetry namespace: alphanumerics, dash,
 # underscore. Everything else (spaces, CJK, dots...) collapses to a dash.
 _USER_ID_UNSAFE_RE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
-def _git_config_value(key: str) -> str:
-    """``git config <key>`` value (cwd-dependent; global fallback); '' on failure."""
+def _git_config_value(key: str, lookup_dir: Optional[str] = None) -> str:
+    """``git config <key>`` value ('' on failure).
+
+    Resolution is *directory-anchored* when *lookup_dir* is given (``git -C``),
+    so the same clone yields the same identity no matter which process asks —
+    an IDE-spawned MCP server whose cwd is the editor's install dir otherwise
+    resolves a different (or empty) config chain than a login shell. Without a
+    dir we fall back to the process cwd, then the global config, as git does by
+    default.
+    """
     import subprocess
 
+    cmd = (
+        ["git", "config", key] if not lookup_dir else ["git", "-C", str(lookup_dir), "config", key]
+    )
     kwargs: dict = {
         "capture_output": True,
         "text": True,
@@ -159,7 +173,7 @@ def _git_config_value(key: str) -> str:
         # every git child allocates a flashing console window.
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
-        proc = subprocess.run(["git", "config", key], **kwargs)
+        proc = subprocess.run(cmd, **kwargs)
         if proc.returncode == 0:
             return (proc.stdout or "").strip()
     except Exception:
@@ -167,24 +181,24 @@ def _git_config_value(key: str) -> str:
     return ""
 
 
-def _git_user_name() -> str:
-    """Global ``git config user.name``; '' when unset/failing."""
-    global _GIT_USER_NAME_CACHE
-    if _GIT_USER_NAME_CACHE is None:
-        _GIT_USER_NAME_CACHE = _git_config_value("user.name")
-    return _GIT_USER_NAME_CACHE
+def _git_user_name(lookup_dir: Optional[str] = None) -> str:
+    """``git config user.name`` for *lookup_dir*; '' when unset/failing."""
+    key = str(lookup_dir or "")
+    if key not in _GIT_USER_NAME_CACHE:
+        _GIT_USER_NAME_CACHE[key] = _git_config_value("user.name", key or None)
+    return _GIT_USER_NAME_CACHE[key]
 
 
-def _git_user_email() -> str:
-    """Global ``git config user.email``; '' when unset/failing.
+def _git_user_email(lookup_dir: Optional[str] = None) -> str:
+    """``git config user.email`` for *lookup_dir*; '' when unset/failing.
 
     Preferred over user.name for namespacing: emails are effectively globally
     unique (user.name collisions across teammates are common).
     """
-    global _GIT_USER_EMAIL_CACHE
-    if _GIT_USER_EMAIL_CACHE is None:
-        _GIT_USER_EMAIL_CACHE = _git_config_value("user.email")
-    return _GIT_USER_EMAIL_CACHE
+    key = str(lookup_dir or "")
+    if key not in _GIT_USER_EMAIL_CACHE:
+        _GIT_USER_EMAIL_CACHE[key] = _git_config_value("user.email", key or None)
+    return _GIT_USER_EMAIL_CACHE[key]
 
 
 def _login_name() -> str:
@@ -229,32 +243,119 @@ def _write_user_id_cache(uid: str) -> None:
         pass
 
 
-def user_id() -> str:
-    """Stable per-user identity for telemetry / task-memory namespacing.
-    Priority: CODEWIKI_USER env (explicit override, allows pseudonyms)
-    > disk cache > git user.email > git user.name > os.getlogin.
-    Falls back to 'local'. Not an auth mechanism — namespace only.
+# Repo-local identity pin: ``<output_dir>/.meta/user_id``. Gitignored, machine-local,
+# rebuildable (same class as tasks/.index.json). It exists because every other input
+# to this resolution is a FUNCTION OF THE PROCESS ENVIRONMENT: the %APPDATA%/HOME
+# cache and ``git config`` (which needs HOME for ~/.gitconfig) are all unavailable in
+# an IDE-spawned service-state MCP server, which then falls back to os.getlogin()
+# and splits ONE person across two memory shards. The clone is the one artifact every
+# channel (MCP / CLI / hook subprocess) certainly shares — so pin the identity to it.
+_USER_ID_PIN_RELPATH = os.path.join(".meta", "user_id")
 
-    email ranks above name because it is effectively globally unique, which
-    keeps per-user files from fragmenting when two teammates share a name —
-    and from colliding when the same person contributes from several
-    machines with consistent git identity. The disk cache makes this stable
-    across process cold-starts without paying a ``git`` subprocess each time.
+
+def _user_id_pin_path(output_dir) -> Optional[str]:
+    if not output_dir:
+        return None
+    try:
+        return os.path.join(str(output_dir), _USER_ID_PIN_RELPATH)
+    except (TypeError, ValueError):
+        return None
+
+
+def _read_user_id_pin(output_dir) -> str:
+    """Pinned uid for this clone; '' when absent/unreadable.
+
+    Sanitized on read: the value becomes a filename component
+    (``memories/<uid>.md``), so a hand-edited or foreign pin must not smuggle a
+    path separator.
+    """
+    path = _user_id_pin_path(output_dir)
+    if not path:
+        return ""
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = f.read().strip()
+    except Exception:
+        return ""
+    return _sanitize_user_id(raw) if raw else ""
+
+
+def _write_user_id_pin(output_dir, uid: str) -> None:
+    """Best-effort pin; failure is non-fatal (identity still resolves this call)."""
+    path = _user_id_pin_path(output_dir)
+    if not path:
+        return
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(uid)
+    except Exception:
+        pass
+
+
+def resolve_user_id(output_dir=None) -> tuple:
+    """Return ``(uid, source)`` — the identity and which rung produced it.
+
+    Priority: ``CODEWIKI_USER`` env (explicit pseudonym) > repo-local pin >
+    ``git -C <output_dir> config user.email`` > the same ``user.name`` >
+    machine cache (``%APPDATA%\\.codewiki_user_id``) > ``os.getlogin()`` > 'local'.
+    ``source`` is one of ``env|pin|git-email|git-name|cache|login|local`` and is
+    surfaced in tool responses so identity drift becomes visible instead of
+    silently depositing extra shards.
+
+    git ranks *above* the cache on purpose: the cache is a memoization of a past
+    derivation, and a past derivation can be a degraded channel's login-name
+    fallback. Trusting it over a readable git config would re-pin the clone on the
+    wrong identity forever. The cache stays as the fallback for channels that
+    cannot run git at all.
+
+    Not an auth mechanism — a namespace. Only a git-verified resolution writes the
+    pin, so the clone converges on the person identity and later channels inherit it
+    even with a stripped environment. To change identity in a clone, delete
+    ``<output_dir>/.meta/user_id``.
     """
     env = os.getenv("CODEWIKI_USER", "").strip()
     if env:
-        return _sanitize_user_id(env)
-    cached = _read_user_id_cache()
-    if cached:
-        return cached
-    raw = _git_user_email() or _git_user_name()
-    if not raw:
-        raw = _login_name()
-    if not raw:
-        return "local"
-    uid = _sanitize_user_id(raw)
-    _write_user_id_cache(uid)
-    return uid
+        return _sanitize_user_id(env), "env"
+    pinned = _read_user_id_pin(output_dir)
+    if pinned:
+        return pinned, "pin"
+
+    lookup_dir = str(output_dir) if output_dir else None
+    email = _git_user_email(lookup_dir)
+    if email:
+        uid, source = _sanitize_user_id(email), "git-email"
+    else:
+        name = _git_user_name(lookup_dir)
+        if name:
+            uid, source = _sanitize_user_id(name), "git-name"
+        else:
+            # No git in this process (no HOME, no binary, non-repo dir): fall back
+            # to whatever a previous healthy channel memoized, then the account.
+            cached = _read_user_id_cache()
+            if cached:
+                uid, source = cached, "cache"
+            else:
+                login = _login_name()
+                uid, source = (_sanitize_user_id(login), "login") if login else ("local", "local")
+
+    # Only a git-verified identity is persisted. Everything below it on the chain is
+    # a guess about the machine, not the person, and freezing a guess is how one
+    # developer ends up with two memory shards.
+    if source in ("git-email", "git-name"):
+        _write_user_id_cache(uid)
+        _write_user_id_pin(output_dir, uid)
+    return uid, source
+
+
+def user_id(output_dir=None) -> str:
+    """Stable per-user identity for telemetry / task-memory namespacing.
+
+    Thin wrapper over resolve_user_id() when the caller only needs the id; pass
+    ``output_dir`` (the repowiki dir) so the repo-local pin applies. See
+    resolve_user_id() for the full priority chain.
+    """
+    return resolve_user_id(output_dir)[0]
 
 
 def meta_join(base_dir, filename):

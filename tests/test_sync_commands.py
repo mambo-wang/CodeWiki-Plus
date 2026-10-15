@@ -113,6 +113,32 @@ def test_stub_points_to_get_prompt():
 
 
 # ---------------------------------------------------------------------------
+# 开关参数映射指引：用户意愿须结构化进 arguments（2026-09-29 事故修复）
+# ---------------------------------------------------------------------------
+
+
+def test_stub_switch_block_lists_enable_task_management():
+    # init-wiki 含 enable_task_management/capture 开关 → 薄壳必须给出映射指引
+    content = _render_stub("init-wiki", "初始化单仓Wiki工作区", "零配置初始化指引。")
+    assert "enable_task_management" in content
+    assert '传 "false"' in content
+    assert "不要丢弃" in content
+
+
+def test_stub_switch_block_lists_capture_and_clone():
+    content = _render_stub("init-workspace", "初始化多仓WIKI工作区", "初始化指引。")
+    assert "capture" in content
+    content = _render_stub("add-workspace-repo", "登记业务仓到多仓工作区", "登记指引。")
+    assert "clone" in content
+
+
+def test_stub_no_switch_block_for_plain_prompts():
+    # 无开关参数的 prompt 不渲染映射指引段
+    content = _render_stub("search-wiki", "搜索 Wiki 知识库", "搜索指引。")
+    assert "可选开关参数" not in content
+
+
+# ---------------------------------------------------------------------------
 # 宿主判定（ADR-0017 决策 3）
 # ---------------------------------------------------------------------------
 

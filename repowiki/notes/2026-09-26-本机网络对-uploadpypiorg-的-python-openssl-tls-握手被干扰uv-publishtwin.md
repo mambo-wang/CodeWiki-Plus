@@ -25,6 +25,8 @@ origin: conversation
 verified:
 - by: human:wangbao
   at: '2026-09-26T13:58:03Z'
+source_conversations: ['conversations/conv-working_memory_content-The-following-is-the-existing-working-3-16f142.md']
+
 ---
 
 ## 现象
@@ -46,3 +48,15 @@ verified:
 ## 结论
 
 Python 生态上传工具（uv/twine）在 TLS 被干扰的网络里不可用，curl.exe（schannel 栈）直传 legacy API 是可靠绕法；注意 legacy API 的字段名差异与上传后核对。
+
+## curl.exe 直传 PyPI legacy API 的三个硬前提：form-string 需 7.84+、字段名用下划线、必带 :action=file_upload
+
+> 合并自蒸馏候选：curl.exe 直传 PyPI legacy API 的三个硬前提：form-string 需 7.84+、字段名用下划线、必带 :action=file_upload
+
+## 补充：curl 直传 legacy API 的三个硬前提（2026-09-28 v5.14.1 发布实测，修正上文绕法第 2 步）
+
+1. **curl 7.55.1（系统自带）不支持 -K 配置文件的 form-string/form-file 长选项**（curl 7.84+ 才支持）：配置项被静默忽略，发出空 POST，PyPI 报 405 Method Not Allowed。若只能用旧系统 curl，须改用 Python 手工构造完整 multipart/form-data body（含 boundary、全部元数据字段、文件内容）写入 .bin 文件，再用 curl.exe --data-binary @body.bin 并手工设置 Content-Type: multipart/form-data; boundary=... 头发送；或完整路径调用 Git for Windows 自带的 curl 8.11.0 走 -K 配置文件。
+2. **PyPI legacy file_upload 表单字段名必须用下划线**：metadata_version 而非 metadata-version（METADATA/PKG-INFO 头用连字符，表单字段须转下划线），否则报 "None is not a valid metadata version"（400）。
+3. **必须字段 :action=file_upload**：缺失时 PyPI 返回 405 Method Not Allowed。
+
+Rationale：上文推荐的 `-K 配置文件` 路线在本机默认 curl.exe（PATH 解析到 System32 7.55.1）下会静默失效，本次发布为此多轮 405/400 排查才定位；三个硬前提是 curl 直传路线能否跑通的判定依据，须并入。

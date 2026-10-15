@@ -115,7 +115,7 @@ def _user_events_path(output_dir, create: bool = False) -> Path:
     try:
         from codewiki.src.config import user_id
 
-        uid = user_id()
+        uid = user_id(output_dir)
     except Exception:
         uid = "local"
     return d / f"{uid}.jsonl"

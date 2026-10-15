@@ -84,18 +84,18 @@ prompts:
 
   init-wiki:
     title: "初始化单仓Wiki工作区"
-    description: "零配置初始化：创建目录结构、拷贝带注释的 schema.yaml 模板、写入 AGENTS.md（含使用建议和自我反思协议）。在开始任何 Wiki 生成或知识管理之前执行一次。"
+    description: "零配置初始化：创建目录结构、拷贝带注释的 schema.yaml 模板、写入 AGENTS.md（含使用建议和自我反思协议），并默认启用任务管理接线（SessionStart/SessionEnd Hook + AGENTS.md 任务引导段）与编译宿主命令文件——初始化一次性把必要配置做好。在开始任何 Wiki 生成或知识管理之前执行一次。"
     args:
       repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
-      enable_task_management: "是否启用任务管理（跨会话任务记忆）：默认启用——无参/任意值在初始化指引中追加任务管理接线步骤（注册 SessionEnd 采集 Hook + 向 AGENTS.md 写入任务引导段，新建会话时提示用户关联/新建任务）；仅显式 false/0/no/off 跳过。"
+      enable_task_management: "是否启用任务管理（跨会话任务记忆）：默认启用——无参/任意值在初始化指引中追加任务管理接线步骤（注册 SessionEnd 采集 Hook + 向 AGENTS.md 写入任务引导段，新建会话时提示用户关联/新建任务）；仅显式 false/0/no/off 跳过。用户调用命令时明确表达不启用意愿的，Agent 应传 false。"
       capture: "采集开关：off 移除 SessionEnd 采集注册，主动沉淀成为唯一记忆写入通道；默认 on"
 
   init-workspace:
     title: "初始化多仓WIKI工作区"
-    description: "把当前工作目录初始化（或重新同步）为多仓工作区：生成 bootstrap 克隆脚本、.gitignore、repo-map 导航骨架、AGENTS.md 工作区约定与产品级 repowiki。首次初始化必须先询问用户知识布局（colocated/centralized）再带 layout 调用，布局记录写入 repowiki/.meta/workspace.json；重跑零配置幂等——痕迹齐备时为 clone-only 接管（只补缺业务仓克隆，不触碰骨架与 AGENTS.md），骨架有缺失才补齐产物并强制刷新约定块。业务仓登记走 add_workspace_repo。"
+    description: "把当前工作目录初始化（或重新同步）为多仓工作区：生成 bootstrap 克隆脚本、.gitignore、repo-map 导航骨架、AGENTS.md 工作区约定与产品级 repowiki，并默认启用任务管理接线（接线目标恒为工作区根）与编译宿主命令文件——初始化一次性把必要配置做好。首次初始化必须先询问用户知识布局（colocated/centralized）再带 layout 调用，布局记录写入 repowiki/.meta/workspace.json；重跑零配置幂等——痕迹齐备时为 clone-only 接管（只补缺业务仓克隆，不触碰骨架与 AGENTS.md），骨架有缺失才补齐产物并强制刷新约定块。业务仓登记走 add_workspace_repo。"
     args:
       workspace_path: "工作区根目录（默认当前工作目录）"
-      enable_task_management: "是否启用任务管理（跨会话任务记忆）：默认启用——接线目标恒为工作区根（harness 仓），业务仓不接线；仅显式 false/0/no/off 跳过。"
+      enable_task_management: "是否启用任务管理（跨会话任务记忆）：默认启用——接线目标恒为工作区根（harness 仓），业务仓不接线；仅显式 false/0/no/off 跳过。用户调用命令时明确表达不启用意愿的，Agent 应传 false。"
       capture: "采集开关：off 移除 SessionEnd 采集注册，主动沉淀成为唯一记忆写入通道；默认 on"
 
   add-workspace-repo:

@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 906" font-family="system-ui,'PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif">
+  <defs>
+    <style>
+      .t{font-size:34px;font-weight:800;fill:#1F2733}
+      .st{font-size:21px;fill:#5A6472}
+      .h1{font-size:24px;font-weight:800;fill:#1F2733}
+      .bd{font-size:21px;fill:#1F2733}
+      .mu{font-size:21px;fill:#5A6472}
+      .num{font-size:21px;font-weight:800;fill:#FFFFFF}
+      .card{fill:#FFFFFF;stroke:#D6DBE3;stroke-width:1.6}
+    </style>
+  </defs>
+
+  <rect width="640" height="906" fill="#F7F8FA"/>
+  <text x="30" y="48" class="t">图 D · 从报告到代码的闭环</text>
+  <text x="30" y="80" class="st">报告给的是候选清单，不是待办</text>
+
+  <line x1="42" y1="116" x2="42" y2="830" stroke="#C7CEDA" stroke-width="3"/>
+
+  <g>
+    <rect x="76" y="104" width="534" height="112" rx="12" class="card"/>
+    <circle cx="42" cy="140" r="16" fill="#2F6FED"/><text x="42" y="147" text-anchor="middle" class="num">1</text>
+    <text x="100" y="140" class="h1">跑一次完整审查</text>
+    <text x="100" y="172" class="bd">normal 深度 · 30 天窗口 · 首轮 5 条</text>
+    <text x="100" y="200" class="mu">修正取证范围后复跑 → 8 条发现</text>
+  </g>
+
+  <g>
+    <rect x="76" y="230" width="534" height="112" rx="12" class="card"/>
+    <circle cx="42" cy="266" r="16" fill="#2F6FED"/><text x="42" y="273" text-anchor="middle" class="num">2</text>
+    <text x="100" y="266" class="h1">逐条回代码拷问</text>
+    <text x="100" y="298" class="bd">1 条是声明在案的设计契约</text>
+    <text x="100" y="326" class="mu">1 条归因被自己推翻</text>
+  </g>
+
+  <g>
+    <rect x="76" y="356" width="534" height="112" rx="12" class="card"/>
+    <circle cx="42" cy="392" r="16" fill="#2F6FED"/><text x="42" y="399" text-anchor="middle" class="num">3</text>
+    <text x="100" y="392" class="h1">分批请示，不照抄</text>
+    <text x="100" y="424" class="bd">批准 5 项 · 明示不做 1 项</text>
+    <text x="100" y="452" class="mu">动测试本体的那项单独待批</text>
+  </g>
+
+  <g>
+    <rect x="76" y="482" width="534" height="112" rx="12" class="card"/>
+    <circle cx="42" cy="518" r="16" fill="#2F6FED"/><text x="42" y="525" text-anchor="middle" class="num">4</text>
+    <text x="100" y="518" class="h1">落地被批准的改动</text>
+    <text x="100" y="550" class="bd">AGENTS.md 补验证入口</text>
+    <text x="100" y="578" class="mu">CI 接 MCP 契约套件 · 删冗余依赖</text>
+  </g>
+
+  <g>
+    <rect x="76" y="608" width="534" height="112" rx="12" fill="#FDECE8" stroke="#E4572E" stroke-width="2.4"/>
+    <circle cx="42" cy="644" r="16" fill="#E4572E"/><text x="42" y="651" text-anchor="middle" class="num">5</text>
+    <text x="100" y="644" class="h1" fill="#A8341A">前提被自己证伪</text>
+    <text x="100" y="676" class="bd">「套件全绿」是 tail 吞了退出码</text>
+    <text x="100" y="704" class="bd">重跑实测：120 通过 · 6 失败</text>
+  </g>
+
+  <g>
+    <rect x="76" y="734" width="534" height="112" rx="12" class="card" stroke="#7B61FF" stroke-width="2.4"/>
+    <circle cx="42" cy="770" r="16" fill="#7B61FF"/><text x="42" y="777" text-anchor="middle" class="num">6</text>
+    <text x="100" y="770" class="h1" fill="#7B61FF">换一台仪器复审</text>
+    <text x="100" y="802" class="bd">不擅自改测试，CI 降级为非阻塞</text>
+    <text x="100" y="830" class="mu">再用 OCR 审自己的 diff</text>
+  </g>
+
+  <text x="30" y="882" class="st">5 → 6 是关键：修东西时最容易放松取证标准</text>
+</svg>

@@ -50,20 +50,146 @@ class TestUserId:
         monkeypatch.setenv("CODEWIKI_USER", "pseudonym-x")
         assert user_id() == "pseudonym-x"
 
-    def test_git_config_fallback(self, monkeypatch):
-        from codewiki.src import config as cfg_module
+    def test_env_override_beats_repo_pin(self, monkeypatch, tmp_path):
         from codewiki.src.config import user_id
 
-        monkeypatch.delenv("CODEWIKI_USER", raising=False)
-        # Make deterministic: CI has no git config, so mock it. Clear caches.
-        monkeypatch.setattr(cfg_module, "_GIT_USER_EMAIL_CACHE", None)
-        monkeypatch.setattr(cfg_module, "_GIT_USER_NAME_CACHE", None)
-        monkeypatch.setattr(cfg_module, "_git_user_email", lambda: "ci@example.com")
-        monkeypatch.setattr(cfg_module, "_git_user_name", lambda: "ci")
-        uid = user_id()
-        assert uid and uid != "local"
+        _write_pin(tmp_path, "pinned-user")
+        monkeypatch.setenv("CODEWIKI_USER", "pseudonym-x")
+        assert user_id(tmp_path) == "pseudonym-x"
+
+    def test_git_config_fallback(self, monkeypatch, tmp_path):
+        from codewiki.src import config as cfg_module
+        from codewiki.src.config import resolve_user_id
+
+        _degrade_to_git(monkeypatch, cfg_module, email="ci@example.com")
+        uid, source = resolve_user_id(tmp_path)
+        assert uid == "ci-example-com"
+        assert source == "git-email"
         # filename-safe: only [A-Za-z0-9_-]
         assert all(c.isalnum() or c in "-_" for c in uid)
+
+
+class TestRepoIdentityPin:
+    """B: the repo-local pin is what keeps one person in one shard across channels."""
+
+    def test_pin_outranks_machine_cache_and_git(self, monkeypatch, tmp_path):
+        from codewiki.src import config as cfg_module
+        from codewiki.src.config import resolve_user_id
+
+        _write_pin(tmp_path, "pinned-user")
+        _degrade_to_git(monkeypatch, cfg_module, email="other@example.com", cache="cache-user")
+        assert resolve_user_id(tmp_path) == ("pinned-user", "pin")
+
+    def test_first_derivation_pins_the_clone(self, monkeypatch, tmp_path):
+        from codewiki.src import config as cfg_module
+        from codewiki.src.config import resolve_user_id
+
+        _degrade_to_git(monkeypatch, cfg_module, email="ci@example.com")
+        assert resolve_user_id(tmp_path) == ("ci-example-com", "git-email")
+        assert _read_pin(tmp_path) == "ci-example-com"
+
+    def test_degraded_channel_inherits_pinned_identity(self, monkeypatch, tmp_path):
+        """The drift regression: a service-state MCP server has neither the
+        machine cache nor a readable git config, and used to fall through to
+        os.getlogin() — splitting one person over memories/<email>.md and
+        memories/Administrator.md."""
+        from codewiki.src import config as cfg_module
+        from codewiki.src.config import resolve_user_id, user_id
+
+        # Channel 1: a normal login shell derives the identity and pins it.
+        _degrade_to_git(monkeypatch, cfg_module, email="ci@example.com")
+        assert user_id(tmp_path) == "ci-example-com"
+
+        # Channel 2: same clone, environment stripped of every input but the clone.
+        _degrade_to_git(monkeypatch, cfg_module, email="", login="Administrator")
+        uid, source = resolve_user_id(tmp_path)
+        assert (uid, source) == ("ci-example-com", "pin")
+
+    def test_pin_without_output_dir_still_resolves(self, monkeypatch):
+        from codewiki.src import config as cfg_module
+        from codewiki.src.config import resolve_user_id
+
+        _degrade_to_git(monkeypatch, cfg_module, email="ci@example.com")
+        uid, source = resolve_user_id(None)
+        assert source == "git-email"
+        assert uid == "ci-example-com"
+
+    def test_hostile_pin_is_sanitized(self, monkeypatch, tmp_path):
+        """The uid becomes a filename component; a foreign pin must not smuggle a path."""
+        from codewiki.src import config as cfg_module
+        from codewiki.src.config import resolve_user_id
+
+        _write_pin(tmp_path, "../../escape")
+        _degrade_to_git(monkeypatch, cfg_module, email="ci@example.com")
+        uid, source = resolve_user_id(tmp_path)
+        assert source == "pin"
+        assert "/" not in uid and "\\" not in uid and ".." not in uid
+
+    def test_readable_git_beats_a_poisoned_cache(self, monkeypatch, tmp_path):
+        """The cache only memoizes some past derivation — which may have been a
+        degraded channel's login-name fallback. A readable git config outranks it,
+        otherwise the wrong identity gets re-pinned onto the clone forever."""
+        from codewiki.src import config as cfg_module
+        from codewiki.src.config import resolve_user_id
+
+        _degrade_to_git(monkeypatch, cfg_module, cache="Administrator", email="ci@example.com")
+        assert resolve_user_id(tmp_path) == ("ci-example-com", "git-email")
+        assert _read_pin(tmp_path) == "ci-example-com"
+
+    def test_cache_without_git_is_used_but_never_pinned(self, monkeypatch, tmp_path):
+        """A channel that cannot run git has nothing to verify against: use the
+        memoized id for this call, but do not promote it to the clone's identity."""
+        from codewiki.src import config as cfg_module
+        from codewiki.src.config import resolve_user_id
+
+        _degrade_to_git(monkeypatch, cfg_module, cache="cached-user")
+        assert resolve_user_id(tmp_path) == ("cached-user", "cache")
+        assert _read_pin(tmp_path) == ""
+
+    def test_login_derived_identity_is_never_pinned(self, monkeypatch, tmp_path):
+        """A stripped environment must not freeze its machine account for the clone."""
+        from codewiki.src import config as cfg_module
+        from codewiki.src.config import resolve_user_id
+
+        _degrade_to_git(monkeypatch, cfg_module, login="Administrator")
+        assert resolve_user_id(tmp_path) == ("Administrator", "login")
+        assert _read_pin(tmp_path) == ""
+
+        # The next healthy channel pins the person identity instead.
+        _degrade_to_git(monkeypatch, cfg_module, email="ci@example.com")
+        assert resolve_user_id(tmp_path) == ("ci-example-com", "git-email")
+        assert _read_pin(tmp_path) == "ci-example-com"
+
+    def test_pin_is_gitignored_and_rebuildable(self):
+        from codewiki.src.config import TEAM_LAYOUT_REBUILDABLE_FILES
+
+        assert ".meta/user_id" in TEAM_LAYOUT_REBUILDABLE_FILES
+
+
+def _write_pin(output_dir: Path, uid: str) -> None:
+    (output_dir / ".meta").mkdir(parents=True, exist_ok=True)
+    (output_dir / ".meta" / "user_id").write_text(uid, encoding="utf-8")
+
+
+def _read_pin(output_dir: Path) -> str:
+    path = output_dir / ".meta" / "user_id"
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def _degrade_to_git(monkeypatch, cfg_module, email="", name="", cache="", login="") -> None:
+    """Strip every identity input except the ones the test supplies.
+
+    The machine cache, the git lookups and the login name are all process-
+    environment artifacts; tests must not depend on the real machine's values.
+    """
+    monkeypatch.delenv("CODEWIKI_USER", raising=False)
+    monkeypatch.setattr(cfg_module, "_GIT_USER_EMAIL_CACHE", {})
+    monkeypatch.setattr(cfg_module, "_GIT_USER_NAME_CACHE", {})
+    monkeypatch.setattr(cfg_module, "_read_user_id_cache", lambda: cache)
+    monkeypatch.setattr(cfg_module, "_write_user_id_cache", lambda uid: None)
+    monkeypatch.setattr(cfg_module, "_git_user_email", lambda lookup_dir=None: email)
+    monkeypatch.setattr(cfg_module, "_git_user_name", lambda lookup_dir=None: name)
+    monkeypatch.setattr(cfg_module, "_login_name", lambda: login)
 
 
 class TestRecordHit:

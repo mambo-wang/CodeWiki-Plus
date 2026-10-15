@@ -152,6 +152,12 @@ def test_init_wiki_task_management_default_on():
     assert "## 步骤 2: 启用任务管理" in text
     assert "档位自动判定" in text
     assert "install-hooks" in text
+    # 用户意愿闸门：渲染正文必须提示 Agent 尊重用户已表达的不启用意愿
+    assert "用户意愿闸门" in text
+    assert "跳过本步骤" in text
+    # sync-commands 升级为必做：不再有「跳过也无妨」
+    assert "跳过也无妨" not in text
+    assert "只有 codebuddy" in text
 
 
 def test_init_wiki_task_management_explicit_off():

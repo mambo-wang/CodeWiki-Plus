@@ -1,12 +1,31 @@
-# Ontology — project-level term normalization AND relationship graph for reasoning
+# Ontology — 项目级术语归一化，用于检索时的同义词扩展
 #
-# 本文件已从「别名表」升级为真正的本体声明。升级依据：
-# 《本体实践》系列第 7 篇《我为什么要用本体做文档知识库管理》
-# （见 docs/本体知识库文章-对CodeWiki-CN的借鉴分析.md）
+# 作用：当用户/Agent 搜索某个别名时，检索引擎自动把查询扩展到同组所有同义词，
+# 缓解「同一个概念不同叫法」导致的召回损失。仅对全文检索（query_wiki）生效。
 #
-# 三层机制：管结构(types) / 管推理(relations) / 管生长(todo 占位节点)。
-# 文档行为↔本体映射：建文件夹=定义类型 / 写文档=创建实例 / 引用=声明关系 / 汇总=视图。
+# ── 怎么填 ──────────────────────────────────────────────────────────────
+# 在 terms: 下，每个规范词（canonical term）作为键，其下挂一个 aliases 列表，
+# 列出该项目里对同一个概念的所有别称。aliases 可为空列表。
 #
-# 详情与示例见运行时生成的 repowiki/ontology.yaml（此处仅提供空骨架模板）。
+# 填写示例（删掉本示例或按需修改，保留下方 terms: {} 即可开箱即用）：
+#
+#   terms:
+#     搜索索引:
+#       aliases: [BM25缓存, 倒排索引, retrieval cache, inverted index]
+#     认证:
+#       aliases: [auth, 鉴权, 权限校验, permission check]
+#     配置中心:
+#       aliases: []
+#     Higress:
+#       aliases: [higress, 网关]
+#
+# 说明：
+#   - 规范词本身也会被加入扩展组，无需在 aliases 里重复写规范词。
+#   - 匹配不区分大小写（检索时统一转小写比对）。
+#   - 留空 terms: {} 表示不做同义词扩展，检索照常工作。
+#
+# 进阶：本文件定位为「本体声明」的起点，后续可扩展 types（类型）/ relations
+#（关系）等结构以支撑更复杂的推理。当前运行时仅消费 terms.<canonical>.aliases。
+# 设计依据见《本体实践》系列文章。
 
 terms: {}

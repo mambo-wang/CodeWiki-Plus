@@ -94,11 +94,11 @@ def handle_report_outcome(arguments: Dict[str, Any], store: SessionStore) -> str
         if source_session_id:
             from codewiki.src.config import user_id
 
-            keys = {f"{user_id()}/{source_session_id}"}
+            keys = {f"{user_id(output_dir)}/{source_session_id}"}
         elif task_id:
             from codewiki.src.config import user_id
 
-            uid = user_id()
+            uid = user_id(output_dir)
             keys = {f"{uid}/{sid}" for sid in ks.session_ids_for_task(task_id)}
         adopted_key = telemetry.last_adopted_key_for_doc(output_dir, doc, keys)
 

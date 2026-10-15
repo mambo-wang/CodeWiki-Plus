@@ -78,18 +78,18 @@ prompts:
 
   init-wiki:
     title: "Initialize single-repo Wiki workspace"
-    description: "Zero-config initialization: create the directory layout, copy the annotated schema.yaml template, and write AGENTS.md (usage advice + self-reflection protocol). Run once before any Wiki generation or knowledge management."
+    description: "Zero-config initialization: create the directory layout, copy the annotated schema.yaml template, write AGENTS.md (usage advice + self-reflection protocol), and by default wire task management (SessionStart/SessionEnd hooks + AGENTS.md task guidance block) and compile host command stubs — initialization sets up all necessary config in one pass. Run once before any Wiki generation or knowledge management."
     args:
       repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
-      enable_task_management: "Enable cross-session task memory: enabled by default — no value or any value appends the task-management wiring steps (register the SessionEnd capture hook + write the task guidance block into AGENTS.md so new sessions prompt the user to bind or create a task); only an explicit false/0/no/off skips it."
+      enable_task_management: "Enable cross-session task memory: enabled by default — no value or any value appends the task-management wiring steps (register the SessionEnd capture hook + write the task guidance block into AGENTS.md so new sessions prompt the user to bind or create a task); only an explicit false/0/no/off skips it. When the user explicitly declines task management while invoking the command, the agent should pass false."
       capture: "Capture switch: off removes the SessionEnd capture registration, making active settle the only memory channel; default on"
 
   init-workspace:
     title: "Initialize multi-repo Wiki workspace"
-    description: "Initialize (or re-sync) the current working directory as a multi-repo workspace: bootstrap clone scripts, .gitignore, repo-map navigation skeleton, AGENTS.md workspace conventions and the product-level repowiki. First-time initialization must ask the user for the knowledge layout (colocated/centralized) before calling with layout; the layout is recorded in repowiki/.meta/workspace.json. Re-runs are zero-config and idempotent — when the skeleton is intact it takes over as clone-only (cloning missing business repos without touching the skeleton or AGENTS.md); missing skeleton parts are regenerated and convention blocks force-refreshed. Business repos are registered via add_workspace_repo."
+    description: "Initialize (or re-sync) the current working directory as a multi-repo workspace: bootstrap clone scripts, .gitignore, repo-map navigation skeleton, AGENTS.md workspace conventions and the product-level repowiki, and by default wire task management (wiring target is always the workspace root) and compile host command stubs — initialization sets up all necessary config in one pass. First-time initialization must ask the user for the knowledge layout (colocated/centralized) before calling with layout; the layout is recorded in repowiki/.meta/workspace.json. Re-runs are zero-config and idempotent — when the skeleton is intact it takes over as clone-only (cloning missing business repos without touching the skeleton or AGENTS.md); missing skeleton parts are regenerated and convention blocks force-refreshed. Business repos are registered via add_workspace_repo."
     args:
       workspace_path: "Workspace root directory (defaults to the current working directory)"
-      enable_task_management: "Enable cross-session task memory: enabled by default — the wiring target is always the workspace root (harness repo), never business repos; only an explicit false/0/no/off skips it."
+      enable_task_management: "Enable cross-session task memory: enabled by default — the wiring target is always the workspace root (harness repo), never business repos; only an explicit false/0/no/off skips it. When the user explicitly declines task management while invoking the command, the agent should pass false."
       capture: "Capture switch: off removes the SessionEnd capture registration, making active settle the only memory channel; default on"
 
   add-workspace-repo:

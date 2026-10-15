@@ -2,8 +2,9 @@
 
 Design: docs/任务记忆检索与自动压缩设计.md — entry-level BM25 recall over
 one task's memories (in-memory, always fresh, never coupled to the wiki
-corpus), and get_task_context carrying prepared compaction work inline
-(no user gate; ADR-0002 extension).
+corpus), and get_task_context dispatching compaction to an async worker
+subagent via a payload-free compaction_action directive (no user gate;
+ADR-0002 extension).
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ def _append(output_dir, task_id, contents, user=None, **kw):
     if user is None:
         from codewiki.src.config import user_id
 
-        user = user_id()
+        user = user_id(output_dir)
     return ks.append_memories(task_id, contents, user=user, **kw)
 
 
@@ -316,26 +317,37 @@ def test_always_fresh_after_append(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Auto-compaction driver (compaction_work in get_task_context)
+# Auto-compaction driver (compaction_action in get_task_context)
 # --------------------------------------------------------------------------- #
 
 
-def test_get_task_context_carries_compaction_work(tmp_path):
+def test_get_task_context_carries_compaction_action(tmp_path):
     task_id = _mk_task(tmp_path)
     od = tmp_path / "repowiki"
     _append(od, task_id, [f"条目 {i}：推进事项。" for i in range(45)])
 
     ctx = _call(tm.handle_get_task_context, repo_path=str(tmp_path), task_id=task_id)
     assert ctx["compaction_due"] is True
-    work = ctx["compaction_work"]
-    assert work is not None
-    assert len(work["entries_to_compress"]) == 25  # 45 - keep 20
-    assert work["keep_recent"] == 20
-    assert work["summary_max_chars"] == 4096
-    assert work["instruction"]
-    assert "compact_task_memories(mode='submit'" in work["submit"]
+    action = ctx["compaction_action"]
+    assert action["task_id"] == task_id
+    assert action["keep_recent"] == 20
+    assert action["summary_max_chars"] == 4096
+    # 派发指令，不是载荷：待压条目正文不得进主 Agent 上下文（压缩要省的字节
+    # 不该先被注入一遍，且大段正文正是诱发「是否压缩」确认框的原因）。
+    assert "entries_to_compress" not in action
+    assert "条目 0：" not in json.dumps(ctx, ensure_ascii=False)
+    assert "Task 工具" in action["dispatch"] and "异步" in action["dispatch"]
+    assert 'mode="prepare"' in action["dispatch"] and 'mode="submit"' in action["dispatch"]
+    assert task_id in action["dispatch"]
+    # 子代理是全新上下文、没有会话，repo_path 必须写进配方，否则 prepare/submit
+    # 一律撞上 "repo_path is required"，免确认压缩的主路径根本跑不通。
+    assert action["repo_path"] == str(tmp_path)
+    assert 'repo_path="' in action["dispatch"]
+    assert 'mode="prepare", repo_path=' in action["dispatch"]
+    assert 'mode="submit", repo_path=' in action["dispatch"]
+    assert "无需向用户确认" in action["gate"]
 
-    # After a submit, the work is done and the payload disappears.
+    # After a submit, the work is done and the directive disappears.
     _call(
         tm.handle_compact_task_memories,
         repo_path=str(tmp_path),
@@ -345,12 +357,12 @@ def test_get_task_context_carries_compaction_work(tmp_path):
     )
     ctx = _call(tm.handle_get_task_context, repo_path=str(tmp_path), task_id=task_id)
     assert ctx["compaction_due"] is False
-    assert "compaction_work" not in ctx
+    assert "compaction_action" not in ctx
 
 
-def test_get_task_context_no_compaction_work_when_not_due(tmp_path):
+def test_get_task_context_no_compaction_action_when_not_due(tmp_path):
     task_id = _mk_task(tmp_path)
     _append(tmp_path / "repowiki", task_id, ["一两条条目而已。"])
     ctx = _call(tm.handle_get_task_context, repo_path=str(tmp_path), task_id=task_id)
     assert ctx["compaction_due"] is False
-    assert "compaction_work" not in ctx
+    assert "compaction_action" not in ctx

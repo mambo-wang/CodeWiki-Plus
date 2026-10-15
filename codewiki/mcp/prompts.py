@@ -57,7 +57,7 @@ _TASK_MEMORY_AGENTS_SECTION = f"""{_TASK_MEMORY_AGENTS_START}
 
 跨会话延续长线工作上下文。任务记忆是**任务范围内的进度知识**，与 Wiki 笔记（**跨任务的通用经验**）互补。
 
-**会话开始时（必须执行）**：若本会话已收到 SessionStart hook 注入的任务关联指引，按其执行（弹框规则、补蒸馏、收尾采集以注入为准）；**未收到注入时**，按 `get_prompt(name="task-workflow")` 的「会话开始：关联任务」一节执行——用 `ask_followup_question` 弹一次任务关联框（一框列全所有进行中任务 + 新建 + 跳过），绑定后 `get_task_context` 拉取上下文。
+**会话开始时（必须执行）**：若本会话已收到 SessionStart hook 注入的任务关联指引，按其执行（弹框规则、补蒸馏、收尾采集以注入为准）；**未收到注入时**，按 `get_prompt(name="task-workflow")` 的「会话开始：关联任务」一节执行——用宿主原生结构化提问工具弹一次任务关联框（CodeBuddy 系 `ask_followup_question`：一框列全所有进行中任务 + 新建 + 跳过；Qoder 系 `AskUserQuestion`：单题 options 硬上限 4、硬下限 2，取最近的 3 个任务 + 跳过（选项位有富余时补「新建任务」），其余任务写进问题正文、由「其他」自由输入承接），绑定后 `get_task_context` 拉取上下文。
 
 完整工作流（补蒸馏、会话中采集、收尾、检索、存储布局与实现约束）见 MCP prompt：`get_prompt(name="task-workflow")` —— 按需获取。
 {_TASK_MEMORY_AGENTS_END}"""
@@ -195,7 +195,7 @@ CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤�
      `$env:CODEWIKI_HOME/codewiki/agents/distill-worker.md`，同样 Copy-Item 到 `$destDir` / `$agentDir`。
      兜底都不满足时，提示用户先 `pip install codewiki` 或设置 `CODEWIKI_HOME`，不要凭记忆写脚本。
      **为 Qoder/Claude Code 接线时，把上面 `$destDir` / `$agentDir` 中的 `.codebuddy` 换成 `.qoder` / `.claude` 即可。**
-2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置；Qoder/Claude Code/Gemini CLI 写入 `.qoder/settings.json` / `.claude/settings.json` / `.gemini/settings.json`，command 中目录名随配置目录变化，其余完全一致）。**command 用项目相对路径（宿主以项目根为工作目录执行命令），不写机器相关绝对路径、也不用 `$*_PROJECT_DIR` 变量（各宿主变量展开经实测不可靠）**——settings.json 随仓库共享，绝对路径提交后队友克隆到其他目录即失效：
+2. 创建或合并 `{repo_path}/.codebuddy/settings.json`，加入以下 hook 注册（保留文件中已有的无关配置；Qoder/Claude Code/Gemini CLI 写入 `.qoder/settings.json` / `.claude/settings.json` / `.gemini/settings.json`，command 中目录名随配置目录变化，其余完全一致）。**command 用项目相对路径（宿主以项目根为工作目录执行命令），不写机器相关绝对路径、也不用 `$*_PROJECT_DIR` 变量（各宿主变量展开经实测不可靠）**——settings.json 随仓库共享，绝对路径提交后队友克隆到其他目录即失效。**示例中的解释器名按本机平台替换**：Windows 为 `python`，mac/Linux 一般为 `python3`（写错会让 hook 以 exit 127 静默失败）；`codewiki install-hooks` 生成的命令已按本机解析，手抄时同样按本机替换：
 
 ```json
 {{
@@ -241,7 +241,7 @@ CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤�
 {_TASK_MEMORY_AGENTS_SECTION}
 
 4. 前置条件：hook 启动的 python 进程必须能 import `codewiki` 包。满足任一即可：codewiki 已通过 pip 安装；hook 位于 CodeWiki 源码 checkout 内；或设置了 `CODEWIKI_HOME` 环境变量指向 checkout。都不满足时 wrapper 会跳过采集并输出带操作指引的 systemMessage（绝不阻塞 IDE）
-5. 用模拟事件验证两个脚本（Qoder/Claude Code 用对应目录路径替换 `.codebuddy`；TRAE 的会话结束事件是 Stop，不带 transcript_path，见下方 TRAE 变体）：
+5. 用模拟事件验证两个脚本（Qoder/Claude Code 用对应目录路径替换 `.codebuddy`；下面示例是 PowerShell 语境，解释器名按本机平台替换——Windows `python`、mac/Linux 一般 `python3`；TRAE 的会话结束事件是 Stop，不带 transcript_path，见下方 TRAE 变体）：
    - SessionEnd（先准备一个小的 transcript 文件，如 `[{{"role":"user","content":"测试"}}]` 存为 d:/tmp/conv.json；期望 stdout 返回 `{{"continue": true, "systemMessage": "team-memory capture started in background"}}`）：wrapper 是 fire-and-forget，只回报「后台采集已启动」，**不回报采集结果**；是否真的落盘要等 1-2 秒后看 `{repo_path}/repowiki/raw/` 是否新增 `conv-*.md`（`source_session` = verify-1）。stdin 事件缺失或 JSON 非法时返回 `team-memory capture skipped: ...`，不会谎报成功。拼 `cwd` 时别写反斜杠路径（`d:\\repos` 里的 `\\r`/`\\C` 是非法 JSON 转义，事件会被整体丢弃）：
 
 ```powershell
@@ -279,6 +279,7 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
         mode_note = """
 **档位自动判定**：接线档位由 `codewiki/hooks.yaml` 注册表自动判定——支持 SessionStart 的宿主走 hook 档，不支持的（如 QwenWork）走 prompt 档（只写注入文件，不建配置目录、不拷脚本、不改 settings），无手动覆盖参数。"""
         hook_block = f"""## 步骤 2: 启用任务管理（跨会话任务记忆 + 对话采集）
+**用户意愿闸门**：本步骤默认执行；但若用户调用本命令时已明确表达不启用任务管理（如回答「否」/「不要」），跳过本步骤，并告知用户可随时用 team-memory-hook 命令启用。
 为支持跨会话任务记忆，启用 SessionEnd hook 使会话结束时自动把原始对话捕获到 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成），并向 AGENTS.md 写入任务引导段，使新建会话时 Agent 提示用户关联已有任务或输入任务名新建。
 {mode_note}
 **本步骤与 team-memory-hook 启用的逻辑完全一致**：注册 SessionStart/SessionEnd 事件 + 从 codewiki 包强制拷贝采集脚本与 distill-worker subagent 定义到目标项目。**只为项目根目录已存在配置目录的智能体接线（自动检测到哪些目录才为哪些接线），绝不主动新建 `.qoder`/`.claude` 等配置目录**——用户明确点名要接未检测到的智能体时，先向用户确认，并提示需先初始化该工具的配置目录。
@@ -316,7 +317,7 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 - **代码分析**：使用 code-analysis prompt 仅做结构分析不生成文档
 
 ## 编译宿主命令文件
-调用 `codewiki sync-commands`，把全部工作流提示词编译为当前宿主 IDE 的斜杠命令文件（`<宿主配置目录>/commands/codewiki/`）。非 Trae/codebuddy 宿主（如 Qoder）不会自动把 MCP prompt 映射为命令，本步骤为它们提供可见入口；Trae 会自动转化，跳过也无妨。命令文件是命令薄壳（只写如何获取全文），权威仍在 MCP `get_prompt`。
+调用 `codewiki sync-commands`，把全部工作流提示词编译为宿主 IDE 的斜杠命令文件（`<宿主配置目录>/commands/codewiki/`）。已知只有 codebuddy 会自动把 MCP prompt 映射为命令，其余宿主（Qoder/Claude Code/TRAE 等）都依赖本步骤生成命令入口。CLI 自动判定目标宿主（枚举仓库根 IDE 配置目录，排除 codebuddy；无任何目录时兜底写 `.trae/commands/codewiki/`），无需用户选择。命令文件是命令薄壳（只写如何获取全文），权威仍在 MCP `get_prompt`。
 
 ## 注意事项
 - init_wiki 是幂等的：重复执行不会破坏已有内容
@@ -339,6 +340,7 @@ def _prompt_init_workspace(args: dict[str, str]) -> str:
         mode_note = """
 **档位自动判定**：接线档位由 `codewiki/hooks.yaml` 注册表自动判定——支持 SessionStart 的宿主走 hook 档，不支持的（如 QwenWork）走 prompt 档（只写注入文件，不建配置目录、不拷脚本、不改 settings），无手动覆盖参数。"""
         hook_block = f"""## 步骤 4: 启用任务管理（跨会话任务记忆 + 对话采集）
+**用户意愿闸门**：本步骤默认执行；但若用户调用本命令时已明确表达不启用任务管理（如回答「否」/「不要」），跳过本步骤，并告知用户可随时用 team-memory-hook 命令启用。
 为支持跨会话任务记忆，启用 SessionEnd hook 使会话结束时自动把原始对话捕获到工作区 repowiki/raw/（仅采集、不蒸馏；蒸馏由后台 distill_conversation 完成），并向工作区根 AGENTS.md 写入任务引导段，使新建会话时 Agent 提示用户关联已有任务或输入任务名新建。
 {mode_note}
 **接线目标恒为工作区根（harness 仓），业务仓不接线**——任务管理是工作区级能力：AGENTS.md（任务引导段宿主）与 repowiki/raw/（采集落盘地）都在工作区根，会话按 harness 模型开在工作区根；colocated 与 centralized 两种布局行为一致，无例外。**只为工作区根已存在配置目录的智能体接线（自动检测到哪些目录才为哪些接线），绝不主动新建 `.qoder`/`.claude` 等配置目录**——用户明确点名要接未检测到的智能体时，先向用户确认，并提示需先初始化该工具的配置目录。
@@ -380,7 +382,7 @@ def _prompt_init_workspace(args: dict[str, str]) -> str:
 - 后续新增/移除业务仓分别用 `add_workspace_repo` / `remove_workspace_repo` prompt 或工具，不要手工改四个文件
 
 ## 编译宿主命令文件
-调用 `codewiki sync-commands`，把全部工作流提示词编译为当前宿主 IDE 的斜杠命令文件（`<宿主配置目录>/commands/codewiki/`）。非 Trae/codebuddy 宿主（如 Qoder）不会自动把 MCP prompt 映射为命令，本步骤为它们提供可见入口；Trae 会自动转化，跳过也无妨。命令文件是命令薄壳（只写如何获取全文），权威仍在 MCP `get_prompt`。"""
+调用 `codewiki sync-commands`，把全部工作流提示词编译为宿主 IDE 的斜杠命令文件（`<宿主配置目录>/commands/codewiki/`）。已知只有 codebuddy 会自动把 MCP prompt 映射为命令，其余宿主（Qoder/Claude Code/TRAE 等）都依赖本步骤生成命令入口。CLI 自动判定目标宿主（枚举仓库根 IDE 配置目录，排除 codebuddy；无任何目录时兜底写 `.trae/commands/codewiki/`），无需用户选择。命令文件是命令薄壳（只写如何获取全文），权威仍在 MCP `get_prompt`。"""
 
 
 def _prompt_add_workspace_repo(args: dict[str, str]) -> str:
@@ -1281,7 +1283,7 @@ claude 家族（CodeBuddy/Qoder/Claude Code/Gemini CLI 及理论支持工具）�
 
 ## 步骤 1: 检查当前状态
 依次检查项目根目录下**探测到的**每个智能体配置目录（如 `{repo_path}/.codebuddy/`、`{repo_path}/.qoder/`、`{repo_path}/.claude/` 等，以探测结果为准）：
-- 每个目录下读取家族对应的配置文件（claude 家族 `settings.json`；cursor/codex/trae 家族 `hooks.json`）：**已启用** = 存在 SessionEnd 与 SessionStart（或家族对应事件名，trae 家族为 Stop）两个条目，且对应目录 `hooks/` 下 `capture_session_end.py` 与 `task_session_start.py` 两个脚本文件都物理存在（claude 家族 command 用项目相对路径如 `python ".qoder/hooks/task_session_start.py"`——宿主以项目根为工作目录执行命令；不写机器相关绝对路径、也不用 `$*_PROJECT_DIR` 变量（实测不可靠）；历史绝对路径条目可视为已启用，但建议重跑接线迁移为相对路径形式）
+- 每个目录下读取家族对应的配置文件（claude 家族 `settings.json`；cursor/codex/trae 家族 `hooks.json`）：**已启用** = 存在 SessionEnd 与 SessionStart（或家族对应事件名，trae 家族为 Stop）两个条目，且对应目录 `hooks/` 下 `capture_session_end.py` 与 `task_session_start.py` 两个脚本文件都物理存在（claude 家族 command 用项目相对路径并带跨平台解释器回退，如 `python3 ".qoder/hooks/task_session_start.py" || python ".qoder/hooks/task_session_start.py"`——python3/python 双解释器写死、不随安装机变化，判「已启用」只看脚本相对路径后缀、不看解释器名；宿主以项目根为工作目录执行命令；不写机器相关绝对路径、也不用 `$*_PROJECT_DIR` 变量（实测不可靠）；历史绝对路径条目可视为已启用，但建议重跑接线迁移为相对路径形式）
 - 向用户报告哪些智能体已启用、哪些未启用
 
 ## 步骤 2A: 启用
@@ -1363,9 +1365,11 @@ def _prompt_task_workflow(args: dict[str, str]) -> str:
 
 ## 会话开始：关联任务（可选但推荐）
 1. `list_tasks(status="active", repo_path="{repo_path}")` 列出进行中的任务
-2. **只弹一个框、一框列全**：调用 `ask_followup_question`（只调用 1 次，questions 数组里只放 1 个 question，标题「任务关联」，multiSelect=false），其 options 一次性列出「每个进行中任务」+「新建任务…（在输入框直接输入名称）」+「跳过」。严禁因为工具 schema 建议 2-4 个 options 就拆成多个 question 或分多次弹框：
-   - **关联已有任务**：用户从列表中选择一个
-   - **新建任务**：弹框自带输入框，用户直接输入的任务名（列表里没有的自由文本）即视为新任务，调用 `create_task(title=<新任务名>, description=<可选>)` 创建后即关联；只有选了「新建任务…」却没给名字时才允许再弹一次输入框要名字
+2. **只弹一个框**：调用宿主的结构化提问工具（只调用 1 次，questions 数组里只放 1 个 question，标题/header「任务关联」，multiSelect=false），弹框选项数按宿主通道收敛：
+   - **CodeBuddy 系（`ask_followup_question`）**：options 一次性列全「每个进行中任务」+「新建任务…（在输入框直接输入名称）」+「跳过」。工具只是**建议** 2-4 个 options，严禁照建议把任务拆进多个 question 或分多次弹框。
+   - **Qoder 系（`AskUserQuestion`）**：options 是**硬上限 4 个、硬下限 2 个**（越界调用直接失败）。放最近的至多 3 个任务 + 「跳过」；选项位没用完时补一个「新建任务」——0 个进行中任务时框里就是「新建任务」+「跳过」两项，少了就弹不出来。未进选项的其余进行中任务写进问题正文，用户选「其他」输入任务名即可关联（「其他」自由输入同时覆盖"选中清单里的已有任务"和"新建任务"两种情况）。同样严禁拆成多个 question 或分多次弹框。
+   - **关联已有任务**：用户从列表中选择一个（或输入清单里已有的任务名）
+   - **新建任务**：用户直接输入的任务名（列表里没有的自由文本）即视为新任务，调用 `create_task(title=<新任务名>, description=<可选>)` 创建后即关联；选了「新建任务」却没给名字时，CodeBuddy 通道可再弹一次输入框要名字，Qoder 通道只能在回复正文里请用户给名字（不得二次弹框）
 3. 关联后：`set_session_task(source_session_id=<当前会话id>, task_id=<选中任务>)` 建立绑定，之后本会话采集的对话会自动带上 task_id
 4. `get_task_context(task_id=<选中任务>)` 拉取该任务的描述 + 记忆 + 关联笔记，作为继续工作的上下文
 5. **补蒸馏（异步，不阻塞回答）**：检查返回的 `pending_raw_count`（本任务未蒸馏的历史对话数）。若 > 0，**不要自己在回答前逐条 read_file 蒸馏**——用 Task 工具发一个**异步**蒸馏子代理（CodeBuddy：spawn「蒸馏 worker」subagent，`.codebuddy/agents/distill-worker.md`，已授权 codewiki MCP；claude 家族 Qoder/Claude Code/Gemini CLI：**自定义子代理拿不到 MCP 权限**，改 spawn 内置 general-purpose 子代理，让它先读对应 `.qoder|.claude|.gemini/agents/distill-worker.md` 作为剧本再执行）：
@@ -1374,6 +1378,7 @@ def _prompt_task_workflow(args: dict[str, str]) -> str:
    - 主 Agent **不等 subagent 完成，直接回答用户提问**；在自然停顿点（任务里程碑、话题切换、收尾轮）重新 `get_task_context` 拉取最新记忆，并向用户展示待确认的草稿笔记
    - subagent 失败/超时不重试——未蒸馏的 raw 留在 raw/ 等下次会话再补
    - 向用户展示待确认的草稿笔记：`confirm_note` 确认后才正式落盘（任务记忆已直写，无需确认）
+6. **记忆压缩（异步 subagent，无确认闸门）**：同一次返回里 `compaction_due=true`（red：热层超 40 条/24KB 且有超出保留窗口的旧条目）会带 `compaction_action` 派发指令。**不要向用户征求同意**，也不要自己读待压缩的条目正文——立即用 Task 工具 spawn **异步**内置 general-purpose 子代理（本宿主自定义子代理拿不到 MCP 权限），按 `compaction_action.dispatch` 的三步配方执行（配方里的 `repo_path` 已带好，照抄即可；子代理没有会话上下文，缺 repo_path 工具会直接报错）：`compact_task_memories(mode="prepare", repo_path="{repo_path}", task_id=<选中任务>)` 取待压条目与 instruction → 按 instruction 写「早期记忆（摘要）」（不超过 `summary_max_chars`）→ `compact_task_memories(mode="submit", repo_path="{repo_path}", task_id=<选中任务>, summary=...)` 直写落盘。主 Agent 不等待、不阻塞当前工作；子代理回报后向用户一句话同步压缩条目数与 `memories_total` 变化。压缩全程可回溯（原文全量进 `memories-archive/`，ADR-0002 延伸——这就是它不设确认闸门的理由）；orange/yellow 档只报数不派发；文件域压缩，永不动他人文件。
 
 ## 会话进行中
 - 采集对话时带上 `task_id`（capture_conversation 的 task_id 参数，或经 set_session_task 绑定后自动带）
@@ -1400,6 +1405,7 @@ def _prompt_task_workflow(args: dict[str, str]) -> str:
 - `codewiki/mcp/tools/task_manager.py` — `create_task` / `list_tasks` / `get_task` / `complete_task` / `delete_task` / `set_session_task` / `add_task_memory` / `get_task_context` / `compact_task_memories`
 - 存储：`repowiki/tasks/.index.json`（可重建缓存：目录扫描为准，失配/损坏时自动重建）+ `<task_id>/task.md` + `<task_id>/memories/<user_id>.md`（每人只写自己的文件，多人 git 冲突隔离；条目带 `### YYYY-MM-DD HH:MM` 时间戳头；压缩后头部有「早期记忆（摘要）」段）+ `<task_id>/memories-archive/<user_id>.md`（压缩归档，append-only、永不自动加载）；`<task_id>/memories.md` 为存量单文件（只读兼容，热层，首次压缩并入当前用户文件后移除）；会话绑定在 `repowiki/.meta/task_bindings/`
 - `capture_conversation` / `distill_conversation` / `ingest_note` / `query_wiki` 均接受 `task_id`；蒸馏时 LLM 双轨产出 `notes`(通用知识，draft 待确认) 与 `memories`(任务进度，直写落盘——任务记忆不做确认闸门)
+- **`<user_id>` 由 `config.resolve_user_id(output_dir)` 解析**：`CODEWIKI_USER` env > 仓库本地身份钉 `repowiki/.meta/user_id`（gitignored、可重建）> `git -C <output_dir> config user.email` > `user.name` > 机器缓存 > 登录名。**只有 git 当场验证过的身份允许写钉/写缓存**——缓存只是过去某次派生的记忆化，那次派生可能就是退化通道（IDE 服务态 MCP：无 APPDATA/HOME，git 读不到 `~/.gitconfig`）的登录名兜底，让它升级为克隆身份会把错误固化。同一台机器上两条通道早先会解析成两个 uid 从而切出两个分片；身份钉把所有人绑回同一个分片。`get_task_context` / `add_task_memory` 回显 `user` + `user_source`，分片异常先看这两个字段；换身份就删钉文件。
 
 **关键设计约束(实现时务必遵守)：**
 - task_id 由标题 slugify 生成且**不可变**；同名任务被拒绝；**无重命名**(删除后重建)。
@@ -1407,7 +1413,7 @@ def _prompt_task_workflow(args: dict[str, str]) -> str:
 - **绑定文件是一次性消费凭证**：`set_session_task` 写入 `repowiki/.meta/task_bindings/<session_id>.json` 后，首次 `capture_conversation` 成功落盘即退役到 `task_bindings/consumed/`（凭证不再生效，但 `task_id` 保留）；显式传 `task_id` 不消费绑定。同会话再次捕获（supersede）继承旧 raw 的 task_id；若旧 raw 已被蒸馏、无 pending 条目可继承，则回退读退役凭证（`task_source=binding-archived`），归属不丢。
 - `query_wiki` 不校验任务存在性(幽灵 `task_id` 允许)。
 - `memories/<user_id>.md` 追加式原子写(临时文件 + `os.replace`)，并发串行；**每人只写自己的文件**(文件所有权即 git 级互斥原语)；条目带 `### YYYY-MM-DD HH:MM` 时间戳头(保持 markdown 不迁 JSONL，时间戳头是切条/截断/压缩的解析边界，存量无头文件运行时空行回退解析)。
-- `get_task_context`/`get_task` 的 memories 返回**分层有界**：热层=自己(+存量 legacy)文件取最近 20/5 条全量；温层=其他成员仅注入摘要+最近 2 条(超预算降级为一行线索)；`memories_total`/`memories_truncated` 标记截断、`max_memories` 参数翻页；`compaction_due=true` 表示热层超压缩阈值(40 条/24KB)且超出保留窗口，应跑 `compact_task_memories`(两段式无状态：`mode="prepare"` 取待压条目由调用方写摘要 → `mode="submit"` 落盘；**文件域压缩，只压自己的文件(+legacy 并入)，永不动他人文件**；原文按归属归档 `memories-archive/<user_id>.md` 不删，直写不走 confirm 闸门)。"""
+- `get_task_context`/`get_task` 的 memories 返回**分层有界**：热层=自己(+存量 legacy)文件取最近 20/5 条全量；温层=其他成员仅注入摘要+最近 2 条(超预算降级为一行线索)；`memories_total`/`memories_truncated` 标记截断、`max_memories` 参数翻页；`compaction_due=true`(red，热层超 40 条/24KB 且有超出保留窗口的旧条目)时返回值携带 **`compaction_action` 派发指令**（**不含**待压缩条目正文——正文只由 `compact_task_memories(mode="prepare")` 交给子代理，不进主 Agent 上下文）：主 Agent 按指令异步 spawn 子代理跑 prepare→写摘要→submit，**全程无需用户确认**（直写语义，原文全量进 `memories-archive/` 可回溯，ADR-0002 延伸）；orange/yellow 档只报数不派发。**文件域压缩，只压自己的文件(+legacy 并入)，永不动他人文件**。"""
 
 
 def _prompt_consolidate_knowledge(args: dict[str, str]) -> str:
@@ -1628,6 +1634,57 @@ _PROMPT_REGISTRY: list[dict[str, Any]] = [
 ]
 
 
+# 工作流名 → 渲染函数。真源唯一：MCP `prompts/get` 协议通道与 `get_prompt` 工具
+# 通道都从这里取（此前这张表活在 handler 函数体内，工具通道拿不到，于是薄壳命令
+# 与 AGENTS.md 里写明的 `get_prompt(name="task-workflow")` 在只暴露工具的宿主上
+# 必然失败——见 ADR-0017「薄壳只写如何获取全文，权威在 MCP get_prompt」）。
+_WORKFLOW_PROMPTS: dict[str, Any] = {
+    "init-wiki": _prompt_init_wiki,
+    "init-workspace": _prompt_init_workspace,
+    "add-workspace-repo": _prompt_add_workspace_repo,
+    "remove-workspace-repo": _prompt_remove_workspace_repo,
+    "generate-wiki": _prompt_generate_wiki,
+    "incremental-update": _prompt_incremental_update,
+    "extract-knowledge": _prompt_extract_knowledge,
+    "search-wiki": _prompt_search_wiki,
+    "quality-check": _prompt_quality_check,
+    "code-analysis": _prompt_code_analysis,
+    "impact-review": _prompt_impact_review,
+    "change-review": _prompt_change_review,
+    "architecture-review": _prompt_architecture_review,
+    "workspace-analysis": _prompt_workspace_analysis,
+    "cross-service-trace": _prompt_cross_service_trace,
+    "ingest-note": _prompt_ingest_note,
+    "team-memory-hook": _prompt_team_memory_hook,
+    "distill-conversations": _prompt_distill_conversations,
+    "task-workflow": _prompt_task_workflow,
+    "consolidate-knowledge": _prompt_consolidate_knowledge,
+    "skill-creator": _prompt_skill_creator,
+    "promote-note": _prompt_promote_note,
+    "retract-source": _prompt_retract_source,
+}
+
+
+def workflow_prompt_names() -> list[str]:
+    """All registered workflow prompt names (registry order)."""
+    return list(_WORKFLOW_PROMPTS)
+
+
+def render_workflow_prompt(name: str, arguments: dict[str, Any] | None) -> str | None:
+    """Render a workflow prompt by name, or ``None`` when the name is unknown.
+
+    容忍 kebab/camel 两种写法（`task-workflow` / `task_workflow`）：工具通道的
+    模板类名字是 snake_case，工作流名是 kebab-case，Agent 混用是常态。
+    """
+    handler = _WORKFLOW_PROMPTS.get(name)
+    if handler is None and name:
+        alt = name.replace("_", "-") if "_" in name else name.replace("-", "_")
+        handler = _WORKFLOW_PROMPTS.get(alt)
+    if handler is None:
+        return None
+    return handler(arguments or {})
+
+
 def prompt_catalog() -> list[dict[str, Any]]:
     """Localized catalog entries for the ``codewiki://prompts/catalog`` resource.
 
@@ -1693,33 +1750,7 @@ def register(server):
 
         args = arguments or {}
 
-        prompts_map = {
-            "init-wiki": _prompt_init_wiki,
-            "init-workspace": _prompt_init_workspace,
-            "add-workspace-repo": _prompt_add_workspace_repo,
-            "remove-workspace-repo": _prompt_remove_workspace_repo,
-            "generate-wiki": _prompt_generate_wiki,
-            "incremental-update": _prompt_incremental_update,
-            "extract-knowledge": _prompt_extract_knowledge,
-            "search-wiki": _prompt_search_wiki,
-            "quality-check": _prompt_quality_check,
-            "code-analysis": _prompt_code_analysis,
-            "impact-review": _prompt_impact_review,
-            "change-review": _prompt_change_review,
-            "architecture-review": _prompt_architecture_review,
-            "workspace-analysis": _prompt_workspace_analysis,
-            "cross-service-trace": _prompt_cross_service_trace,
-            "ingest-note": _prompt_ingest_note,
-            "team-memory-hook": _prompt_team_memory_hook,
-            "distill-conversations": _prompt_distill_conversations,
-            "task-workflow": _prompt_task_workflow,
-            "consolidate-knowledge": _prompt_consolidate_knowledge,
-            "skill-creator": _prompt_skill_creator,
-            "promote-note": _prompt_promote_note,
-            "retract-source": _prompt_retract_source,
-        }
-
-        handler = prompts_map.get(name)
+        handler = _WORKFLOW_PROMPTS.get(name)
         if not handler:
             return GetPromptResult(
                 description=_i18n.t("prompts.get.unknown.title"),
@@ -1731,7 +1762,7 @@ def register(server):
                             text=_i18n.t(
                                 "prompts.get.unknown.text",
                                 name=name,
-                                available=", ".join(prompts_map.keys()),
+                                available=", ".join(_WORKFLOW_PROMPTS),
                             ),
                         ),
                     )

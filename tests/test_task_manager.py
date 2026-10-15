@@ -32,6 +32,46 @@ def _call(fn, **kwargs) -> dict:
 # --------------------------------------------------------------------------- #
 
 
+def test_identity_is_echoed_by_read_and_write(tmp_path, monkeypatch):
+    """C: 身份可见性 — both handlers report the shard and the resolving rung.
+
+    The first write derives the identity (here: git user.email) and pins the
+    clone; every later call is served by that pin, so the two channels cannot
+    drift into two shards.
+    """
+    from codewiki.src import config as cfg_module
+
+    monkeypatch.delenv("CODEWIKI_USER", raising=False)
+    monkeypatch.setattr(cfg_module, "_read_user_id_cache", lambda: "")
+    monkeypatch.setattr(cfg_module, "_write_user_id_cache", lambda uid: None)
+    monkeypatch.setattr(cfg_module, "_git_user_email", lambda lookup_dir=None: "ci@example.com")
+
+    repo = str(tmp_path)
+    task_id = _call(tm.handle_create_task, repo_path=repo, title="身份回显")["task"]["id"]
+
+    r = _call(tm.handle_add_task_memory, repo_path=repo, task_id=task_id, content="推进一步。")
+    ctx = _call(tm.handle_get_task_context, repo_path=repo, task_id=task_id)
+
+    assert r["user"] == ctx["user"] == "ci-example-com"
+    assert r["user_source"] == "git-email"
+    assert ctx["user_source"] == "pin"
+    assert (tmp_path / "repowiki" / ".meta" / "user_id").read_text(encoding="utf-8") == r["user"]
+
+
+def test_add_task_memory_writes_the_pinned_shard(tmp_path):
+    """The shard on disk is named after the echoed id — no silent second shard."""
+    repo = str(tmp_path)
+    task_id = _call(tm.handle_create_task, repo_path=repo, title="分片归属")["task"]["id"]
+    (tmp_path / "repowiki" / ".meta").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "repowiki" / ".meta" / "user_id").write_text("pinned-user", encoding="utf-8")
+
+    r = _call(tm.handle_add_task_memory, repo_path=repo, task_id=task_id, content="钉住的分片。")
+
+    assert (r["user"], r["user_source"]) == ("pinned-user", "pin")
+    shard = tmp_path / "repowiki" / "tasks" / task_id / "memories" / "pinned-user.md"
+    assert shard.exists() and "钉住的分片。" in shard.read_text(encoding="utf-8")
+
+
 def test_create_and_list_tasks(tmp_path):
     repo = str(tmp_path)
     r = _call(
@@ -945,6 +985,30 @@ def test_compact_submit_rewrites_and_archives(tmp_path, monkeypatch):
     assert ctx["memories_truncated"] is True
     assert tm._SUMMARY_HEADING in ctx["memories"]
     assert "记忆44" in ctx["memories"] and "记忆21" not in ctx["memories"]
+
+
+def test_compact_submit_does_not_double_the_summary_heading(tmp_path, monkeypatch):
+    """prepare hands the summary back with its canonical heading; a worker that pastes
+    it verbatim must not end up with the heading twice (submit prepends its own)."""
+    monkeypatch.setenv("CODEWIKI_USER", "alice")
+    repo, task_id = _make_task_with_entries(tmp_path, "摘要标题不重复", 45)
+
+    s = _call(
+        tm.handle_compact_task_memories,
+        repo_path=repo,
+        task_id=task_id,
+        mode="submit",
+        summary=f"{tm._SUMMARY_HEADING}\n\n早期记忆摘要：完成了 A、B，遗留 C 待办。",
+    )
+    assert s["ok"] is True
+
+    from pathlib import Path
+
+    text = (Path(repo) / "repowiki" / "tasks" / task_id / "memories" / "alice.md").read_text(
+        encoding="utf-8"
+    )
+    assert text.count(tm._SUMMARY_HEADING) == 1
+    assert text.startswith(f"{tm._SUMMARY_HEADING}\n\n早期记忆摘要")
 
 
 def test_compact_submit_legacy_entries_get_synthetic_heading(tmp_path, monkeypatch):

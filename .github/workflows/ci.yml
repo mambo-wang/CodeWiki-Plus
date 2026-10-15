@@ -32,6 +32,21 @@ jobs:
       - name: Run tests
         run: uv run pytest --cov=codewiki --cov-report=term-missing -p no:cacheprovider tests/ -q
 
+      # The MCP handler contract lives in this standalone script (126 checks over
+      # fake-repo fixtures); pytest never collects it because its entrypoint is
+      # main(), not test_* functions.  Run it so handler regressions are visible,
+      # but non-blocking: 6 of its assertions have drifted behind deliberate
+      # product changes (ADR-0013 stable-requires-reason, batch_ingest results →
+      # report_file, doc_writer drops `components` for component_count,
+      # lint check count 16→22, raw/sources OKF conformance errors, get_prompt
+      # output_dir-only addressing).  Triage them, then flip to blocking.
+      # tests/smoke_test_mcp.py stays out of CI entirely: it passes this repo's
+      # real path to analyze_repo, whose output_dir is now derived from repo_path
+      # (analysis.py:57-64), so running it writes into the live repowiki/.
+      - name: Run MCP handler regression suite
+        continue-on-error: true
+        run: uv run python tests/okf_regression_test.py
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -71,4 +86,16 @@ jobs:
       - name: Ruff format check changed files
         run: |
           xargs -0 -r uv run ruff format --check \
+            < "$RUNNER_TEMP/changed-python-files"
+
+      # Phase-in mypy: only check changed Python files so existing type debt
+      # does not block every PR. Full-project baseline has 519 errors plus 137
+      # notes across 106 files (see .qoder/mypy-baseline.txt); tighten once the
+      # baseline is cleaned up.
+      # continue-on-error: changed files may still carry legacy errors, so
+      # report first and flip to blocking after the debt is burned down.
+      - name: Mypy type check changed files
+        continue-on-error: true
+        run: |
+          xargs -0 -r uv run python -m mypy --follow-imports=silent \
             < "$RUNNER_TEMP/changed-python-files"

@@ -3,6 +3,10 @@
 > Domain glossary and key decisions for this repo. Created by the engineering skills setup.
 > Populate this lazily as terms get resolved — see `docs/agents/domain.md` and the
 > `/domain-modeling` skill. You don't need to fill it in upfront.
+>
+> 根目录的 `GLOSSARY.md` 是指向本文件的符号链接：工程技能（`/tdd`、`/diagnosing-bugs`、
+> `/domain-modeling` 等）按 `GLOSSARY.md` 读取时，读到的就是这里。**更新词条请写本文件**——
+> 用编辑器直接保存 `GLOSSARY.md` 可能把软链接替换成独立副本，出现两份术语表。
 
 ## Glossary
 
@@ -101,9 +105,9 @@ _Avoid_: 把案卷写成普通 note（污染检索语料）、双向 `conflict_w
 「按关键词找回被截断/压缩的旧条目」。条目级颗粒度（`### 日期` 一条一记录），检索时
 内存直算（永远新鲜、零持久化，不与 wiki 索引互作），archive 参与召回（压缩与检索
 正交：压缩省注入成本，检索是主动付费的找回）。默认只搜本人，搜索侧隐私姿态不宽于
-读取侧。自动压缩由 get_task_context 携带 compaction_work 驱动（与 compact 的
-prepare 同一构造点），Agent 顺手 submit，无需用户确认（ADR-0002 直写语义延伸，
-可逆操作）。
+读取侧。自动压缩由 get_task_context 携带 compaction_action 派发指令驱动（red 档才派发；
+待压条目正文只由 compact 的 prepare 交给子代理，不进主 Agent 上下文），异步子代理跑
+prepare→写摘要→submit，无需用户确认（ADR-0002 直写语义延伸，可逆操作）。
 _Avoid_: 把任务记忆并进 query_wiki 语料（分轨）、为检索持久化索引（wiki 全量重建
 会静默清掉且污染语料统计）、为索引加后台进程（成本不可见）。
 
@@ -146,7 +150,7 @@ fail-open（超限警告放行不硬拒），一个 LLM 重活、draft→confirm
 _Avoid_: 把写入检查做成硬拒绝（违反 fail-open 边界）；与确认闸门混用术语。
 
 **prompt registry（提示词注册表）** — 工作流提示词的单一真源（`prompts.py` 的
-`prompts_map`，23 条）：name 固定 kebab-case，title/description/args 全走 i18n，
+`_PROMPT_REGISTRY` + `_WORKFLOW_PROMPTS`，23 条）：name 固定 kebab-case，title/description/args 全走 i18n，
 语言由 `config.json lang > $CODEWIKI_LANG > OS locale > zh` 决定。宿主命令文件
 从它编译（ADR-0017），`get_prompt` 是唯一权威出口——任何落盘副本都是快照不是真源。
 _Avoid_: 在 registry 之外另起提示词副本（双源漂移）。

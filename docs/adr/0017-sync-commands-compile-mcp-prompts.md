@@ -76,3 +76,13 @@ get_prompt(name="<name>", arguments={"<arg0>": "<默认值>", ...})
 2. `init-wiki` / `init-workspace` prompt 末尾加 sync-commands 调用步骤
 3. 删除存量平铺命令（单源化迁移）
 4. 冒烟：本仓库跑 `sync-commands --dry-run` 核对产物，Qoder 目录实测斜杠命令
+
+## 补充（2026-10-03）：工具通道也要接住工作流名
+
+薄壳正文写的是 `get_prompt(name=..., arguments={...})`——MCP `prompts/get` 的形状。但**只暴露 MCP 工具的宿主没有 `prompts/get` 通道**（Qoder CN 实测），而工具 `get_prompt` 的真参数是 `prompt_type`、枚举只收模板类名字：照薄壳指引调用直接被 schema 拒绝，薄壳沦为指向死路的可见入口。契约没错，是实现少了一条通道，故补齐实现而不改薄壳与 AGENTS.md：
+
+- `_WORKFLOW_PROMPTS`（原 `prompts_map`，从 handler 函数体内提到模块级）是「工作流名 → 渲染函数」的唯一真源，`prompts/get` 协议通道与工具通道共用同一张表；
+- 工具通道兼容 `name` 别名与 kebab/camel 两种写法；`prompt_type` 的 enum 由 `workflow_prompt_names()` 生成（不再手维护，防漂移），`required` 清空，两个名字参数至少要传一个——缺失或未知都返回模板类 + 工作流两份可用清单；
+- 命名撞车时模板类精确优先：`code_analysis` 是模板，`code-analysis` 是工作流，内容不同不可混；下划线写法只在模板类未命中时才归一化为工作流名。
+
+回归见 `tests/test_get_prompt_tool_channel.py`。

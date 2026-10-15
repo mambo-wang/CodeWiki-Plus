@@ -11,6 +11,7 @@ Covered:
 """
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -21,11 +22,16 @@ import codewiki
 from codewiki.cli.commands.install_hooks import install_hooks
 from codewiki.cli.utils.ide_config import (
     AGENT_FILE,
+    END_HOOK_CMD,
     HOOK_FILES,
+    IDE_SPECS,
     PROMPT_HOOK_CMD,
+    START_HOOK_CMD,
+    _trae_hook_commands,
     detect_ide_dirs,
     install_for_ide,
     merge_settings_json,
+    unwire_hook_registration,
 )
 from codewiki.mcp.prompts import (
     _ACTIVE_SETTLE_END,
@@ -183,8 +189,10 @@ def test_merge_keeps_existing_user_prompt_matchers():
 # must be migrated in place to the project-relative form instead of being
 # duplicated when install-hooks is re-run after a path-format change.
 
-NEW_START = 'python ".qoder/hooks/task_session_start.py"'
-NEW_END = 'python ".qoder/hooks/capture_session_end.py"'
+# 期望值由常量派生：解释器口径按平台解析（Windows `python`、mac/Linux
+# `python3`），这些断言要钉的是「迁移/生成后落到项目相对路径命令」这一行为。
+NEW_START = START_HOOK_CMD.format(ide_dir=".qoder")
+NEW_END = END_HOOK_CMD.format(ide_dir=".qoder")
 
 
 @pytest.mark.parametrize(
@@ -291,8 +299,8 @@ def test_install_for_ide_copies_and_wires(tmp_path, fake_pkg):
     settings = json.loads((tmp_path / ".qoder" / "settings.json").read_text(encoding="utf-8"))
     start = settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     end = settings["hooks"]["SessionEnd"][0]["hooks"][0]["command"]
-    assert start == 'python ".qoder/hooks/task_session_start.py"'
-    assert end == 'python ".qoder/hooks/capture_session_end.py"'
+    assert start == NEW_START
+    assert end == NEW_END
 
     agents_md = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     assert _TASK_MEMORY_AGENTS_START in agents_md
@@ -421,7 +429,9 @@ def test_install_agent_variant_missing_falls_back_to_default(tmp_path, fake_pkg)
 
 # ---------------------------------------------------------------------------
 # TRAE wiring（hooks.json 家族：顶层 version 字段、Stop 替代 SessionEnd、
-# 不写 matcher —— 依据 docs.trae.cn 官方 Hook 规范，2026-09 真机核验）
+# 不写 matcher —— 依据 docs.trae.cn 官方 Hook 规范，2026-09 真机核验；
+# 命令为平台快照单解释器——TRAE Windows 的 PowerShell 5.1 把 `||` 当解析期
+# 错误，claude 家族的双解释器兜底在 TRAE 上整条不执行，2026-10-13 本仓实证）
 # ---------------------------------------------------------------------------
 
 
@@ -435,16 +445,17 @@ def test_install_trae_writes_hooks_json(tmp_path, fake_pkg):
     assert data["version"] == 1
     # TRAE 无 SessionEnd 事件——Stop 替代；无 SessionStart/SessionEnd 混入。
     assert set(data["hooks"]) == {"SessionStart", "Stop", "UserPromptSubmit"}
+    trae_start, trae_end, trae_prompt = _trae_hook_commands(".trae")
     start = data["hooks"]["SessionStart"][0]
     assert "matcher" not in start  # matcher 对这三个事件无效，不写
-    assert start["hooks"][0]["command"] == 'python ".trae/hooks/task_session_start.py"'
+    assert start["hooks"][0]["command"] == trae_start
     assert start["hooks"][0]["timeout"] == 15
     stop = data["hooks"]["Stop"][0]
     assert "matcher" not in stop
-    assert stop["hooks"][0]["command"] == 'python ".trae/hooks/capture_session_end.py"'
+    assert stop["hooks"][0]["command"] == trae_end
     assert stop["hooks"][0]["timeout"] == 30
     prompt = data["hooks"]["UserPromptSubmit"][0]
-    assert prompt["hooks"][0]["command"] == PROMPT_HOOK_CMD
+    assert prompt["hooks"][0]["command"] == trae_prompt
     # hook 脚本物理拷贝 + claude 家族 subagent 变体。
     assert (tmp_path / ".trae" / "hooks" / "capture_session_end.py").is_file()
     assert (tmp_path / ".trae" / "hooks" / "task_session_start.py").is_file()
@@ -507,6 +518,70 @@ def test_install_trae_reuses_matcher_entry_without_duplication(tmp_path, fake_pk
     starts = data["hooks"]["SessionStart"]
     assert len(starts) == 1  # 未追加第二个条目
     assert len(starts[0]["hooks"]) == 1  # 条目内命令无重复
+
+
+def test_trae_hook_commands_single_interpreter_no_shell_fallback(monkeypatch):
+    """TRAE 家族命令必须是单解释器平台快照：PowerShell 5.1 把 `||` 当解析期
+    错误（整条命令不执行，2026-10-13 本仓 .trae/hooks.json 实证），claude 家族
+    的 `python3 X || python X` 兜底在 TRAE 上会静默全灭。Windows 快照 `python`、
+    POSIX 快照 `python3`；首 token 为裸解释器名，保持随仓共享可移植。
+    """
+    for os_name, expected_py in (("nt", "python"), ("posix", "python3")):
+        monkeypatch.setattr(os, "name", os_name)
+        for cmd in _trae_hook_commands(".trae"):
+            assert "||" not in cmd, cmd
+            head = cmd.split()[0]
+            assert head == expected_py, cmd
+            assert "/" not in head and "\\" not in head and ":" not in head, cmd
+
+
+def test_merge_trae_migrates_shell_fallback_commands_in_place():
+    """TRAE 历史 `python3 ... || python ...` 注册（PS5.1 下整条不执行的毒命令）
+    在重跑接线时按相对脚本后缀 / `-m` 尾部特征原地迁移为平台快照单解释器命令，
+    保留原 timeout，不产生重复条目。
+    """
+    start_cmd, end_cmd, prompt_cmd = _trae_hook_commands(".trae")
+    spec = IDE_SPECS["trae"]
+    existing = {
+        "version": 1,
+        "hooks": {
+            "SessionStart": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": 'python3 ".trae/hooks/task_session_start.py" || python ".trae/hooks/task_session_start.py"',
+                            "timeout": 42,
+                        }
+                    ]
+                }
+            ],
+            "UserPromptSubmit": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "python3 -m codewiki.mcp._ide_hook --enable || python -m codewiki.mcp._ide_hook --enable",
+                            "timeout": 7,
+                        }
+                    ]
+                }
+            ],
+        },
+    }
+    merged = merge_settings_json(existing, start_cmd, end_cmd, spec=spec, prompt_cmd=prompt_cmd)
+    start = merged["hooks"]["SessionStart"]
+    assert len(start) == 1 and len(start[0]["hooks"]) == 1
+    assert start[0]["hooks"][0]["command"] == start_cmd
+    assert start[0]["hooks"][0]["timeout"] == 42  # 原 timeout 保留
+    up = merged["hooks"]["UserPromptSubmit"]
+    assert len(up) == 1 and len(up[0]["hooks"]) == 1
+    assert up[0]["hooks"][0]["command"] == prompt_cmd
+    assert up[0]["hooks"][0]["timeout"] == 7
+    # 幂等：再合并一次不新增条目
+    again = merge_settings_json(merged, start_cmd, end_cmd, spec=spec, prompt_cmd=prompt_cmd)
+    assert len(again["hooks"]["SessionStart"][0]["hooks"]) == 1
+    assert len(again["hooks"]["UserPromptSubmit"][0]["hooks"]) == 1
 
 
 def test_detect_finds_trae_dir(tmp_path):
@@ -714,3 +789,87 @@ def test_cli_auto_detect_skips_qwenwork_hint(tmp_path):
     result = runner.invoke(install_hooks, ["--repo-path", str(repo)])
     assert result.exit_code == 0
     assert "--ide qwenwork" in result.output
+
+
+# ---------------------------------------------------------------------------
+
+
+def test_claude_hook_commands_fall_back_across_interpreters():
+    """claude 家族（含 Qoder）的命令仍为 `python3 X || python X` 双解释器回退：
+    mac 只保证 python3、Windows 只保证 python，POSIX shell 语义下一次写死随仓
+    共享可移植（2026-09-30 Qoder CN 实测定案）。脚本 fail-open 恒返回 0，故
+    回退段不会二次执行。
+    """
+    for cmd in (
+        START_HOOK_CMD.format(ide_dir=".qoder"),
+        END_HOOK_CMD.format(ide_dir=".qoder"),
+        PROMPT_HOOK_CMD,
+    ):
+        left, sep, right = cmd.partition("||")
+        assert sep, cmd  # 必须含 || 回退
+        # 首选 python3、兜底 python，两端都在
+        assert left.strip().split()[0] == "python3", cmd
+        assert right.strip().split()[0] == "python", cmd
+        # 可移植：每段首 token 皆为裸解释器名，不含路径分隔符或盘符
+        for side in (left, right):
+            head = side.strip().split()[0]
+            assert "/" not in head and "\\" not in head and ":" not in head, cmd
+
+
+def test_merge_migrates_legacy_interpreter_prompt_cmd():
+    """`python -m` → `python3 -m` 口径变更：原地迁移，不得同命令注册两份。
+
+    两份会让 IDE 每次提交都触发两遍采集提示。绝对解释器路径的手工条目同样命中
+    （按 `-m codewiki.mcp._ide_hook` 尾部特征，不看解释器）。
+    """
+    for legacy in (
+        "python -m codewiki.mcp._ide_hook --enable",
+        '"/usr/local/bin/python3" -m codewiki.mcp._ide_hook --enable',
+    ):
+        existing = {
+            "hooks": {
+                "UserPromptSubmit": [
+                    {
+                        "matcher": "",
+                        "hooks": [{"type": "command", "command": legacy, "timeout": 10}],
+                    }
+                ]
+            }
+        }
+        merged = merge_settings_json(existing, "start-cmd", "end-cmd")
+        up = merged["hooks"]["UserPromptSubmit"]
+        assert len(up) == 1
+        assert up[0]["hooks"] == [{"type": "command", "command": PROMPT_HOOK_CMD, "timeout": 10}]
+        # 再跑一次仍是一条（幂等）
+        again = merge_settings_json(merged, "start-cmd", "end-cmd")
+        assert again["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"] == PROMPT_HOOK_CMD
+
+
+def test_unwire_removes_legacy_interpreter_prompt_cmd(tmp_path):
+    (tmp_path / ".qoder").mkdir()
+    settings_path = tmp_path / ".qoder" / "settings.json"
+    settings_path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "UserPromptSubmit": [
+                        {
+                            "matcher": "",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "python -m codewiki.mcp._ide_hook --enable",
+                                    "timeout": 10,
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    assert unwire_hook_registration(str(tmp_path), "qoder") is True
+    assert "hooks" not in json.loads(settings_path.read_text(encoding="utf-8"))

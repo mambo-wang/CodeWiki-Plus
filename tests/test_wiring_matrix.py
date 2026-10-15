@@ -28,9 +28,11 @@ from click.testing import CliRunner
 from codewiki.cli.commands.install_hooks import install_hooks
 from codewiki.cli.utils.ide_config import (
     AGENT_FILE,
+    END_HOOK_CMD,
     HOOK_FILES,
     IDE_SPECS,
     PROMPT_HOOK_CMD,
+    START_HOOK_CMD,
     IdeWiringError,
     install_for_ide,
 )
@@ -66,6 +68,9 @@ PROMPT_FAMILY = ("qwenwork",)
 CAPTURES = (None, True, False)
 
 # 今日 codebuddy（claude 家族）hook 档 settings.json 的已知契约——零回归锚点。
+# 命令字面量一律由 ide_config 常量派生：解释器口径按平台解析（Windows
+# `python` / mac·Linux `python3`），锚点要钉的是「结构 + 相对路径命令」，
+# 不是某台机器上的解释器名。
 EXPECTED_CODEBUDDY_SETTINGS = {
     "hooks": {
         "SessionStart": [
@@ -74,7 +79,7 @@ EXPECTED_CODEBUDDY_SETTINGS = {
                 "hooks": [
                     {
                         "type": "command",
-                        "command": 'python ".codebuddy/hooks/task_session_start.py"',
+                        "command": START_HOOK_CMD.format(ide_dir=".codebuddy"),
                         "timeout": 15,
                     }
                 ],
@@ -86,7 +91,7 @@ EXPECTED_CODEBUDDY_SETTINGS = {
                 "hooks": [
                     {
                         "type": "command",
-                        "command": 'python ".codebuddy/hooks/capture_session_end.py"',
+                        "command": END_HOOK_CMD.format(ide_dir=".codebuddy"),
                         "timeout": 30,
                     }
                 ],
@@ -206,11 +211,12 @@ def test_hook_host_products(tmp_path, fake_pkg, ide, capture):
     for name in HOOK_FILES:
         assert (hooks_dir / name).is_file()
     assert (agents_dir / AGENT_FILE).is_file()
-    # settings 注册我们的命令（start 脚本 + python -m 入口）
+    # settings 注册我们的命令（start 脚本 + python -m 入口；TRAE 家族为平台
+    # 快照单解释器变体，故按尾部特征识别、不看解释器名）
     data = _read_json(settings_path)
     commands = _all_commands(data)
     assert any("task_session_start.py" in c for c in commands)
-    assert PROMPT_HOOK_CMD in commands
+    assert any(c.endswith("-m codewiki.mcp._ide_hook --enable") for c in commands)
     capture_on = True if capture is None else bool(capture)
     if ide == "trae":
         # trae 家族：hooks.json 顶层 version；采集注册在 Stop 事件（无 SessionEnd）

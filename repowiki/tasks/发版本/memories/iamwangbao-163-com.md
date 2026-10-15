@@ -89,3 +89,7 @@ v5.13.0 发布完成（2026-09-23）：PyPI 双产物上传成功（whl 0.96MB +
 ### 2026-09-27 19:27 #hjoy
 
 v5.14.0 发布完成（2026-09-27）。版本判定：v5.13.1 后 9 个提交含 2 feat + 1 fix → minor bump 到 5.14.0。四处版本引用同步。闸门：pytest 1199 passed/2 skipped（15:59）；ruff 修复 2 个 F401 + 4 文件格式化（提交 de9183e）。GitHub 侧：bump 22b4d2b 推 develop；PR #37 合入 main（merge commit e5b39e8）；lightweight tag v5.14.0 打在 merge commit 上；Release id 397618991 已创建。PyPI 侧：twine upload --disable-progress-bar 双产物上传成功（whl 1016151 B + sdist 11230141 B），JSON API 核对 urls=2。关键教训：twine 在 Python 3.14 下 rich progress 报错，加 --disable-progress-bar 绕过；本次 TLS 握手未超时，twine 直传成功，未需 curl.exe 绕法。
+
+### 2026-09-28 08:58 #aaoy
+
+v5.14.1 发布完成（2026-09-28）。版本判定：v5.14.0 后 2 个提交含 1 feat（ingest_source 二进制源 markitdown 转换 sidecar，ADR-0018）→ 用户明确要求 patch bump 到 5.14.1（按 semver 应为 5.15.0，但遵从用户显式指定）。四处版本引用同步（pyproject.toml:7 / codewiki/__init__.py:8 / uv.lock:588 / server.py 经 __version__ 注入）。闸门：pytest 1208 passed/2 skipped（14:41）；ruff 修复 3 个 F401（test_source_convert 未用导入）+ 2 文件格式化（提交 3e1e9b0）。GitHub 侧：bump 22b4d2b 推 develop；PR #38 合入 main（merge commit bf74134）；lightweight tag v5.14.1 打在 merge commit 上；Release id 397874757 已创建。PyPI 侧：twine 直传因 TLS 握手超时失败（本机网络对 upload.pypi.org 的 Python OpenSSL TLS 握手被干扰再现），改用 curl.exe --data-binary 直传 legacy API 成功（whl 1017782 B + sdist 11192064 B），JSON API 核对 urls=2。关键教训：本机 curl.exe 版本 7.55.1 太老，不支持 -K 配置文件的 form-string/form-file 长选项（7.84+ 才支持），必须用 Python 构造 multipart body + curl.exe --data-binary 发送；PyPI legacy API 字段名用下划线（metadata_version）不是连字符（metadata-version）。

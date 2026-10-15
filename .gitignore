@@ -72,6 +72,8 @@ repowiki/.meta/project.json
 repowiki/.meta/overview_refs.json
 repowiki/.meta/aggregate_state.json
 repowiki/.meta/source_registry.json
+# 仓库本地身份钉（resolve_user_id 的 pin 环节）：每台机器各自的身份，绝不该入库
+repowiki/.meta/user_id
 repowiki/.meta/task_bindings/
 repowiki/tasks/.index.json
 repowiki/distill-jobs.json
@@ -112,6 +114,10 @@ repowiki/.meta/locks/
 
 # Qoder IDE plugin skills (not part of this repo)
 .qoder/skills/
+# better-harness 审查产物与 agent-lint 报告：秒级可重跑的工具输出，按 D1
+# 「可重建派生物不入库」排除（findings 结论已沉淀进文章与 repowiki 笔记）
+.qoder/better-harness-runs/
+.qoder/agent-lint.json
 # Team-layout Phase 1: 可重建派生物不入库（D1，详见 docs/团队化文件冲突治理与同步策略设计方案.md）
 .pytest-tmp/test_still_allows_workspace_ro0/repowiki/wiki/index.md
 .pytest-tmp/test_still_allows_workspace_ro0/repowiki/.meta/edit_history.json
@@ -139,3 +145,12 @@ repowiki/.meta/locks/
 .pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/.meta/locks/
 .pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/tasks/.index.json
 .pytest-tmp/test_still_allows_standalone_r0/standalone/repowiki/distill-jobs.json
+
+# 本机专用 qoder 覆盖配置（python3 路径），不提交
+.qoder/settings.local.json
+
+# .scratch 一次性产物不入库：内部工单按 feature 建子目录（.scratch/<feature>/issues/*.md，
+# 见 docs/agents/issue-tracker.md，那些子目录照旧跟踪）；顶层散文件都是发布脚本、命令
+# 输出、迁移备份这类一次性的东西。下面的反选保留子目录，git 才会继续往工单目录里走。
+.scratch/*
+!.scratch/*/

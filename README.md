@@ -41,7 +41,7 @@
 - [第 10 篇：如何让AI写的Wiki可信——项目知识全生命周期管理](https://mp.weixin.qq.com/s/OdESdERtINqYTBkIIVFWlQ)（2026-09）
 - [第 11 篇：从对话中提炼经验编译成技能——谷歌 WikiSkill 落地实践](https://mp.weixin.qq.com/s/jpGqKd_pU-aLp2c9CryzgA)（2026-09-09）
 - [第 12 篇：本地知识库团队化改造](https://mp.weixin.qq.com/s/Ebsk6CoLN5Wj7ejwF3ytfQ)（2026-09-21）
-- [使用全景与最佳实践（本仓 articles/ 目录）](articles/2026-09-27-codewiki-使用全景与最佳实践.md)（2026-09-27）
+- [第 13 篇：CodeWiki-Plus 全景回顾——一个自进化代码知识库的自我修养](https://mp.weixin.qq.com/s/Xy9ivQEVe7S2HNJU1cxCGQ)（2026-10）
 
 
 
@@ -124,16 +124,16 @@ codewiki --version
 在 CodeBuddy 的 MCP 设置中添加以下配置（通常在设置界面的"工具"或"MCP"板块）：
 
 ```json
-{
-  "mcpServers": {
     "codewiki": {
-      "command": "codewiki",
-      "args": ["mcp"],
+      "command": "python",
+      "args": [
+        "-m",
+        "codewiki.mcp.server"
+      ],
       "maxOutputLength": 500000,
-      "timeout": 36000000
+      "timeout": 36000000,
+      "disabled": false
     }
-  }
-}
 ```
 
 配置完成后，CodeBuddy 的 MCP 工具列表中应出现 `codewiki` 相关的 53 个工具。
@@ -146,8 +146,11 @@ CodeWiki-Plus 开箱即用，**默认无需设置任何环境变量**。少数�
 {
   "mcpServers": {
     "codewiki": {
-      "command": "codewiki",
-      "args": ["mcp"],
+      "command": "python",
+      "args": [
+        "-m",
+        "codewiki.mcp.server"
+      ],
       "maxOutputLength": 500000,
       "timeout": 36000000,
       "env": {
@@ -166,7 +169,7 @@ CodeWiki-Plus 开箱即用，**默认无需设置任何环境变量**。少数�
 | 变量 | 作用 | 取值 / 默认 | 何时设 |
 |---|---|---|---|
 | `CODEWIKI_LANG` | 切换 MCP 输出语言 | `zh`（默认）/ `en`；`~/.codewiki/config.json` 的 `lang` 字段优先级更高，会盖掉它 | 想用英文界面时 |
-| `CODEWIKI_USER` | 遥测署名花名（避免用 git 真名） | 任意非空字符串；默认回退 `git config user.name` | 不想用真名署名时 |
+| `CODEWIKI_USER` | 遥测署名花名（避免用 git 真名） | 任意非空字符串；不设则按 `repowiki/.meta/user_id`（仓库本地身份钉，已 gitignore）→ `git -C <仓库> config user.email` → `user.name` → 机器缓存 → 系统登录名 依次解析 | 不想用真名署名时；换身份后删掉身份钉文件即可重新钉 |
 
 **以下是有条件才设（条件不满足请勿动）：**
 
@@ -478,7 +481,9 @@ LLM 发现跨功能约束
 - 触发形态为 **both**：手动命令（主）+ IDE Hook（可选）。
 - 自动采集/任务引导 Hook 接线支持 **CodeBuddy（`.codebuddy/`）、Qoder（`.qoder/`）、Claude Code（`.claude/`）、TRAE（`.trae/`，配置文件为 `hooks.json`）**；千问办公（QwenWork）无 shell hook 机制，走 **prompt 档**（只注入 AGENTS.md 引导段 + 主动沉淀协议块，用 `--ide qwenwork` 显式触发）。启用时运行 `codewiki install-hooks --repo-path <repo>` 自动检测项目根目录存在哪些 IDE 配置目录，检测到哪些就为哪些接线（拷贝 hook 脚本与 distill-worker subagent、幂等合并 settings.json/hooks.json、写入 AGENTS.md 引导段）；采集脚本对事件载荷做了通用化处理。配置中的命令路径一律用**项目相对形式**（如 `python ".codebuddy/hooks/task_session_start.py"`），不写机器相关绝对路径、也不用各宿主的 `$*_PROJECT_DIR` 占位符（实测展开不可靠）——文件随仓库共享，队友克隆到任意目录都能工作；历史遗留的绝对路径/占位符条目重跑 install-hooks 会原地迁移。显式 `--ide <name>` 默认要求该 IDE 配置目录已存在——仓库只为实际在用的工具接线；确需为尚未初始化的工具创建配置目录时，须显式加 `--create-dir`（防止 Agent 代跑命令时越权新建 `.qoder`/`.claude` 等目录）。
 
-**隐私语义（T2 团队遥测）：** `query_wiki` 的检索命中与 `capture_conversation` 的采纳记录会以 `user_id`（优先 `CODEWIKI_USER` 环境变量，回退 `git config user.name` / 系统登录名）署名写入 `repowiki/.meta/telemetry/<user_id>.jsonl` 并随仓库共享——此前这是 gitignore 的本机私有数据。`user_id` 不做鉴权（信任模型与 confirm 闸门一致：能提交即团队可信成员），仅作命名空间；不愿以 git 真名署名的成员可用 `CODEWIKI_USER` 设置花名，或在 `schema.yaml` 中设 `conventions.telemetry.enabled: false` 退回纯本机模式（写入 `repowiki/.meta/telemetry-local/`，已 gitignore，聚合逻辑不变）。
+**隐私语义（T2 团队遥测）：** `query_wiki` 的检索命中与 `capture_conversation` 的采纳记录会以 `user_id`（优先 `CODEWIKI_USER` 环境变量，其次仓库本地身份钉 `repowiki/.meta/user_id`，再回退 `git config user.email` / `git config user.name` / 系统登录名）署名写入 `repowiki/.meta/telemetry/<user_id>.jsonl` 并随仓库共享——此前这是 gitignore 的本机私有数据。`user_id` 不做鉴权（信任模型与 confirm 闸门一致：能提交即团队可信成员），仅作命名空间；不愿以 git 真名署名的成员可用 `CODEWIKI_USER` 设置花名，或在 `schema.yaml` 中设 `conventions.telemetry.enabled: false` 退回纯本机模式（写入 `repowiki/.meta/telemetry-local/`，已 gitignore，聚合逻辑不变）。
+
+**身份钉为什么存在：** 解析链的其余每一环都是**进程环境的函数**——`%APPDATA%`/`HOME` 决定机器缓存和 `git config` 读不读得到，读不到就落到 `os.getlogin()`。同一台机器上 IDE 服务态拉起的 MCP 进程与登录 shell 因此会解析出两个 `user_id`，把同一个人切成 `tasks/<id>/memories/` 下两个分片。克隆是唯一每个通道都必然共享的工件，所以每次由 `git -C <仓库> config user.email`（回退 `user.name`）验证过的身份都会写进 `repowiki/.meta/user_id`（已 gitignore、可重建），后续通道一律继承；机器缓存与登录名不允许写钉——缓存只是过去某次派生的记忆化，而那次派生本身可能就是退化通道的登录名兜底，把它钉到克隆上会把错误身份永久固化。`get_task_context` / `add_task_memory` 会回显 `user` 与 `user_source`（`env|pin|git-email|git-name|cache|login|local`），来源异常即可见；换身份 = 删这个文件。
 
 ### 任务记忆（Task Memory）
 
@@ -519,7 +524,7 @@ repowiki/
 
 - task_id 由标题 slugify 生成且不可变；同名任务被拒绝；无重命名（删除后重建）。
 - 任务记忆直写落盘（ADR-0002）——可逆操作（archive 兜底）不设确认闸门，与笔记评审闸门刻意区分：笔记是跨任务共享知识须评审，记忆是任务内进度事实。
-- 记忆超阈值（40 条 / 24KB）自动压缩：get_task_context 携带 compaction_work，Agent 顺手 submit，无需用户确认。
+- 记忆超阈值（40 条 / 24KB）自动压缩：get_task_context 携带 compaction_action 派发指令，由异步子代理跑 prepare→写摘要→submit，待压条目不进主 Agent 上下文，无需用户确认。
 - 可选的 IDE SessionStart Hook（默认关闭）在会话开始时自动提示关联任务。
 
 ### 渐进式阅读协议
@@ -980,8 +985,11 @@ Add the following to your CodeBuddy MCP settings:
 {
   "mcpServers": {
     "codewiki": {
-      "command": "codewiki",
-      "args": ["mcp"]
+      "command": "python",
+      "args": [
+        "-m",
+        "codewiki.mcp.server"
+      ],
     }
   }
 }
@@ -1189,7 +1197,9 @@ Inspired by Team-Agent-Memory's "extract retrievable experience from conversatio
 - Trigger form is **both**: manual command (primary) + IDE hook (optional).
 - The capture / task-guidance hooks are wired for **CodeBuddy (`.codebuddy/`), Qoder (`.qoder/`) and Claude Code (`.claude/`)**. To enable, run `codewiki install-hooks --repo-path <repo>`: it auto-detects which IDE config dirs exist in the project root and wires each one found (copies the hook scripts and the distill-worker subagent, idempotently merges `settings.json` hook registrations, and upserts the AGENTS.md task-guidance section). The capture script parses generic event payloads. Hook command paths are emitted in a **portable per-IDE form** (CodeBuddy `$CODEBUDDY_PROJECT_DIR/...`, Qoder repo-relative, Claude Code `${CLAUDE_PROJECT_DIR}/...`) — never a machine-specific absolute path — so the committed `settings.json` works from any teammate's checkout location; pre-existing absolute-path entries are upgraded in place on re-run. Explicit `--ide <name>` requires that IDE's config dir to already exist — a repo is wired only for tools actually used in it; to deliberately create a not-yet-initialised config dir you must pass `--create-dir` (guards against agents conjuring `.qoder`/`.claude` dirs in repos that never used those tools).
 
-**Privacy semantics (T2 team telemetry):** `query_wiki` retrieval hits and `capture_conversation` adoption records are written to `repowiki/.meta/telemetry/<user_id>.jsonl` (committed to the repo) under a `user_id` resolved from the `CODEWIKI_USER` env var, falling back to `git config user.name` / the OS login name — this data used to be a gitignored local file. The `user_id` is not an auth mechanism (trust model equals the confirm gate: anyone who can commit is a trusted teammate), it is a namespace only. Members who prefer not to sign telemetry with their git name can set a pseudonym via `CODEWIKI_USER`, or set `conventions.telemetry.enabled: false` in `schema.yaml` to fall back to local-only mode (written to `repowiki/.meta/telemetry-local/`, gitignored; aggregation is unchanged).
+**Privacy semantics (T2 team telemetry):** `query_wiki` retrieval hits and `capture_conversation` adoption records are written to `repowiki/.meta/telemetry/<user_id>.jsonl` (committed to the repo) under a `user_id` resolved from the `CODEWIKI_USER` env var, then the repo-local identity pin `repowiki/.meta/user_id`, then `git config user.email` / `git config user.name` / the OS login name — this data used to be a gitignored local file. The `user_id` is not an auth mechanism (trust model equals the confirm gate: anyone who can commit is a trusted teammate), it is a namespace only. Members who prefer not to sign telemetry with their git name can set a pseudonym via `CODEWIKI_USER`, or set `conventions.telemetry.enabled: false` in `schema.yaml` to fall back to local-only mode (written to `repowiki/.meta/telemetry-local/`, gitignored; aggregation is unchanged).
+
+**Why the pin exists:** every other rung of that chain is a function of the *process* environment — `%APPDATA%`/`HOME` decide whether the machine cache and `git config` are readable at all, and when they are not the resolver drops to `os.getlogin()`. An MCP server spawned by the IDE therefore resolves a different `user_id` than a login shell on the same machine, splitting one person across two `tasks/<id>/memories/` shards. The clone is the one artifact every channel certainly shares, so every identity verified on the spot by `git -C <repo> config user.email` (falling back to `user.name`) is written to `repowiki/.meta/user_id` (gitignored, rebuildable) and later channels inherit it. Neither the machine cache nor the login name may pin: the cache only memoizes some past derivation, and that derivation may itself have been a degraded channel's login-name fallback, so pinning it would freeze the wrong identity onto the clone. `get_task_context` / `add_task_memory` echo `user` and `user_source` (`env|pin|git-email|git-name|cache|login|local`) so an unexpected source is visible; to change identity, delete the file.
 
 ### Task Memory
 
@@ -1227,7 +1237,7 @@ repowiki/
 
 - task_id is slugified from the title and immutable; duplicate titles are rejected; no rename (delete and recreate).
 - Task memories are written directly (ADR-0002) — reversible operations (archive-backed) skip the confirm gate, deliberately distinct from the note review gate: notes are shared cross-task knowledge and need review, memories are task-scoped progress facts.
-- Memories beyond the thresholds (40 entries / 24KB) are auto-compacted: get_task_context carries compaction_work, the agent submits the summary — no user confirmation needed.
+- Memories beyond the thresholds (40 entries / 24KB) are auto-compacted: get_task_context carries a compaction_action directive, and an async worker subagent runs prepare → writes the summary → submits, so the entries to compress never enter the main agent's context — no user confirmation needed.
 - An optional IDE SessionStart hook (off by default) can prompt task association at session start.
 
 ### Progressive Reading Protocol

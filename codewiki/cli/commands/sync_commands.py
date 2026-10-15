@@ -43,6 +43,18 @@ _SWITCH_ARGS = {"enable_task_management", "capture", "clone"}
 # 路径类参数：默认 "."（当前目录）
 _PATH_ARGS = {"repo_path", "workspace_path"}
 
+# 开关参数的映射指引（薄壳正文追加段用）：用户调用命令时附带的相关意愿，
+# Agent 须映射进 arguments 再调 get_prompt——否则意愿死在自由文本里，
+# opt-out 默认值照常生效（2026-09-29 实锤事故：用户答「否」仍被接线）。
+_SWITCH_HINTS = {
+    "enable_task_management": (
+        "- enable_task_management：默认启用任务管理接线；"
+        '用户明确表示不启用任务管理（如回答「否」/「不要」）时传 "false"'
+    ),
+    "capture": ('- capture：默认 on；用户明确表示关闭对话采集时传 "off"'),
+    "clone": ('- clone：默认 true；用户明确表示只登记不克隆时传 "false"'),
+}
+
 _STUB_TEMPLATE = """# {title}
 
 {description}
@@ -53,8 +65,11 @@ _STUB_TEMPLATE = """# {title}
 get_prompt(name="{name}"{args_line})
 ```
 
-返回的工作流包含分阶段指引，逐步照做即可。
+{switch_block}返回的工作流包含分阶段指引，逐步照做即可。
 不要凭记忆执行——模板真源在 `codewiki/mcp/prompts.py`，以 `get_prompt` 返回内容为准。
+"""
+
+_SWITCH_BLOCK_HEAD = """可选开关参数（默认值即上述调用；用户调用命令时附带的相关意愿，先映射进 arguments 再调用 get_prompt，不要丢弃）：
 """
 
 
@@ -84,6 +99,23 @@ def _default_arguments(meta: dict) -> str:
     return "{" + ", ".join(pairs) + "}"
 
 
+def _switch_block(meta: dict) -> str:
+    """含开关参数的 prompt 生成映射指引段；无开关参数返回空串。
+
+    开关参数不注入 arguments（默认值生效），但薄壳必须告诉 Agent：
+    用户调用命令时附带的相关意愿（如「不要启用任务管理」）要映射进
+    arguments 再调 get_prompt——这是意愿到达 prompt 渲染层的唯一通道。
+    """
+    hints = [
+        _SWITCH_HINTS[arg_name]
+        for arg_name, _required in meta.get("args", [])
+        if arg_name in _SWITCH_HINTS
+    ]
+    if not hints:
+        return ""
+    return _SWITCH_BLOCK_HEAD + "\n".join(hints) + "\n\n"
+
+
 def _render_stub(name: str, title: str, description: str) -> str:
     """渲染单个命令薄壳。"""
     meta = {"args": []}
@@ -96,7 +128,11 @@ def _render_stub(name: str, title: str, description: str) -> str:
     if arguments:
         args_line = f", arguments={arguments}"
     return _STUB_TEMPLATE.format(
-        title=title, description=description, name=name, args_line=args_line
+        title=title,
+        description=description,
+        name=name,
+        args_line=args_line,
+        switch_block=_switch_block(meta),
     )
 
 

@@ -1,5 +1,16 @@
 <!-- CodeWiki LLM Wiki -->
 
+## 验证入口（改完 Python 代码必跑的检查）
+
+安装依赖：`uv sync --frozen`（Python 3.12+）。**命令统一用 `uv run python -m <pkg>` 形式**：本机实测 `uv run pytest --version` 报 `uv trampoline failed to canonicalize script path`（exit 1），`uv run python -m pytest --version` 才通。
+
+- **聚焦检查**（改完先跑，秒级）：`uv run python -m pytest tests/test_<对应模块>.py -q -p no:cacheprovider`
+- **全量测试**（约 11 分钟）：`uv run python -m pytest -q`
+- **lint / 格式**：`uv run python -m ruff check <files>`、`uv run python -m ruff format <files>`
+- **类型检查**：`uv run python -m mypy --follow-imports=silent <files>` — 全量基线有 519 个存量错误（`.qoder/mypy-baseline.txt`），故只查变更文件、CI 里非阻塞
+- **MCP handler 契约**（126 项断言，入口是 `main()` 而不是 `test_*`，**pytest 永远收集不到它**）：`uv run python tests/okf_regression_test.py`。CI 的 test job 已显式运行，但因 6 条断言落后于产品变更（当前 120 通过 / 6 失败）而暂为 `continue-on-error`。
+- ⚠️ **不要直接跑 `tests/smoke_test_mcp.py`**：它把本仓真实路径传给 `analyze_repo`，而 `codewiki/mcp/tools/analysis.py:57-64` 已把 output_dir 收敛为 `repo_path` 的纯函数（忽略调用方覆盖），运行它会写入真实 `repowiki/` 并在 `analysis.py:74` 触发 `session_ff_only` git 操作。
+
 ## CodeWiki LLM Wiki
 
 本项目已使用 [CodeWiki](https://github.com/mambo-wang/CodeWiki-Plus) 生成 LLM Wiki 文档，位于 `repowiki/` 目录。
@@ -51,17 +62,19 @@
 
 ## Agent skills
 
-### Issue tracker
+Matt Pocock 工程技能（v1.3.1，27 个）装在共享库 `~/.agents/skills/`；标了 `disable-model-invocation` 的那些（`grill-me`、`to-spec`、`to-tickets`、`handoff`、`retro`、`implement` 等）只能 `/斜杠` 手动调用，不会自动命中。
 
-Issues live in this repo's GitHub Issues (uses the `gh` CLI). See `docs/agents/issue-tracker.md`.
+### Issue tracker（工单去向）
+
+对外来件与分诊队列走本仓库的 GitHub Issues（`gh` CLI）；会话内部拆出的实现工单落 `.scratch/<feature>/issues/`，不进公开仓库。判据与两套约定见 `docs/agents/issue-tracker.md`。
 
 ### Triage labels
 
-Five canonical roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+五个规范角色：`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix`。映射见 `docs/agents/triage-labels.md`。
 
 ### Domain docs
 
-Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+单上下文布局：根 `CONTEXT.md`（术语表事实源，`GLOSSARY.md` 是指向它的符号链接）+ `docs/adr/`。消费规则与写回口径见 `docs/agents/domain.md`。
 
 ## Team memory fusion (conversation → Wiki)
 
@@ -72,7 +85,7 @@ Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.
 
 跨会话延续长线工作上下文。任务记忆是**任务范围内的进度知识**，与 Wiki 笔记（**跨任务的通用经验**）互补。
 
-**会话开始时（必须执行）**：若本会话已收到 SessionStart hook 注入的任务关联指引，按其执行（弹框规则、补蒸馏、收尾采集以注入为准）；**未收到注入时**，按 `get_prompt(name="task-workflow")` 的「会话开始：关联任务」一节执行——用 `ask_followup_question` 弹一次任务关联框（一框列全所有进行中任务 + 新建 + 跳过），绑定后 `get_task_context` 拉取上下文。
+**会话开始时（必须执行）**：若本会话已收到 SessionStart hook 注入的任务关联指引，按其执行（弹框规则、补蒸馏、收尾采集以注入为准）；**未收到注入时**，按 `get_prompt(name="task-workflow")` 的「会话开始：关联任务」一节执行——用宿主原生结构化提问工具弹一次任务关联框（CodeBuddy 系 `ask_followup_question`：一框列全所有进行中任务 + 新建 + 跳过；Qoder 系 `AskUserQuestion`：单题 options 硬上限 4、硬下限 2，取最近的 3 个任务 + 跳过（选项位有富余时补「新建任务」），其余任务写进问题正文、由「其他」自由输入承接），绑定后 `get_task_context` 拉取上下文。
 
 完整工作流（补蒸馏、会话中采集、收尾、检索、存储布局与实现约束）见 MCP prompt：`get_prompt(name="task-workflow")` —— 按需获取。
 <!-- TEAM-MEMORY-TASK:END -->

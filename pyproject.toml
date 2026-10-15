@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "codewiki-plus"
-version = "5.14.1"
+version = "5.15.0"
 description = "Transform codebases into comprehensive documentation using AI-powered analysis"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -58,7 +58,6 @@ dependencies = [
     "uvicorn>=0.35.0",
     "python-multipart>=0.0.20",
     "colorama>=0.4.6",
-    "logfire>=4.1.0",
     "coding-agent-wrapper>=0.1.2",
     "mcp>=1.0.0,<2",
     "jieba>=0.42.1",

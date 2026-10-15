@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 956" font-family="system-ui,'PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif">
+  <defs>
+    <marker id="a2" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#5A6472"/></marker>
+    <style>
+      .t{font-size:34px;font-weight:800;fill:#1F2733}
+      .st{font-size:21px;fill:#5A6472}
+      .h1{font-size:25px;font-weight:800;fill:#1F2733}
+      .bd{font-size:22px;fill:#1F2733}
+      .mu{font-size:21px;fill:#5A6472}
+      .num{font-size:21px;font-weight:800;fill:#FFFFFF}
+      .chip{font-size:22px;font-weight:800;fill:#1F2733}
+      .card{fill:#FFFFFF;stroke:#D6DBE3;stroke-width:1.6}
+    </style>
+  </defs>
+
+  <rect width="640" height="956" fill="#F7F8FA"/>
+  <text x="30" y="48" class="t">图 C · 裁决 → 闸门 → 渲染</text>
+  <text x="30" y="80" class="st">Step 3–5 · specialist 只是线索，定级发分只此一处</text>
+
+  <g>
+    <rect x="30" y="100" width="580" height="206" rx="12" class="card" stroke="#2F6FED" stroke-width="2.2"/>
+    <text x="56" y="138" class="h1" fill="#2F6FED">Step 3 · 主 Agent 统一裁决</text>
+    <circle cx="70" cy="172" r="14" fill="#2F6FED"/><text x="70" y="179" text-anchor="middle" class="num">1</text>
+    <text x="96" y="179" class="bd">保留每条候选，不为凑数丢弃</text>
+    <circle cx="70" cy="206" r="14" fill="#2F6FED"/><text x="70" y="213" text-anchor="middle" class="num">2</text>
+    <text x="96" y="213" class="bd">目标·后果·负责人·修复全同才合并</text>
+    <circle cx="70" cy="240" r="14" fill="#2F6FED"/><text x="70" y="247" text-anchor="middle" class="num">3</text>
+    <text x="96" y="247" class="bd">一个后果配一个主检查</text>
+    <circle cx="70" cy="274" r="14" fill="#2F6FED"/><text x="70" y="281" text-anchor="middle" class="num">4</text>
+    <text x="96" y="281" class="bd">先冻结定级与分数，再写读者文案</text>
+  </g>
+  <line x1="320" y1="306" x2="320" y2="326" stroke="#5A6472" stroke-width="2" marker-end="url(#a2)"/>
+
+  <g>
+    <rect x="30" y="330" width="580" height="88" rx="12" fill="#EAF6EF" stroke="#12A594" stroke-width="2"/>
+    <text x="56" y="364" class="h1" fill="#0E7A5F">才提升为发现</text>
+    <text x="56" y="400" class="bd">当下后果 · 治理要求 · 确定性缺陷 · ＋可执行修复</text>
+
+    <rect x="30" y="430" width="580" height="88" rx="12" fill="#FDECE8" stroke="#E4572E" stroke-width="2"/>
+    <text x="56" y="464" class="h1" fill="#A8341A">一律推迟</text>
+    <text x="56" y="500" class="bd">计数 · 缺失资产 · 占位取值 · 假想风险</text>
+  </g>
+
+  <text x="30" y="562" class="h1" fill="#A8341A">八道闸门 · 任一失败即阻塞</text>
+  <g>
+    <rect x="30"  y="580" width="136" height="60" rx="10" class="card"/><text x="98"  y="618" text-anchor="middle" class="chip">证据资格</text>
+    <rect x="178" y="580" width="136" height="60" rx="10" class="card"/><text x="246" y="618" text-anchor="middle" class="chip">读者价值</text>
+    <rect x="326" y="580" width="136" height="60" rx="10" class="card"/><text x="394" y="618" text-anchor="middle" class="chip">事实一致</text>
+    <rect x="474" y="580" width="136" height="60" rx="10" class="card"/><text x="542" y="618" text-anchor="middle" class="chip">资产问责</text>
+
+    <rect x="30"  y="652" width="136" height="60" rx="10" class="card"/><text x="98"  y="690" text-anchor="middle" class="chip">隐私红线</text>
+    <rect x="178" y="652" width="136" height="60" rx="10" class="card"/><text x="246" y="690" text-anchor="middle" class="chip">修复可执行</text>
+    <rect x="326" y="652" width="136" height="60" rx="10" class="card"/><text x="394" y="690" text-anchor="middle" class="chip">分数纪律</text>
+    <rect x="474" y="652" width="136" height="60" rx="10" class="card"/><text x="542" y="690" text-anchor="middle" class="chip">候选提升</text>
+  </g>
+  <line x1="320" y1="712" x2="320" y2="734" stroke="#5A6472" stroke-width="2" marker-end="url(#a2)"/>
+
+  <g>
+    <rect x="30" y="738" width="580" height="88" rx="12" class="card" stroke="#7B61FF" stroke-width="2.2"/>
+    <text x="56" y="772" class="h1" fill="#7B61FF">Step 4 · render --validate</text>
+    <text x="56" y="808" class="bd">必须 status: pass · 不得手写报告</text>
+  </g>
+
+  <g>
+    <rect x="30" y="838" width="580" height="88" rx="12" fill="#FFF6E8" stroke="#E8A33D" stroke-width="2"/>
+    <text x="56" y="872" class="h1" fill="#8A5B12">Step 5 · 修复不改分</text>
+    <text x="56" y="908" class="bd">同窗口修复只更新进度，分数不动</text>
+  </g>
+</svg>

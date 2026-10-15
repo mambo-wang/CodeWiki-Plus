@@ -425,7 +425,7 @@ def handle_capture_conversation(
         # a changed transcript counts its new claims.
         from codewiki.src.config import user_id
 
-        capture_key = f"{user_id()}/{source_session_id or f'hash-{content_hash[:24]}'}"
+        capture_key = f"{user_id(output_dir)}/{source_session_id or f'hash-{content_hash[:24]}'}"
         adoption_inserted = record_adoption_events(
             output_dir,
             capture_key,

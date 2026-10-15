@@ -449,7 +449,7 @@ def handle_ingest_note(
     try:
         from codewiki.src.config import user_id
 
-        _author = user_id()
+        _author = user_id(output_dir)
         if _author:
             frontmatter_lines.append(f"author: {_author}")
     except Exception as e:

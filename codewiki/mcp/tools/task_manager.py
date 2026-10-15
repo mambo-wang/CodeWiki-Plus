@@ -140,11 +140,23 @@ def _archive_path_for(output_dir: Path, task_id: str, owner: str) -> Path:
     return KnowledgeStore(output_dir).archive_path_for(task_id, owner)
 
 
-def _current_user_id() -> str:
+def _current_user_id(output_dir: Optional[Path] = None) -> str:
     """Current user's namespace id (shared with telemetry; see src/config.py)."""
-    from codewiki.src.config import user_id
+    return _current_identity(output_dir)[0]
 
-    return user_id()
+
+def _current_identity(output_dir: Optional[Path] = None) -> Tuple[str, str]:
+    """``(uid, source)`` for the current caller.
+
+    Pass ``output_dir`` so the repo-local identity pin participates: the
+    environment-derived rungs (APPDATA cache, git config) are unavailable in an
+    IDE-spawned service-state MCP server, which would otherwise split one person
+    across two memory shards. ``source`` is echoed in tool responses (C: 身份可见性)
+    so drift shows up instead of silently depositing a new shard.
+    """
+    from codewiki.src.config import resolve_user_id
+
+    return resolve_user_id(output_dir)
 
 
 def _collect_memory_files(
@@ -355,7 +367,7 @@ def _load_memories_layered(
     ``compaction_level`` are computed over the HOT layer only —
     only the current user's own (+ legacy) files are theirs to compact.
     """
-    uid = _current_user_id()
+    uid = _current_user_id(output_dir)
     own_path, legacy_path, other_paths = _collect_memory_files(output_dir, task_id, uid)
     own = _parse_memory_file(own_path)
     leg = _parse_memory_file(legacy_path)
@@ -467,7 +479,7 @@ def append_task_memories_direct(
     if not task_id or not contents:
         return 0
     return KnowledgeStore(output_dir).append_memories(
-        task_id, contents, user=_current_user_id(), at=at
+        task_id, contents, user=_current_user_id(output_dir), at=at
     )
 
 
@@ -751,7 +763,7 @@ def _write_check(
     import difflib
 
     ks = KnowledgeStore(output_dir)
-    own_path, legacy_path, _ = ks.collect_memory_files(task_id, _current_user_id())
+    own_path, legacy_path, _ = ks.collect_memory_files(task_id, _current_user_id(output_dir))
     own = _parse_memory_file(own_path)
     leg = _parse_memory_file(legacy_path)
     hot_entries = (own[2] if own else []) + (leg[2] if leg else [])
@@ -806,8 +818,9 @@ def _write_check(
     if len(window_entries) + 1 > _WRITE_WINDOW_SOFT_LIMIT:
         hint = (
             f"{len(window_entries) + 1} entries in the current compaction window "
-            f"(soft limit {_WRITE_WINDOW_SOFT_LIMIT}) — consider compacting via "
-            "compact_task_memories(mode='prepare')."
+            f"(soft limit {_WRITE_WINDOW_SOFT_LIMIT}). Write-side counter only — "
+            "compaction is dispatched by get_task_context at the red level; "
+            "no action needed here."
         )
     return True, None, hint
 
@@ -840,7 +853,7 @@ def handle_add_task_memory(arguments: Dict[str, Any], store: SessionStore) -> st
         return json.dumps({"error": f"Task '{task_id}' does not exist."})
 
     ks = KnowledgeStore(output_dir)
-    uid = _current_user_id()
+    uid, uid_source = _current_identity(output_dir)
 
     # ADR-0009 write check (skip when superseding — the new entry is by
     # definition a revision of the old one, similarity is expected).
@@ -897,15 +910,22 @@ def handle_add_task_memory(arguments: Dict[str, Any], store: SessionStore) -> st
         "entry_id": new_id,
         "appended_chars": len(content),
         "hot_entries": f"{hot_total}/{_COMPACTION_THRESHOLD_COUNT}",
+        # C: 身份可见性 — the shard this entry landed in, and the rung that
+        # resolved it. An unexpected source (login/local) means the pin and the
+        # environment-derived rungs were unavailable.
+        "user": uid,
+        "user_source": uid_source,
     }
     if superseded_ref:
         resp["superseded"] = superseded_ref
     if hint:
         resp["hint"] = hint
     if _compaction_needed(hot_total, hot_bytes):
-        resp["hint"] = (
-            (resp.get("hint") + " ") if resp.get("hint") else ""
-        ) + f"Hot layer at {hot_total} entries — compaction due, see get_task_context."
+        resp["hint"] = ((resp.get("hint") + " ") if resp.get("hint") else "") + (
+            f"Hot layer at {hot_total} entries — compaction due: dispatch the async "
+            "compaction subagent per get_task_context's compaction_action "
+            "(no user confirmation)."
+        )
     return json.dumps(resp, ensure_ascii=False)
 
 
@@ -954,21 +974,19 @@ def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> s
     )
 
     # Auto-compaction driver (docs/任务记忆检索与自动压缩设计.md D6): when
-    # compaction is due, carry the PREPARED work inline so the calling agent
-    # cannot miss it — it writes the summary and submits without a user gate
-    # (ADR-0002 extension: compaction is reversible via the archives). The
-    # payload comes from the SAME helper compact_task_memories(mode="prepare")
-    # serves (single source of truth — the two must never drift apart).
-    compaction_work: Optional[Dict[str, Any]] = None
+    # compaction is due (red), hand the main agent a *delegation* directive — an
+    # async worker subagent runs prepare → summary → submit. The directive is
+    # payload-free and needs no user confirmation (ADR-0002 extension: the
+    # originals all land in memories-archive, so the rewrite is reversible).
+    compaction_action: Optional[Dict[str, Any]] = None
+    uid, uid_source = _current_identity(output_dir)
     if compaction_due:
-        payload = _prepare_compaction_payload(output_dir, task_id)
-        if payload is not None:
-            payload["submit"] = (
-                "compact_task_memories(mode='submit', task_id=..., summary=<按 "
-                "instruction 写的摘要>) — 压缩直写落盘，无需用户确认（原文进 "
-                "memories-archive，可回溯）。"
-            )
-            compaction_work = payload
+        # Echo the caller's own repo_path so the dispatched worker can address the
+        # same knowledge base; a fresh subagent has no session to fall back on.
+        caller_repo = str(arguments.get("repo_path") or "").strip() or str(
+            (session.repo_path if session else output_dir.parent)
+        )
+        compaction_action = _compaction_action(task_id, caller_repo)
 
     # Discover related notes by frontmatter task_id. The ``status`` field lets
     # the host agent tell drafts apart from confirmed knowledge when injecting
@@ -1045,6 +1063,12 @@ def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> s
         {
             "ok": True,
             "task": task,
+            # C: 身份可见性 — which memory shard this session reads/writes, and which
+            # rung of the resolution chain produced it. A degraded environment (no
+            # pin, no APPDATA, git unreadable) stays visible here instead of silently
+            # depositing an extra memories/<uid>.md shard.
+            "user": uid,
+            "user_source": uid_source,
             "description": description,
             "memories": memories,
             "memories_total": mem_total,
@@ -1052,7 +1076,7 @@ def handle_get_task_context(arguments: Dict[str, Any], store: SessionStore) -> s
             "compaction_due": compaction_due,
             # ADR-0009 D9: graded signal; compaction_due stays as the red alias.
             "compaction_level": compaction_level,
-            **({"compaction_work": compaction_work} if compaction_work else {}),
+            **({"compaction_action": compaction_action} if compaction_action else {}),
             "related_notes": related_notes,
             "pending_raw_count": len(pending_raws),
             "pending_raws": pending_payload,
@@ -1090,7 +1114,7 @@ def _compact_threshold_state(
     ``_LEGACY_OWNER`` for legacy-file entries. Other users' files are NEVER
     part of the compaction unit (file-domain, author-exclusive invariant).
     """
-    uid = _current_user_id()
+    uid = _current_user_id(output_dir)
     own_path, legacy_path, _others = _collect_memory_files(output_dir, task_id, uid)
     own = _parse_memory_file(own_path)
     leg = _parse_memory_file(legacy_path)
@@ -1121,9 +1145,8 @@ def _compact_threshold_state(
 def _prepare_compaction_payload(output_dir: Path, task_id: str) -> Optional[Dict[str, Any]]:
     """Shared prepare payload for compaction work (single source of truth).
 
-    Used by both ``compact_task_memories(mode="prepare")`` and the
-    get_task_context auto-compaction driver (``compaction_work``) — the
-    two must never drift apart. Returns None when compaction is not due.
+    Served by ``compact_task_memories(mode="prepare")`` — the entry point the
+    compaction worker subagent calls. Returns None when compaction is not due.
     """
     _own, _leg, summaries, entries, _bytes, needed = _compact_threshold_state(output_dir, task_id)
     if not needed:
@@ -1140,6 +1163,52 @@ def _prepare_compaction_payload(output_dir: Path, task_id: str) -> Optional[Dict
         "summary_heading": _SUMMARY_HEADING,
         "archive_owners": sorted({owner for owner, _ in compress}),
         "instruction": _compact_instruction(_COMPACTION_SUMMARY_MAX_CHARS),
+    }
+
+
+def _compaction_action(task_id: str, repo_path: str) -> Dict[str, Any]:
+    """Delegation directive carried by get_task_context when compaction is due.
+
+    Deliberately payload-free: inlining ``entries_to_compress`` into the main
+    agent's context costs the very bytes compaction exists to save, and the big
+    opaque blob is what nudges agents to ask the user before acting. The worker
+    subagent fetches the entries itself via mode="prepare".
+
+    ``repo_path`` is echoed into the recipe because the worker is a *fresh*
+    context whose only source of truth is this directive — and the tools reject a
+    call that carries no repo_path (or an active session), which it cannot have.
+    """
+    return {
+        "task_id": task_id,
+        "repo_path": repo_path,
+        "thresholds": f"{_COMPACTION_THRESHOLD_COUNT} 条 / {_COMPACTION_THRESHOLD_BYTES} B",
+        "keep_recent": _COMPACTION_KEEP,
+        "summary_max_chars": _COMPACTION_SUMMARY_MAX_CHARS,
+        "dispatch": (
+            "立即用 Task 工具发一个**异步**子代理执行压缩：内置 general-purpose 子代理"
+            "（本宿主自定义子代理拿不到 MCP 权限），主 Agent 不等待、不阻塞当前工作。"
+            "给子代理的三步配方（每次 codewiki MCP 调用都必须带上 "
+            f'repo_path="{repo_path}"，子代理没有会话上下文，缺它工具直接报错）：'
+            f'① compact_task_memories(mode="prepare", repo_path="{repo_path}", '
+            f'task_id="{task_id}") '
+            "取待压条目——返回值里的 entries_to_compress / instruction / "
+            "summary_max_chars 都以 prepare 的返回为准（不要自己假设数值）；"
+            "若 prepare 返回 compaction_needed=false，**立即停止并汇报原因**，"
+            "不要写摘要、不要 submit（要么阈值未越线，要么待压条目已被并发压缩掉）；"
+            f"② 按 instruction 写「早期记忆（摘要）」，控制在 prepare 返回的 summary_max_chars 内；"
+            "existing_summary 与待压条目都是**素材**，不要整段粘回——摘要正文不得含任何 "
+            f"`##`/`###` 标题行（`{SUMMARY_HEADING}` 由 submit 自动加，正文里再塞会让标题重复、"
+            "正文被当成条目）；"
+            f'③ compact_task_memories(mode="submit", repo_path="{repo_path}", '
+            f'task_id="{task_id}", summary=...) 落盘。'
+            "压缩单元是**当前调用者的分片** memories/<user_id>.md（+ legacy memories.md 并入），"
+            "永不动他人文件：prepare 返回 0 条即分片归属与预期不符，按上一条停止汇报。"
+        ),
+        "gate": (
+            "无需向用户确认，也不得回头征求同意——压缩直写落盘，原文全量进 "
+            "memories-archive/（可回溯，ADR-0002 延伸）。"
+        ),
+        "report": "子代理回报后向用户一句话同步：压缩条目数与 memories_total 变化。",
     }
 
 
@@ -1254,6 +1323,10 @@ def handle_compact_task_memories(arguments: Dict[str, Any], store: SessionStore)
 
     # mode == "submit": apply the caller-authored summary.
     new_summary = str(arguments.get("summary") or "").strip()
+    # prepare hands the summary back *with* its canonical heading; a caller that pastes
+    # it verbatim would get the heading twice, since submit prepends its own below.
+    if new_summary.startswith(_SUMMARY_HEADING):
+        new_summary = new_summary[len(_SUMMARY_HEADING) :].strip()
     if not new_summary:
         return json.dumps(
             {"error": "summary is required for mode='submit' (produce it via mode='prepare')."}
@@ -1378,7 +1451,7 @@ def handle_search_task_memories(arguments: Dict[str, Any], store: SessionStore) 
     result = KnowledgeStore(output_dir).search_memories(
         task_id,
         query,
-        uid=_current_user_id(),
+        uid=_current_user_id(output_dir),
         include_archive=bool(arguments.get("include_archive", True)),
         include_others=bool(arguments.get("include_others", False)),
         max_results=max_results,

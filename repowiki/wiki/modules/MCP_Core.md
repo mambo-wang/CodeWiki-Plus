@@ -25,7 +25,7 @@ verified:
 
 ## 概述
 
-MCP_Core 是 CodeWiki MCP Server（`codewiki.mcp.server`）的核心骨架，负责把各类工具（代码分析、Wiki 生成、知识库管理、质量保障、跨服务分析）以 MCP 协议暴露给 IDE Agent（Cursor / Claude Desktop）。它同时承载了**工具注册与分发、Prompt 模板、只读资源（Resources）、会话状态管理、大文件落地（Workspace）、遗留工具与增量元数据**等职责，是 [[MCP_Server]] 与 [[MCP_Tools_Analysis]]、[[MCP_Tools_Dependency]]、[[MCP_Tools_DocWriter]]、[[MCP_Tools_Knowledge]]、[[MCP_Tools_Quality]]、[[MCP_Prompts]]、[[MCP_Cache]] 等子模块的顶层编排者。
+MCP_Core 是 CodeWiki MCP Server（`codewiki.mcp.server`）的核心骨架，负责把各类工具（代码分析、Wiki 生成、知识库管理、质量保障、跨服务分析）以 MCP 协议暴露给 IDE Agent（Cursor / Claude Desktop）。它同时承载了**工具注册与分发、Prompt 模板、只读资源（Resources）、会话状态管理、大文件落地（Workspace）、遗留工具与增量元数据**等职责，是 [MCP_Server](MCP_Server.md) 与 [MCP_Tools_Analysis](MCP_Tools_Analysis.md)、[MCP_Tools_Dependency](MCP_Tools_Dependency.md)、[MCP_Tools_DocWriter](MCP_Tools_DocWriter.md)、[MCP_Tools_Knowledge](MCP_Tools_Knowledge.md)、[MCP_Tools_Quality](MCP_Tools_Quality.md)、[MCP_Prompts](MCP_Prompts.md)、[MCP_Cache](MCP_Cache.md) 等子模块的顶层编排者。
 
 核心设计要点：
 - **零配置工具集 + 遗留工具集**分离：`_fine_grained_tools()` 与 `_legacy_tools()` 在 `list_tools()` 中合并返回。前者无需 LLM 配置，后者（`generate_docs`/`get_module_tree`）需 `codewiki config set`。
@@ -40,7 +40,7 @@ MCP_Core 是 CodeWiki MCP Server（`codewiki.mcp.server`）的核心骨架，负
 | `_legacy_tools` | 函数 | server.py | 返回需 LLM 配置的遗留工具（generate_docs、get_module_tree）定义 |
 | `list_tools` | 协程 | server.py | MCP `list_tools` 处理器，合并两套工具 |
 | `call_tool` | 协程 | server.py | MCP `call_tool` 分发器，按名称路由到各 handler（懒加载导入） |
-| `_legacy_generate_docs` | 协程 | server.py | 遗留一句话生成文档（走 DocumentationGenerator） |
+| `_legacy_generate_docs` | 协程 | server.py | 遗留一句话生成文档（走 [DocumentationGenerator](../../../codewiki/src/be/documentation_generator.py)） |
 | `_legacy_get_module_tree` | 协程 | server.py | 读取已有 module_tree.json 并生成摘要 |
 | `_load_config` | 函数 | server.py | 从 keyring/config.json 加载 CodeWiki 配置，遗留工具前置 |
 | `_read_wiki_resource` | 函数 | server.py | 解析 `codewiki://wiki/{output_dir}/{type}` 参数化资源 |
@@ -96,10 +96,10 @@ MCP_Core 是 CodeWiki MCP Server（`codewiki.mcp.server`）的核心骨架，负
 `list_resources` 暴露 3 个静态资源：`codewiki://prompts/catalog`、`codewiki://capabilities`（工具清单/分类/关键模式）、`codewiki://page-types`（page_type 路由与 wikilink 规则）。`list_resource_templates` 提供 `codewiki://wiki/{output_dir}/{catalog|module-tree|index-status}` 参数化模板，由 `_read_wiki_resource` 解析 URI（URL 解码 output_dir）后分派到 `_wiki_catalog`/`_wiki_module_tree`/`_wiki_index_status`。
 
 ### 6. Prompt 工作流模板（Prompts）
-`list_prompts` 声明 10 个中文模板；`get_prompt` 经 `prompts_map` 路由到 10 个 `_prompt_*` 生成器。每个生成器基于入参（repo_path 经 `_resolve_path`）产出分步中文指引（如 generate-wiki 的「分析→聚类→处理顺序→逐模块写→总览→质检关闭」）。
+`list_prompts` 声明 23 个中文模板；MCP `prompts/get` 与 `get_prompt` 工具共用模块级路由表 `_WORKFLOW_PROMPTS`，分派到 23 个 `_prompt_*` 生成器（工具侧 `prompt_type` 的 enum 由 `workflow_prompt_names()` 生成，并接受 `name` 别名，见 ADR-0017 补充）。每个生成器基于入参（repo_path 经 `_resolve_path`）产出分步中文指引（如 generate-wiki 的「分析→聚类→处理顺序→逐模块写→总览→质检关闭」）。
 
 ### 7. 遗留工具与增量元数据
-`_load_config()` 读取 `ConfigManager` + keyring；`_legacy_generate_docs` 装配 `BackendConfig` 并跑 [[LLM_Backend]] 的 `DocumentationGenerator`。`_write_metadata_json` 在 close_session 时记录 git commit 与时间戳，供下次 `analyze_repo` 增量 diff。
+`_load_config()` 读取 `ConfigManager` + keyring；`_legacy_generate_docs` 装配 `BackendConfig` 并跑 [LLM_Backend](LLM_Backend.md) 的 `DocumentationGenerator`。`_write_metadata_json` 在 close_session 时记录 git commit 与时间戳，供下次 `analyze_repo` 增量 diff。
 
 ## 数据流（mermaid）
 
@@ -124,12 +124,12 @@ flowchart TD
 
 ## 依赖关系
 
-- 会话/缓存：`[[MCP_Cache]]`（AnalysisCache / LazyComponentStore / ComponentMeta）
-- 工具实现子模块：`[[MCP_Tools_Analysis]]`、`[[MCP_Tools_Dependency]]`、`[[MCP_Tools_DocWriter]]`、`[[MCP_Tools_Knowledge]]`、`[[MCP_Tools_Quality]]`
-- 提示模板：`[[MCP_Prompts]]`（MCP_Core 内的 `_prompt_*` 即其实现入口）
-- 服务端骨架：`[[MCP_Server]]`
-- LLM 生成：`[[LLM_Backend]]`（DocumentationGenerator / BackendConfig）
-- 配置：`[[SharedConfig]]`（codewiki.src.config 的 meta_join/meta_resolve/Config）
+- 会话/缓存：`[MCP_Cache](MCP_Cache.md)`（[AnalysisCache](../../../codewiki/mcp/cache.py) / [LazyComponentStore](../../../codewiki/mcp/cache.py) / [ComponentMeta](../../../codewiki/mcp/cache.py)）
+- 工具实现子模块：`[MCP_Tools_Analysis](MCP_Tools_Analysis.md)`、`[MCP_Tools_Dependency](MCP_Tools_Dependency.md)`、`[MCP_Tools_DocWriter](MCP_Tools_DocWriter.md)`、`[MCP_Tools_Knowledge](MCP_Tools_Knowledge.md)`、`[MCP_Tools_Quality](MCP_Tools_Quality.md)`
+- 提示模板：`[MCP_Prompts](MCP_Prompts.md)`（MCP_Core 内的 `_prompt_*` 即其实现入口）
+- 服务端骨架：`[MCP_Server](MCP_Server.md)`
+- LLM 生成：`[LLM_Backend](LLM_Backend.md)`（[DocumentationGenerator](../../../codewiki/src/be/documentation_generator.py) / BackendConfig）
+- 配置：`[SharedConfig](SharedConfig.md)`（codewiki.src.config 的 meta_join/meta_resolve/[Config](../../../codewiki/src/config.py)）
 
 ## 使用示例
 
@@ -165,13 +165,13 @@ prompts/get generate-wiki
 
 ## 相关模块
 
-- `[[MCP_Server]]` — 顶层 MCP 服务端
-- `[[MCP_Cache]]` — 会话级 SQLite 组件缓存与懒加载
-- `[[MCP_Prompts]]` — 工作流 Prompt 模板
-- `[[MCP_Tools_Analysis]]` — analyze_repo / analyze_workspace / analyze_impact
-- `[[MCP_Tools_Dependency]]` — list_dependencies / list_components / query_cross_service
-- `[[MCP_Tools_DocWriter]]` — write_doc_file / edit_doc_file / save_module_tree
-- `[[MCP_Tools_Knowledge]]` — query_wiki / ingest_note / ingest_source
-- `[[MCP_Tools_Quality]]` — lint_wiki / flag_issue
-- `[[LLM_Backend]]` — 遗留 generate_docs 的文档生成后端
-- `[[SharedConfig]]` — meta_join / meta_resolve / Config 等共享配置工具
+- `[MCP_Server](MCP_Server.md)` — 顶层 MCP 服务端
+- `[MCP_Cache](MCP_Cache.md)` — 会话级 SQLite 组件缓存与懒加载
+- `[MCP_Prompts](MCP_Prompts.md)` — 工作流 Prompt 模板
+- `[MCP_Tools_Analysis](MCP_Tools_Analysis.md)` — analyze_repo / analyze_workspace / analyze_impact
+- `[MCP_Tools_Dependency](MCP_Tools_Dependency.md)` — list_dependencies / list_components / query_cross_service
+- `[MCP_Tools_DocWriter](MCP_Tools_DocWriter.md)` — write_doc_file / edit_doc_file / save_module_tree
+- `[MCP_Tools_Knowledge](MCP_Tools_Knowledge.md)` — query_wiki / ingest_note / ingest_source
+- `[MCP_Tools_Quality](MCP_Tools_Quality.md)` — lint_wiki / flag_issue
+- `[LLM_Backend](LLM_Backend.md)` — 遗留 generate_docs 的文档生成后端
+- `[SharedConfig](SharedConfig.md)` — meta_join / meta_resolve / [Config](../../../codewiki/src/config.py) 等共享配置工具
