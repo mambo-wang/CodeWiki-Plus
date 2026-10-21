@@ -1,6 +1,7 @@
 """`get_prompt` 工具通道服务 registry 工作流提示词（ADR-0017 薄壳契约的落地）。
 
-背景：命令薄壳与 AGENTS.md 指示 Agent 调
+背景：技能薄壳（SKILL.md，ADR-0019；ADR-0017 时代为命令薄壳）与 AGENTS.md
+指示 Agent 调
 ``get_prompt(name="task-workflow", arguments={"repo_path": "."})``，但工具通道的
 真参数是 ``prompt_type``，枚举只收模板类名字。只暴露 MCP 工具、没有
 ``prompts/get`` 通道的宿主（Qoder 系实测）照指引调用会被 schema 直接挡掉，

@@ -112,8 +112,9 @@ repowiki/.meta/locks/
 # CodeBuddy team-member runtime state (mailbox/history JSON) — transient, never commit
 .codebuddy/teams/
 
-# Qoder IDE plugin skills (not part of this repo)
-.qoder/skills/
+# Qoder IDE plugin skills (not part of this repo); codewiki-* 为 sync-skills 生成快照，入库（ADR-0019）
+.qoder/skills/*
+!.qoder/skills/codewiki-*/
 # better-harness 审查产物与 agent-lint 报告：秒级可重跑的工具输出，按 D1
 # 「可重建派生物不入库」排除（findings 结论已沉淀进文章与 repowiki 笔记）
 .qoder/better-harness-runs/

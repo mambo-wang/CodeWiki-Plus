@@ -155,9 +155,10 @@ def test_init_wiki_task_management_default_on():
     # 用户意愿闸门：渲染正文必须提示 Agent 尊重用户已表达的不启用意愿
     assert "用户意愿闸门" in text
     assert "跳过本步骤" in text
-    # sync-commands 升级为必做：不再有「跳过也无妨」
+    # sync-skills 升级为必做：不再有「跳过也无妨」（ADR-0019 技能薄壳口径）
     assert "跳过也无妨" not in text
-    assert "只有 codebuddy" in text
+    assert "编译宿主技能文件" in text
+    assert "sync-skills" in text
 
 
 def test_init_wiki_task_management_explicit_off():

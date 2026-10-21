@@ -6,7 +6,7 @@ tags:
 - codebuddy
 metadata:
   date: 2026-10-09
-  confidence_level: weak
+  confidence_level: shadow
   task_id: 产品维护
   source_session: 09354b56591d451e887b21cdc7d615c8
   related_modules:
@@ -14,7 +14,7 @@ metadata:
   severity: medium
   source_ref: conversations/conv-user_command-commands-codewiki-初始化单仓Wiki工作区-请为项目初始化-Wiki-工作区-9f00fb.md
   scene: sync-commands 宿主命令编译
-status: stable
+status: deprecated
 author: Administrator
 generated:
   by: codewiki/5.14.1
@@ -24,6 +24,8 @@ origin: conversation
 verified:
 - by: human:mambo-wang
   at: '2026-10-09T01:26:57Z'
+reject_reason: 「codebuddy 豁免、其余宿主用 sync-commands 命令薄壳」口径已被 ADR-0019 推翻：入口全量改为技能薄壳
+  SKILL.md（codewiki sync-skills），codebuddy 不再豁免。见 notes/2026-10-20-宿主可见入口全量改为技能薄壳sync-skills-编译-mcp-提示词为-skillmdadr-0019.md
 ---
 
 ## Fact（用户明确纠正的宿主行为口径）

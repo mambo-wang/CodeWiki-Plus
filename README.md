@@ -121,6 +121,8 @@ codewiki --version
 
 **第 2 步：配置 MCP Server**
 
+> **一键接线（推荐）**：跑 `codewiki setup` 可一次完成 hook 与会话采集接线、项目根 `.mcp.json` 创建/合并、以及 `codewiki-*` 技能文件生成（`--lang zh|en` 可注入 `CODEWIKI_LANG` 并决定技能语言，`--dry-run` 预览）。生成的 MCP 配置解释器按平台选择（Windows `python`，mac/Linux `python3`）。以下为其手工等价步骤。
+
 在 CodeBuddy 的 MCP 设置中添加以下配置（通常在设置界面的"工具"或"MCP"板块）：
 
 ```json
@@ -978,6 +980,8 @@ codewiki --version
 > Without uv, `pip install -e .[dev]` still works, but dependency resolution is not locked by `uv.lock`.
 
 **Step 2: Configure MCP Server**
+
+> **One-shot wiring (recommended)**: run `codewiki setup` to wire hooks + session capture, create/merge the project-root `.mcp.json`, and generate the `codewiki-*` skill files in a single pass (`--lang zh|en` injects `CODEWIKI_LANG` and picks the skill language; `--dry-run` previews). The generated MCP interpreter is platform-specific (`python` on Windows, `python3` on macOS/Linux). The steps below are the manual equivalent.
 
 Add the following to your CodeBuddy MCP settings:
 

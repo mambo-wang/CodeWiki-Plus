@@ -1,0 +1,19 @@
+---
+name: codewiki-impact-review
+description: "对指定组件或文件执行传递性影响分析（BFS 遍历），评估修改的爆炸半径：谁依赖我（depended_by）或我依赖谁（depends_on），输出模块级聚合、高风险组件识别和完整调用链路。"
+disable-model-invocation: true
+---
+
+# 修改影响范围评估
+
+对指定组件或文件执行传递性影响分析（BFS 遍历），评估修改的爆炸半径：谁依赖我（depended_by）或我依赖谁（depends_on），输出模块级聚合、高风险组件识别和完整调用链路。
+
+调用 MCP 获取完整工作流并按其执行：
+
+```
+get_prompt(name="impact-review", arguments={"repo_path": ".", "target": "<target>"})
+```
+
+返回的工作流包含分阶段指引，逐步照做即可。
+不要凭记忆执行——模板真源在 `codewiki/mcp/prompts.py`，以 `get_prompt` 返回内容为准。
+本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-impact-review 触发。

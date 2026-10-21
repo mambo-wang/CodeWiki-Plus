@@ -263,6 +263,12 @@ CLI 不可用（`codewiki` 命令未安装）时，回退到下方手动步骤�
 6. 验证完成后删除测试产物：`{repo_path}/repowiki/raw/` 下 verify-1 会话生成的 conv-*.md 文件"""
 
 
+# init-wiki / init-workspace 共用的「编译宿主技能文件」步骤（ADR-0019）：
+# 单一模块级副本，消除 ADR-0017 时代两处同文双副本的漂移温床。
+_SYNC_SKILLS_STEP = """## 编译宿主技能文件
+调用 `codewiki sync-skills`，把全部工作流提示词编译为宿主 IDE 的技能文件（`<宿主配置目录>/skills/codewiki-<name>/SKILL.md`，手动触发型，不占常驻上下文）。CLI 自动判定目标宿主（枚举仓库根 IDE 配置目录；无任何目录时兜底写 `.trae/skills/`），无需用户选择。技能文件是薄壳（只写如何获取全文），权威仍在 MCP `get_prompt`。"""
+
+
 def _prompt_init_wiki(args: dict[str, str]) -> str:
     repo_path = _resolve_path(args.get("repo_path", ""))
     # T6: 任务管理（跨会话任务记忆 + 对话采集 Hook）默认启用（opt-out）：
@@ -316,8 +322,7 @@ def _prompt_init_wiki(args: dict[str, str]) -> str:
 - **知识管理**：直接使用 ingest_note / query_wiki 进行知识归档和检索
 - **代码分析**：使用 code-analysis prompt 仅做结构分析不生成文档
 
-## 编译宿主命令文件
-调用 `codewiki sync-commands`，把全部工作流提示词编译为宿主 IDE 的斜杠命令文件（`<宿主配置目录>/commands/codewiki/`）。已知只有 codebuddy 会自动把 MCP prompt 映射为命令，其余宿主（Qoder/Claude Code/TRAE 等）都依赖本步骤生成命令入口。CLI 自动判定目标宿主（枚举仓库根 IDE 配置目录，排除 codebuddy；无任何目录时兜底写 `.trae/commands/codewiki/`），无需用户选择。命令文件是命令薄壳（只写如何获取全文），权威仍在 MCP `get_prompt`。
+{_SYNC_SKILLS_STEP}
 
 ## 注意事项
 - init_wiki 是幂等的：重复执行不会破坏已有内容
@@ -381,8 +386,7 @@ def _prompt_init_workspace(args: dict[str, str]) -> str:
 - init_workspace 幂等：痕迹齐备时重跑为 clone-only 接管（只补缺克隆、不触碰骨架与 AGENTS.md，布局配置缺失会补写）——因此该场景优先直接跑 bootstrap 脚本补克隆，无需经过 MCP；骨架有缺失时才调用 init_workspace 补齐产物并强制刷新约定块
 - 后续新增/移除业务仓分别用 `add_workspace_repo` / `remove_workspace_repo` prompt 或工具，不要手工改四个文件
 
-## 编译宿主命令文件
-调用 `codewiki sync-commands`，把全部工作流提示词编译为宿主 IDE 的斜杠命令文件（`<宿主配置目录>/commands/codewiki/`）。已知只有 codebuddy 会自动把 MCP prompt 映射为命令，其余宿主（Qoder/Claude Code/TRAE 等）都依赖本步骤生成命令入口。CLI 自动判定目标宿主（枚举仓库根 IDE 配置目录，排除 codebuddy；无任何目录时兜底写 `.trae/commands/codewiki/`），无需用户选择。命令文件是命令薄壳（只写如何获取全文），权威仍在 MCP `get_prompt`。"""
+{_SYNC_SKILLS_STEP}"""
 
 
 def _prompt_add_workspace_repo(args: dict[str, str]) -> str:

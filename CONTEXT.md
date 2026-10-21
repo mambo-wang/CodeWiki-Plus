@@ -151,21 +151,23 @@ _Avoid_: 把写入检查做成硬拒绝（违反 fail-open 边界）；与确认
 
 **prompt registry（提示词注册表）** — 工作流提示词的单一真源（`prompts.py` 的
 `_PROMPT_REGISTRY` + `_WORKFLOW_PROMPTS`，23 条）：name 固定 kebab-case，title/description/args 全走 i18n，
-语言由 `config.json lang > $CODEWIKI_LANG > OS locale > zh` 决定。宿主命令文件
-从它编译（ADR-0017），`get_prompt` 是唯一权威出口——任何落盘副本都是快照不是真源。
+语言由 `config.json lang > $CODEWIKI_LANG > OS locale > zh` 决定。宿主技能文件
+从它编译（ADR-0019），`get_prompt` 是唯一权威出口——任何落盘副本都是快照不是真源。
 _Avoid_: 在 registry 之外另起提示词副本（双源漂移）。
 
-**命令薄壳（command stub）** — 命令文件的内容形态：只写"如何获取全文"（标题 +
-描述 + `get_prompt(name=..., arguments={...})` 调用块 + "以 get_prompt 返回内容为准"），
-不渲染提示词全文。权威在 MCP，薄壳只是可见入口（ADR-0017）。_Avoid_: 把提示词全文
-渲染进命令文件（快照与真源必然漂移）。
+**技能薄壳（skill stub）** — 工作流入口文件的内容形态：frontmatter 三行（`name:
+codewiki-<kebab-name>` / `description`（双引号包裹）/ `disable-model-invocation: true`）
++ 正文只写"如何获取全文"（标题 + 描述 + `get_prompt(name=..., arguments={...})` 调用块
++ "以 get_prompt 返回内容为准"），不渲染提示词全文；整文件语言跟随 `--lang`（中英双态）。
+权威在 MCP，薄壳只是手动触发的可见入口（ADR-0019；ADR-0017 时代为命令薄壳，已 supersede）。
+_Avoid_: 把提示词全文渲染进技能文件（快照与真源必然漂移）；渲染 `status` 字段（工作流
+技能不是 skill_creator 两区制产物）。
 
-**宿主判定（host detection）** — 编译命令文件时对当前 IDE 的判定：能从 MCP
-ClientInfo 判定 → 只写该宿主 `commands/codewiki/`；判定不到 → 枚举仓库根 IDE 配置
-目录全写；**均排除 .codebuddy**（Trae 自动把 MCP prompt 转成命令，仓库内重复生成无
-意义）。兜底写 `.trae/commands/codewiki/` 作仓库级登记处（ADR-0017）。_Avoid_: 为
-codebuddy 生成命令文件（IDE 自动转化已覆盖）、把 `.trae/commands/codewiki/` 当宿主
-原生目录（只有 Trae 识别，其他宿主靠各自 commands 目录）。
+**宿主判定（host detection）** — 编译技能文件时对目标 IDE 的判定：显式 `--ide` →
+只写该宿主 `skills/`；未指定 → 枚举仓库根 IDE 配置目录全写（**含 .codebuddy**——IDE
+自动映射只有 prompt→command 通道，没有 prompt→skill 通道，codebuddy 不豁免）。兜底写
+`.trae/skills/` 作仓库级登记处（ADR-0019）。_Avoid_: 把 `.trae/skills/` 当宿主原生目录
+（登记处语义，不依赖宿主原生识别）；为 qwenwork 生成技能文件（无仓库配置目录）。
 
 **derived text（转换文本）** — 二进制源（pdf/docx/xlsx）经 markitdown 转换出的 Markdown
 sidecar（`raw/sources/<name>.converted.md`），registry 条目以 `derived_text` 字段指向它。
@@ -187,5 +189,6 @@ sidecar（`raw/sources/<name>.converted.md`），registry 条目以 `derived_tex
 - [ADR-0008 — 主动沉淀与蒸馏双写路径用原料标记确定性去重](adr/0008-active-settle-deterministic-dedup.md)（2026-09-17）
 - [ADR-0009 — 任务记忆退役（supersede）与写入检查](adr/0009-task-memory-supersede-and-write-check.md)（2026-09-18）
 - [ADR-0010 — 任务记忆通道互斥：补蒸馏路径固定只产经验笔记](adr/0010-task-memory-channel-mutual-exclusion.md)（2026-09-18）
-- [ADR-0017 — MCP prompt 编译为宿主命令文件（sync-commands）](adr/0017-sync-commands-compile-mcp-prompts.md)（2026-09-27）
+- [ADR-0017 — MCP prompt 编译为宿主命令文件（sync-commands）](adr/0017-sync-commands-compile-mcp-prompts.md)（2026-09-27；命令薄壳部分已被 ADR-0019 supersede）
 - [ADR-0018 — 二进制源文件保留 + markitdown 转换 sidecar](adr/0018-binary-source-keep-and-markitdown-sidecar.md)（2026-09-27）
+- [ADR-0019 — MCP prompt 编译为宿主技能文件（sync-skills）](adr/0019-sync-skills-compile-mcp-prompts.md)（2026-10-20）

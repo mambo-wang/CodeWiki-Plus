@@ -376,11 +376,12 @@ class TestPromptRegistryDriven:
         assert "业务仓不接线" in s
         assert "## 步骤 5: 登记业务仓" in s
         assert "install-hooks" in s
-        # 用户意愿闸门 + sync-commands 必做措辞
+        # 用户意愿闸门 + sync-skills 必做措辞（ADR-0019 技能薄壳口径）
         assert "用户意愿闸门" in s
         assert "跳过本步骤" in s
         assert "跳过也无妨" not in s
-        assert "只有 codebuddy" in s
+        assert "编译宿主技能文件" in s
+        assert "sync-skills" in s
 
     def test_init_workspace_task_management_explicit_off(self):
         from codewiki.mcp.prompts import _prompt_init_workspace

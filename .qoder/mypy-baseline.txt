@@ -142,7 +142,7 @@ codewiki\mcp\cbm_client.py:199: error: Returning Any from function declared to r
 codewiki\mcp\cbm_client.py:310: error: Returning Any from function declared to return "dict[str, Any] | None"  [no-any-return]
 codewiki\mcp\cbm_client.py:315: error: Returning Any from function declared to return "dict[str, Any] | None"  [no-any-return]
 codewiki\mcp\cbm_client.py:316: error: Returning Any from function declared to return "dict[str, Any] | None"  [no-any-return]
-codewiki\mcp\prompts.py:1685: error: Returning Any from function declared to return "str | None"  [no-any-return]
+codewiki\mcp\prompts.py:1689: error: Returning Any from function declared to return "str | None"  [no-any-return]
 codewiki\src\fe\cache_manager.py:19: error: Incompatible default for parameter "cache_dir" (default has type "None", parameter has type "str")  [assignment]
 codewiki\src\fe\cache_manager.py:19: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 codewiki\src\fe\cache_manager.py:19: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
