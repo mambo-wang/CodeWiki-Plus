@@ -176,6 +176,27 @@ def _load_event(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
 _KEEP_ROLES = frozenset({"user", "assistant"})
 
 
+def _normalize_transcript_entry(item: dict) -> Optional[dict]:
+    """Normalize a transcript entry to ``{role, content}``.
+
+    Claude Code / Qoder JSONL transcripts nest the role under ``message`` and
+    mark the entry kind with a top-level ``type``::
+
+        {"type": "user", "message": {"role": "user", "content": [
+            {"type": "text", "text": "..."}]}, ...}
+
+    Other hosts (and inline turn payloads) put ``role`` at the top level.
+    Non-dialogue entries (attachments, snapshots, runtime config) are dropped.
+    Top-level-role entries are returned untouched so host metadata survives.
+    """
+    if item.get("role") in _KEEP_ROLES:
+        return item
+    message = item.get("message")
+    if isinstance(message, dict) and message.get("role") in _KEEP_ROLES:
+        return {"role": message["role"], "content": message.get("content")}
+    return None
+
+
 def _try_expand_codebuddy_index(index_path: Path, messages: list) -> Optional[list]:
     """Expand CodeBuddy index.json format into full message turns.
 
@@ -309,7 +330,9 @@ def _load_transcript(path: Optional[str]) -> Optional[list]:
             except json.JSONDecodeError:
                 continue
             if isinstance(obj, dict):
-                turns.append(obj)
+                entry = _normalize_transcript_entry(obj)
+                if entry is not None:
+                    turns.append(entry)
         return turns or None
     if isinstance(data, list):
         # A bare top-level JSON array is the actual CodeBuddy IDE transcript
@@ -320,7 +343,14 @@ def _load_transcript(path: Optional[str]) -> Optional[list]:
         expanded = _try_expand_codebuddy_index(p, data)
         if expanded:
             return expanded
-        return data
+        normalized = [
+            entry
+            for entry in (
+                _normalize_transcript_entry(item) for item in data if isinstance(item, dict)
+            )
+            if entry is not None
+        ]
+        return normalized or data
     if isinstance(data, dict):
         # CodeBuddy IDE format: index.json holds message metadata, content lives
         # in sibling messages/<id>.json files. Try expanding first, before the

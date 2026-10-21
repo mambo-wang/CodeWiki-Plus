@@ -1,20 +1,28 @@
 ---
 type: procedure
-title: "提交前清理暂存区测试残留并排除 .scratch 与 .codebuddy/teams 临时目录"
-tags: ["codewiki", "procedure"]
+title: 提交前清理暂存区测试残留并排除 .scratch 与 .codebuddy/teams 临时目录
+tags:
+- codewiki
+- procedure
 metadata:
   date: 2026-09-20
   confidence_level: weak
-  source_session: "3eec7b47a2b64730b08dba9d8edd43b8"
+  source_session: 3eec7b47a2b64730b08dba9d8edd43b8
   severity: medium
-  source_ref: "conversations/conv-working_memory_content-The-following-is-the-existing-working-5.md"
-  scene: "git 提交卫生"
-status: draft
+  source_ref: conversations/conv-working_memory_content-The-following-is-the-existing-working-5.md
+  scene: git 提交卫生
+  compiled_into:
+  - skills/git-commit-hygiene/SKILL.md
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.10.1, at: 2026-09-20T15:44:25Z }
-stale_after: 2027-03-19
+generated:
+  by: codewiki/5.10.1
+  at: 2026-09-20 15:44:25+00:00
+stale_after: '2027-04-19'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-21T04:00:17Z'
 ---
 
 ## Background

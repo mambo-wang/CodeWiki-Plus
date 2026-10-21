@@ -466,6 +466,78 @@ def test_codebuddy_transcript_e2e(enable_hook, monkeypatch, tmp_path):
     assert 'source_session: "cb-session-001"' in text
 
 
+def test_load_transcript_qoder_jsonl(tmp_path):
+    """Qoder JSONL nests role under message.role; non-dialogue lines are dropped."""
+    f = tmp_path / "qoder.jsonl"
+    lines = [
+        {"type": "workspace-directories", "directories": ["D:/repo"]},
+        {
+            "type": "user",
+            "message": {"role": "user", "content": [{"type": "text", "text": "Q?"}]},
+        },
+        {"type": "attachment", "attachment": {"type": "skill_listing", "content": "..."}},
+        {
+            "type": "assistant",
+            "message": {"role": "assistant", "content": [{"type": "text", "text": "A."}]},
+        },
+    ]
+    f.write_text("\n".join(json.dumps(line) for line in lines), encoding="utf-8")
+
+    turns = _ide_hook._load_transcript(str(f))
+    assert turns == [
+        {"role": "user", "content": [{"type": "text", "text": "Q?"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "A."}]},
+    ]
+
+
+def test_qoder_transcript_e2e(enable_hook, monkeypatch, tmp_path):
+    """Full pipeline: Qoder SessionEnd -> JSONL transcript -> conv-*.md."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    transcript = tmp_path / "qoder.jsonl"
+    transcript.write_text(
+        "\n".join(
+            json.dumps(line, ensure_ascii=False)
+            for line in [
+                {"type": "runtime-config", "sessionId": "qoder-session-001"},
+                {
+                    "type": "user",
+                    "message": {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "Qoder 的问题"}],
+                    },
+                },
+                {
+                    "type": "assistant",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "Qoder 的回答"}],
+                    },
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    rc = _run_hook_stdin(
+        monkeypatch,
+        {
+            "hook_event_name": "SessionEnd",
+            "session_id": "qoder-session-001",
+            "transcript_path": str(transcript),
+        },
+        repo,
+    )
+    assert rc == 0
+
+    files = _raw_files(repo)
+    assert len(files) == 1
+    text = files[0].read_text(encoding="utf-8")
+    assert "Qoder 的问题" in text
+    assert "Qoder 的回答" in text
+    assert 'source_session: "qoder-session-001"' in text
+
+
 def test_extract_codebuddy_message_text_variants():
     """Unit tests for _extract_codebuddy_message_text edge cases."""
     # JSON string message with content blocks

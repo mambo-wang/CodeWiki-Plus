@@ -1,20 +1,27 @@
 ---
 type: pitfall
-title: "PowerShell 单引号字符串内联 JSON 时反斜杠转义会失败，改用正斜杠路径"
-tags: ["codewiki", "pitfall", "powershell"]
+title: PowerShell 单引号字符串内联 JSON 时反斜杠转义会失败，改用正斜杠路径
+tags:
+- codewiki
+- pitfall
+- powershell
 metadata:
   date: 2026-09-20
   confidence_level: weak
-  source_session: "e866661e10b142f9a5beed824e215500"
+  source_session: e866661e10b142f9a5beed824e215500
   severity: medium
-  source_ref: "conversations/conv-user_command-commands-codewiki-初始化单仓Wiki工作区-请为项目初始化-Wiki-工作区.md"
-  scene: "hook 脚本模拟事件验证"
-status: draft
+  source_ref: conversations/conv-user_command-commands-codewiki-初始化单仓Wiki工作区-请为项目初始化-Wiki-工作区.md
+  scene: hook 脚本模拟事件验证
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.10.1, at: 2026-09-20T15:45:36Z }
-stale_after: 2027-03-19
+generated:
+  by: codewiki/5.10.1
+  at: 2026-09-20 15:45:36+00:00
+stale_after: '2027-04-19'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-21T04:00:05Z'
 ---
 
 ## Background

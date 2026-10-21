@@ -1,16 +1,26 @@
 ---
 type: procedure
-title: "第三方 agent skills 包的非交互式安装路径：按 plugin.json 清单拍平拷贝"
-tags: ["procedure"]
-aliases: ["skills.sh 安装", "第三方技能包安装", "mattpocock skills", "SKILL.md 扁平拷贝"]
+title: 第三方 agent skills 包的非交互式安装路径：按 plugin.json 清单拍平拷贝
+tags:
+- procedure
+aliases:
+- skills.sh 安装
+- 第三方技能包安装
+- mattpocock skills
+- SKILL.md 扁平拷贝
 metadata:
   date: 2026-10-05
-  confidence_level: strong
-  reason: "本次安装已实测校验（27 个技能全部被 Qoder 技能列表识别）"
-status: draft
+  confidence_level: weak
+  reason: 本次安装已实测校验（27 个技能全部被 Qoder 技能列表识别）
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.14.1, at: 2026-10-05T14:09:30Z }
-stale_after: 2027-04-03
+generated:
+  by: codewiki/5.14.1
+  at: 2026-10-05 14:09:30+00:00
+stale_after: '2027-04-19'
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-21T03:59:49Z'
 ---
 
 ## 结论

@@ -1,22 +1,30 @@
 ---
 type: pitfall
-title: "uv run pytest 在本机 trampoline 失败，须改用 uv run python -m pytest"
-tags: ["codewiki", "pitfall", "powershell"]
+title: uv run pytest 在本机 trampoline 失败，须改用 uv run python -m pytest
+tags:
+- codewiki
+- pitfall
+- powershell
 metadata:
   date: 2026-10-09
   confidence_level: weak
   task_id: 发版本
-  source_session: "cc4eb177319d48abbc0c2620e02ec83a"
-  related_modules: ["release"]
+  source_session: cc4eb177319d48abbc0c2620e02ec83a
+  related_modules:
+  - release
   severity: medium
-  source_ref: "conversations/conv-working_memory_content-The-following-is-the-existing-working-2-b37797.md"
-  scene: "Python 包发布闸门"
-status: draft
+  source_ref: conversations/conv-working_memory_content-The-following-is-the-existing-working-2-b37797.md
+  scene: Python 包发布闸门
+status: stable
 author: Administrator
-generated: { by: codewiki/5.14.1, at: 2026-10-09T03:25:33Z }
-stale_after: 2027-04-07
+generated:
+  by: codewiki/5.14.1
+  at: 2026-10-09 03:25:33+00:00
+stale_after: '2027-04-19'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-21T03:59:46Z'
 ---
 
 ## Background

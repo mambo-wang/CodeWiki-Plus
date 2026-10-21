@@ -1,19 +1,31 @@
 ---
 type: pitfall
-title: "无时间戳记忆条目在压缩中永不可达：entry_sort_key 排最后 + _split_compaction 只从最旧端取，造成字节阈值卡线与压缩抖动"
-tags: ["pitfall"]
-aliases: ["压缩抖动", "无日期条目不可压", "memories 字节阈值卡线", "entry_sort_key 死重"]
+title: 无时间戳记忆条目在压缩中永不可达：entry_sort_key 排最后 + _split_compaction 只从最旧端取，造成字节阈值卡线与压缩抖动
+tags:
+- pitfall
+aliases:
+- 压缩抖动
+- 无日期条目不可压
+- memories 字节阈值卡线
+- entry_sort_key 死重
 metadata:
   date: 2026-10-10
   confidence_level: weak
   task_id: 产品维护
-  related_modules: ["task_manager", "store"]
+  related_modules:
+  - task_manager
+  - store
   severity: medium
-  reason: "停顿点即写即沉淀：本轮实测定位的新 pitfall，需用户确认后才进检索语料"
-status: draft
+  reason: 停顿点即写即沉淀：本轮实测定位的新 pitfall，需用户确认后才进检索语料
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.14.1, at: 2026-10-10T09:58:37Z }
-stale_after: 2027-04-08
+generated:
+  by: codewiki/5.14.1
+  at: 2026-10-10 09:58:37+00:00
+stale_after: '2027-04-19'
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-21T03:59:34Z'
 ---
 
 ## 背景

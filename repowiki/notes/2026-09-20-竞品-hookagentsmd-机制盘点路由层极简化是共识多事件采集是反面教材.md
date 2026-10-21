@@ -1,22 +1,31 @@
 ---
 type: lesson
-title: "竞品 hook/AGENTS.md 机制盘点：路由层极简化是共识，多事件采集是反面教材"
-tags: ["codewiki", "lesson"]
+title: 竞品 hook/AGENTS.md 机制盘点：路由层极简化是共识，多事件采集是反面教材
+tags:
+- codewiki
+- lesson
 metadata:
   date: 2026-09-20
   confidence_level: weak
   task_id: 他山之石
-  source_session: "1b5f06c022ab4dcd9dfabc02661535f2"
-  related_modules: ["mcp/prompts", "cli/utils/ide_config", "hooks"]
+  source_session: 1b5f06c022ab4dcd9dfabc02661535f2
+  related_modules:
+  - mcp/prompts
+  - cli/utils/ide_config
+  - hooks
   severity: medium
-  source_ref: "conversations/conv-working_memory_content-The-following-is-the-existing-working-848ca6.md"
-  scene: "hook/AGENTS.md 提示词优化调研"
-status: draft
+  source_ref: conversations/conv-working_memory_content-The-following-is-the-existing-working-848ca6.md
+  scene: hook/AGENTS.md 提示词优化调研
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.10.1, at: 2026-09-20T15:49:53Z }
-stale_after: 2027-03-19
+generated:
+  by: codewiki/5.10.1
+  at: 2026-09-20 15:49:53+00:00
+stale_after: '2027-04-19'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-21T04:00:20Z'
 ---
 
 ## Background

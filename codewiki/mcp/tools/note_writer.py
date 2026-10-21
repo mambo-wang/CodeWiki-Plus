@@ -62,7 +62,9 @@ def _note_source_ref(output_dir: Path, rel_file: str) -> Optional[str]:
         return None
     if not text.startswith("---"):
         return None
-    end = text.find("---", 3)
+    from codewiki.src.frontmatter import find_frontmatter_end
+
+    end = find_frontmatter_end(text)
     if end < 0:
         return None
     try:
@@ -153,7 +155,9 @@ def _apply_status_to_file(
         if not text.startswith("---"):
             return json.dumps({"error": "Document has no YAML frontmatter."})
 
-        end = text.find("---", 3)
+        from codewiki.src.frontmatter import find_frontmatter_end
+
+        end = find_frontmatter_end(text)
         if end < 0:
             return json.dumps({"error": "Malformed frontmatter."})
 

@@ -1,20 +1,25 @@
 ---
 type: pitfall
-title: "lint_wiki 全量报告会被后续单检查调用覆盖，跑完立即备份 lint_report.json"
-tags: ["pitfall"]
+title: lint_wiki 全量报告会被后续单检查调用覆盖，跑完立即备份 lint_report.json
+tags:
+- pitfall
 metadata:
   date: 2026-09-20
   confidence_level: weak
-  source_session: "f880020901b44931982aa724834955df"
+  source_session: f880020901b44931982aa724834955df
   severity: medium
-  source_ref: "conversations/conv-user_command-commands-codewiki-文档质量审计-请对-Wiki-文档执行全面质量审计。按以下-3ed82e.md"
-  scene: "Wiki 文档质量审计"
-status: draft
+  source_ref: conversations/conv-user_command-commands-codewiki-文档质量审计-请对-Wiki-文档执行全面质量审计。按以下-3ed82e.md
+  scene: Wiki 文档质量审计
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.10.1, at: 2026-09-20T11:39:23Z }
-stale_after: 2027-03-19
+generated:
+  by: codewiki/5.10.1
+  at: 2026-09-20 11:39:23+00:00
+stale_after: '2027-04-19'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-21T04:00:00Z'
 ---
 
 ## 背景

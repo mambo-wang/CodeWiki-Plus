@@ -1,20 +1,30 @@
 ---
 type: pitfall
-title: "Trae Windows hook 命令勿用 `||` 兜底——PowerShell 5.1 解析期报错导致 hook 静默不执行"
-tags: ["pitfall", "powershell", "sessionstart"]
+title: Trae Windows hook 命令勿用 `||` 兜底——PowerShell 5.1 解析期报错导致 hook 静默不执行
+tags:
+- pitfall
+- powershell
+- sessionstart
 metadata:
   date: 2026-10-13
   confidence_level: weak
   task_id: Trae适配
   severity: high
-  root_cause: "Trae Windows 用 PowerShell 5.1 执行 hook 命令，PS5.1 不支持 `||`（解析期错误整条命令不执行），且 Windows 通常无 python3；bash 风味的 `python3 ... || python ...` 兜底写法在该环境是死命令，失败被 IDE 静默吞掉。"
-  reason: "调试根因已在本会话实证（PS5.1 解析错误复现 + 修复后逐事件仿真通过），按主动沉淀协议落草稿待确认"
-status: draft
+  root_cause: Trae Windows 用 PowerShell 5.1 执行 hook 命令，PS5.1 不支持 `||`（解析期错误整条命令不执行），且
+    Windows 通常无 python3；bash 风味的 `python3 ... || python ...` 兜底写法在该环境是死命令，失败被 IDE
+    静默吞掉。
+  reason: 调试根因已在本会话实证（PS5.1 解析错误复现 + 修复后逐事件仿真通过），按主动沉淀协议落草稿待确认
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.14.1, at: 2026-10-13T01:59:18Z }
-stale_after: 2027-04-11
-source_conversations: ['conversations/conv-user_command-commands-codewiki-启用-禁用任务管理（跨会话任务记忆）-管理-team-me-0e532c.md']
-
+generated:
+  by: codewiki/5.14.1
+  at: 2026-10-13 01:59:18+00:00
+stale_after: '2027-04-19'
+source_conversations:
+- conversations/conv-user_command-commands-codewiki-启用-禁用任务管理（跨会话任务记忆）-管理-team-me-0e532c.md
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-21T03:59:29Z'
 ---
 
 ## 现象

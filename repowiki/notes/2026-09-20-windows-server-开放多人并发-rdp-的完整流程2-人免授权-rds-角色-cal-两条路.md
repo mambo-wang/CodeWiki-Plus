@@ -1,20 +1,28 @@
 ---
 type: procedure
-title: "Windows Server 开放多人并发 RDP 的完整流程（2 人免授权 / RDS 角色 + CAL 两条路）"
-tags: ["currentcontrolset", "procedure", "termservice", "windowsfeature"]
+title: Windows Server 开放多人并发 RDP 的完整流程（2 人免授权 / RDS 角色 + CAL 两条路）
+tags:
+- currentcontrolset
+- procedure
+- termservice
+- windowsfeature
 metadata:
   date: 2026-09-20
   confidence_level: weak
-  source_session: "575221042e1e4a71b69f2e05be56bed8"
+  source_session: 575221042e1e4a71b69f2e05be56bed8
   severity: medium
-  source_ref: "conversations/conv-working_memory_content-The-following-is-the-existing-working-4f79bd.md"
-  scene: "内部服务器运维"
-status: draft
+  source_ref: conversations/conv-working_memory_content-The-following-is-the-existing-working-4f79bd.md
+  scene: 内部服务器运维
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.10.1, at: 2026-09-20T11:32:50Z }
-stale_after: 2027-03-19
+generated:
+  by: codewiki/5.10.1
+  at: 2026-09-20 11:32:50+00:00
+stale_after: '2027-04-19'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-21T04:00:14Z'
 ---
 
 ## 背景

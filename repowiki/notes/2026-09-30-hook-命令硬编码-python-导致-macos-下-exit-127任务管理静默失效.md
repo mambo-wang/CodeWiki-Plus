@@ -21,17 +21,35 @@ stale_after: '2027-04-03'
 verified:
 - by: human:mambo-wang
   at: '2026-10-05T12:52:53Z'
+source_conversations: ['conversations/conv-拉取最新代码.md']
+
 ---
 
-## 问题现象
-Qoder CN（macOS）上 codewiki 的三个 hook（SessionStart / SessionEnd / UserPromptSubmit）全部 exit 127（command not found），表现为「任务关联弹框从来不出、对话从来不采集」，且 IDE 端只看到静默失败，要翻 `~/.qoder-cn/logs` 才能看到 127。
+## Background
 
-## 根因
-`codewiki/cli/utils/ide_config.py` 生成的 hook 命令硬编码为 `python "..."`（`START_HOOK_CMD` / `END_HOOK_CMD` / `PROMPT_HOOK_CMD`）。Windows 和带 python2 兼容链接的环境有 `python`，而 macOS 上 PEP 394 只保证 `python3`，于是 hook 一启动即 127。这不是 hook 机制不支持——实测 Qoder CN 完整支持 claude 家族的 hook 契约（stdin 事件 + `hookSpecificOutput.additionalContext`），只是解释器名字不对。
+历史问题（原笔记记录）：hook 命令硬编码 `python` 导致 macOS 下 exit 127、任务管理静默失效——按安装机平台快照解释器（`_resolve_python_cmd`，Windows 写死 `python`）的设计随机器漂移，跨平台不可复现。
 
-## 修复口径
-1. 生成侧：`_resolve_python_cmd()` —— Windows 恒 `python`；POSIX 按 `python3` > `python` 用 `shutil.which` 探测，均缺失时回退 `python`。
-2. 存量侧：`merge_settings_json` 把既有命令按相对脚本后缀 / `-m codewiki.mcp._ide_hook --enable` 尾部特征原地迁移为新命令（保留 timeout、不重复注册）；`unwire_hook_registration` 用同一口径匹配，历史写死解释器的条目也能被摘干净。
+## Decision（2026-10-08 定案，任务「产品维护」）
 
-## 排查启示
-宿主 hook “没反应”时先看日志里的退出码，而不是先怀疑 hook 事件不支持：127 = 命令本身拉不起来（解释器/路径），不是接线档位问题。hook 脚本内部异常也统一走 stderr 落日志，不要指望 IDE 弹窗。
+install-hooks 生成的三个 hook 命令（START/END/PROMPT）改为**写死的跨平台回退**：
+
+```
+python3 "{ide_dir}/hooks/task_session_start.py" || python "{ide_dir}/hooks/task_session_start.py"
+```
+
+`_resolve_python_cmd`/`_PYTHON_CMD` 已删除。
+
+## 安全前提（为什么 `||` 不会二次执行）
+
+hook 脚本（task_session_start.py / capture_session_end.py / _ide_hook.py）全部 fail-open：`main()` 恒 `return 0`、永不非零退出。因此 python3 缺失（exit 127 走 stderr）后 python 兜底恰好执行一次；mac 上 python3 成功则短路。**若未来某 hook 改为可非零退出，此设计前提即被破坏，需重新评估。**
+
+## 实施要点
+
+- 改动落在生成层常量（`codewiki/cli/utils/ide_hook.py`），三处已提交配置（`.qoder`/`.codebuddy`/`.trae` 的 settings/hooks.json）同步为同一形态，保证 on-disk == 生成产物 → install-hooks 幂等不覆盖。
+- 迁移/去重契约不依赖解释器名：`_relative_hook_suffix` 正则只看结尾带引号的 `.py` 相对路径后缀，复合命令仍以 `...py"` 结尾故兼容。
+- 判「已启用」只看脚本相对路径后缀、不看解释器名（prompts.py 口径文案已同步）。
+- 测试：平台快照测试改为回退形式断言（partition `||` 后左 python3 右 python、头部无路径分隔符）。
+
+## 后续修正（2026-10-13）
+
+TRAE Windows 走 PowerShell 5.1，`||` 是解析期错误导致 hook 静默全灭——TRAE 的命令形态后来改为单解释器（见 `notes/2026-10-13-trae-windows-hook-命令勿用-兜底powershell-51-解析期报错导致-hook-静默不执行.md`）。即本决策的回退形式适用于 bash 语义宿主（Qoder/CodeBuddy），PowerShell 宿主是例外。

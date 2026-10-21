@@ -1,20 +1,26 @@
 ---
 type: lesson
-title: "fast-jev-compaction 调研：无损上下文压缩工具，npm 未发布需源码安装"
-tags: ["lesson", "typesafe"]
+title: fast-jev-compaction 调研：无损上下文压缩工具，npm 未发布需源码安装
+tags:
+- lesson
+- typesafe
 metadata:
   date: 2026-09-21
   confidence_level: weak
-  source_session: "58f3db625f10427ca1b8d507c25a7aed"
+  source_session: 58f3db625f10427ca1b8d507c25a7aed
   severity: medium
-  source_ref: "conversations/conv-working_memory_content-The-following-is-the-existing-working-2-d592a1.md"
-  scene: "外部工具调研"
-status: draft
+  source_ref: conversations/conv-working_memory_content-The-following-is-the-existing-working-2-d592a1.md
+  scene: 外部工具调研
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.11.0, at: 2026-09-21T04:27:22Z }
-stale_after: 2027-03-20
+generated:
+  by: codewiki/5.11.0
+  at: 2026-09-21 04:27:22+00:00
+stale_after: '2027-04-19'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-21T03:59:57Z'
 ---
 
 ## Background

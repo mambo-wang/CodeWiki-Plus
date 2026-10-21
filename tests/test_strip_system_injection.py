@@ -103,6 +103,22 @@ def test_strips_question_answer_blocks():
     assert "确认" in out
 
 
+def test_strips_working_memory_and_attached_skills_blocks():
+    # IDE injects the project working memory + manually attached skill pointer
+    # as the first user message; both are system context, not user dialogue.
+    raw = (
+        "user: <working_memory_content>\n# 长期记忆\n- npm 镜像源约定\n</working_memory_content>\n"
+        "user: <manually_attached_skills>\nname: windows-python-release\n</manually_attached_skills>\n"
+        "user: <user_query>@command://windows-python-release 发布小版本</user_query>\n"
+    )
+    out = _strip_system_injection(raw)
+    assert "<working_memory_content>" not in out
+    assert "长期记忆" not in out
+    assert "<manually_attached_skills>" not in out
+    assert "windows-python-release" not in out or "发布小版本" in out
+    assert "发布小版本" in out
+
+
 def test_empty_and_none_safe():
     assert _strip_system_injection("") == ""
     assert not _strip_system_injection(None)

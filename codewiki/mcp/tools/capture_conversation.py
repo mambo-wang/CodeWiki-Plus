@@ -58,6 +58,9 @@ _SYSTEM_INJECTION_TAGS = frozenset(
         "question_answer",
         "questions",
         "question_item",
+        # IDE 注入的项目工作记忆与手动挂载技能提示（系统上下文，非用户输入）
+        "working_memory_content",
+        "manually_attached_skills",
     }
 )
 # 形如 <tag> ... </tag> 的成对块（含可能跨行的多行内容）。

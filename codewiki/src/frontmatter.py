@@ -231,6 +231,26 @@ def fold_private_metadata(frontmatter: Dict[str, Any]) -> Dict[str, Any]:
 _FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
 
 
+def find_frontmatter_end(text: str) -> int:
+    """Return the offset of the closing frontmatter fence, or -1.
+
+    Convergence point for the ``text.find("---", 3)`` idiom: that naive
+    substring probe hits ``---`` inside frontmatter *values* (e.g. note
+    titles quoting filenames like ``...commit---amend-....md``), truncating
+    the YAML block mid-value and silently corrupting round-trips. The
+    closing fence is a whole line (``---`` alone, optional trailing
+    whitespace), so scan line by line after the opening fence line.
+    """
+    if not text.startswith("---"):
+        return -1
+    offset = text.index("\n") + 1  # skip the opening "---" line
+    for line in text.splitlines(keepends=True)[1:]:
+        if line.strip() == "---":
+            return offset
+        offset += len(line)
+    return -1
+
+
 def _split_flow(inner: str) -> List[str]:
     """Split a YAML flow collection body on top-level commas.
 

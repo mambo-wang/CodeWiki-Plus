@@ -1,24 +1,28 @@
 ---
 type: pitfall
-title: "聚合写场景块时超长笔记文件名含 
-status: stable
---- 折行落行首会被当作 frontmatter 闭合栅栏"
-tags: ["pitfall"]
+title: 聚合写场景块时超长笔记文件名含三连字符折行落行首会被当作 frontmatter 闭合栅栏
+tags:
+- pitfall
 metadata:
   date: 2026-09-20
   confidence_level: weak
   task_id: 他山之石
-  source_session: "aaf162a0ce2446bc857294d07c2c72b7"
-  related_modules: ["MCP_Tools_Knowledge"]
+  source_session: aaf162a0ce2446bc857294d07c2c72b7
+  related_modules:
+  - MCP_Tools_Knowledge
   severity: medium
-  source_ref: "conversations/conv-working_memory_content-The-following-is-the-existing-working-e77a69.md"
-  scene: "知识聚合（consolidate_notes）"
-status: draft
+  source_ref: conversations/conv-working_memory_content-The-following-is-the-existing-working-e77a69.md
+  scene: 知识聚合（consolidate_notes）
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.10.1, at: 2026-09-20T03:08:29Z }
-stale_after: 2027-03-19
+generated:
+  by: codewiki/5.10.1
+  at: 2026-09-20 03:08:29+00:00
+stale_after: '2027-04-19'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-21T04:05:39Z'
 ---
 
 ## 背景

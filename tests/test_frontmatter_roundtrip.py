@@ -10,6 +10,8 @@ hand-rolled parsers used to hide.
 
 from __future__ import annotations
 
+import re
+
 from codewiki.src.frontmatter import (
     format_frontmatter_value,
     inject_okf_frontmatter,
@@ -180,3 +182,47 @@ def test_nested_mapping_and_list_scalar_list_in_one_block():
     assert meta["note"] == "scalar between lists"
     assert meta["repos"] == ["repo-a"]
     assert meta["aliases"] == ["alias-x"]
+
+
+def test_find_frontmatter_end_ignores_dashes_inside_values():
+    """Regression: naive ``text.find("---", 3)`` hits ``---`` inside frontmatter
+    values (e.g. a title quoting a filename like ``...commit---amend-....md``),
+    truncating the YAML block mid-value. The closing fence is a whole line.
+    """
+    from codewiki.src.frontmatter import find_frontmatter_end
+
+    text = (
+        '---\ntitle: "聚合写场景块时超长笔记文件名含 --- 折行落行首"\nstatus: draft\n---\n正文。\n'
+    )
+    end = find_frontmatter_end(text)
+    assert end > 0
+    assert text[end : end + 3] == "---"
+    # The fence offset must be past the in-value dashes, not at them.
+    assert text[3:end].count("\n") == 3  # \n + title line + status line
+
+    # No closing fence → -1; no leading fence → -1.
+    assert find_frontmatter_end("---\nstatus: draft\n") == -1
+    assert find_frontmatter_end("status: draft\n---\n") == -1
+
+
+def test_apply_status_to_file_survives_dashes_in_title(tmp_path):
+    """End-to-end regression for the confirm_note silent-failure bug.
+
+    A note whose title contains a literal ``---`` used to make
+    _apply_status_to_file truncate the frontmatter mid-title, fall into the
+    regex fallback, and write back corrupted YAML while reporting success.
+    """
+    import json
+
+    from codewiki.mcp.tools.note_writer import _apply_status_to_file
+
+    note = tmp_path / "note.md"
+    note.write_text(
+        '---\ntitle: "标题含 --- 三连字符的笔记"\nstatus: draft\n---\n正文。\n',
+        encoding="utf-8",
+    )
+    result = json.loads(_apply_status_to_file(note, tmp_path, "stable", verified_by="human:test"))
+    assert result.get("status") == "stable", result
+    text = note.read_text(encoding="utf-8")
+    assert re.search(r"^status:\s*stable\s*$", text, re.MULTILINE)
+    assert "标题含 --- 三连字符的笔记" in text  # title survived intact

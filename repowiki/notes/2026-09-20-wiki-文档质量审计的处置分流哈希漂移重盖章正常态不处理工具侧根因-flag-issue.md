@@ -1,20 +1,26 @@
 ---
 type: procedure
-title: "Wiki 文档质量审计的处置分流：哈希漂移重盖章、正常态不处理、工具侧根因 flag_issue"
-tags: ["codewiki", "procedure"]
+title: Wiki 文档质量审计的处置分流：哈希漂移重盖章、正常态不处理、工具侧根因 flag_issue
+tags:
+- codewiki
+- procedure
 metadata:
   date: 2026-09-20
   confidence_level: weak
-  source_session: "f880020901b44931982aa724834955df"
+  source_session: f880020901b44931982aa724834955df
   severity: medium
-  source_ref: "conversations/conv-user_command-commands-codewiki-文档质量审计-请对-Wiki-文档执行全面质量审计。按以下-3ed82e.md"
-  scene: "Wiki 文档质量审计"
-status: draft
+  source_ref: conversations/conv-user_command-commands-codewiki-文档质量审计-请对-Wiki-文档执行全面质量审计。按以下-3ed82e.md
+  scene: Wiki 文档质量审计
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.10.1, at: 2026-09-20T11:40:34Z }
-stale_after: 2027-03-19
+generated:
+  by: codewiki/5.10.1
+  at: 2026-09-20 11:40:34+00:00
+stale_after: '2027-04-19'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-21T04:00:11Z'
 ---
 
 ## 背景

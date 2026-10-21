@@ -1,21 +1,29 @@
 ---
 type: decision
-title: "init prompt 任务管理接线修复：接线目标恒为工作区根，公共块以 team-memory-hook 富版本为母本"
-tags: ["codewiki", "decision"]
+title: init prompt 任务管理接线修复：接线目标恒为工作区根，公共块以 team-memory-hook 富版本为母本
+tags:
+- codewiki
+- decision
 metadata:
   date: 2026-09-21
   confidence_level: weak
-  source_session: "184920b147de4d1f9e2ce9a39d25a453"
-  related_modules: ["MCP_Prompts", "MCP_Tools_Workspace"]
+  source_session: 184920b147de4d1f9e2ce9a39d25a453
+  related_modules:
+  - MCP_Prompts
+  - MCP_Tools_Workspace
   severity: high
-  source_ref: "conversations/conv-user_command-commands-codewiki-初始化单仓Wiki工作区-请为项目初始化-Wiki-工作区-560d5c.md"
-  scene: "init prompt 任务管理接线修复"
-status: draft
+  source_ref: conversations/conv-user_command-commands-codewiki-初始化单仓Wiki工作区-请为项目初始化-Wiki-工作区-560d5c.md
+  scene: init prompt 任务管理接线修复
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.11.0, at: 2026-09-21T04:31:43Z }
-stale_after: 2027-09-21
+generated:
+  by: codewiki/5.11.0
+  at: 2026-09-21 04:31:43+00:00
+stale_after: '2027-10-21'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-21T03:59:54Z'
 ---
 
 ## Background

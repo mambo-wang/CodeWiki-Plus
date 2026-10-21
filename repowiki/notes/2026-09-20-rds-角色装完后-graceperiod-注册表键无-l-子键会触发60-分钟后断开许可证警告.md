@@ -1,20 +1,28 @@
 ---
 type: pitfall
-title: "RDS 角色装完后 GracePeriod 注册表键无 L$ 子键会触发「60 分钟后断开」许可证警告"
-tags: ["currentcontrolset", "graceperiod", "pitfall", "termservice"]
+title: RDS 角色装完后 GracePeriod 注册表键无 L$ 子键会触发「60 分钟后断开」许可证警告
+tags:
+- currentcontrolset
+- graceperiod
+- pitfall
+- termservice
 metadata:
   date: 2026-09-20
   confidence_level: weak
-  source_session: "575221042e1e4a71b69f2e05be56bed8"
+  source_session: 575221042e1e4a71b69f2e05be56bed8
   severity: medium
-  source_ref: "conversations/conv-working_memory_content-The-following-is-the-existing-working-4f79bd.md"
-  scene: "内部服务器运维"
-status: draft
+  source_ref: conversations/conv-working_memory_content-The-following-is-the-existing-working-4f79bd.md
+  scene: 内部服务器运维
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.10.1, at: 2026-09-20T11:35:47Z }
-stale_after: 2027-03-19
+generated:
+  by: codewiki/5.10.1
+  at: 2026-09-20 11:35:47+00:00
+stale_after: '2027-04-19'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-21T04:00:08Z'
 ---
 
 ## 背景
