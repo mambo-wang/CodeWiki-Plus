@@ -47,3 +47,7 @@ Qoder 对话未落 repowiki/raw 的根因（已定位并修复，未提交）：
 ### 2026-10-21 18:31 #cibq
 
 2026-10-21 补蒸馏收尾：任务「日常维护」2 条积压（SessionEnd 采集排查会话、批量确认草稿会话）已由异步 distill-worker 清空，产出 2 条草稿笔记并经用户确认转 stable：①共享工作区多会话并行时提交必须用显式 pathspec，禁止 git add -A（lesson）；②confirm_note 静默失败根因 text.find("---",3) 栅栏误截断 + find_frontmatter_end() 收敛修复（pitfall）。另：蒸馏排序确认按 captured_at 升序（distill_conversation.py:363-385 _iter_raw_files，缺失 captured_at 视为最旧，同刻并列按 friction DESC）。skill_hint：笔记①命令密度 11 超阈值，是否编译成技能待用户定夺。
+
+### 2026-10-22 18:42 #nxn9
+
+2026-10-22 修复 CodeBuddy SessionEnd 采集竞态（内网电脑实证的静默丢弃）：根因是 wrapper DETACHED_PROCESS fire-and-forget 与 IDE Finalize 清理 messages/*.json 竞态，且展开失败后 _load_transcript 把元数据列表原样返回导致 no usable turns 被 DEVNULL 吞掉。修复（codewiki/mcp/_ide_hook.py，未 commit）：①新增 _wait_for_message_files 指数退避等待（~10s 预算，全部缺失才等，部分存在不等待）；②新增 _is_codebuddy_index，展开失败返回 None 不再泄漏元数据；③新增 _log_capture_event fail-open 落 repowiki/.meta/hook_capture.log 补可观测性。验证：新增 5 回归测试，聚焦 46 + 关联 105 全过，ruff/mypy 与基线一致。5.16.1 无此修复，需随下版本发布；内网电脑升级后生效。

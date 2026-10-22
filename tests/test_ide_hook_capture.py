@@ -490,6 +490,168 @@ def test_load_transcript_qoder_jsonl(tmp_path):
     ]
 
 
+# --------------------------------------------------------------------------- #
+# Issue #4: SessionEnd-vs-Finalize race (CodeBuddy IDE)
+#
+# The IDE fires SessionEnd, then finalizes the session (moving/cleaning
+# messages/*.json) while our detached capture child is still starting. When
+# the index is a CodeBuddy index but NO message files exist yet, the expander
+# must wait briefly for them to land instead of returning None (which made
+# the metadata list fall through as "no usable turns" and silently drop the
+# conversation).
+# --------------------------------------------------------------------------- #
+def test_expand_codebuddy_index_waits_for_race_files(tmp_path):
+    """All message files missing at first: wait until they land, then expand."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    msgs_dir = session_dir / "messages"
+    msgs_dir.mkdir()
+
+    index_file = session_dir / "index.json"
+    index_file.write_text(
+        json.dumps(
+            {
+                "messages": [
+                    {"id": "m1", "type": "text", "role": "user", "isComplete": True},
+                    {"id": "m2", "type": "text", "role": "assistant", "isComplete": True},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # Simulate the Finalize race: files appear shortly after the first check.
+    def delayed_write():
+        import time
+
+        time.sleep(0.05)
+        (msgs_dir / "m1.json").write_text(
+            json.dumps(
+                {
+                    "role": "user",
+                    "message": json.dumps(
+                        {"role": "user", "content": [{"type": "text", "text": "raced question"}]}
+                    ),
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    import threading
+
+    t = threading.Thread(target=delayed_write)
+    t.start()
+    try:
+        turns = _ide_hook._load_transcript(str(index_file))
+    finally:
+        t.join()
+    assert turns == [{"role": "user", "content": "raced question"}]
+
+
+def test_expand_codebuddy_index_race_timeout_returns_none(tmp_path, monkeypatch):
+    """Files never appear: the wait must terminate (bounded budget), not hang."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    (session_dir / "messages").mkdir()
+
+    index_file = session_dir / "index.json"
+    index_file.write_text(
+        json.dumps(
+            {
+                "messages": [
+                    {"id": "m1", "type": "text", "role": "user", "isComplete": True},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # Shrink the wait budget so the test stays fast.
+    monkeypatch.setattr(_ide_hook, "_WAIT_MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(_ide_hook, "_WAIT_INITIAL_SECONDS", 0.01)
+
+    turns = _ide_hook._load_transcript(str(index_file))
+    assert turns is None
+
+
+def test_expand_codebuddy_index_partial_missing_no_wait(tmp_path, monkeypatch):
+    """Some files present: no race signature, no wait — missing ones just skipped."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    msgs_dir = session_dir / "messages"
+    msgs_dir.mkdir()
+
+    (msgs_dir / "m1.json").write_text(
+        json.dumps(
+            {
+                "role": "user",
+                "message": json.dumps(
+                    {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
+    index_file = session_dir / "index.json"
+    index_file.write_text(
+        json.dumps(
+            {
+                "messages": [
+                    {"id": "m1", "type": "text", "role": "user", "isComplete": True},
+                    {"id": "m2", "type": "text", "role": "assistant", "isComplete": True},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # If the race wait were (wrongly) entered, this would slow the test down
+    # by ~10s; assert the fast path by making any sleep fail loudly.
+    import time as _time
+
+    def _no_sleep(_seconds):
+        raise AssertionError("race wait must not run when some files exist")
+
+    monkeypatch.setattr(_time, "sleep", _no_sleep)
+
+    turns = _ide_hook._load_transcript(str(index_file))
+    assert turns == [{"role": "user", "content": "hi"}]
+
+
+# --------------------------------------------------------------------------- #
+# Issue #5: capture observability — silent drops must leave a log line
+# --------------------------------------------------------------------------- #
+def test_capture_error_is_logged(enable_hook, monkeypatch, tmp_path):
+    """A capture that returns an error must append to repowiki/.meta/hook_capture.log."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    rc = _run_hook_stdin(
+        monkeypatch,
+        {
+            "hook_event_name": "SessionEnd",
+            "session_id": "race-sess",
+            "transcript_path": str(tmp_path / "missing" / "index.json"),
+        },
+        repo,
+    )
+    assert rc == 0
+
+    log_file = repo / "repowiki" / ".meta" / "hook_capture.log"
+    assert log_file.is_file()
+    log_text = log_file.read_text(encoding="utf-8")
+    assert "race-sess" in log_text
+    assert "no usable turns" in log_text
+
+
+def test_log_capture_event_fail_open(tmp_path):
+    """A broken repo path must not raise — logging never breaks capture."""
+    # Point at a path where repowiki/ cannot be created (a file occupies it).
+    blocker = tmp_path / "repowiki"
+    blocker.write_text("not a directory", encoding="utf-8")
+    _ide_hook._log_capture_event(str(tmp_path), "should not raise")
+
+
 def test_qoder_transcript_e2e(enable_hook, monkeypatch, tmp_path):
     """Full pipeline: Qoder SessionEnd -> JSONL transcript -> conv-*.md."""
     repo = tmp_path / "repo"

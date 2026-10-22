@@ -197,6 +197,18 @@ def _normalize_transcript_entry(item: dict) -> Optional[dict]:
     return None
 
 
+def _is_codebuddy_index(index_path: Path, messages: list) -> bool:
+    """True when ``messages`` looks like CodeBuddy index metadata (ids, no content)."""
+    if not messages:
+        return False
+    first = messages[0] if isinstance(messages[0], dict) else None
+    if first is None or "id" not in first:
+        return False
+    if any(k in first for k in ("content", "message", "text")):
+        return False
+    return (index_path.parent / "messages").is_dir()
+
+
 def _try_expand_codebuddy_index(index_path: Path, messages: list) -> Optional[list]:
     """Expand CodeBuddy index.json format into full message turns.
 
@@ -208,18 +220,25 @@ def _try_expand_codebuddy_index(index_path: Path, messages: list) -> Optional[li
     prompt, and reasoning/thinking blocks are dropped. Returns a list of
     {role, content} turns, or None if this isn't a CodeBuddy index or no
     messages could be loaded.
+
+    Race tolerance: the IDE fires SessionEnd and then *finalizes* the session
+    (moving/cleaning messages/*.json) while our detached capture child is
+    still starting up. When the index looks like a CodeBuddy index but NONE
+    of the message files exist yet, wait briefly (exponential backoff, ~10s
+    total budget) for them to land before giving up — the child is a
+    fire-and-forget background process, so this wait never blocks the IDE.
     """
-    if not messages:
-        return None
-    first = messages[0] if isinstance(messages[0], dict) else None
-    if first is None or "id" not in first:
-        return None
-    # Already has inline content — not an index
-    if any(k in first for k in ("content", "message", "text")):
+    if not _is_codebuddy_index(index_path, messages):
         return None
     messages_dir = index_path.parent / "messages"
-    if not messages_dir.is_dir():
-        return None
+
+    # Race window: index exists but every message file is missing. This is
+    # the signature of the SessionEnd-vs-Finalize race (files are being
+    # moved/rewritten), not a genuinely empty session — a real session has
+    # at least one message file on disk. Wait for the files to land.
+    ids = [m.get("id") for m in messages if isinstance(m, dict) and m.get("id")]
+    if ids and not any((messages_dir / f"{i}.json").is_file() for i in ids):
+        _wait_for_message_files(messages_dir, ids)
 
     turns: list = []
     for meta in messages:
@@ -248,6 +267,28 @@ def _try_expand_codebuddy_index(index_path: Path, messages: list) -> Optional[li
             turns.append({"role": str(role), "content": text})
 
     return turns or None
+
+
+# Race-window wait: total budget ~10s, exponential backoff 0.1s → 1.6s.
+_WAIT_INITIAL_SECONDS = 0.1
+_WAIT_MAX_ATTEMPTS = 8
+
+
+def _wait_for_message_files(messages_dir: Path, ids: list) -> bool:
+    """Block until at least one expected message file appears, or budget runs out.
+
+    Returns True if a file appeared within the budget. Runs inside the
+    detached capture child, so the IDE is never blocked by this wait.
+    """
+    import time
+
+    delay = _WAIT_INITIAL_SECONDS
+    for _ in range(_WAIT_MAX_ATTEMPTS):
+        if any((messages_dir / f"{i}.json").is_file() for i in ids):
+            return True
+        time.sleep(delay)
+        delay = min(delay * 2, 1.6)
+    return any((messages_dir / f"{i}.json").is_file() for i in ids)
 
 
 def _extract_codebuddy_message_text(msg_data: dict) -> str:
@@ -343,6 +384,18 @@ def _load_transcript(path: Optional[str]) -> Optional[list]:
         expanded = _try_expand_codebuddy_index(p, data)
         if expanded:
             return expanded
+        # It IS a CodeBuddy index (ids + messages/ dir) but expansion failed
+        # (e.g. the Finalize race outlasted the wait budget). Returning the
+        # metadata list verbatim would leak body-less turns downstream and
+        # end as a silent "no usable turns" drop — return None instead so the
+        # caller logs a diagnosable failure.
+        if _is_codebuddy_index(p, data):
+            print(
+                f"ide-hook: CodeBuddy index expansion failed (message files "
+                f"missing after wait): {path}",
+                file=sys.stderr,
+            )
+            return None
         normalized = [
             entry
             for entry in (
@@ -360,6 +413,13 @@ def _load_transcript(path: Optional[str]) -> Optional[list]:
             expanded = _try_expand_codebuddy_index(p, messages)
             if expanded:
                 return expanded
+            if _is_codebuddy_index(p, messages):
+                print(
+                    f"ide-hook: CodeBuddy index expansion failed (message files "
+                    f"missing after wait): {path}",
+                    file=sys.stderr,
+                )
+                return None
         turns = _extract_inline_turns(data)
         if turns is not None:
             return turns
@@ -378,6 +438,27 @@ def _cleanup_event_file(path: Optional[str]) -> None:
     try:
         os.remove(path)
     except OSError:
+        pass
+
+
+def _log_capture_event(repo_path: Optional[str], message: str) -> None:
+    """Append a one-line capture event to ``repowiki/.meta/hook_capture.log``.
+
+    The capture child runs detached with stdout/stderr = DEVNULL, so without
+    this file a silent drop (e.g. the SessionEnd-vs-Finalize race) leaves no
+    evidence at all. Fail-open by design: logging must never break capture.
+    """
+    if not repo_path:
+        return
+    try:
+        from datetime import datetime
+
+        log_path = Path(repo_path) / "repowiki" / ".meta" / "hook_capture.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write(f"[{stamp}] {message}\n")
+    except Exception:  # noqa: BLE001 - observability must never break capture
         pass
 
 
@@ -579,6 +660,11 @@ def main(argv: Optional[list] = None) -> int:
                 "are no longer persisted).",
                 file=sys.stderr,
             )
+            _log_capture_event(
+                args.repo_path or event.get("cwd"),
+                f"{hook_event}: no usable turns (transcript missing or unreadable), "
+                f"session={event.get('session_id', '')}",
+            )
         else:
             print(
                 "ide-hook: payload has no 'conversation' turns; nothing to capture.",
@@ -618,11 +704,24 @@ def main(argv: Optional[list] = None) -> int:
         result = handle_capture_conversation(arguments, store)
     except Exception as e:  # never crash the IDE on a hook failure
         print(f"ide-hook: capture failed: {e}", file=sys.stderr)
+        _log_capture_event(arguments.get("repo_path"), f"capture exception: {e}")
         return 0
     finally:
         # We were launched as a detached background process; the temp event
         # file the wrapper created is our responsibility to remove.
         _cleanup_event_file(event_file_to_clean)
+
+    # A capture that returned an error (e.g. "no usable turns") is invisible
+    # under DEVNULL — persist it so silent drops become diagnosable.
+    try:
+        result_obj = json.loads(result) if isinstance(result, str) else None
+    except (json.JSONDecodeError, TypeError):
+        result_obj = None
+    if isinstance(result_obj, dict) and result_obj.get("error"):
+        _log_capture_event(
+            arguments.get("repo_path"),
+            f"capture error: {result_obj['error']} session={arguments.get('source_session_id', '')}",
+        )
 
     # Print the result even when it contains non-ASCII (CJK titles from the
     # first user message). On Windows the default console encoding may mangle
