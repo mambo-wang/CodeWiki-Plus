@@ -1,16 +1,14 @@
-"""LLMBackend — unified abstraction over the API and subscription LLM paths.
+"""LLMBackend — unified abstraction over the API LLM path.
 
 CodeWiki has two LLM call shapes:
 
 * a synchronous single-shot completion (clustering, parent / repo overviews)
 * an asynchronous multi-turn agentic loop with custom tools (per-module docs)
 
-Two implementations satisfy this interface:
+The single implementation satisfies this interface:
 
-* :class:`PydanticAIBackend` — wraps the existing openai-compatible / anthropic
+* :class:`PydanticAIBackend` — wraps the openai-compatible / anthropic
   / bedrock / azure-openai paths via pydantic-ai + litellm.  API-key based.
-* :class:`CawBackend` — routes through the ``claude`` or ``codex`` CLI via the
-  :mod:`caw` library, using the user's OAuth subscription.  No API key.
 
 Provider selection happens in one place: :func:`get_backend`.
 """
@@ -18,18 +16,22 @@ Provider selection happens in one place: :func:`get_backend`.
 from __future__ import annotations
 
 import abc
+import os
 from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:
     from codewiki.src.be.dependency_analyzer.models.core import Node
 
 
-CAW_PROVIDERS = frozenset({"claude-code", "codex"})
+def module_page_present(working_dir: str, module_name: str) -> bool:
+    """Return True when *module_name*'s own page already exists on disk.
 
-
-def is_caw_provider(provider: str) -> bool:
-    """Return True if *provider* uses caw (CLI subscription mode)."""
-    return provider in CAW_PROVIDERS
+    Skip granularity is the page, never the run (ADR-0020 decision 2).
+    ``overview.md`` must not be used as a global shortcut: it exists after any
+    completed run, so gating on it would make a missing module page
+    unfillable. Each backend calls this before spawning its module agent.
+    """
+    return os.path.exists(os.path.join(working_dir, f"{module_name}.md"))
 
 
 class LLMBackend(abc.ABC):
@@ -59,11 +61,6 @@ class LLMBackend(abc.ABC):
 
 def get_backend(config) -> "LLMBackend":
     """Return the backend instance matching ``config.provider``."""
-    provider = getattr(config, "provider", "openai-compatible")
-    if is_caw_provider(provider):
-        from codewiki.src.be.caw_backend import CawBackend
-
-        return CawBackend(config)
     from codewiki.src.be.pydantic_ai_backend import PydanticAIBackend
 
     return PydanticAIBackend(config)

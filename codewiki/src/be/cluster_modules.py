@@ -196,3 +196,28 @@ def cluster_modules(
         current_module_path.pop()
 
     return module_tree
+
+
+def module_tree_coverage_gap(
+    module_tree: Dict[str, Any], component_ids: List[str]
+) -> List[str]:
+    """Component ids the cached module tree assigns to no module.
+
+    ``first_module_tree.json`` used to be reused verbatim on ``--update``, so a
+    newly added top-level module could never enter the tree and its page was
+    never generated (ADR-0020 decision 3). Callers re-cluster when this returns
+    a non-empty list; an empty list means the cache is safe to reuse.
+    """
+    assigned = set()
+
+    def walk(tree: Any) -> None:
+        if not isinstance(tree, dict):
+            return
+        for info in tree.values():
+            if not isinstance(info, dict):
+                continue
+            assigned.update(info.get("components") or [])
+            walk(info.get("children"))
+
+    walk(module_tree)
+    return sorted(set(component_ids or ()) - assigned)

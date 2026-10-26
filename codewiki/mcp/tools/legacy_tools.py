@@ -109,10 +109,7 @@ async def handle_generate_docs(arguments: dict) -> str:
     config = manager.get_config()
     api_key = manager.get_api_key()
 
-    from codewiki.src.be.backend import is_caw_provider
-
-    caw_mode = bool(config) and is_caw_provider(getattr(config, "provider", ""))
-    if not api_key and not caw_mode:
+    if not api_key:
         return json.dumps(
             {"error": "API key not configured. Run 'codewiki config set --api-key <key>'"}
         )

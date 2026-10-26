@@ -21,30 +21,27 @@ verified:
 - by: human:wangbao
   at: '2026-08-25T16:48:19Z'
 sources:
-- id: repo://codewiki/mcp/tools/init_wiki.py#L26-L27
-  resource: repo://codewiki/mcp/tools/init_wiki.py#L26-L27
-  content_hash: sha256:48cbf3bbe8e80026e4b77b8b668f561167d65cd71f663f01a92bfee69f5ea553
-- id: repo://codewiki/mcp/tools/init_wiki.py#L84-L96
-  resource: repo://codewiki/mcp/tools/init_wiki.py#L84-L96
-  content_hash: sha256:86de16c58f8241543fa4e6b984e86f7b667897a3da3f733b6e0c03d207cf0b30
-- id: repo://codewiki/mcp/tools/wiki_index.py#L418-L448
-  resource: repo://codewiki/mcp/tools/wiki_index.py#L418-L448
-  content_hash: sha256:312a8943a00d99a625017b870e3de26955e951e18574a0b5dc05743b64fbc74c
-- id: repo://codewiki/mcp/tools/change_analysis.py#L91-L130
-  resource: repo://codewiki/mcp/tools/change_analysis.py#L91-L130
-  content_hash: sha256:e0abb2b002450be04d3d5264bd8d77ef1c6b98abf7b60cdbbc6bf71b98116b24
-- id: repo://codewiki/mcp/cbm_client.py#L78-L110
-  resource: repo://codewiki/mcp/cbm_client.py#L78-L110
-  content_hash: sha256:c8a409f0533139da18f397d708eb0115d768d825448af8354efdefd3a57644fb
-- id: repo://codewiki/mcp/tools/aggregation_state.py#L56-L110
-  resource: repo://codewiki/mcp/tools/aggregation_state.py#L56-L110
-  content_hash: sha256:d1b82cfb095b2d9ad0e608815e25816a2570df8072a5b84eb33ac9e8ca5bfeeb
-- id: repo://codewiki/mcp/tools/telemetry.py#L296-L340
-  resource: repo://codewiki/mcp/tools/telemetry.py#L296-L340
-  content_hash: sha256:8f51fa09274e99b67509f25a1a7ced633f2f2f6755f322d7aa46b002cedb283e
-- id: repo://codewiki/mcp/tools/wiki_lint.py#L2560-L2650
-  resource: repo://codewiki/mcp/tools/wiki_lint.py#L2560-L2650
-  content_hash: sha256:2f19cea4d227db15b9f2a0973e8f0e9eee7ad0e7c74fc09b9382f899687d894d
+- id: repo://codewiki/mcp/tools/init_wiki.py
+  resource: repo://codewiki/mcp/tools/init_wiki.py
+  content_hash: sha256:12517fe01483c7f48bd71e1c1cafb01562dbb8617bbaf0e150c70e33b045cc52
+- id: repo://codewiki/mcp/tools/wiki_index.py
+  resource: repo://codewiki/mcp/tools/wiki_index.py
+  content_hash: sha256:9e8a13aae33beb9dae7581399cebbbde97ceb87bd69a0578d8282f8ae19005c7
+- id: repo://codewiki/mcp/tools/change_analysis.py
+  resource: repo://codewiki/mcp/tools/change_analysis.py
+  content_hash: sha256:5e7465269c6bea22bfdc3a4e8fd7833f00c295200dc019f143f2e4329a18a73b
+- id: repo://codewiki/mcp/cbm_client.py
+  resource: repo://codewiki/mcp/cbm_client.py
+  content_hash: sha256:f9233f62dc23aa13d9ff0e08cc62e380bb2a655f2d8e7bb046d656a4fef61b8f
+- id: repo://codewiki/mcp/tools/aggregation_state.py
+  resource: repo://codewiki/mcp/tools/aggregation_state.py
+  content_hash: sha256:9baed56d4ced79ef6eac69ca04d64e9351536e7fc415a7125325c8e8e317565b
+- id: repo://codewiki/mcp/tools/telemetry.py
+  resource: repo://codewiki/mcp/tools/telemetry.py
+  content_hash: sha256:3700d6f0f62be8b3c3695bf49fccef3d0e966c477fa89029e731cb0e8763e0fb
+- id: repo://codewiki/mcp/tools/wiki_lint.py
+  resource: repo://codewiki/mcp/tools/wiki_lint.py
+  content_hash: sha256:f50459b77f2477c6c47692508baa6f2c75abae0d6a5062c906d698616d02d72b
 ---
 
 # MCP_Tools_Quality 模块文档
@@ -80,11 +77,11 @@ sources:
 ## 关键设计
 - **分层私有辅助**：大量 `_` 前缀私有函数封装细节，公开 `handle_*` / `build_*` / `search` 等作为 MCP 工具边界。
 - **原子与并发安全**：`wiki_index` 用 `_atomic_write` + `_append_with_lock` 保证多进程写入安全。
-- **索引摘要链接重定位**：模块页 frontmatter description 内的相对链接以页面所在目录（`modules/`）为基准；`rebuild_index` 将摘要嵌入 `wiki/index.md`（根目录）后此类链接会失效并触发 `stale_refs` 误报。渲染时经 `_relocate_summary_links` 为裸相对链接补上页面目录前缀（URL、锚点、绝对路径及已含路径的链接原样保留），保证索引内链接始终可解析。
+- **索引摘要链接重定位**：模块页 frontmatter description 内的相对链接以页面所在目录（`modules/`）为基准；`rebuild_index` 将摘要嵌入 `wiki/index.md`（根目录）后此类链接会失效并触发 `stale_refs` 误报。渲染时经 `_relocate_summary_links` 为裸相对链接补上页面目录前缀（URL、锚点、绝对路径及已含路径的链接原样保留），保证索引内链接始终可解析。分区标题由 `_page_type_labels()` 按当前语言渲染，index 结构与 OKF §8/§12 约定保持不变。
 - **可插拔分词**：`_check_jieba` 自动检测 jieba，降级为正则分词，兼容无依赖环境。
 - **确定性评审装配**：`review_changes` 持有无 LLM 的确定性装配（Doctrine：推理留在调用方 Agent）；四轴依据冲突时裁决顺序 spec > convention > module_knowledge > general；since 模式从 HEAD 读变更源保证与 diff 严格一致。
 - **清单合并覆盖**：`get_checklist` 合并内置清单与 `<repo>/repowiki/review_checklist.yaml` 项目覆盖，同 id 条目覆盖内置、新 id 追加；模板由 `init_wiki` 拷贝且已存在则跳过（不覆盖用户自定义）。
-- **模板单源分发**：`init_wiki` 的 schema/ontology/review_checklist 三类模板一律取自包内 `codewiki/templates/`，已移除仓库根 `schema.yaml` 回退分支；模板演进只维护包内这一份，源码树与 wheel 分发（pyproject artifacts 含 `codewiki/templates/**/*`）共用同一路径，`overwrite_schema=False`（工作区重跑）时保留用户已有的 `schema.yaml`。
+- **模板单源分发**：`init_wiki` 的 schema/ontology/review_checklist 三类模板一律取自包内 `codewiki/templates/`，已移除仓库根 `schema.yaml` 回退分支；模板演进只维护包内这一份，源码树与 wheel 分发（pyproject artifacts 含 `codewiki/templates/**/*`）共用同一路径，`overwrite_schema=False`（工作区重跑）时保留用户已有的 `schema.yaml`。schema 与 review_checklist 支持 `<name>.en.yaml` 语言变体：`_template()` 在拷贝时按当前语言优先选变体，无变体回退默认模板（ontology 只有单份）。
 - **质量门禁**：`wiki_lint` 的 13 项检查覆盖链接、覆盖、时效、一致性，输出结构化报告。
 - **阈值漂移守护（ADR-0013）**：`_check_threshold_drift` 扫描 CodeWiki 自身源码副本（`codewiki/mcp/registry.py`、`prompts.py`）中镜像 `limits.py` 阈值的行为契约文案，数值不一致即报 `threshold_drift` warning——行为契约副本靠 lint 守护而非 f-string 生成，保证 Agent 可读性优先。
 - **系统层豁免**：raw/sources（外部同步的源文档层）、conversations/（蒸馏归档层）、tasks/（任务记忆层）属于系统生成/同步层，其内部相对链接指向源仓库文件，且无需向 wiki 出链，`stale_refs`/`broken_links`/`no_outlinks`/OKF 合规检查对其整层跳过，避免误报。

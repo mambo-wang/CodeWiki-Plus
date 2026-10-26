@@ -21,7 +21,7 @@ from codewiki.src.be.agent_tools.generate_sub_module_documentations import (
 )
 from codewiki.src.be.agent_tools.read_code_components import read_code_components_tool
 from codewiki.src.be.agent_tools.str_replace_editor import str_replace_editor_tool
-from codewiki.src.be.backend import LLMBackend
+from codewiki.src.be.backend import LLMBackend, module_page_present
 from codewiki.src.be.dependency_analyzer.models.core import Node
 from codewiki.src.be.llm_services import call_llm, create_fallback_models
 from codewiki.src.be.prompt_template import (
@@ -30,7 +30,7 @@ from codewiki.src.be.prompt_template import (
     format_user_prompt,
 )
 from codewiki.src.be.utils import is_complex_module
-from codewiki.src.config import MODULE_TREE_FILENAME, OVERVIEW_FILENAME, Config
+from codewiki.src.config import MODULE_TREE_FILENAME, Config
 from codewiki.src.utils import file_manager
 
 logger = logging.getLogger(__name__)
@@ -67,13 +67,13 @@ class PydanticAIBackend(LLMBackend):
         module_tree_path = meta_resolve(working_dir, MODULE_TREE_FILENAME)
         module_tree = file_manager.load_json(module_tree_path)
 
-        overview_docs_path = os.path.join(working_dir, OVERVIEW_FILENAME)
-        if os.path.exists(overview_docs_path):
-            logger.info("✓ Overview docs already exists at %s", overview_docs_path)
-            return module_tree
-        docs_path = os.path.join(working_dir, f"{module_name}.md")
-        if os.path.exists(docs_path):
-            logger.info("✓ Module docs already exists at %s", docs_path)
+        # Page-level skip only (ADR-0020 decision 2): overview.md existing says
+        # nothing about *this* module's page, so it must not short-circuit.
+        if module_page_present(working_dir, module_name):
+            logger.info(
+                "✓ Module docs already exists at %s",
+                os.path.join(working_dir, f"{module_name}.md"),
+            )
             return module_tree
 
         if is_complex_module(components, core_component_ids):

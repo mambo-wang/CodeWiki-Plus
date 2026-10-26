@@ -26,7 +26,7 @@ CodeWiki 的设计围绕三个核心思想展开。
 
 CodeWiki 目前支持 8 种主流编程语言：Python、Java、JavaScript、TypeScript、C、C++、C# 和 Kotlin。这个覆盖面已经涵盖了绝大多数企业和开源项目的技术栈。
 
-在 LLM 后端方面，CodeWiki 提供了灵活的适配层，支持两种接入模式：API 模式支持 OpenAI 兼容接口（可对接 OpenAI、Azure OpenAI 及任意兼容服务）、Anthropic（Claude）、AWS Bedrock 等主流大模型服务；订阅模式则支持通过 Claude Code 和 Codex 的本地 CLI 运行，无需单独申请 API Key。开发者可以根据自己的偏好和预算选择合适的模型后端。
+在 LLM 后端方面，CodeWiki 提供了灵活的适配层：API 模式支持 OpenAI 兼容接口（可对接 OpenAI、Azure OpenAI 及任意兼容服务）、Anthropic（Claude）、AWS Bedrock 等主流大模型服务。开发者可以根据自己的偏好和预算选择合适的模型后端。
 
 ### 技术架构一览
 

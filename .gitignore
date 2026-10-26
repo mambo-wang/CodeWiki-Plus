@@ -72,6 +72,8 @@ repowiki/.meta/project.json
 repowiki/.meta/overview_refs.json
 repowiki/.meta/aggregate_state.json
 repowiki/.meta/source_registry.json
+# ADR-0020: generation job ledger — local progress state, rebuilt on next run
+repowiki/.meta/job.json
 # 仓库本地身份钉（resolve_user_id 的 pin 环节）：每台机器各自的身份，绝不该入库
 repowiki/.meta/user_id
 repowiki/.meta/task_bindings/

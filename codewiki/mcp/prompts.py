@@ -458,6 +458,8 @@ def _prompt_generate_wiki(args: dict[str, str]) -> str:
 ## 步骤 1: 分析仓库
 调用 analyze_repo(repo_path="{repo_path}")
 - 返回组件数量、语言统计等分析结果
+- 返回 job 字段：resume 档位 + missing_pages（缺失页面，key = 页面文件名去后缀）
+- **按 resume 续跑**：`partial` 时只补 `missing_pages` 里的页面（含 overview 时补总览），不重写已完成页；`persisted` 表示无缺页，直接跳到步骤 6；`rebuild` 按正常流程生成
 - 大文件结果写入 workspace 文件，通过返回的 file_path 读取
 
 ## 步骤 2: 模块聚类
@@ -466,13 +468,15 @@ def _prompt_generate_wiki(args: dict[str, str]) -> str:
 - **重要**: 直接根据你的理解对组件进行语义分组
 - 根据规则将组件分为模块，构建 module_tree JSON
 - 调用 save_module_tree(repo_path="{repo_path}", module_tree=...) 保存
+- 已有 Wiki 时会返回 `change_plan`（确定性算子计划：delete/add/replan/update）：`pending_pages` 是本次需要新增或重写的页面，删除算子由工具直接执行（`deleted_pages`）；不要自己判断哪些页面过期
 
 ## 步骤 3: 获取处理顺序
 调用 get_processing_order(repo_path="{repo_path}")
 - 返回叶优先顺序：先写叶模块，再写父模块（父模块可引用子模块文档）
+- 有 `change_plan` 且 `pending_pages` 为空时，说明没有页面需要改动，直接跳到步骤 6
 
 ## 步骤 4: 逐模块撰写文档
-对每个模块（按处理顺序）：
+对每个模块（按处理顺序；`partial` 时只处理 `missing_pages` 中的模块；有 `change_plan` 时只处理其 `pending_pages` 中的模块）：
 1. 调用 get_prompt(prompt_type="user", repo_path="{repo_path}", variables={{"module_name": "<模块名>"}}) 获取撰写指引
 2. 调用 read_code_components(repo_path="{repo_path}", component_ids) 读取源码
 3. 调用 list_dependencies(repo_path="{repo_path}", component_ids) 获取依赖关系
@@ -482,6 +486,7 @@ def _prompt_generate_wiki(args: dict[str, str]) -> str:
 ## 步骤 5: 仓库总览
 调用 get_prompt(prompt_type="overview_repo", repo_path="{repo_path}") 获取总览模板
 撰写 overview.md（80-200 行），链接所有模块文档
+- `partial` 且 overview 不在 `missing_pages` 时跳过本步（总览已存在且未被判缺失）
 
 ## 步骤 6: 质检与关闭（强制，不可跳过）
 - 调用 lint_wiki(repo_path="{repo_path}") 检查一致性
@@ -505,27 +510,31 @@ def _prompt_incremental_update(args: dict[str, str]) -> str:
 - 如果 repo_path 对应的 repowiki 已有 .meta/metadata.json，返回 changes 字段
 - changes 包含: added_files, modified_files, deleted_files, affected_modules
 
-## 步骤 2: 评估影响范围
-- 阅读 changes.affected_modules 确定需要更新的模块
-- 如果变更较小（<3 个模块），直接更新
-- 如果变更较大，考虑重新聚类（save_module_tree）
+## 步骤 2: 重新聚类并取变更计划
+- 若 changes 显示新增/删除组件或顶层结构变化，重新聚类后调用 save_module_tree(repo_path="{repo_path}", module_tree=...)
+- 返回的 `change_plan` 是确定性算子计划（`add_subtree` / `replan_subtree` / `delete_subtree` / `update_page`）：
+  - `pending_pages` = 本次需要新增或重写的页面
+  - `deleted_pages` = 已被工具删除的页面（不要手工删文件）
+  - `replan_subtree`（含 `cascade`）表示上游聚合页也受影响，必须重写
+- **不要自己推测哪些模块过期**：以计划为准；没有 change_plan 时按 changes.affected_modules 处理
 
-## 步骤 3: 更新受影响模块
-对每个 affected_module：
+## 步骤 3: 按计划更新页面
+对 `pending_pages` 中的每个页面：
 1. read_code_components 读取最新源码
 2. view_repo_file 读取现有文档
-3. edit_doc_file(str_replace) 更新变更部分
-4. 或 write_doc_file 重写整个模块文档
+3. write_doc_file 重写整页，或 edit_doc_file(str_replace) 改变更部分（写完后计划里的算子自动记为 done）
 
 ## 步骤 4: 处理删除的文件
-- 如果组件被删除，更新引用它的文档
+- 模块删除已由 `delete_subtree` 执行（`deleted_pages`），检查剩余文档中的过时引用
 - lint_wiki(checks=["stale_refs"]) 检查过时引用
 
 ## 步骤 5: 重建索引
 调用 close_session(repo_path="{repo_path}") 触发索引重建
+- 收尾时仍未执行的算子会记为 `failed`（页面仍缺失）或 `skipped`（关闭时没动），job 相应变为 `degraded`
+- 下次对同一 job 续跑并保存同一棵树时，这些未完成的算子会重新出现在 `pending_pages` 中（重放）；已 `done` 的算子不会重做
 
 ## 注意事项
-- 增量更新只修改受影响的模块，不重写整个 Wiki
+- 增量更新只修改计划列出的页面，不重写整个 Wiki
 - 如果 metadata.json 不存在，会执行全量分析"""
 
 

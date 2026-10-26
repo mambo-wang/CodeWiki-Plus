@@ -99,6 +99,17 @@ def test_lock_and_tmp_residue_never_staged(wiki_repo: Path):
     assert _staged(wiki_repo) == []
 
 
+def test_job_ledger_never_staged(wiki_repo: Path):
+    """A legacy .gitignore may predate ADR-0020; the per-page ledger still
+    must not enter the index (it is rewritten on every page write)."""
+    job = wiki_repo / "repowiki" / ".meta" / "job.json"
+    job.write_text("{}", encoding="utf-8")
+
+    auto_stage(job, _force=True)
+
+    assert _staged(wiki_repo) == []
+
+
 def test_no_wiki_root_noop(tmp_path: Path):
     """Files outside a repowiki (no .meta ancestor) are not codewiki
     knowledge — staging must not fire even inside a git repo."""

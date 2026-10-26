@@ -177,18 +177,50 @@ sidecar（`raw/sources/<name>.converted.md`），registry 条目以 `derived_tex
 `convert_error` 结构化记录，导入照常成功。_Avoid_: 伪造原始 PDF 页码引用（markitdown
 不保留页码）、转换失败硬拒入库、按需转换不落盘（去重门够不着）。
 
+**generate job（生成作业）** — 一次 wiki 生成/更新的可观察、可续跑实体，账本落
+`.meta/job.json`：阶段、尝试次数、基线 commit、页面计数、降级记录。续跑分四档
+（`persisted` / `partial` / `as_leaf` / `rebuild`），粒度是页面而非 overview。只存状态
+与指向既有产物的指针，不存内容副本——模块树、页面基线仍是各自真源。账本的创建与关闭只在
+MCP 路径；CLI 老管线遇到已有账本时只追加页面写入与降级记录，不创建、不关闭（ADR-0020）。
+_Avoid_: 新造 `run` 这个第四近义词（本仓已有 job / session / task）、给账本复制模块树或页面正文。
+
+**page-level skip（页面级跳过）** — 生成时"这一页已存在就跳过、缺哪页补哪页"的粒度约定。
+`overview.md` 只代表 overview 页本身，不再充当整轮或全模块的短路信号；两个 backend 共用
+`module_page_present` 判定，父模块页同理（ADR-0020）。_Avoid_: 用 overview 存在推断"全在"、
+把跳过粒度做回整轮、把模块失败吞成成功退出。
+
+**operator plan（算子计划）** — 更新路径的中间产物：由确定性 diff 产出的可重放算子列表
+（`add_subtree` / `replan_subtree` / `delete_subtree` / `update_page`），执行器逐算子
+落账、失败不中断其余、重放跳过已完成。LLM 只在无法确定性推导处介入（如新模块命名）。
+与页面基线分工：计划说"接下来改什么"，基线说"已写成什么样"（ADR-0020）。实现落点为
+`.meta/change_plan.json` + `codewiki/mcp/tools/change_plan.py`；本次尝试的欠账页面集合由计划
+（`pending_pages`）而非"全部模块"决定，未触及的既有页不算缺失。MCP 先行，CLI 尚未消费计划。
+_Avoid_: 把计划生产做成第二个 orchestrator、把 LLM 决策藏进执行器。
+
+**decision reason code（增量降级原因码）** — 增量决策的显式结果，回答"为什么没走增量"，
+与 `changes.method`（git / fingerprint / mtime，回答"怎么比的"）分工。阈值类原因首版
+`observe`：只记 `would_downgrade`，不改行为；晋级 `enforce` 须有离线数据。不编码当前
+机制下永不触发的值（如无祖先检查时的 `no_common_ancestor`）。_Avoid_: 用布尔标志代替
+原因码、编码假信号。
+
+**schema diagnostics（配置诊断列表）** — `schema.yaml` 解析的结构化问题列表（非首错即停、
+非静默 `{}`），错误码区分缺失 / 解析失败 / 未知类型 / 未知章节 / 目录冲突。fail-open：
+诊断 warning 回传，不阻断生成（与写入检查同一纪律）。_Avoid_: 为兼容 Qoder 再引入
+`wiki_plan.yaml` 作为第二种项目级配置格式。
+
 ## Key decisions
 
-- [ADR-0001 — 任务记忆保持 Markdown，不迁移 JSONL](adr/0001-task-memory-stays-markdown.md)（2026-08-24）
-- [ADR-0002 — 任务记忆直写落盘，不设确认闸门](adr/0002-task-memories-direct-write.md)（2026-08-24）
-- [ADR-0003 — 对端新鲜度判据用 git 提交时间而非 mtime](adr/0003-possibly-stale-uses-git-commit-time.md)（2026-09-02）
-- [ADR-0004 — 技能与场景分轨，两区制守确认闸门](adr/0004-skill-scenario-split-two-zone-gate.md)（2026-09-06）
-- [ADR-0005 — 证据漂移信号仅在代码变更路径参与增量决策，no_changes 路径保持静默](adr/0005-evidence-drift-silent-on-no-changes.md)（2026-09-06）
-- [ADR-0006 — 会话绑定凭证退役而非销毁，归属继承三级回退](adr/0006-session-binding-attribution-tombstone.md)（2026-09-11）
-- [ADR-0007 — 冲突案卷是独立页面类型，不是笔记](adr/0007-conflict-case-page-type.md)（2026-09-12）
-- [ADR-0008 — 主动沉淀与蒸馏双写路径用原料标记确定性去重](adr/0008-active-settle-deterministic-dedup.md)（2026-09-17）
-- [ADR-0009 — 任务记忆退役（supersede）与写入检查](adr/0009-task-memory-supersede-and-write-check.md)（2026-09-18）
-- [ADR-0010 — 任务记忆通道互斥：补蒸馏路径固定只产经验笔记](adr/0010-task-memory-channel-mutual-exclusion.md)（2026-09-18）
-- [ADR-0017 — MCP prompt 编译为宿主命令文件（sync-commands）](adr/0017-sync-commands-compile-mcp-prompts.md)（2026-09-27；命令薄壳部分已被 ADR-0019 supersede）
-- [ADR-0018 — 二进制源文件保留 + markitdown 转换 sidecar](adr/0018-binary-source-keep-and-markitdown-sidecar.md)（2026-09-27）
-- [ADR-0019 — MCP prompt 编译为宿主技能文件（sync-skills）](adr/0019-sync-skills-compile-mcp-prompts.md)（2026-10-20）
+- [ADR-0001 — 任务记忆保持 Markdown，不迁移 JSONL](docs/adr/0001-task-memory-stays-markdown.md)（2026-08-24）
+- [ADR-0002 — 任务记忆直写落盘，不设确认闸门](docs/adr/0002-task-memories-direct-write.md)（2026-08-24）
+- [ADR-0003 — 对端新鲜度判据用 git 提交时间而非 mtime](docs/adr/0003-possibly-stale-uses-git-commit-time.md)（2026-09-02）
+- [ADR-0004 — 技能与场景分轨，两区制守确认闸门](docs/adr/0004-skill-scenario-split-two-zone-gate.md)（2026-09-06）
+- [ADR-0005 — 证据漂移信号仅在代码变更路径参与增量决策，no_changes 路径保持静默](docs/adr/0005-evidence-drift-silent-on-no-changes.md)（2026-09-06）
+- [ADR-0006 — 会话绑定凭证退役而非销毁，归属继承三级回退](docs/adr/0006-session-binding-attribution-tombstone.md)（2026-09-11）
+- [ADR-0007 — 冲突案卷是独立页面类型，不是笔记](docs/adr/0007-conflict-case-page-type.md)（2026-09-12）
+- [ADR-0008 — 主动沉淀与蒸馏双写路径用原料标记确定性去重](docs/adr/0008-active-settle-deterministic-dedup.md)（2026-09-17）
+- [ADR-0009 — 任务记忆退役（supersede）与写入检查](docs/adr/0009-task-memory-supersede-and-write-check.md)（2026-09-18）
+- [ADR-0010 — 任务记忆通道互斥：补蒸馏路径固定只产经验笔记](docs/adr/0010-task-memory-channel-mutual-exclusion.md)（2026-09-18）
+- [ADR-0017 — MCP prompt 编译为宿主命令文件（sync-commands）](docs/adr/0017-sync-commands-compile-mcp-prompts.md)（2026-09-27；命令薄壳部分已被 ADR-0019 supersede）
+- [ADR-0018 — 二进制源文件保留 + markitdown 转换 sidecar](docs/adr/0018-binary-source-keep-and-markitdown-sidecar.md)（2026-09-27）
+- [ADR-0019 — MCP prompt 编译为宿主技能文件（sync-skills）](docs/adr/0019-sync-skills-compile-mcp-prompts.md)（2026-10-20）
+- [ADR-0020 — 生成状态收敛到 job，更新路径采用算子计划](docs/adr/0020-update-path-operator-plan-and-job-state.md)（2026-10-25）

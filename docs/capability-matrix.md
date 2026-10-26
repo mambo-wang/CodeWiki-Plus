@@ -11,6 +11,18 @@
 - **beta**：可用且有保守默认值，需更多观察才能扩大自动化范围。
 - **planned**：已立项未实施，登记防误当已生效。
 
+## 生成与更新
+
+> 2026-10-25 增补（ADR-0020）。generate job 账本（P1-1）、页面级续跑（P1-2）与 MCP 路径的 operator plan（P1-3）已落地（观察期）；CLI 尚未消费 operator plan，增量原因码 / schema 诊断未实施，本表下方各节描述的检索与知识能力不受影响。
+
+| 能力 | 成熟度 | 默认模式 | 降级/边界行为 | 晋级标准 | 证据 |
+|---|---|---|---|---|---|
+| generate job（生成状态账本） | beta | `observe`（账本不阻断生成；续跑档位与 `missing_pages` 交给工作流执行） | `.meta/job.json` 写入失败仅告警、生成照常；`degraded` 可被下次运行续跑，`done`/`failed` 拒绝后续写入；legacy 管线只注解已有账本，不创建不关闭 | 删页后补齐已由 `tests/test_generation_gaps.py` 验收；剩余「kill -9 后续跑 partial」依赖宿主 Agent 按 prompt 执行，属人工验收 | ADR-0020、`codewiki/mcp/tools/job_state.py`、`tests/test_job_state.py`、`tests/test_generation_gaps.py` |
+| 页面级跳过 / 失败可见 | stable | `enforce`（overview 不再是全局短路） | 单模块异常聚合为 `ModuleGenerationError`：其余模块与 overview 照常生成，CLI 退出码非 0；已有账本记 `module_failed` 并置 `phase=degraded` | — | `src/be/backend.py`（`module_page_present`）、`src/be/documentation_generator.py`、`tests/test_generation_gaps.py` |
+| operator plan（更新算子计划） | beta | `observe`（MCP 路径按计划驱动；计划构建/执行失败 fail-open，回落到全量 planned） | `.meta/change_plan.json` 与 job 同目录；树未变且 job 未换时重放原计划不重置状态，否则按 changed files + 新树 + manifest 重建；删除算子由 Python 立即执行，其余算子随页面写入置 `done`，`close_session` 把剩余算子结算为 `failed`/`skipped` 并令 job `degraded`；CLI（`--update`）仍只做页面删除 + 覆盖率缺口重聚类，新模块已能进树但无计划 | 「新增顶层模块后更新产生 `add_subtree` 且新页生成」「同输入计划字节一致」已由 `tests/test_change_plan.py` 验收；剩余 CLI 抽公共层 | ADR-0020、`codewiki/mcp/tools/change_plan.py`、`codewiki/mcp/tools/module_tree.py`（`_change_plan_info`）、`codewiki/mcp/tools/doc_writer.py:1052-1100`、`codewiki/mcp/tools/close_session.py:286-322`、`codewiki/src/be/cluster_modules.py`（`module_tree_coverage_gap`）、`tests/test_change_plan.py` |
+| 增量降级原因码 | planned | 计划 `observe` 先行 | 阈值只记 `would_downgrade`，不改判定 | 离线证明「降级省下的钱 > 多生成的钱」后再议 `enforce` | ADR-0020、`mcp/tools/analysis.py:114-155` |
+| schema 诊断列表 | planned | 计划 fail-open（warning） | 现状：解析失败静默返回 `{}`，页面路由被关掉 | 损坏 `schema.yaml` 返回诊断且生成不中断 | ADR-0020、`mcp/tools/page_router.py:66-69` |
+
 ## 检索与排序
 
 | 能力 | 成熟度 | 默认模式 | 降级/边界行为 | 晋级标准 | 证据 |

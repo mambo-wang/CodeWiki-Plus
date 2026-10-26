@@ -25,6 +25,7 @@ from codewiki.mcp.cache import (
     default_cache_db,
 )
 from codewiki.mcp.session import SessionStore
+from codewiki.mcp.tools import job_state
 from codewiki.mcp.workspace import SessionWorkspace
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,11 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Generation job ledger (ADR-0020): state and pointers only, never a
+    # source of truth. Fail-open — a missing or unwritable ledger must not
+    # block analysis.
+    job_state.start_job(repo_path, output_dir, base_commit=_current_head(repo_path))
+
     import tempfile
     from codewiki.src.config import Config, MAX_DEPTH
 
@@ -119,7 +125,9 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     if incremental and cache.is_fresh():
         changes_info = cache.detect_changes()
         if changes_info and changes_info.get("no_changes"):
-            # No changes — reuse cached data
+            # No changes — reuse cached data. Close the ledger started above
+            # so it never lingers in ``analyzing`` (ADR-0020).
+            job_state.finish_job(repo_path, output_dir)
             return _build_no_change_response(repo_path, output_dir, store, cache, changes_info)
         if changes_info and changes_info.get("changed_files"):
             changed = changes_info["changed_files"]
@@ -347,6 +355,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         workspace.write_json("changes.json", changes_info)
 
     # 5. Summary
+    job_summary = job_state.job_summary(job_state.set_phase(repo_path, output_dir, "analyzed"))
     summary = {
         "session_id": session.session_id,
         "repo_name": repo_path.name,
@@ -357,6 +366,8 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         "languages": langs,
         "leaf_nodes_preview": leaf_nodes[:20],
     }
+    if job_summary is not None:
+        summary["job"] = job_summary
     workspace.write_json("summary.json", summary)
 
     # 6. Schema
@@ -421,6 +432,9 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
                     "timestamp": datetime.now().isoformat(),
                 }
             }
+        # ADR-0020: outward summary points back at the job ledger.
+        if job_summary and job_summary.get("job_id"):
+            metadata["job_id"] = job_summary["job_id"]
         from codewiki.src.store import locked_write
 
         locked_write(meta_path, json.dumps(metadata, ensure_ascii=False, indent=2))
@@ -492,6 +506,8 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     }
     if cross_service_info:
         result["cross_service"] = cross_service_info
+    if job_summary is not None:
+        result["job"] = job_summary
     if changes_info and not changes_info.get("no_changes"):
         result["hint"] = (
             "Incremental update detected. Only update affected modules. "
@@ -550,29 +566,31 @@ def _build_no_change_response(
         "languages": langs,
         "leaf_nodes_preview": leaf_nodes[:20],
     }
+    job_summary = job_state.job_summary(job_state.load_job(repo_path, output_dir))
+    if job_summary is not None:
+        summary["job"] = job_summary
     workspace.write_json("summary.json", summary)
 
-    return json.dumps(
-        {
-            "session_id": session.session_id,
-            "workspace_dir": str(workspace.root),
-            "repo_name": repo_path.name,
-            "output_dir": str(output_dir),
-            "stats": {
-                "total_components": len(metas),
-                "total_leaf_nodes": len(leaf_nodes),
-                "languages": langs,
-            },
-            "files": {
-                "summary": str(workspace.root / "summary.json"),
-            },
-            "changes": changes_info,
-            "cache_mode": "sqlite",
-            "hint": "No changes detected since last analysis. Documentation is up to date.",
+    response = {
+        "session_id": session.session_id,
+        "workspace_dir": str(workspace.root),
+        "repo_name": repo_path.name,
+        "output_dir": str(output_dir),
+        "stats": {
+            "total_components": len(metas),
+            "total_leaf_nodes": len(leaf_nodes),
+            "languages": langs,
         },
-        indent=2,
-        ensure_ascii=False,
-    )
+        "files": {
+            "summary": str(workspace.root / "summary.json"),
+        },
+        "changes": changes_info,
+        "cache_mode": "sqlite",
+        "hint": "No changes detected since last analysis. Documentation is up to date.",
+    }
+    if job_summary is not None:
+        response["job"] = job_summary
+    return json.dumps(response, indent=2, ensure_ascii=False)
 
 
 def _run_monorepo_cross_service(

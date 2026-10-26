@@ -1,0 +1,17 @@
+{"t": "hit", "doc": "notes/2026-10-26-算子计划的四条不显然约束欠账集合复用条件重放与降级作用域adr-0020-p1-3.md", "at": "2026-10-26", "n": 1}
+{"t": "hit", "doc": "notes/2026-10-25-生成-job-账本落盘的四条实现约束adr-0020.md", "at": "2026-10-26", "n": 1}
+{"t": "by_file", "doc": "notes/2026-10-21-评审中非代码变更文件的覆盖率补齐diff-通读-sha256-副本核对-回归测试.md", "at": "2026-10-26", "n": 2}
+{"t": "by_file", "doc": "notes/2026-10-20-宿主可见入口全量改为技能薄壳sync-skills-编译-mcp-提示词为-skillmdadr-0019.md", "at": "2026-10-26", "n": 2}
+{"t": "by_file", "doc": "notes/2026-09-27-write-doc-file-建档遇目标路径已被手写文件占用时走-content-file-临时文件侧通道.md", "at": "2026-10-26", "n": 2}
+{"t": "by_file", "doc": "notes/2026-09-22-评审命令只产出报告修复必须经用户明确批准.md", "at": "2026-10-26", "n": 2}
+{"t": "by_file", "doc": "notes/2026-09-20-install-hooks-命令参数演进提案sessionend-采集独立开关主动沉淀固定启用待确认.md", "at": "2026-10-26", "n": 2}
+{"t": "by_file", "doc": "notes/2026-09-19-cognee-调研处置8-借鉴点全部证伪-0-采纳价值定位独立收敛互证.md", "at": "2026-10-26", "n": 2}
+{"t": "by_file", "doc": "notes/2026-09-19-mcp-工具-annotations-挂起待搭车sdk-已支持判定标准采用-memos-覆盖既有状态说.md", "at": "2026-10-26", "n": 2}
+{"t": "by_file", "doc": "notes/2026-09-19-memos-调研处置1-absorbed-挂起搭车-3-deferred-6-excluded当前无立即落地项.md", "at": "2026-10-26", "n": 2}
+{"t": "by_file", "doc": "notes/2026-09-18-adr-0009-实施中踩的三个坑rem-缺失locked-rmw-契约difflib-比对口径.md", "at": "2026-10-26", "n": 2}
+{"t": "by_file", "doc": "notes/2026-09-18-任务记忆通道互斥固定语义补蒸馏task-id-过滤固定不提取记忆无开关记忆归主动沉淀直写.md", "at": "2026-10-26", "n": 2}
+{"t": "by_file", "doc": "notes/2026-09-18-决策任务记忆从-append-only-放宽为-append-受控降状态adr-0009.md", "at": "2026-10-26", "n": 2}
+{"t": "by_file", "doc": "notes/2026-09-18-惰性序号两侧口径必须共享同一实现注入侧与-supersede-侧编号规则错位会标错推翻目标.md", "at": "2026-10-26", "n": 2}
+{"t": "by_file", "doc": "notes/2026-09-18-蒸馏笔记-sessionid-溯源链补全note-session-task-三级可查ingest-note-新增-sou.md", "at": "2026-10-26", "n": 2}
+{"t": "by_file", "doc": "notes/2026-09-16-移除事件信封落盘无-transcript-的-hook-生命周期事件一律-no-op仅-stderr-诊断.md", "at": "2026-10-26", "n": 2}
+{"t": "by_file", "doc": "notes/2026-09-11-repowikimetatelemetryjsonl-只记-wiki-检索命中不含-mcp-工具调用数据.md", "at": "2026-10-26", "n": 2}

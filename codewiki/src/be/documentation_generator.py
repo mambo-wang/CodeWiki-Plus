@@ -18,6 +18,7 @@ from codewiki.src.be.prompt_template import (
 from codewiki.src.be.cluster_modules import (
     cluster_modules,
     get_clustering_input_token_count,
+    module_tree_coverage_gap,
 )
 from codewiki.src.config import (
     Config,
@@ -30,6 +31,20 @@ from codewiki.src.config import (
 from codewiki.src.utils import file_manager
 
 
+class ModuleGenerationError(RuntimeError):
+    """A run finished with modules that failed to generate (ADR-0020 #2).
+
+    Raised after every module has had its attempt, so one broken module no
+    longer hides behind a successful exit code. Partial pages stay on disk,
+    metadata is still written, and the ledger stays resumable (``degraded``).
+    """
+
+    def __init__(self, failures: List[tuple[str, str]]):
+        self.failures = list(failures)
+        detail = "; ".join(f"{name}: {err}" for name, err in self.failures)
+        super().__init__(f"{len(self.failures)} module(s) failed: {detail}")
+
+
 class DocumentationGenerator:
     """Main documentation generation orchestrator."""
 
@@ -38,6 +53,57 @@ class DocumentationGenerator:
         self.commit_id = commit_id
         self.graph_builder = DependencyGraphBuilder(config)
         self.backend: LLMBackend = backend or get_backend(config)
+
+    def _ledger_phase(self, working_dir: str, phase: str) -> None:
+        """Mirror *phase* into the job ledger when one exists (ADR-0020 #1).
+
+        The MCP tool path owns the ledger; the legacy pipeline never creates
+        it. Without a ledger this is a no-op, so plain CLI runs are unchanged.
+        """
+        try:
+            from codewiki.mcp.tools import job_state
+
+            job_state.set_phase(getattr(self.config, "repo_path", None), working_dir, phase)
+        except Exception:
+            logger.debug("job ledger phase update failed", exc_info=True)
+
+    def _record_degraded(self, working_dir: str, stage: str, code: str, detail: str) -> None:
+        """Record a non-fatal loss in an existing ledger (no-op without one)."""
+        try:
+            from codewiki.mcp.tools import job_state
+
+            job_state.record_degraded(
+                getattr(self.config, "repo_path", None),
+                working_dir,
+                stage=stage,
+                code=code,
+                detail=detail,
+            )
+        except Exception:
+            logger.debug("job ledger degraded record failed", exc_info=True)
+
+    def _mark_page_written(
+        self, working_dir: str, filename: str, page_type: str = "module"
+    ) -> None:
+        """Mirror a page that is actually on disk into an existing ledger.
+
+        The existence check matters: an agent run can return without writing
+        anything, and marking that as written would hide a missing page from
+        the resume view.
+        """
+        if not os.path.exists(os.path.join(working_dir, filename)):
+            return
+        try:
+            from codewiki.mcp.tools import job_state
+
+            job_state.mark_page_written(
+                getattr(self.config, "repo_path", None),
+                working_dir,
+                filename,
+                page_type=page_type,
+            )
+        except Exception:
+            logger.debug("job ledger page mark failed", exc_info=True)
 
     def create_documentation_metadata(
         self, working_dir: str, components: Dict[str, Any], num_leaf_nodes: int
@@ -185,9 +251,12 @@ class DocumentationGenerator:
         # Process modules in dependency order
         final_module_tree = module_tree
         processed_modules = set()
+        failures: List[tuple[str, str]] = []
 
         if len(module_tree) > 0:
+            self._ledger_phase(working_dir, "generating")
             for module_path, module_name in processing_order:
+                module_key = "/".join(module_path)
                 try:
                     # Reload module tree to get latest hierarchical structure from sub-agent modifications
                     module_tree = file_manager.load_json(module_tree_path)
@@ -200,7 +269,6 @@ class DocumentationGenerator:
                             module_info = module_info.get("children", {})
 
                     # Skip if already processed
-                    module_key = "/".join(module_path)
                     if module_key in processed_modules:
                         continue
 
@@ -220,34 +288,61 @@ class DocumentationGenerator:
                             module_path, working_dir
                         )
 
+                    self._mark_page_written(working_dir, f"{module_name}.md")
                     processed_modules.add(module_key)
 
                 except Exception as e:
+                    # Keep going so one broken module cannot block the rest, but
+                    # do not pretend the run succeeded (ADR-0020 decision 2).
                     logger.error(f"Failed to process module {module_key}: {str(e)}")
                     logger.error(f"Traceback: {traceback.format_exc()}")
-                    continue
+                    failures.append((module_key, str(e)))
+                    self._record_degraded(
+                        working_dir, "module", "module_failed", f"{module_key}: {e}"
+                    )
 
             # Generate repo overview
             logger.info("📚 Generating repository overview")
-            final_module_tree = await self.generate_parent_module_docs([], working_dir)
+            try:
+                final_module_tree = await self.generate_parent_module_docs([], working_dir)
+                self._mark_page_written(working_dir, OVERVIEW_FILENAME, page_type="overview")
+            except Exception as e:
+                logger.error(f"Failed to generate repository overview: {str(e)}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                failures.append(("overview", str(e)))
+                self._record_degraded(working_dir, "overview", "overview_failed", str(e))
         else:
             logger.info("Processing whole repo because repo can fit in the context window")
             repo_name = os.path.basename(os.path.normpath(self.config.repo_path))
-            final_module_tree = await self.backend.run_module_agent(
-                module_name=repo_name,
-                components=components,
-                core_component_ids=leaf_nodes,
-                module_path=[],
-                working_dir=working_dir,
-            )
+            self._ledger_phase(working_dir, "generating")
+            try:
+                final_module_tree = await self.backend.run_module_agent(
+                    module_name=repo_name,
+                    components=components,
+                    core_component_ids=leaf_nodes,
+                    module_path=[],
+                    working_dir=working_dir,
+                )
+            except Exception as e:
+                logger.error(f"Failed to process the whole repo: {str(e)}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                failures.append((repo_name, str(e)))
+                self._record_degraded(working_dir, "module", "module_failed", f"{repo_name}: {e}")
+            else:
+                # save final_module_tree to module_tree.json
+                file_manager.save_json(
+                    final_module_tree, meta_join(working_dir, MODULE_TREE_FILENAME)
+                )
 
-            # save final_module_tree to module_tree.json
-            file_manager.save_json(final_module_tree, meta_join(working_dir, MODULE_TREE_FILENAME))
+                # rename repo_name.md to overview.md
+                repo_overview_path = os.path.join(working_dir, f"{repo_name}.md")
+                if os.path.exists(repo_overview_path):
+                    os.rename(repo_overview_path, os.path.join(working_dir, OVERVIEW_FILENAME))
+                self._mark_page_written(working_dir, OVERVIEW_FILENAME, page_type="overview")
 
-            # rename repo_name.md to overview.md
-            repo_overview_path = os.path.join(working_dir, f"{repo_name}.md")
-            if os.path.exists(repo_overview_path):
-                os.rename(repo_overview_path, os.path.join(working_dir, OVERVIEW_FILENAME))
+        if failures:
+            self._ledger_phase(working_dir, "degraded")
+            raise ModuleGenerationError(failures)
 
         return working_dir
 
@@ -267,12 +362,9 @@ class DocumentationGenerator:
         module_tree_path = meta_resolve(working_dir, MODULE_TREE_FILENAME)
         module_tree = file_manager.load_json(module_tree_path)
 
-        # check if overview docs already exists
-        overview_docs_path = os.path.join(working_dir, OVERVIEW_FILENAME)
-        if os.path.exists(overview_docs_path):
-            logger.info(f"✓ Overview docs already exists at {overview_docs_path}")
-            return module_tree
-
+        # Page-level skip only (ADR-0020 decision 2). ``overview.md`` used to
+        # short-circuit every parent module here; it now only gates its own
+        # page via the ``parent_docs_path`` check below.
         # check if parent docs already exists
         parent_docs_path = os.path.join(
             working_dir,
@@ -346,11 +438,26 @@ class DocumentationGenerator:
             first_module_tree_path = meta_resolve(working_dir, FIRST_MODULE_TREE_FILENAME)
             module_tree_path = meta_resolve(working_dir, MODULE_TREE_FILENAME)
 
-            # Check if module tree exists
+            # Reuse the cached tree only while it still covers every leaf node.
+            # A new top-level module would otherwise never enter the tree and
+            # never get a page (ADR-0020 decision 3).
+            module_tree = None
             if os.path.exists(first_module_tree_path):
-                logger.debug(f"Module tree found at {first_module_tree_path}")
-                module_tree = file_manager.load_json(first_module_tree_path)
-            else:
+                cached = file_manager.load_json(first_module_tree_path)
+                gap = module_tree_coverage_gap(cached, leaf_nodes)
+                if gap:
+                    logger.info(
+                        "Cached module tree misses %d component(s); re-clustering "
+                        "(e.g. %s)",
+                        len(gap),
+                        ", ".join(gap[:3]),
+                    )
+                    module_tree = None
+                else:
+                    logger.debug(f"Module tree found at {first_module_tree_path}")
+                    module_tree = cached
+
+            if module_tree is None:
                 logger.debug(f"Module tree not found at {module_tree_path}, clustering modules")
                 clustering_tokens = get_clustering_input_token_count(leaf_nodes, components)
                 logger.info(
@@ -386,11 +493,13 @@ class DocumentationGenerator:
                 )
 
             # Generate module documentation using dynamic programming approach
-            # This processes leaf modules first, then parent modules
-            working_dir = await self.generate_module_documentation(components, leaf_nodes)
-
-            # Create documentation metadata
-            self.create_documentation_metadata(working_dir, components, len(leaf_nodes))
+            # This processes leaf modules first, then parent modules.
+            # Metadata is written even when the run degrades: pages that did land
+            # must stay inspectable, and the exception still propagates.
+            try:
+                await self.generate_module_documentation(components, leaf_nodes)
+            finally:
+                self.create_documentation_metadata(working_dir, components, len(leaf_nodes))
 
             logger.debug(
                 "Documentation generation completed successfully using dynamic programming!"

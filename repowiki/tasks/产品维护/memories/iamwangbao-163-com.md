@@ -59,6 +59,10 @@ get_prompt 工作流名缺口已修（选定「补实现不改契约」路线）
 
 澄清宿主配置查找位置（2026-10-05 实测，否掉了「.qoder-cn 还要再适配一轮」这个潜在工作项）：Qoder CN 读**项目级 .qoder/**（不是 .qoder-cn/），本会话 [active-settle] UserPromptSubmit 注入即来自 .qoder/settings.json 的 `python3 -m codewiki.mcp._ide_hook`；~/.qoder-cn/settings.json **无 hooks 键**、~/.qoder-cn/hooks/ 不存在。~/.qoder-cn/ 只管**用户级**：mcp.json 与 settings.json.mcpServers 里的 codewiki（python3）就是当前连上的 53 工具那条（pid 94312 父进程 Qoder CN，cmd 为 python3 -m codewiki.mcp.server，证明项目 settings.json 里那条 Windows `.venv\Scripts\python.exe` 未生效）。同一项目 .qoder/ 被 5 个同源目录（.qoder/.qoder-cli/.qoder-cn/.qoderwork/.qoderworkcn，进程名相同）共用 → install-hooks --ide qoder 装一次全版本受益，不按版本分叉。
 
+### 2026-10-08 17:23 #czyp
+
+develop 已推至 81c5004（两条：734e3b4 任务管理适配 + get_prompt 工具通道；81c5004 工程技能接线文档）。遗留风险待定：`GLOSSARY.md` 以 **mode 120000 软链接**入库，Windows 无开发者模式时 core.symlinks=false，检出会退化为内容仅为字符串 `CONTEXT.md` 的普通文件，按 GLOSSARY.md 取词的工程技能读到空术语表。未拍板：改真文件+双写 / 保留现状接受退化 / 在 clone 前开 symlinks。
+
 ### 2026-10-09 09:22 #rlke
 
 ## hook 解释器口径改为跨平台回退（2026-10-08）
@@ -145,3 +149,7 @@ OCR 委托评审完成（2026-10-10，工作区 13 个可审文件，覆盖率 1
 ### 2026-10-12 11:34 #nqvc
 
 本轮 OCR 委托评审闭环已推送：6 个提交（f285ec2..99e4ec0）push 到 origin/develop（81c5004..99e4ec0，fast-forward），Medium 缺陷「压缩派发指令缺 repo_path」的修复随之上线；工作区已跟踪改动归 0，未跟踪仅剩 3 个 repowiki/conversations raw 暂存件。另记一笔待决事项：未跟踪的 docs/articles/CodeWiki-Plus终结篇….md、docs/articles/images/、根目录 vibe_images/ 于 2026-10-12 11:24 被移入 Windows 回收站（非 git 动作，git 从未跟踪过这三者，IDE 本地历史零命中），回收站里仍在、可整件还原，是否恢复待用户决定。
+
+### 2026-10-26 10:25 #nyek
+
+2026-10-26：ADR-0020 P1-3 算子计划链路已实现并通过聚焦测试；随后按 incremental-update 工作流完成 Wiki 增量更新，KnowledgeStore / MCP_Tools_DocWriter / MCP_Tools_Knowledge / MCP_Tools_Quality / MCP_Tools_Workspace 五页重写并重打整文件证据，lint_wiki(stale_refs+stale_evidence) 0 issue，close_session 后 job=done。下一步：提交并推送这批代码+Wiki 变更；另有 13 条 draft 笔记待用户确认后再 batch_set_status 提升。

@@ -495,6 +495,9 @@ _stage_decisions: dict = {}
 # never staged regardless of .gitignore (transient residue / locks)
 _STAGE_NEVER_SUFFIX = (".lck",)
 _STAGE_NEVER_IN_NAME = (".tmp.",)
+# Runtime ledgers rewritten on every page write: a repo whose .gitignore
+# predates ADR-0020 must not start staging them (index churn + conflicts).
+_STAGE_NEVER_NAMES = frozenset({"job.json", "change_plan.json"})
 
 
 def _wiki_root_for(path: Path) -> Optional[Path]:
@@ -568,7 +571,11 @@ def auto_stage(path: str | Path, *, removed: bool = False, _force: bool = False)
         return
     p = Path(path)
     name = p.name
-    if name.endswith(_STAGE_NEVER_SUFFIX) or any(s in name for s in _STAGE_NEVER_IN_NAME):
+    if (
+        name in _STAGE_NEVER_NAMES
+        or name.endswith(_STAGE_NEVER_SUFFIX)
+        or any(s in name for s in _STAGE_NEVER_IN_NAME)
+    ):
         return
     wiki_root = _wiki_root_for(p)
     if wiki_root is None or not _resolve_auto_stage(wiki_root):

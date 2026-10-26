@@ -14,6 +14,7 @@ from pathlib import Path as _Path
 from typing import Any
 
 from codewiki.mcp.session import SessionState, SessionStore
+from codewiki.mcp.tools import job_state
 from codewiki.mcp.tools.file_param import read_json_param
 from codewiki.mcp.tools.workspace_result import resolve_session
 from codewiki.mcp.workspace import SessionWorkspace
@@ -106,6 +107,70 @@ def _validate_module_tree(
     return unmatched, leftover
 
 
+def _change_plan_info(
+    repo_path: str | None,
+    output_dir: str,
+    previous_tree: dict[str, Any] | None,
+    module_tree: dict[str, Any],
+    job_before: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Build/refresh ``.meta/change_plan.json`` and apply its deletions.
+
+    Skipped for a first tree (no previous one ⇒ rebuild, no plan). While an
+    existing plan belongs to the same job *and* the tree did not change, it is
+    replayed as-is: rebuilding would diff a tree against itself and erase the
+    statuses (and the failed/skipped operators a resume still has to run).
+    Never raises — a missing plan must not block generation.
+    """
+    if not repo_path:
+        return None
+    try:
+        from codewiki.mcp.tools import change_plan as plan_mod
+        from codewiki.mcp.tools.page_manifest import load_manifest
+
+        existing = plan_mod.load_plan(repo_path, output_dir)
+        same_tree = previous_tree is not None and previous_tree == module_tree
+        if (
+            existing is not None
+            and job_before is not None
+            and existing.get("job_id") == job_before.get("job_id")
+            and same_tree
+        ):
+            # A resumed attempt may have been killed mid-delete; re-running the
+            # deterministic deletions is free, and the summary must reflect them.
+            plan_mod.execute_deletions(repo_path, output_dir)
+            return plan_mod.plan_summary(
+                plan_mod.load_plan(repo_path, output_dir) or existing
+            )
+        if not previous_tree:
+            return None
+
+        changed = plan_mod.changed_files_since(repo_path, output_dir)
+        changed_list = changed or []
+        plan = plan_mod.build_plan(
+            previous_tree=previous_tree,
+            module_tree=module_tree,
+            page_manifest=load_manifest(_Path(output_dir)),
+            changed_files=changed_list,
+            stale_pages=plan_mod.detect_drift_pages(output_dir, changed_list),
+            base_commit=plan_mod.base_commit_for(repo_path, output_dir),
+            surface="mcp",
+            job_id=(job_before or {}).get("job_id"),
+        )
+        _, plan = plan_mod.write_plan(repo_path, output_dir, plan)
+        deleted = plan_mod.execute_deletions(repo_path, output_dir)
+        info = plan_mod.plan_summary(plan_mod.load_plan(repo_path, output_dir) or plan)
+        if info is None:
+            return None
+        info["plan_file"] = str(plan_mod.plan_path(repo_path, output_dir))
+        if deleted:
+            info["deleted_pages"] = deleted
+        return info
+    except Exception:
+        logger.warning("change plan build failed (non-fatal)", exc_info=True)
+        return None
+
+
 def _save_and_compute_order(
     output_dir: str,
     module_tree: dict[str, Any],
@@ -131,6 +196,16 @@ def _save_and_compute_order(
     working_path = meta_dir / MODULE_TREE_FILENAME
 
     os.makedirs(meta_dir, exist_ok=True)
+
+    # Read the tree this save is replacing (ADR-0020 decision 3): the change
+    # plan diffs it against the new one. Read *before* the overwrite below.
+    previous_tree: dict[str, Any] | None = None
+    try:
+        if working_path.is_file():
+            loaded = json.loads(working_path.read_text(encoding="utf-8"))
+            previous_tree = loaded if isinstance(loaded, dict) else None
+    except Exception:
+        logger.warning("previous module_tree.json unreadable; plan falls back to rebuild")
 
     with open(first_path, "w", encoding="utf-8") as f:
         json.dump(module_tree, f, indent=2, ensure_ascii=False)
@@ -197,6 +272,35 @@ def _save_and_compute_order(
 
     _count(module_tree)
 
+    # Generation job ledger (ADR-0020): record the planned page set. Read the
+    # job before touching it — the change-plan step needs the job id this save
+    # belongs to (a plan is replayed, never rebuilt, while the tree and job are
+    # unchanged).
+    job_before = job_state.load_job(repo_path, output_dir) if repo_path else None
+
+    plan_info = _change_plan_info(
+        repo_path, output_dir, previous_tree, module_tree, job_before
+    )
+
+    if plan_info is not None:
+        # The plan decides what this attempt owes: a plan-driven update must
+        # only owe the pages it asked for, otherwise every untouched module
+        # page would read as missing and close the job ``degraded``. Pages
+        # already written under this job stay in the planned set so the
+        # counters remain coherent across a resume.
+        already = ((job_before or {}).get("pages") or {}).get("written_keys") or []
+        owed = sorted(set(plan_info.get("pending_pages") or []) | set(already))
+        if owed:
+            job_state.record_planned(repo_path, output_dir, owed)
+        else:
+            job_state.set_phase(repo_path, output_dir, "planned")
+    else:
+        job_state.record_planned(
+            repo_path,
+            output_dir,
+            [entry["module"] for entry in order] + ["overview"],
+        )
+
     result = {
         "status": "saved",
         "module_count": total_modules,
@@ -215,6 +319,18 @@ def _save_and_compute_order(
         result["validation"] = validation
     if warning:
         result["warning"] = warning
+    if plan_info is not None:
+        result["change_plan"] = plan_info
+        if plan_info.get("pending_pages"):
+            result["hint"] += (
+                " A change_plan is present: regenerate only its pending_pages"
+                " (deletions were already applied); every other page is up to date."
+            )
+        else:
+            result["hint"] += (
+                " The change_plan has no pending pages: skip page generation and"
+                " call close_session."
+            )
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 

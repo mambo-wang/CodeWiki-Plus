@@ -59,6 +59,8 @@ TEAM_LAYOUT_REBUILDABLE_FILES = [
     ".meta/overview_refs.json",
     ".meta/aggregate_state.json",
     ".meta/source_registry.json",
+    ".meta/job.json",  # ADR-0020 generation ledger — local progress state, rebuilt on next run
+    ".meta/change_plan.json",  # ADR-0020 operator plan — rebuilt from tree+manifest+diff
     ".meta/user_id",  # repo-local identity pin (see resolve_user_id); machine-local
     ".meta/task_bindings/",  # session-scoped one-shot vouchers, no repo value
     ".meta/locks/",  # centralized cross-process lock files, machine-local runtime

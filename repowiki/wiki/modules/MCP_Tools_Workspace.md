@@ -2,8 +2,8 @@
 type: Module
 title: MCP_Tools_Workspace
 description: '`MCP_Tools_Workspace` 是 CodeWiki 的工作区布局路由与多仓引导工具（`workspace_layout.py`
-  + `workspace_bootstrap.py`）：前者回答「任意 repo_path/output_dir 应该落到哪个知识库根」，是集中式（centralized）与就地（colocated）知识库布局的唯一路由接缝——每个按
-  `output_dir…'
+  + `workspace_bootstrap.py`）：前者是所有按 output_dir 路由知识的工具共用的布局接缝，后者实现 init/add/remove
+  三个工作区工具，负责骨架搭建、仓库登记与克隆、以及移除时的知识清理。'
 tags:
 - CodeWiki-CN
 - mcp_tools_workspace
@@ -19,23 +19,27 @@ metadata:
   resource: repo://CodeWiki-CN
   code_fingerprint: sha256:e063ed6853b372d74b62efa26246281188aba13483f64c74c72a0abd9947181b
 sources:
-- id: repo://codewiki/mcp/tools/workspace_layout.py#L68-L216
-  resource: repo://codewiki/mcp/tools/workspace_layout.py#L68-L216
-  content_hash: sha256:a7e3f6c3482eacbbf999022a546ddf72b7813a8574f8f9e08f6a986fd03ce47a
-- id: repo://codewiki/mcp/tools/workspace_layout.py#L238-L373
-  resource: repo://codewiki/mcp/tools/workspace_layout.py#L238-L373
-  content_hash: sha256:448f787b1e39e266d0b76582f054123bb45bd0405ce00bae0086c1ef191cce8c
-- id: repo://codewiki/mcp/tools/workspace_bootstrap.py#L85-L110
-  resource: repo://codewiki/mcp/tools/workspace_bootstrap.py#L85-L110
-  content_hash: sha256:01e510b4fea65accfd3c2209cc26e7684b9def601a8635c88287863f7725c741
-- id: repo://codewiki/mcp/tools/workspace_bootstrap.py#L145-L210
-  resource: repo://codewiki/mcp/tools/workspace_bootstrap.py#L145-L210
-  content_hash: sha256:73b048750354c2e4bd1257f5068536aa6ff45e638b24bada17f09a23baab9dc8
+- id: repo://codewiki/mcp/tools/workspace_layout.py
+  resource: repo://codewiki/mcp/tools/workspace_layout.py
+  content_hash: sha256:da9aa7b3c833aace818868af46303a53173269ee868e3fc18582cdd32b8f73af
+- id: repo://codewiki/mcp/tools/workspace_bootstrap.py
+  resource: repo://codewiki/mcp/tools/workspace_bootstrap.py
+  content_hash: sha256:cb25e27a942ab7e2378901f2c55fb3bb99438016b55e22f79a0ed8acf6177dbe
+- id: repo://codewiki/mcp/tools/agents_md.py
+  resource: repo://codewiki/mcp/tools/agents_md.py
+  content_hash: sha256:f1bcdb612ede8ac389cf6df4b5b460d833a36e33e6328e5dbac86b8ab94db6b1
+- id: repo://codewiki/mcp/tools/init_wiki.py
+  resource: repo://codewiki/mcp/tools/init_wiki.py
+  content_hash: sha256:12517fe01483c7f48bd71e1c1cafb01562dbb8617bbaf0e150c70e33b045cc52
 ---
 # MCP_Tools_Workspace 模块文档
 
 ## 概述
-`MCP_Tools_Workspace` 是 CodeWiki 的工作区布局路由与多仓引导工具（`workspace_layout.py` + `workspace_bootstrap.py`）：前者回答「任意 repo_path/output_dir 应该落到哪个知识库根」，是集中式（centralized）与就地（colocated）知识库布局的唯一路由接缝——每个按 `output_dir` 路由知识的工具都经 `resolve_workspace` 而非自行遍历目录；后者是 `init_workspace` 的实现，生成/更新各成员仓的 `bootstrap.ps1`/`bootstrap.sh`（含 repos 注册表与共享补丁），并用与模板共享的骨架行锚点把注册表解析回仓库清单。
+`MCP_Tools_Workspace` 是 CodeWiki 的工作区布局路由与多仓引导工具（`workspace_layout.py` + `workspace_bootstrap.py`）。前者回答「任意 repo_path/output_dir 应该落到哪个知识库根」，是集中式（centralized）与就地（colocated）布局的唯一路由接缝——每条按 `output_dir` 路由知识的工具都经 `resolve_workspace` 而非自行遍历目录。后者实现三个 MCP 工作区工具：
+
+- `init_workspace`：首次初始化要求显式布局决策（缺 `layout` 且无既有配置时**不写任何东西**，返回 `needs_layout_decision` 交宿主询问），生成/更新 `bootstrap.sh`/`bootstrap.ps1`（repos 注册表）、`.gitignore`、`repo-map.md`、repowiki 骨架与 AGENTS.md 块；重跑时若四项初始化痕迹齐全，降级为 **clone-only 采用**（只补缺失克隆，不重建骨架）。
+- `add_workspace_repo`：从 URL 推导目录名，原子式更新两个注册表、`.gitignore` 与 `repo-map.md`，默认立即克隆；集中式布局下还会在共享 repowiki 建该仓的 modules 分区，并移除仓内失效的 CodeWiki 块。
+- `remove_workspace_repo`：反向拆除注册与克隆，并清理集中式知识分区、共享池 provenance 与 analyze_workspace 产物中的幽灵路由，最后删除本地目录（不可逆）。
 
 ## 组件清单
 
@@ -53,6 +57,15 @@ sources:
 | `_write_text` | 私有函数 | workspace_bootstrap.py | 写脚本：`.ps1` 强制 utf-8-sig（Windows PowerShell 5.1 会把无 BOM 脚本按 ANSI/GBK 解码导致中文乱码），`.sh` 保持无 BOM（BOM 会破坏 shebang） |
 | `_ensure_ps1_bom` | 私有函数 | workspace_bootstrap.py | 对 BOM 修复前生成的 bootstrap.ps1 做字节级补 BOM（内容与行尾保持逐字节不变） |
 | `_load_tables` | 私有函数 | workspace_bootstrap.py | 从 bootstrap 脚本内的 repos 注册表（shell `declare -A` / PowerShell `[ordered]@{}`）按骨架行锚点解析回仓库清单 |
+| `handle_init_workspace` | 公开 | workspace_bootstrap.py | 初始化/重同步工作区：首次初始化布局决策门（未给 `layout` 且无配置时返回 `needs_layout_decision` 且不落盘）、痕迹齐全时 clone-only 采用、否则走全流程 |
+| `_detect_init_traces` | 私有函数 | workspace_bootstrap.py | 检测四项初始化痕迹（双 bootstrap 脚本+可解析注册表、`.gitignore`、repowiki 骨架），全齐即判定工作区已初始化 |
+| `_adopt_initialized_workspace` | 私有函数 | workspace_bootstrap.py | clone-only 采用：沿用/回填布局配置、修补 `.gitignore` 排除、内容感知刷新 AGENTS.md 两个工具维护块（块外用户定制保留，内容相同不写盘） |
+| `_run_full_skeleton_flow` | 私有函数 | workspace_bootstrap.py | 全流程：布局配置落盘、bootstrap 脚本与 `.gitignore` 补齐、`repo-map.md`/README/repowiki 骨架创建、AGENTS.md 块强制刷新 |
+| `_clone_repo` | 私有函数 | workspace_bootstrap.py | 克隆单个已登记仓到工作区；已存在则跳过，失败只记 warning；Windows 下以 `CREATE_NO_WINDOW` 启动 git，避免弹控制台窗口 |
+| `_ensure_gitignore` / `_ensure_repo_map_entry` | 私有函数 | workspace_bootstrap.py | 为登记仓补 `/<name>/` 排除行与 repo-map 导航行/章节（幂等） |
+| `handle_add_workspace_repo` | 公开 | workspace_bootstrap.py | 从 URL 推导目录名，预检后事务式更新注册表/`.gitignore`/`repo-map.md`，默认立即克隆；集中式下建 modules 分区并移除仓内 CodeWiki 块 |
+| `handle_remove_workspace_repo` | 公开 | workspace_bootstrap.py | 反向拆除注册表条目、`.gitignore` 行、repo-map 行与章节，清理集中式知识分区/provenance 与 analyze_workspace 产物，最后删目录（不可逆） |
+| `_rmtree_clear_readonly` | 私有函数 | workspace_bootstrap.py | `rmtree(onexc=...)` 处理器：清只读位后重试（Windows 上 git pack 文件只读） |
 
 ## 关键设计
 
@@ -61,23 +74,44 @@ sources:
 - **字节级 BOM 纪律**：`.ps1` 必须有 BOM（否则 Windows PowerShell 5.1 按 ANSI 解码把中文变乱码直到脚本无法解析）；`.sh` 绝不能有 BOM（破坏 `#!/` shebang）。`_ensure_ps1_bom` 对历史文件做字节级修复。
 - **骨架行共享**：模板与手建工作区共用同一批注册表骨架行（`_SH_TABLE_RE`/`_PS_TABLE_RE`），任何改动必须同步模板与正则，保证注册表可被可靠回读；目录名受 `_NAME_RE` 约束（同时作 shell 键与 gitignore 模式，免引号）。
 - **三态回退**：找不到 workspace / 非成员 / colocated 都回到 `repo_path/repowiki`，保证集中式功能对存量单仓完全惰性。
+- **初始化痕迹与两种重跑模式**：`_detect_init_traces` 以双 bootstrap 脚本（注册表可解析）+ `.gitignore` + repowiki 骨架（`wiki/` + `schema.yaml`）四项痕迹判定“已初始化”；全齐时 `init_workspace` 走 clone-only 采用（不重建骨架、不回写布局），否则走全流程。手建工作区因共用同一批骨架行锚点也能被识别。
+- **AGENTS.md 工具维护块**：两个采用路径都会刷新 conventions 块与 CodeWiki 使用块，但只改 marker 内的内容、块外用户定制保留，内容相同时不写盘——存量工作区重跑即可升级模板，不必手工修改。
+- **不可逆操作的反向清理**：`remove_workspace_repo` 先拆注册（两个脚本 → `.gitignore` → `repo-map.md`），再清集中式知识分区与 provenance、以及 analyze_workspace 的 topology/overview 幽灵路由，最后才删目录；中途失败也优先保证注册已移除。
+- **平台与语言细节**：克隆时 Windows 传 `CREATE_NO_WINDOW` 避免 git 弹出控制台窗口；删除目录前用 `_rmtree_clear_readonly` 清只读位（git pack 文件）；首次布局提问文案走 `_i18n.t`，随宿主语言切换。
 
 ## 数据流（mermaid）
 
 ```mermaid
 flowchart LR
-  A[工具调用] --> B[resolve_workspace]
-  B --> C{workspace.json + 成员?}
-  C -->|是| D[集中式共享 repowiki]
-  C -->|否| E[repo_path/repowiki]
-  D --> F[routing_for_write 分区写]
-  B --> G[进程级缓存]
+  subgraph 路由
+    A[工具调用] --> B[resolve_workspace]
+    B --> C{workspace.json + 成员?}
+    C -->|是| D[集中式共享 repowiki]
+    C -->|否| E[repo_path/repowiki]
+    D --> F[routing_for_write 分区写]
+    B --> G[进程级缓存]
+  end
+  subgraph 引导
+    I[handle_init_workspace] --> T[_detect_init_traces]
+    T -->|四项痕迹齐全| AD[_adopt_initialized_workspace]
+    T -->|有缺失| FL[_run_full_skeleton_flow]
+    AD --> CL[_clone_repo]
+    FL --> CL
+    I -->|首次且无 layout| ND[needs_layout_decision 不落盘]
+  end
+  subgraph 增删
+    ADD[handle_add_workspace_repo] --> REG[双注册表 + .gitignore + repo-map]
+    REG --> CL
+    ADD --> CP[集中式: modules 分区]
+    RM[handle_remove_workspace_repo] --> UNREG[拆注册 + 知识/产物清理]
+    UNREG --> DEL2[_rmtree_clear_readonly 删目录]
+  end
 ```
 
 ## 依赖关系
 
 - 被各 MCP 工具经 [KnowledgeStore](KnowledgeStore.md) 的 bridge（`resolve_output_dir`）消费。
-- `workspace_bootstrap` 被 layout 模块惰性 import（避免加载期循环依赖）。
+- `workspace_bootstrap` 被 layout 模块惰性 import（避免加载期循环依赖），并调用 `agents_md.write_workspace_conventions`/`write_agents_md`/`remove_codewiki_block` 维护 AGENTS.md 块。
 - 对应集中式布局 spec：`.scratch/centralized-wiki-layout/spec.md`。
 
 ## 使用示例
@@ -89,4 +123,11 @@ res = resolve_workspace(repo_path)
 if res.centralized:
     out = res.root / "repowiki"  # 共享知识库
     name = routing_for_write(out, repo_path)  # 分区名 / None
+```
+
+```jsonc
+// 首次初始化：返回 needs_layout_decision 时先问用户，再带 layout 重调
+init_workspace(workspace_path="/work/harness", layout="centralized")
+add_workspace_repo(workspace_path="/work/harness", url="git@host:team/svc.git")
+remove_workspace_repo(workspace_path="/work/harness", name="svc")  // 会删本地目录
 ```

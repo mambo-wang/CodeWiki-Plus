@@ -217,6 +217,7 @@ class CLIDocumentationGenerator:
         from codewiki.src.be.cluster_modules import (
             cluster_modules,
             get_clustering_input_token_count,
+            module_tree_coverage_gap,
         )
         from codewiki.src.utils import file_manager
         from codewiki.src.config import (
@@ -231,11 +232,25 @@ class CLIDocumentationGenerator:
         module_tree_path = meta_resolve(working_dir, MODULE_TREE_FILENAME)
 
         try:
+            # Reuse the cached tree only while it still covers every leaf node:
+            # a new top-level module must be able to enter the tree on
+            # ``--update`` (ADR-0020 decision 3).
+            module_tree = None
             if os.path.exists(first_module_tree_path):
-                module_tree = file_manager.load_json(first_module_tree_path)
-                if self.verbose:
-                    self.progress_tracker.update_stage(0.5, "Loaded cached module tree")
-            else:
+                cached = file_manager.load_json(first_module_tree_path)
+                gap = module_tree_coverage_gap(cached, leaf_nodes)
+                if gap:
+                    if self.verbose:
+                        self.progress_tracker.update_stage(
+                            0.5,
+                            f"Cached module tree misses {len(gap)} component(s) — re-clustering",
+                        )
+                else:
+                    module_tree = cached
+                    if self.verbose:
+                        self.progress_tracker.update_stage(0.5, "Loaded cached module tree")
+
+            if module_tree is None:
                 if self.verbose:
                     clustering_tokens = get_clustering_input_token_count(leaf_nodes, components)
                     self.progress_tracker.update_stage(
@@ -304,19 +319,25 @@ class CLIDocumentationGenerator:
                     0.2, f"Generating documentation for {self.job.module_count} modules..."
                 )
 
-            # Run the actual documentation generation
-            await doc_generator.generate_module_documentation(components, leaf_nodes)
+            # Run the actual documentation generation. Metadata and the file
+            # list are written even for a degraded run (some module failed):
+            # the pages that did land stay inspectable, and the exception still
+            # surfaces as a non-zero exit.
+            try:
+                await doc_generator.generate_module_documentation(components, leaf_nodes)
+            finally:
+                if self.verbose:
+                    self.progress_tracker.update_stage(0.9, "Creating repository overview...")
 
-            if self.verbose:
-                self.progress_tracker.update_stage(0.9, "Creating repository overview...")
+                # Create metadata
+                doc_generator.create_documentation_metadata(
+                    working_dir, components, len(leaf_nodes)
+                )
 
-            # Create metadata
-            doc_generator.create_documentation_metadata(working_dir, components, len(leaf_nodes))
-
-            # Collect generated files
-            for file_path in os.listdir(working_dir):
-                if file_path.endswith(".md") or file_path.endswith(".json"):
-                    self.job.files_generated.append(file_path)
+                # Collect generated files
+                for file_path in os.listdir(working_dir):
+                    if file_path.endswith(".md") or file_path.endswith(".json"):
+                        self.job.files_generated.append(file_path)
 
         except Exception as e:
             raise APIError(f"Documentation generation failed: {e}")

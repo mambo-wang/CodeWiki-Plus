@@ -865,7 +865,7 @@ codewiki config set \
 codewiki generate
 ```
 
-支持 OpenAI、Anthropic、Azure OpenAI、AWS Bedrock 以及 Claude Code / Codex 订阅模式（此模式的历史用法可参考[上游项目 README](https://github.com/FSoft-AI4Code/CodeWiki)）。
+支持 OpenAI、Anthropic、Azure OpenAI、AWS Bedrock 等 API 模式（订阅模式的历史用法可参考[上游项目 README](https://github.com/FSoft-AI4Code/CodeWiki)）。
 
 ### 支持的语言
 

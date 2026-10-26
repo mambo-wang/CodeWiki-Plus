@@ -121,6 +121,16 @@ def _write_metadata_json(output_dir: str, repo_path: str, commit_id: str | None)
                 "timestamp": datetime.now().isoformat(),
             },
         }
+        # ADR-0020: metadata.json stays the outward summary and points back at
+        # the job ledger instead of copying its counters.
+        try:
+            from codewiki.mcp.tools import job_state
+
+            job = job_state.load_job(repo_path, output_dir)
+            if job and job.get("job_id"):
+                metadata["job_id"] = job["job_id"]
+        except Exception:
+            logger.debug("job_id pointer skipped", exc_info=True)
         from codewiki.mcp.cache import analysis_meta_dir
 
         meta_dir = analysis_meta_dir(repo_path, output_dir)
@@ -273,12 +283,43 @@ def handle_close_session(arguments: dict, store: "SessionStore") -> str:
     # to the user (batch_set_status tool).
     draft_docs = _scan_draft_docs(output_dir)
 
+    # Generation job ledger (ADR-0020): close the job — ``done`` when every
+    # planned page reached disk, ``degraded`` otherwise. Best-effort.
+    from codewiki.mcp.tools import change_plan, job_state
+
+    # Change plan (ADR-0020 #3): settle operators this run never executed
+    # *before* closing, so a half-executed plan reports ``degraded`` instead of
+    # a silent success. Per-operator history stays in change_plan.json.
+    plan_info = None
+    try:
+        pending_job = job_state.load_job(rp, output_dir)
+        plan_info = change_plan.finalize_plan(
+            rp, output_dir, missing_pages=job_state.missing_pages(pending_job)
+        )
+    except Exception:
+        logger.debug("change plan finalize skipped", exc_info=True)
+    incomplete_ops = int((plan_info or {}).get("failed") or 0) + int(
+        (plan_info or {}).get("skipped") or 0
+    )
+
+    job = job_state.finish_job(rp, output_dir, incomplete_ops=incomplete_ops)
+
     resp = {
         "status": "closed",
         "output_dir": output_dir,
         "agents_md_updated": agents_md_updated,
         "agents_md_diff": agents_md_diff,
     }
+    if job is not None:
+        resp["job"] = job_state.job_summary(job)
+    if plan_info and plan_info.get("total"):
+        resp["change_plan"] = plan_info
+        if incomplete_ops:
+            resp["change_plan"]["hint"] = (
+                "Some plan operators were not executed. Failed = the page is still "
+                "missing (filled by a partial resume); skipped = closed without "
+                "touching it. The job is degraded until the plan is fully replayed."
+            )
     # Phase 4 second slice (design review 2026-09-02, anchor A):
     # close_session is a natural batch boundary — auto-push the knowledge
     # tree when enabled. Best-effort, never blocks.

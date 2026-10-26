@@ -1081,6 +1081,24 @@ def _record_page_manifest(
     except Exception:
         logger.warning("page_manifest upsert failed (non-fatal)", exc_info=True)
 
+    # Generation job ledger (ADR-0020): one page reached final content.
+    # Same choke point as the manifest so write/edit/undo stay consistent.
+    try:
+        from codewiki.mcp.tools import job_state
+
+        job_state.mark_page_written(repo_path, output_dir, filename, page_type=page_type)
+    except Exception:
+        logger.warning("job ledger page write failed (non-fatal)", exc_info=True)
+
+    # Change plan (ADR-0020 #3): the page the plan asked for is now on disk —
+    # settle the operator here rather than trusting the agent to report it.
+    try:
+        from codewiki.mcp.tools import change_plan
+
+        change_plan.mark_op_done(repo_path, output_dir, filename)
+    except Exception:
+        logger.debug("change plan op mark skipped", exc_info=True)
+
 
 def _collect_wiki_terms(output_dir: Path, exclude: Path | None = None) -> dict[str, str]:
     """Build a {term_lower: slug} map from existing wiki pages.
