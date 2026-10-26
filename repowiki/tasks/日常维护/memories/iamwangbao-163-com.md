@@ -51,3 +51,11 @@ Qoder 对话未落 repowiki/raw 的根因（已定位并修复，未提交）：
 ### 2026-10-22 18:42 #nxn9
 
 2026-10-22 修复 CodeBuddy SessionEnd 采集竞态（内网电脑实证的静默丢弃）：根因是 wrapper DETACHED_PROCESS fire-and-forget 与 IDE Finalize 清理 messages/*.json 竞态，且展开失败后 _load_transcript 把元数据列表原样返回导致 no usable turns 被 DEVNULL 吞掉。修复（codewiki/mcp/_ide_hook.py，未 commit）：①新增 _wait_for_message_files 指数退避等待（~10s 预算，全部缺失才等，部分存在不等待）；②新增 _is_codebuddy_index，展开失败返回 None 不再泄漏元数据；③新增 _log_capture_event fail-open 落 repowiki/.meta/hook_capture.log 补可观测性。验证：新增 5 回归测试，聚焦 46 + 关联 105 全过，ruff/mypy 与基线一致。5.16.1 无此修复，需随下版本发布；内网电脑升级后生效。
+
+### 2026-10-24 16:13 #q381
+
+2026-10-24 技能自动触发改造落地（修订 ADR-0019 决策 2 的「全部手动」口径）：_PROMPT_REGISTRY 7 条加 "auto": True（search-wiki/ingest-note/distill-conversations/task-workflow/consolidate-knowledge/skill-creator/promote-note，用户指定清单）；sync_skills.py 模板 disable-model-invocation 改条件渲染（auto → 注释行 # model-invocable，其余保持 true），manual_hint/auto_hint 双态文案中英各两份；静态 codewiki-setup 保持手动。仓内解析器 skill_match.parse_skill_frontmatter 跳过 # 行，注释行安全。测试：test_sync_skills.py 新增 4 项 auto 专项断言 + roundtrip 按 auto 分支断言，聚焦 47 passed + setup/skill_match 48 passed，ruff/mypy 干净。已对本仓重跑 sync-skills（24 技能 × codebuddy/qoder/trae 三宿主落盘生效）。注意：distill-conversations 放开与 Doctrine「不自动蒸馏」边界冲突，用户明确要求，观察误触发。未 commit。
+
+### 2026-10-25 21:21 #4b16
+
+2026-10-25 技能自动触发改造已提交推送（commit 484b775，develop）：7 个知识飞轮技能（search-wiki/ingest-note/distill-conversations/task-workflow/consolidate-knowledge/skill-creator/promote-note）放开模型自动调用；description 改写为触发条件口径（zh/en）；OCR 评审发现的 manual_hint 占位符语义漂移已修复（改名 trigger_hint）。提交同时带入暂存区既有的 5 个 repowiki 蒸馏产物（2 条 CodeBuddy 采集竞态 pitfall 笔记 + 1 条对话归档 + 任务记忆）。验证：47 passed + 1 skipped，lint 干净，sync-skills 三宿主 24 技能落盘。

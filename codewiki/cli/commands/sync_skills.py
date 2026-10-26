@@ -10,6 +10,10 @@ name/description/disable-model-invocation + get_prompt 调用块，不渲染提�
 - 宿主生态转向 skills 目录；手动触发型 skill（disable-model-invocation: true）
   常驻上下文归零、只能 `/codewiki-<name>` 显式调用，语义等价于「换格式的
   command」——触发仍显式，不引入模型自动路由。
+- registry 中标 `"auto": True` 的工作流（知识飞轮类：search-wiki/ingest-note/
+  distill-conversations/task-workflow/consolidate-knowledge/skill-creator/
+  promote-note）不写 disable-model-invocation，模型可按 description 主动路由，
+  用户仍可显式调用。
 - IDE 自动映射只有 prompt→command 一条通道（codebuddy），没有 prompt→skill
   通道——codebuddy 不再豁免，与其他宿主一样生成技能薄壳。
 - 非 codebuddy 宿主（Qoder/Claude Code/TRAE）原本就依赖本步骤提供可见入口。
@@ -62,7 +66,7 @@ _PATH_ARGS = {"repo_path", "workspace_path"}
 _SKILL_TEMPLATE = """---
 name: {skill_name}
 description: {description_quoted}
-disable-model-invocation: true
+{invocation_line}
 ---
 
 # {title}
@@ -77,7 +81,7 @@ get_prompt(name="{name}"{args_line})
 
 {switch_block}{follow_hint}
 {truth_hint}
-{manual_hint}
+{trigger_hint}
 """
 
 # 正文样板文案中英双态（--lang 决定整文件语言：frontmatter description 与
@@ -91,6 +95,7 @@ _BODY_I18N: dict[str, dict[str, Any]] = {
         "follow_hint": "返回的工作流包含分阶段指引，逐步照做即可。",
         "truth_hint": "不要凭记忆执行——模板真源在 `codewiki/mcp/prompts.py`，以 `get_prompt` 返回内容为准。",
         "manual_hint": "本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /{skill_name} 触发。",
+        "auto_hint": "本技能可由模型按需自动调用（无 disable-model-invocation），也可由用户显式调用 /{skill_name} 触发。",
         "switch_hints": {
             "enable_task_management": (
                 "- enable_task_management：默认启用任务管理接线；"
@@ -106,6 +111,7 @@ _BODY_I18N: dict[str, dict[str, Any]] = {
         "follow_hint": "The returned workflow contains phased instructions — follow them step by step.",
         "truth_hint": "Do not run from memory — the source of truth is `codewiki/mcp/prompts.py`; defer to what `get_prompt` returns.",
         "manual_hint": "This skill is a manual entry point (disable-model-invocation: true): zero standing context, triggered only when the user explicitly invokes /{skill_name}.",
+        "auto_hint": "This skill can be auto-invoked by the model on demand (no disable-model-invocation), or explicitly invoked by the user as /{skill_name}.",
         "switch_hints": {
             "enable_task_management": (
                 "- enable_task_management: task-management wiring is ON by default; "
@@ -190,9 +196,17 @@ def _render_skill(name: str, title: str, description: str, lang: str) -> str:
         args_line = f", arguments={arguments}"
     skill_name = f"{_SKILL_PREFIX}{name}"
     body = _body(lang)
+    if meta.get("auto"):
+        # 自动触发型：不写 disable-model-invocation，模型可按 description 主动路由
+        invocation_line = "# model-invocable"
+        hint = str(body["auto_hint"]).format(skill_name=skill_name)
+    else:
+        invocation_line = "disable-model-invocation: true"
+        hint = str(body["manual_hint"]).format(skill_name=skill_name)
     return _SKILL_TEMPLATE.format(
         skill_name=skill_name,
         description_quoted=_yaml_quote(description),
+        invocation_line=invocation_line,
         title=title,
         description=description,
         call_hint=body["call_hint"],
@@ -201,7 +215,7 @@ def _render_skill(name: str, title: str, description: str, lang: str) -> str:
         switch_block=_switch_block(meta, lang),
         follow_hint=body["follow_hint"],
         truth_hint=body["truth_hint"],
-        manual_hint=str(body["manual_hint"]).format(skill_name=skill_name),
+        trigger_hint=hint,
     )
 
 
@@ -332,9 +346,10 @@ def sync_repo(repo_path: Path, lang: str, ide: Optional[str], dry_run: bool) -> 
 def sync_skills(lang: Optional[str], ide: Optional[str], dry_run: bool, repo: str) -> None:
     """把全部工作流提示词编译为宿主技能文件（技能薄壳，ADR-0019）。
 
-    生成 `<宿主配置目录>/skills/codewiki-<name>/SKILL.md`（手动触发型，
-    disable-model-invocation: true），每个文件只写如何获取全文
-    （get_prompt 调用块），权威仍在 MCP。init-wiki / init-workspace
+    生成 `<宿主配置目录>/skills/codewiki-<name>/SKILL.md`，每个文件只写
+    如何获取全文（get_prompt 调用块），权威仍在 MCP。默认手动触发型
+    （disable-model-invocation: true）；registry 标 `"auto": True` 的
+    工作流不写该开关，模型可主动调用。init-wiki / init-workspace
     执行时会指示调用本命令。ADR-0017 时代的 `commands/codewiki/*.md`
     存量命令薄壳本命令不清理，需手工删除一次。
 

@@ -18,7 +18,10 @@
 - **绕法**：用 Python 构造完整的 `multipart/form-data` body（含 boundary、所有元数据字段、文件内容）写到 `.bin` 文件，再用 `curl.exe --data-binary @body.bin -H "Content-Type: multipart/form-data; boundary=..."` 发送（curl.exe 用 schannel 栈，不受干扰）。
 
 ### PyPI legacy API 字段名约定
+- **uv publish 的 `--keyring-provider subprocess` 找不到 keyring 里 `keyring.get_password('pypi', 'upload')` 存的 token**（报 Missing credentials，查找口径不匹配）。绕法：Python 里 `keyring.get_password` 取出后经环境变量 `UV_PUBLISH_TOKEN` 传给子进程 uv publish——token 不落盘不打印。
 - 字段名用**下划线**（`metadata_version`），不是连字符（`metadata-version`）。METADATA/PKG-INFO 头用连字符，但表单字段必须转成下划线。
 - 必须字段：`:action=file_upload`（没有这个字段 PyPI 返回 405 Method Not Allowed）。
 - digest 字段名：`sha256_digest`（不是 `digests_sha256`）。
 - `email.parser` 的 `Message.keys()` 对重复头返回 N 次，循环内再 `get_all(key)` 会产生 N×N 重复字段——遍历前必须对 key 去重。
+- **单请求单文件**（v5.15.0 实证）：legacy API 一次 POST 只收一个产物，whl 与 sdist 必须分两次请求，各自带 `filetype`（bdist_wheel/sdist）、`pyversion`（py3/source）、`sha256_digest`。合在一个 body 会报「.tar.gz invalid for filetype bdist_wheel」400。
+- `email.message.Message` 在 `email.message` 模块，不在 `email.parser`——`from email.parser import Parser` 后注解写 `email.parser.Message` 会 AttributeError。

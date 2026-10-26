@@ -146,7 +146,7 @@ prompts:
 
   search-wiki:
     title: "知识库搜索"
-    description: "高效搜索 Wiki 知识库的策略指引：BM25 搜索、图谱扩展、深度阅读"
+    description: "需要检索 Wiki 知识库时使用：编码前查模块文档与架构约定、做决策前查已有 decision 笔记、改文件前查该文件的历史教训。策略指引：BM25 搜索、图谱扩展、深度阅读。"
     args:
       query: "搜索关键词或自然语言问题"
 
@@ -186,7 +186,7 @@ prompts:
 
   ingest-note:
     title: "经验知识归档"
-    description: "将设计决策、经验教训、架构 rationale、踩坑记录等知识归档到 Wiki 知识库。支持 8 种笔记类型，自动 BM25 索引，可通过 query_wiki 检索。"
+    description: "完成重要决策、多步调试定位到根因、被用户纠正/吐槽、发现可复用模式后，需要把经验沉淀进知识库时使用。将设计决策、经验教训、架构 rationale、踩坑记录等归档为 8 种笔记类型，自动 BM25 索引，可通过 query_wiki 检索。"
     args:
       repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
       note_type: "笔记类型：decision | lesson | architecture | bug_fix | pitfall | known_issue | workaround | general（默认 general）"
@@ -201,31 +201,31 @@ prompts:
 
   distill-conversations:
     title: "蒸馏对话提取记忆和经验"
-    description: "把 repowiki/raw/ 中已采集的对话蒸馏为双轨产物：notes（通用经验笔记）与 memories（任务进度记忆）。宿主 Agent 充当 LLM，distill_conversation(mode=prepare) 取 transcript → Agent 提取知识 → mode=submit 交回做去重/草稿入库/记忆落盘/评审。全程本地闭环，蒸馏产出的笔记须 confirm_note 确认，记忆自动写入当前用户的任务记忆分片文件。"
+    description: "检测到 repowiki/raw/ 存在未蒸馏的已采集对话积压时使用（如会话开始提示 pending_raw_count > 0）。把已采集对话蒸馏为双轨产物：notes（通用经验笔记）与 memories（任务进度记忆）。宿主 Agent 充当 LLM：distill_conversation(mode=prepare) 取 transcript → Agent 提取知识 → mode=submit 交回做去重/草稿入库/记忆落盘/评审。全程本地闭环，蒸馏产出的笔记须 confirm_note 确认。"
     args:
       repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
 
   task-workflow:
     title: "任务记忆工作流"
-    description: "跨会话延续工作上下文：创建/关联任务、采集对话绑定 task_id、蒸馏时双轨产出笔记与任务记忆、按 task_id 检索与聚合。适用于「继续上一个任务」等长线工作场景。"
+    description: "用户表示「继续上一个任务」「接着上次的干」等跨会话延续工作，或需要创建/关联任务、按 task_id 检索任务上下文时使用。覆盖创建/关联任务、采集对话绑定 task_id、蒸馏时双轨产出笔记与任务记忆、按 task_id 检索与聚合。"
     args:
       repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
 
   consolidate-knowledge:
     title: "知识聚合（L2 场景块）"
-    description: "把已确认笔记聚合为 L2 工作方法场景块（wiki/scenarios/）：prepare 获取待聚合笔记与容量预警 → 撰写/更新场景块 → reject_note 退役被吸收笔记 → submit 记录溯源并归零计数器。适用于「聚合笔记」或 aggregation_hint 提醒触发时（须先询问用户）。"
+    description: "lint_wiki 或 wiki_stats 提示 notes_since_last_consolidation 超阈值、出现 aggregation_hint，或用户要求「聚合笔记」时使用（执行前须先询问用户确认）。把已确认笔记聚合为 L2 工作方法场景块（wiki/scenarios/）：prepare 获取待聚合笔记与容量预警 → 撰写/更新场景块 → reject_note 退役被吸收笔记 → submit 记录溯源并归零计数器。"
     args:
       repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
 
   skill-creator:
     title: "技能编译（SKILL.md 草稿区）"
-    description: "把已确认知识（场景块 + stable 笔记 + 技能 open issues）编译为 SKILL.md 行为指令草稿（repowiki/skills/，两区制草稿区：进索引进 lint、不生效）：prepare 取候选素材/冲突预检/容量预警/写作规范 → Agent 撰写 → submit 校验落盘并写双向溯源。install/retire 为后续工单。适用于「生成技能」「把经验编成 SKILL」等场景。"
+    description: "用户要求「生成技能」「把经验编成 SKILL」，或 skill_hint 提示某笔记反复被采纳适合编译时使用。把已确认知识（场景块 + stable 笔记 + 技能 open issues）编译为 SKILL.md 行为指令草稿（repowiki/skills/，两区制草稿区：进索引进 lint、不生效）：prepare 取候选素材/冲突预检/容量预警/写作规范 → Agent 撰写 → submit 校验落盘并写双向溯源。install/retire 为后续工单。"
     args:
       repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"
 
   promote-note:
     title: "笔记晋升为正式 wiki 页面"
-    description: "把反复被采纳的 stable 笔记（wiki_stats.promotion_candidates 候选）去个人化重写为正式 wiki 页面：类型路由（pitfall/bug_fix/workaround → query，lesson/decision/architecture → concept）→ write_doc_file 写新页面（必须 draft 状态，写完提醒 confirm）→ edit_doc_file 回标原笔记 metadata.promoted_to。原笔记不删除不降级，保留作审计轨迹锚点。"
+    description: "wiki_stats 出现 promotion_candidates 候选、某条 stable 笔记被反复采纳，或用户要求把笔记转正时使用。把候选笔记去个人化重写为正式 wiki 页面：类型路由（pitfall/bug_fix/workaround → query，lesson/decision/architecture → concept）→ write_doc_file 写新页面（必须 draft 状态，写完提醒 confirm）→ edit_doc_file 回标原笔记 metadata.promoted_to。原笔记不删除不降级，保留作审计轨迹锚点。"
     args:
       note_file: "要晋升的笔记相对路径（如 notes/xxx.md）；留空则从 wiki_stats 的 promotion_candidates 中由用户选定"
       repo_path: "仓库根目录路径（相对路径基于当前工作目录，默认当前目录）"

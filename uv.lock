@@ -722,7 +722,7 @@ wheels = [
 
 [[package]]
 name = "codewiki-plus"
-version = "5.16.2"
+version = "5.16.3"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

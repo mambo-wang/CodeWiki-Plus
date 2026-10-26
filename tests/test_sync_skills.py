@@ -167,6 +167,46 @@ def test_skill_description_double_quoted():
 
 
 # ---------------------------------------------------------------------------
+# 自动触发型（auto 元数据）：不写 disable-model-invocation，模型可主动路由
+# ---------------------------------------------------------------------------
+
+
+def test_auto_skill_omits_disable_model_invocation():
+    content = _render("search-wiki")
+    assert "\ndisable-model-invocation: true\n" not in content
+    assert "# model-invocable" in content
+    assert "可由模型按需自动调用" in content
+
+
+def test_auto_skill_en_hint_is_english():
+    content = _render("search-wiki", "en")
+    assert "auto-invoked by the model on demand" in content
+    assert "可由模型按需自动调用" not in content
+
+
+def test_manual_skill_keeps_disable_model_invocation():
+    content = _render("init-wiki")
+    assert "\ndisable-model-invocation: true\n" in content
+    assert "手动触发入口" in content
+
+
+AUTO_SKILLS = {
+    "search-wiki",
+    "ingest-note",
+    "distill-conversations",
+    "task-workflow",
+    "consolidate-knowledge",
+    "skill-creator",
+    "promote-note",
+}
+
+
+def test_auto_skill_set_matches_registry():
+    auto = {meta["name"] for meta in _PROMPT_REGISTRY if meta.get("auto")}
+    assert auto == AUTO_SKILLS
+
+
+# ---------------------------------------------------------------------------
 # 中英双态：整文件语言跟随 --lang（用户要求，ADR-0019 决策 2）
 # ---------------------------------------------------------------------------
 
@@ -387,7 +427,11 @@ def test_frontmatter_roundtrip_via_skill_match_parser(lang):
             assert dir_name == f"codewiki-{name}"
             expected = i18n.t(f"prompts.{name}.description")
             assert _unescape(fm["description"]) == " ".join(expected.split())
-        assert fm["disable-model-invocation"] == "true"
+        if _meta_of(name).get("auto") if name not in _STATIC_SKILL_NAMES else False:
+            # 自动触发型：不写 disable-model-invocation，模型可主动路由
+            assert "disable-model-invocation" not in fm
+        else:
+            assert fm["disable-model-invocation"] == "true"
         # 钉死约定：工作流技能不是 skill_creator 两区制产物，不渲染 status
         assert "status" not in fm
 

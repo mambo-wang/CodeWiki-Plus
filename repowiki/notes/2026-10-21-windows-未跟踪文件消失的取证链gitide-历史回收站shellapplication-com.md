@@ -1,21 +1,30 @@
 ---
 type: lesson
-title: "Windows 未跟踪文件消失的取证链：git→IDE 历史→回收站（Shell.Application COM）"
-tags: ["comobject", "lesson", "namespace", "originalpath", "powershell"]
+title: Windows 未跟踪文件消失的取证链：git→IDE 历史→回收站（Shell.Application COM）
+tags:
+- comobject
+- lesson
+- namespace
+- originalpath
+- powershell
 metadata:
   date: 2026-10-21
   confidence_level: weak
   task_id: 产品维护
-  source_session: "1ef499c7-0214-4c49-8199-9789da0dd7d3"
+  source_session: 1ef499c7-0214-4c49-8199-9789da0dd7d3
   severity: medium
-  source_ref: "conversations/conv-现在记忆数量超过阈值会提示用户是否压缩记忆，我觉得可以改成不提示用户确认，直接跑subagent来压缩记忆.md"
-  scene: "Windows 调试/文件恢复"
-status: draft
+  source_ref: conversations/conv-现在记忆数量超过阈值会提示用户是否压缩记忆，我觉得可以改成不提示用户确认，直接跑subagent来压缩记忆.md
+  scene: Windows 调试/文件恢复
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.15.0, at: 2026-10-21T12:06:55Z }
-stale_after: 2027-04-19
+generated:
+  by: codewiki/5.15.0
+  at: 2026-10-21 12:06:55+00:00
+stale_after: '2027-04-20'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-22T01:57:56Z'
 ---
 
 ## Background

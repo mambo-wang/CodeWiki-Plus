@@ -1,22 +1,29 @@
 ---
 type: architecture
-title: "蒸馏迭代顺序契约：captured_at 升序为主键，缺失视为最旧，并列按 friction_score 降序"
-tags: ["architecture"]
+title: 蒸馏迭代顺序契约：captured_at 升序为主键，缺失视为最旧，并列按 friction_score 降序
+tags:
+- architecture
 metadata:
   date: 2026-10-21
   confidence_level: weak
   task_id: 日常维护
-  source_session: "d1684b0203bc487398ca761a4bfce9fd"
-  related_modules: ["mcp-tools-distill-conversation", "task-memory"]
+  source_session: d1684b0203bc487398ca761a4bfce9fd
+  related_modules:
+  - mcp-tools-distill-conversation
+  - task-memory
   severity: medium
-  source_ref: "conversations/conv-现在蒸馏对话的时候，是否会按采集时间从早到晚的顺序来蒸馏？.md"
-  scene: "蒸馏/任务记忆"
-status: draft
+  source_ref: conversations/conv-现在蒸馏对话的时候，是否会按采集时间从早到晚的顺序来蒸馏？.md
+  scene: 蒸馏/任务记忆
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.15.0, at: 2026-10-21T11:58:43Z }
-stale_after: 2027-10-21
+generated:
+  by: codewiki/5.15.0
+  at: 2026-10-21 11:58:43+00:00
+stale_after: '2027-10-22'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-22T01:58:11Z'
 ---
 
 ## Background

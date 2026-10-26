@@ -1611,7 +1611,7 @@ _PROMPT_REGISTRY: list[dict[str, Any]] = [
         "name": "cross-service-trace",
         "args": [("workspace_path", False), ("filter_value", False)],
     },
-    {"name": "search-wiki", "args": [("query", False)]},
+    {"name": "search-wiki", "args": [("query", False)], "auto": True},
     {"name": "quality-check", "args": [("repo_path", False)]},
     {"name": "impact-review", "args": [("repo_path", False), ("target", False)]},
     {"name": "change-review", "args": [("repo_path", False), ("since", False)]},
@@ -1620,7 +1620,7 @@ _PROMPT_REGISTRY: list[dict[str, Any]] = [
         "name": "extract-knowledge",
         "args": [("source_path", False), ("repo_path", False), ("granularity", False)],
     },
-    {"name": "ingest-note", "args": [("repo_path", False), ("note_type", False)]},
+    {"name": "ingest-note", "args": [("repo_path", False), ("note_type", False)], "auto": True},
     {
         "name": "team-memory-hook",
         "args": [
@@ -1629,11 +1629,11 @@ _PROMPT_REGISTRY: list[dict[str, Any]] = [
             ("capture", False),
         ],
     },
-    {"name": "distill-conversations", "args": [("repo_path", False)]},
-    {"name": "task-workflow", "args": [("repo_path", False)]},
-    {"name": "consolidate-knowledge", "args": [("repo_path", False)]},
-    {"name": "skill-creator", "args": [("repo_path", False)]},
-    {"name": "promote-note", "args": [("note_file", False), ("repo_path", False)]},
+    {"name": "distill-conversations", "args": [("repo_path", False)], "auto": True},
+    {"name": "task-workflow", "args": [("repo_path", False)], "auto": True},
+    {"name": "consolidate-knowledge", "args": [("repo_path", False)], "auto": True},
+    {"name": "skill-creator", "args": [("repo_path", False)], "auto": True},
+    {"name": "promote-note", "args": [("note_file", False), ("repo_path", False)], "auto": True},
     {"name": "retract-source", "args": [("name", False), ("repo_path", False)]},
 ]
 

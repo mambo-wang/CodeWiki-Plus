@@ -140,7 +140,7 @@ prompts:
 
   search-wiki:
     title: "Knowledge base search"
-    description: "Strategy guide for searching the Wiki knowledge base efficiently: BM25 search, graph expansion, deep reading"
+    description: "Use when you need to search the Wiki knowledge base: check module docs and architecture conventions before coding, check existing decision notes before deciding, check a file's past lessons before editing it. Strategy guide: BM25 search, graph expansion, deep reading."
     args:
       query: "Search keywords or a natural-language question"
 
@@ -180,7 +180,7 @@ prompts:
 
   ingest-note:
     title: "Experience knowledge capture"
-    description: "Archive design decisions, lessons learned, architecture rationale, pitfalls and similar knowledge into the Wiki knowledge base. Supports 8 note types, auto-indexed with BM25 and searchable via query_wiki."
+    description: "Use after landing an important decision, root-causing a multi-step debug, being corrected by the user, or spotting a reusable pattern — whenever experience should be captured into the knowledge base. Archives design decisions, lessons learned, architecture rationale and pitfalls into 8 note types, auto-indexed with BM25 and searchable via query_wiki."
     args:
       repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
       note_type: "Note type: decision | lesson | architecture | bug_fix | pitfall | known_issue | workaround | general (default general)"
@@ -195,31 +195,31 @@ prompts:
 
   distill-conversations:
     title: "Distill conversations into memories and experience"
-    description: "Distill captured conversations in repowiki/raw/ into dual-track output: notes (general experience notes) and memories (task progress). The host Agent acts as the LLM: distill_conversation(mode=prepare) fetches the transcript → the Agent extracts knowledge → mode=submit hands it back for dedup / draft ingestion / memory persistence / review. Fully local; distilled notes require confirm_note, memories are written automatically to the current user's task-memory shard file."
+    description: "Use when undistilled captured conversations pile up in repowiki/raw/ (e.g. session start reports pending_raw_count > 0). Distills them into dual-track output: notes (general experience) and memories (task progress). The host Agent acts as the LLM: distill_conversation(mode=prepare) fetches the transcript → the Agent extracts knowledge → mode=submit hands it back for dedup / draft ingestion / memory persistence / review. Fully local; distilled notes require confirm_note."
     args:
       repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
 
   task-workflow:
     title: "Task memory workflow"
-    description: "Carry work context across sessions: create/bind tasks, capture conversations bound to a task_id, produce notes and task memories as dual tracks during distillation, and retrieve/aggregate by task_id. For long-running scenarios such as \"continue the previous task\"."
+    description: "Use when the user wants to continue previous work across sessions (\"continue the last task\"), or when creating/binding a task or retrieving task context by task_id. Covers creating/binding tasks, capturing conversations bound to a task_id, dual-track note + task-memory output during distillation, and retrieval/aggregation by task_id."
     args:
       repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
 
   consolidate-knowledge:
     title: "Knowledge consolidation (L2 scenario blocks)"
-    description: "Consolidate confirmed notes into L2 working-method scenario blocks (wiki/scenarios/): prepare fetches pending notes and capacity warnings → write/update the scenario block → reject_note retires absorbed notes → submit records provenance and resets counters. Triggered by \"consolidate notes\" or an aggregation_hint reminder (ask the user first)."
+    description: "Use when lint_wiki or wiki_stats reports notes_since_last_consolidation over threshold, an aggregation_hint appears, or the user asks to consolidate notes (ask the user for confirmation before running). Consolidates confirmed notes into L2 working-method scenario blocks (wiki/scenarios/): prepare fetches pending notes and capacity warnings → write/update the scenario block → reject_note retires absorbed notes → submit records provenance and resets counters."
     args:
       repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
 
   skill-creator:
     title: "Skill compilation (SKILL.md draft zone)"
-    description: "Compile confirmed knowledge (scenario blocks + stable notes + skill open issues) into a SKILL.md behavioral-instruction draft (repowiki/skills/, two-zone draft area: indexed and linted, not active): prepare gathers candidate material, conflict pre-checks, capacity warnings and writing conventions → the Agent writes → submit validates, persists and writes bidirectional provenance. install/retire are follow-up tickets. For scenarios like \"generate a skill\" or \"turn this experience into a SKILL\"."
+    description: "Use when the user asks to \"generate a skill\" or \"compile this experience into a SKILL\", or a skill_hint suggests a note is repeatedly adopted and worth compiling. Compiles confirmed knowledge (scenario blocks + stable notes + skill open issues) into a SKILL.md behavioral-instruction draft (repowiki/skills/, two-zone draft area: indexed and linted, not active): prepare gathers candidate material, conflict pre-checks, capacity warnings and writing conventions → the Agent writes → submit validates, persists and writes bidirectional provenance. install/retire are follow-up tickets."
     args:
       repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"
 
   promote-note:
     title: "Promote a note to a formal wiki page"
-    description: "Rewrite a frequently adopted stable note (wiki_stats.promotion_candidates) into a de-personalized formal wiki page: type routing (pitfall/bug_fix/workaround → query, lesson/decision/architecture → concept) → write_doc_file creates the new page (must be draft; remind the user to confirm) → edit_doc_file back-annotates the original note's metadata.promoted_to. The original note is neither deleted nor demoted — it stays as an audit trail anchor."
+    description: "Use when wiki_stats lists promotion_candidates, a stable note is repeatedly adopted, or the user asks to promote a note. Rewrites the candidate into a de-personalized formal wiki page: type routing (pitfall/bug_fix/workaround → query, lesson/decision/architecture → concept) → write_doc_file creates the new page (must be draft; remind the user to confirm) → edit_doc_file back-annotates the original note's metadata.promoted_to. The original note is neither deleted nor demoted — it stays as an audit trail anchor."
     args:
       note_file: "Relative path of the note to promote (e.g. notes/xxx.md); leave empty to let the user pick from wiki_stats promotion_candidates"
       repo_path: "Repo root path (relative paths resolve against the current working directory; defaults to cwd)"

@@ -1,8 +1,8 @@
 # AI 编码代理的「体检仪器」是怎么造的？——Better Harness 作用、原理与使用全解
 
-> 写作时间：2026-10-13 · 补充于 2026-10-14（新增第六章「把发现落成代码」与图 A–D）· Better Harness 版本 `0.2.20`（npm 包 `@qoder-ai/better-harness`，MIT 许可）· 事实核对基于本机插件缓存 `~/.qoder-cn/plugins/cache/qoder-marketplace/better-harness/0.2.20/` 的 SKILL.md、models/、templates/ 与 CLI `--help` 输出，以及 [QoderAI/better-harness](https://github.com/QoderAI/better-harness) 的 `README.zh-CN.md` · 实测样本为本仓库 CodeWiki-Plus 的两次完整审查运行（首轮 + 修正取证范围后的复跑），以及复跑结论落地成代码之后的第二轮核对
+> 写作时间：2026-10-13 ·  Better Harness 版本 `0.2.20`（npm 包 `@qoder-ai/better-harness`，MIT 许可）
 
-**TL;DR:** Better Harness 是一个「不给代码打分、给工作流打分」的开源插件。它把编码代理的一次交付拆成**任务理解 → 受控执行 → 变更验证 → 可靠交付 → 经验沉淀**五个维度（Agent Work Loop），用**三条互相隔离的证据通道**（会话证据、项目 Harness 证据、Agent 定制证据）分别由三个只读 subagent 独立取证，最后由主 Agent 按八道质量闸门裁决成一份「每条结论都必须带着可核对证据 + 最小负责人 + 可执行修复提示 + 验收路径」的发现清单。
+Better Harness 是一个「给工作流打分」的开源插件。它把编码代理的一次交付拆成**任务理解 → 受控执行 → 变更验证 → 可靠交付 → 经验沉淀**五个维度（Agent Work Loop），用**三条互相隔离的证据通道**（会话证据、项目 Harness 证据、Agent 定制证据）分别由三个只读 subagent 独立取证，最后由主 Agent 按八道质量闸门裁决成一份「每条结论都必须带着可核对证据 + 最小负责人 + 可执行修复提示 + 验收路径」的发现清单。
 
 它最反直觉的设计是**证据状态决定分数上限**：配置存在只给到 74 分，被实际路由到 84，被执行过 94，只有后续可比结果改善才允许 100——所以「装了工具」永远不等于「用得好」。
 

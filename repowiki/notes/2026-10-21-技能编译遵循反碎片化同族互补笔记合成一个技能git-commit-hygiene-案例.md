@@ -1,22 +1,28 @@
 ---
 type: decision
-title: "技能编译遵循反碎片化：同族互补笔记合成一个技能（git-commit-hygiene 案例）"
-tags: ["decision"]
+title: 技能编译遵循反碎片化：同族互补笔记合成一个技能（git-commit-hygiene 案例）
+tags:
+- decision
 metadata:
   date: 2026-10-21
   confidence_level: weak
   task_id: 日常维护
-  source_session: "d1684b0203bc487398ca761a4bfce9fd"
-  related_modules: ["skill-creator"]
+  source_session: d1684b0203bc487398ca761a4bfce9fd
+  related_modules:
+  - skill-creator
   severity: medium
-  source_ref: "conversations/conv-现在蒸馏对话的时候，是否会按采集时间从早到晚的顺序来蒸馏？.md"
-  scene: "技能编译"
-status: draft
+  source_ref: conversations/conv-现在蒸馏对话的时候，是否会按采集时间从早到晚的顺序来蒸馏？.md
+  scene: 技能编译
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.15.0, at: 2026-10-21T11:58:51Z }
-stale_after: 2027-10-21
+generated:
+  by: codewiki/5.15.0
+  at: 2026-10-21 11:58:51+00:00
+stale_after: '2027-10-22'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-22T01:58:08Z'
 ---
 
 ## Background

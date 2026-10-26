@@ -1,20 +1,25 @@
 ---
 type: decision
-title: "创建用户级技能 oss-tool-eval：开源工具评测五阶段流程（源码→安装→实操→拷问→成文）"
-tags: ["decision"]
+title: 创建用户级技能 oss-tool-eval：开源工具评测五阶段流程（源码→安装→实操→拷问→成文）
+tags:
+- decision
 metadata:
   date: 2026-10-21
   confidence_level: weak
-  source_session: "164a77b4-96c0-4d21-aab3-fe43fc1f2401"
+  source_session: 164a77b4-96c0-4d21-aab3-fe43fc1f2401
   severity: medium
-  source_ref: "conversations/conv-system-reminder-The-user-selected-the-following-plugins-that.md"
-  scene: "开源项目评测"
-status: draft
+  source_ref: conversations/conv-system-reminder-The-user-selected-the-following-plugins-that.md
+  scene: 开源项目评测
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.15.0, at: 2026-10-21T12:15:29Z }
-stale_after: 2027-10-21
+generated:
+  by: codewiki/5.15.0
+  at: 2026-10-21 12:15:29+00:00
+stale_after: '2027-10-22'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-22T01:58:05Z'
 ---
 
 ## Background
