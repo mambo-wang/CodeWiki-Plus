@@ -113,3 +113,7 @@ v5.16.2 发布完成（2026-10-22）。版本判定：v5.16.1 后无新提交，
 ### 2026-10-26 10:08 #uyzt
 
 v5.16.3 发布完成（2026-10-26）。版本判定：v5.16.2 后 1 个 feat 提交（484b775 技能自动调用）→ 用户指定 patch bump 到 5.16.3。四处版本引用同步（pyproject.toml / codewiki/__init__.py / uv.lock 经 uv lock 刷新 / server.py 经 __version__ 注入）。闸门：pytest 1303 passed/3 skipped（16:35）；ruff check 全过；4 个变更 py 文件 format 全过（全量 format --check . 报 repowiki/conversations/*.md 内嵌代码块，不在 CI Lint 范围，按 CI 同口径逐文件验证）。GitHub 侧：bump 683c129 推 develop；PR #43 CI 绿（Test+Lint）后合并（merge commit 4c2c7d5）；Release id 423793301 经 Release API target_commitish 创建，tag v5.16.3 远端自动打上。PyPI 侧：uv publish 直接成功（TLS 未被干扰），token 从 keyring 取经 UV_PUBLISH_TOKEN 环境变量传入；JSON API 核对 latest=5.16.3（whl 1,048,500 B + sdist 17,858,556 B）。发布内容：7 个知识飞轮技能放开模型自动调用 + sync_skills 再生成的技能文件落地。注意：本次 bump 提交含 52 文件（技能再生成 + repowiki 产物），git add -A 曾误暂存 .scratch/ 与 docs/whitepaper/ 等未跟踪文件（157 文件 8 万行），已 reset 后改用 git add -u + repowiki/conversations/ 精确暂存。
+
+### 2026-10-26 19:43 #n6fp
+
+v5.16.4 发布完成（2026-10-26，按 windows-python-release 技能 v4 SOP 执行）。发布内容：ADR-0020 生成账本与更新路径算子计划（d561097）+ caw 订阅模式移除（2d4e1e0）。过程：步骤 0 判定 tag 区间 2 提交；四处版本同步；bump 提交 ef29ee4（首次提交误带入暂存区遗留的 2 个 repowiki 产物，reset --soft 拆分重提）；闸门 ruff 全过 + 全量 pytest 1359 passed/2 skipped（15:18）；PR #44 CI 绿合并（merge 7d4ae29）；Release id 424177017（target_commitish 自动打 tag）；uv publish 成功（首次调用输出被 PowerShell CLIXML 进度流吞掉且 PyPI 404，重试后成功——第一次可能实际未发出）；JSON API 核对 latest=5.16.4（whl 1,055,359 B + sdist 18,044,488 B，缓存延迟约 1 分钟）。

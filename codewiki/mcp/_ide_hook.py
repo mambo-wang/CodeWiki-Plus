@@ -335,6 +335,38 @@ def _text_from_content_blocks(blocks: list) -> str:
     return "\n\n".join(digest_blocks(blocks))
 
 
+def _win_long_path(path: Path) -> Path:
+    """Lift a Windows path past the 260-char MAX_PATH limit for direct opens.
+
+    Directory enumeration (FindFirstFile) sees long paths fine, but direct
+    opens (CreateFile / stat) raise FileNotFoundError once the full path
+    exceeds 260 characters — unless the system-wide LongPathsEnabled switch
+    is on, which cannot be assumed on user machines. Prefixing an absolute
+    path with ``\\\\?\\`` opts that single open out of path normalization
+    and lifts the limit. CodeBuddy IDE transcripts hit this in the wild:
+    their storage layout stacks three UUID segments
+    (``...\\{userId}\\CodeBuddyIDE\\{userId}\\history\\{workspaceHash}\\{conversationId}\\messages\\{messageId}.json``),
+    pushing message files to ~261 chars while ``index.json`` stays at ~225
+    and remains readable — so expansion saw a valid index but zero message
+    files and every capture died as "no usable turns".
+
+    No-op on non-Windows and on paths that already carry the prefix. All
+    child paths joined off the returned Path inherit the prefix, so one
+    conversion at the transcript entry point covers the whole expansion
+    tree (messages/ dir, per-message files).
+    """
+    if os.name != "nt":
+        return path
+    s = str(path)
+    if s.startswith("\\\\?\\"):
+        return path
+    if s.startswith("\\\\"):  # UNC share: \\server\share -> \\?\UNC\server\share
+        return Path("\\\\?\\UNC\\" + s.lstrip("\\"))
+    # abspath (not resolve): normpath eliminates ./.. components that the
+    # \\?\ prefix forbids, without resolving symlinks the caller may want kept.
+    return Path("\\\\?\\" + os.path.abspath(s))
+
+
 def _load_transcript(path: Optional[str]) -> Optional[list]:
     """Best-effort extraction of {role, content} turns from a transcript file.
 
@@ -345,7 +377,10 @@ def _load_transcript(path: Optional[str]) -> Optional[list]:
     """
     if not path:
         return None
-    p = Path(path)
+    # Long-path tolerance first: on Windows the transcript (and, critically,
+    # its sibling messages/*.json files) can exceed the 260-char MAX_PATH
+    # limit; every stat/open below must go through the \\?\ form.
+    p = _win_long_path(Path(path))
     if not p.is_file():
         print(f"ide-hook: transcript not found: {path}", file=sys.stderr)
         return None

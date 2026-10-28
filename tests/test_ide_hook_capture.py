@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -769,6 +770,84 @@ def test_extract_codebuddy_message_text_variants():
         )
         == "[tool: x]"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Issue #6: Windows 260-char MAX_PATH limit (CodeBuddy IDE transcripts)
+#
+# CodeBuddy's storage layout stacks three UUID segments, pushing
+# messages/<id>.json to ~261 chars while index.json stays at ~225 and
+# remains readable. Without the \\?\ long-path prefix, every message-file
+# stat fails and expansion dies as "no usable turns" — the exact signature
+# seen in repowiki/.meta/hook_capture.log from 10-24 to 10-28.
+# --------------------------------------------------------------------------- #
+def test_win_long_path_unit():
+    """_win_long_path: no-op on non-Windows / prefixed paths, lifts otherwise."""
+    if os.name != "nt":
+        # On POSIX the helper must be a pure no-op.
+        assert _ide_hook._win_long_path(Path("/tmp/x.json")) == Path("/tmp/x.json")
+        return
+    # Already prefixed -> untouched.
+    pre = Path("\\\\?\\C:\\some\\path.json")
+    assert _ide_hook._win_long_path(pre) == pre
+    # Plain absolute path -> prefixed abspath.
+    out = _ide_hook._win_long_path(Path("C:\\some\\path.json"))
+    assert str(out).startswith("\\\\?\\")
+    # Relative path is normalized to absolute before prefixing (\\?\ forbids
+    # relative components).
+    rel = _ide_hook._win_long_path(Path("sub/file.json"))
+    assert str(rel).startswith("\\\\?\\")
+    assert not str(rel).startswith("\\\\?\\sub")
+    # UNC share -> \\?\UNC\ form.
+    unc = _ide_hook._win_long_path(Path("\\\\server\\share\\f.json"))
+    assert str(unc).startswith("\\\\?\\UNC\\server\\share\\")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="MAX_PATH limit is Windows-only")
+def test_expand_codebuddy_index_long_path(tmp_path):
+    """A transcript whose message files exceed 260 chars must still expand.
+
+    Regression for the 2026-10-28 diagnosis: index.json readable (~225
+    chars) but messages/*.json at 261 chars invisible to stat/open, making
+    every SessionEnd capture die as "no usable turns".
+    """
+    # Build a session dir whose message-file paths exceed 260 chars. The
+    # transcript root is under pytest's tmp_path (short), so pad with long
+    # UUID-like segment names mirroring CodeBuddy's real layout:
+    #   .../history/{workspaceHash}/{conversationId}/messages/{messageId}.json
+    workspace_seg = "w" * 60
+    conv_seg = "c" * 60
+    session_dir = tmp_path / "history" / workspace_seg / conv_seg
+    msgs_dir = session_dir / "messages"
+    msgs_dir.mkdir(parents=True)
+
+    msg_id = "m" * 60
+    msg_file = msgs_dir / f"{msg_id}.json"
+    assert len(str(msg_file)) > 260, "test premise: path must exceed MAX_PATH"
+
+    msg_file.write_text(
+        json.dumps(
+            {
+                "role": "user",
+                "message": json.dumps(
+                    {"role": "user", "content": [{"type": "text", "text": "long-path question"}]}
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
+    index_file = session_dir / "index.json"
+    index_file.write_text(
+        json.dumps(
+            {"messages": [{"id": msg_id, "type": "text", "role": "user", "isComplete": True}]}
+        ),
+        encoding="utf-8",
+    )
+
+    # Sanity: without the fix this exact call returns None (message file
+    # invisible to stat). With the \\?\ prefix it must expand.
+    turns = _ide_hook._load_transcript(str(index_file))
+    assert turns == [{"role": "user", "content": "long-path question"}]
 
 
 # --------------------------------------------------------------------------- #
