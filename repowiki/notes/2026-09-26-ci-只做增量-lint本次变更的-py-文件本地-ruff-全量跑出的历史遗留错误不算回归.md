@@ -20,6 +20,8 @@ origin: conversation
 verified:
 - by: human:wangbao
   at: '2026-09-26T13:58:16Z'
+source_conversations: ['conversations/conv-@command-windows-python-release-发布版本5.16.3.md']
+
 ---
 
 ## Background
@@ -33,3 +35,21 @@ CI（`.github/workflows/ci.yml`）只检查本次变更的 py 文件（增量 li
 
 ## Rationale
 增量 lint 是常见 CI 配置，全量本地 lint 结果不能直接等同于回归判定。
+
+## ruff format --check 全仓跑会因 repowiki/conversations/*.md 内嵌代码块失败：本地发布闸门按 CI 同口径只查变更 py 文件
+
+> 合并自蒸馏候选：ruff format --check 全仓跑会因 repowiki/conversations/*.md 内嵌代码块失败：本地发布闸门按 CI 同口径只查变更 py 文件
+
+## 新实例：ruff format --check 全仓跑命中 md 采集产物（2026-10-26 v5.16.3 发版闸门）
+
+发版闸门跑 `uv run python -m ruff format --check .` 失败，失败文件全部是 `repowiki/conversations/*.md`（对话采集产物内嵌代码块被 ruff 识别为待格式化内容），并非 Python 源码问题。
+
+### 正确做法（本地发布闸门按 CI 同口径）
+
+1. `git diff --name-only <上一tag>..HEAD -- "*.py"` 列出本次变更的 py 文件
+2. 对这些文件跑 `ruff format --check <files>`
+3. 全仓 format --check 的 md 失败不阻塞发布
+
+### Rationale
+
+本地闸门口径与 CI 不一致会导致两种错误：误判阻塞发布（md 误报），或漏放行（CI 范围内的问题本地没查）。以 CI 实际检查范围为准是唯一可靠口径。
