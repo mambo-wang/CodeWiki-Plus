@@ -1,5 +1,5 @@
 ---
-name: codewiki-team-memory-hook
+name: codewiki-启用/禁用任务管理（跨会话任务记忆）
 description: "管理跨会话任务记忆：启用时注册 SessionEnd 采集 Hook 并向 AGENTS.md 写入任务引导段（新建会话时提示用户关联已有任务或输入任务名新建），关闭时一并移除。采集仅落 raw 不蒸馏。"
 disable-model-invocation: true
 ---
@@ -19,4 +19,4 @@ get_prompt(name="team-memory-hook", arguments={"action": "<action>", "repo_path"
 
 返回的工作流包含分阶段指引，逐步照做即可。
 不要凭记忆执行——模板真源在 `codewiki/mcp/prompts.py`，以 `get_prompt` 返回内容为准。
-本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-team-memory-hook 触发。
+本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-启用/禁用任务管理（跨会话任务记忆） 触发。

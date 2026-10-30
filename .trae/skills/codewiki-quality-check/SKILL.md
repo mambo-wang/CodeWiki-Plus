@@ -1,5 +1,5 @@
 ---
-name: codewiki-quality-check
+name: codewiki-文档质量审计
 description: "对已生成的 Wiki 执行全面质量检查：过时引用、断链、覆盖率、循环依赖"
 disable-model-invocation: true
 ---
@@ -16,4 +16,4 @@ get_prompt(name="quality-check", arguments={"repo_path": "."})
 
 返回的工作流包含分阶段指引，逐步照做即可。
 不要凭记忆执行——模板真源在 `codewiki/mcp/prompts.py`，以 `get_prompt` 返回内容为准。
-本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-quality-check 触发。
+本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-文档质量审计 触发。

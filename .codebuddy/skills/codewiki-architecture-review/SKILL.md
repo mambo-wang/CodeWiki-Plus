@@ -1,5 +1,5 @@
 ---
-name: codewiki-architecture-review
+name: codewiki-架构审查与热点分析
 description: "通过依赖图分析理解代码库的高层架构：识别核心层/服务层/应用层、发现依赖热点和耦合风险、定位入口点和模块边界。"
 disable-model-invocation: true
 ---
@@ -16,4 +16,4 @@ get_prompt(name="architecture-review", arguments={"repo_path": "."})
 
 返回的工作流包含分阶段指引，逐步照做即可。
 不要凭记忆执行——模板真源在 `codewiki/mcp/prompts.py`，以 `get_prompt` 返回内容为准。
-本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-architecture-review 触发。
+本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-架构审查与热点分析 触发。

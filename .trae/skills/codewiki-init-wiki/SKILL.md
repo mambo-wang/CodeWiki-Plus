@@ -1,5 +1,5 @@
 ---
-name: codewiki-init-wiki
+name: codewiki-初始化单仓Wiki工作区
 description: "零配置初始化：创建目录结构、拷贝带注释的 schema.yaml 模板、写入 AGENTS.md（含使用建议和自我反思协议），并默认启用任务管理接线（SessionStart/SessionEnd Hook + AGENTS.md 任务引导段）与编译宿主技能文件——初始化一次性把必要配置做好。在开始任何 Wiki 生成或知识管理之前执行一次。"
 disable-model-invocation: true
 ---
@@ -20,4 +20,4 @@ get_prompt(name="init-wiki", arguments={"repo_path": "."})
 
 返回的工作流包含分阶段指引，逐步照做即可。
 不要凭记忆执行——模板真源在 `codewiki/mcp/prompts.py`，以 `get_prompt` 返回内容为准。
-本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-init-wiki 触发。
+本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-初始化单仓Wiki工作区 触发。

@@ -1,5 +1,5 @@
 ---
-name: codewiki-remove-workspace-repo
+name: codewiki-从多仓工作区移除业务仓
 description: "按子目录名把业务代码仓库从 harness 工作区移除：事务式清理 bootstrap.sh/ps1 登记表、.gitignore、repo-map.md，并删除本地 clone 目录（不可恢复）。"
 disable-model-invocation: true
 ---
@@ -16,4 +16,4 @@ get_prompt(name="remove-workspace-repo", arguments={"workspace_path": ".", "name
 
 返回的工作流包含分阶段指引，逐步照做即可。
 不要凭记忆执行——模板真源在 `codewiki/mcp/prompts.py`，以 `get_prompt` 返回内容为准。
-本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-remove-workspace-repo 触发。
+本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-从多仓工作区移除业务仓 触发。
