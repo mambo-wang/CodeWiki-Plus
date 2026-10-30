@@ -1,5 +1,5 @@
 ---
-name: codewiki-incremental-update
+name: codewiki-更新单仓代码 Wiki
 description: "检测代码变更并增量更新受影响的 Wiki 模块文档"
 disable-model-invocation: true
 ---
@@ -16,4 +16,4 @@ get_prompt(name="incremental-update", arguments={"repo_path": "."})
 
 返回的工作流包含分阶段指引，逐步照做即可。
 不要凭记忆执行——模板真源在 `codewiki/mcp/prompts.py`，以 `get_prompt` 返回内容为准。
-本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-incremental-update 触发。
+本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-更新单仓代码 Wiki 触发。

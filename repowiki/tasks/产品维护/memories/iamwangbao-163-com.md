@@ -1,55 +1,28 @@
 ## 早期记忆（摘要）
 
-**竞品与外部调研结论：** GitHub 类似项目分三层——直接竞品 TencentDB Agent Memory（团队级四资产记忆中枢，与 CodeWiki 知识飞轮几乎一一对应，重点盯防/借鉴对象）；理念源头 Karpathy LLM Wiki 家族（对外表述类比）；通用记忆中间件 mem0/Letta/Zep/Cognee（设计参考）。腾讯云 Harness 文章（《AI写得快≠真正提效》）调研经 grill 评审定案：三项借鉴全部不立项——①PreToolUse 硬拦截→absorbed（claude-mem v13 反证 DENY 已被行业放弃，既有规划 P2-2 SessionStart 软闸门 + P2-1' 附加上下文已覆盖，文章仅作「软约束遵守度差」佐证）；②等待 skill→deferred（归「发版本」任务线，等 PyPI 生效验证）；③close-loop 闭环→excluded（依赖作者公司 CI/CD/工单系统，超产品边界，CodeWiki 只覆盖第八步知识复盘）。微借鉴一条：「不在中间任何一步静默停下」作为多步骤 prompt 写作原则。文章与知识飞轮高度同构处（成熟度分级、按类型衰减、弱/强信号双通道等）验证了方向；明确不借 Obsidian vault+REST API（CodeWiki 是 MCP 原生）与全量衰减高频扫描（lint 按需跑）。
+**竞品与外部调研结论：** GitHub 类似项目分三层——直接竞品 TencentDB Agent Memory（重点盯防）；理念源头 Karpathy LLM Wiki 家族；通用记忆中间件 mem0/Letta/Zep/Cognee（设计参考）。腾讯云 Harness 文章调研经 grill 定案：三项借鉴全部不立项（PreToolUse 硬拦截→absorbed，claude-mem v13 反证 DENY 已被行业放弃，既有 P2-2 软闸门已覆盖；等待 skill→deferred 归「发版本」线；close-loop→excluded 超产品边界）。微借鉴：「不在中间任何一步静默停下」作为多步骤 prompt 写作原则。
 
-**Prompt 正文原则（已定案）：** prompt 渲染正文只描述当前实现，不引用 ADR 编号、设计方案文档地址、历史决策变动（如「ADR-0002」「P1 C 线」「handler: source_ingest.py:741」）；Python 源码注释/docstring 里的 ADR 指针按惯例保留供维护者溯源。已按此清理 prompts.py 13 处渲染正文，测试 144 passed 无断言依赖。
+**Prompt 正文原则（已定案）：** prompt 渲染正文只描述当前实现，不引用 ADR 编号、设计文档地址、历史决策变动；Python 源码注释里的 ADR 指针按惯例保留供维护者溯源。
 
-**Windows 闪窗修复：** 根因是 MCP server 由 IDE 无控制台拉起，git 子进程新分配控制台窗口闪现。已在 git_sync.py 新增共享 helper windows_creationflags()（CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP，非 Windows 返回 0）并覆盖 run_git_bounded 及另外 4 处直接 subprocess 调用（config.py、doc_writer.py、note_query.py、workspace_bootstrap.py），加守门测试；MCP server 需重启生效。
+**Windows 闪窗修复：** 根因是 MCP server 由 IDE 无控制台拉起，git 子进程新分配控制台闪现。git_sync.py 新增共享 helper windows_creationflags()（CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP）并覆盖 run_git_bounded 及 config.py、doc_writer.py、note_query.py、workspace_bootstrap.py 共 5 处，加守门测试；MCP server 需重启生效。
 
-**蒸馏与压缩闭环：** 产品维护任务蒸馏积压曾清零，3 条笔记确认 stable（MCP 参数长度受限时 submit 走文件侧通道 workaround、无知识密度对话提交空结果 architecture、doctrine SessionStart hook 硬注入 additionalContext 更新）。注意：本会话早前 2 条蒸馏草稿曾被用户拒绝（deprecated）。
+**ingest_source 格式机制（已定案）：** 官方口径 PDF/MD/DOCX/HTML/XLSX；_CONVERTIBLE_SUFFIXES={.pdf,.docx,.xlsx}（pptx/epub 未验证不承诺）。ADR-0018 markitdown 转换 sidecar 已实现：原始文件无条件保留（哈希锚点）；ingest 时一次性转换，在版本去重门之前纯内存完成（门通过后才落盘 sidecar，修过孤儿 sidecar bug），存 raw/sources/<name>.converted.md；markitdown 为 optional extra [convert]，未装 fail-open 降级；转换失败结构化记录 convert_error 三分类；sidecar 随 auto_push 入库；跨格式 version_sibling 门基于转换文本指纹；retract remove_refs 把 sidecar 一并移 .trash。ADR §2 已修订为如实描述「每次 ingest 重转，sidecar 随导入覆盖」。文本格式 .md/.markdown/.html/.htm/.txt/.rst 走完整链路（存储+注册+版本感知去重门）。
 
-**未决事项（P2 待办优先）：**
-①MCP 工具面裁剪开关（P2，来自 agentmemory 调研 Round 2 grill 定案 2026-09-25，用户指示先存档不实施）：CODEWIKI_TOOLS=core 环境变量、registry 加 filter，60+ 工具 schema 全量注入占上下文是真缺口；参考 agentmemory 的 AGENTMEMORY_TOOLS=core（裁到 8 个）思路，须按本仓场景重定义核心集。依据：repowiki/wiki/queries/agentmemory-调研.md 第六节。
-②distill-worker 是否加 model 字段换弱模型待用户决定——CodeBuddy subagent frontmatter 支持 model（默认跟随主 Agent），若改须同步随包源变体 codewiki/agents/distill-worker.md 与 claude 家族变体 distill-worker.claude.md（取值不同需分别写），且因 toolsMCP 教训需真机验证生效。
-③可选深扒 TencentDB Agent Memory 架构与 CodeWiki 逐点对比；可执行 lint_wiki 验证压缩后 Wiki 健康度。
+**任务管理接线修复（2026-09-29）：** init-wiki/init-workspace 用户答「否」失效的根因是命令薄壳不注入开关参数且无意图映射指引。定案维持 opt-out（初始化=一步到位），双通道修复：薄壳补开关参数映射指引段（sync_commands.py _SWITCH_HINTS/_switch_block）+ 渲染正文补用户意愿闸门句；sync-commands 升级为必做步骤（只有 codebuddy 自动映射 MCP prompt 为命令，其余宿主都需 sync-commands）；locales zh/en 同步；补 5 个测试断言用例。
 
-> 原文归档于 memories-archive/iamwangbao-163-com.md，截至 2026-10-10，共 1 条。
+**Qoder CN 适配（2026-09-30）：** ① SessionStart hook 弹框按宿主分支——.qoder 副本走 AskUserQuestion（单题 options 硬上限 4：最近 3 个 active 任务 + 跳过，其余任务写进 question 正文由「其他」自由输入承接），其他宿主保持 ask_followup_question「一框列全」；② hook 命令解释器平台感知 ide_config._resolve_python_cmd()（Windows 恒 python、POSIX 探测 python3>python），merge_settings_json/unwire 原地迁移旧解释器命令；③ 任务索引 .index.json 损坏/为空时回退扫描 tasks/*/task.md frontmatter，active 按 mtime 倒序。OCR 评审后补修：capped 档补硬下限 2（0 任务时补「新建任务」选项）；label 截断撞车改为逐步延长至可区分（header 限 12）。新增边界测试，全量 pytest 1229 passed。
 
-### 2026-09-27 15:53 #x7ef
+**user_id 漂移与分片存量修复（2026-10-10，用户批准「两个都做」）：** ① memories/Administrator.md 7 条经 locked_rmw 并入正主分片并删除该文件（幂等脚本，备份在 .scratch/）；② 污染的第二份机器缓存 %USERPROFILE%/.codewiki_user_id 已备份删除——关键机理：_USER_ID_CACHE_PATH 在 import 期由 APPDATA or expanduser(~) 定死，两条通道读写不同文件，即「同一机器两个身份」的物理形态；③ 再压一轮（compressed 9 / kept 20）；④ 四条草稿 confirm（user_id 漂移 pitfall 重写为 B+C+D 已实施口径，config.py:220/149/296）。
 
-澄清产品机制：ingest_source 官方口径支持 PDF/MD/DOCX/HTML 四种格式，但代码无扩展名白名单（source_type 默认取后缀，任意文件可存储注册）。文本格式 .md/.markdown/.html/.htm/.txt/.rst 走完整链路（存储+注册+版本感知去重门）；pdf/docx 为二进制格式，_plain_text() 返回 None——无文本提取器，跳过版本去重门，且外部文档知识抽取流程读不回正文，实际只对文本格式可完整走通。PDF/DOCX 建议先转 Markdown 再导入。
+**OCR 复审修正（2026-10-03）：** 手工接线示例里的 `python` 不是 bug——那些块是 powershell 语境（Windows 下 python 正确），真正缺的是平台提示。只在 codewiki/mcp/prompts.py 三处补口径（手工接线示例段、模拟事件验证段、步骤 1 判「已启用」段：判据只看脚本相对路径后缀、不看解释器名），docs/team-memory-hook.md 前置条件改 `<python>` 并补「解释器是安装机快照 + 127 先看退出码再看接线档位」。验证：全量 pytest 1229 passed / 1 skipped、ruff 干净、.qoder 副本与源 diff 为空。
 
-### 2026-09-27 19:51 #xerc
+**get_prompt 工作流名缺口修复（2026-10-03）：** 选定「补实现不改契约」路线：_WORKFLOW_PROMPTS 提到 codewiki/mcp/prompts.py 模块级，成为工作流名→渲染函数唯一真源，新增 workflow_prompt_names()/render_workflow_prompt()；handle_get_prompt 接住 name 别名 + kebab/camel 两种写法，prompt_type enum 由 workflow_prompt_names() 生成（模板类 23 + 工作流 23 = 46，不再手维护），required 清空，名字缺失/未知都返回两份清单；同名时模板类精确优先（code_analysis 是模板、code-analysis 是工作流）；工作流分支把平铺的 repo_path/workspace_path 转发进 params。薄壳正文与 AGENTS.md 写法一字未改——ADR-0017 契约本来就对，是实现少了一条通道，末尾补「补充（2026-10-03）」段。验证：新增 tests/test_get_prompt_tool_channel.py 7 用例，真机 stdio 冒烟拿到 task-workflow 全文 5157 字符、repo_path 转发生效。同轮刷新本仓 .codebuddy/+.trae/ 接线（hooks.json 三条命令 python→python3，副本与源 diff 为空）。
 
-ADR-0018 已拍板并实现：ingest_source 引入 markitdown 转换 sidecar。8 项决策全按推荐：①原始文件无条件保留（哈希锚点+可重转）；②ingest 时一次性转换存 raw/sources/<name>.converted.md；③markitdown 为 optional extra [convert]，未装 fail-open 降级（行为同现状）；④转换失败结构化记录 convert_error（dependency_missing/empty_output/converter_exception）；⑤[^src:...] 引用锚定 sidecar 行号；⑥sidecar 随 auto_push 入库；⑦跨格式 version_sibling 门生效（指纹基于转换文本）；⑧工具描述保守口径。实现要点：转换在去重门之前内存完成（指纹覆盖 pdf/docx），门通过后才落盘 sidecar；_plain_text() 扩展读 sidecar 回退；retract remove_refs 把 sidecar 一并移 .trash。新增 tests/test_source_convert.py 9 个测试，全量 1208 通过。
+**蒸馏与压缩闭环：** 产品维护任务蒸馏积压曾清零，3 条笔记确认 stable（MCP 参数超限走文件侧通道 workaround、无知识密度对话提交空结果 architecture、doctrine SessionStart hook 硬注入 additionalContext）。
 
-### 2026-09-27 21:04 #tx6y
+**未决事项：** ①MCP 工具面裁剪开关（P2，agentmemory 调研 Round 2 定案存档不实施）：CODEWIKI_TOOLS=core 环境变量 + registry filter，60+ 工具 schema 全量注入占上下文是真缺口，须按本仓场景重定义核心集（依据 repowiki/wiki/queries/agentmemory-调研.md 第六节）；②distill-worker 是否加 model 字段换弱模型待用户决定，若改须同步随包源变体 codewiki/agents/distill-worker.md 与 claude 家族变体，且需真机验证生效；③全仓另有 15 条更旧草稿（多为 2026-09-20/21）未处置；repowiki/.meta/telemetry/ 的 6 个历史身份分片未合并（D 菜单未批准部分）；④已知缺陷未修（零运行时影响）：codewiki/mcp/tools/source_ingest.py:321 只有 docstring 的 _convert_to_markdown 空壳被 :333 真实现同名遮蔽，需确认是否合并事故；⑤可选深扒 TencentDB Agent Memory 架构逐点对比。
 
-代码评审（两轴 subagent + 主 Agent 复核）发现并修复孤儿 sidecar bug：_convert_to_markdown 原在版本门之前就落盘 sidecar，门拦下时残留孤儿文件。修复为纯内存转换（返回 (registry_fields, converted_text)），门通过后随最终 dest_name（含哈希后缀）落盘。测试补孤儿文件断言。其余发现：①ADR「转换只做一次确定性缓存」与实现（每次 ingest 重转）不一致——待对齐；②_CONVERTIBLE_SUFFIXES 含 pptx/xlsx/epub 超出 ADR 决策⑧保守口径——待对齐（要么收窄后缀集，要么扩 ADR 口径）；③决策⑤引用锚定仅文档约定无实现（属抽取 command 层职责，可接受）；④retract 中移 .trash 逻辑重复（judgement call，暂不动）。全量 1208 通过。
-
-### 2026-09-27 22:24 #k6kk
-
-评审遗留项已拍板并闭环：①官方口径扩为 PDF/MD/DOCX/HTML/XLSX，_CONVERTIBLE_SUFFIXES 收窄为 {.pdf,.docx,.xlsx}（pptx/epub 未验证不承诺，测试断言同步）；②ADR §2 改为如实描述「每次 ingest 重转，sidecar 随导入覆盖」。ADR-0018 决策⑧已修订并标注修订日期。全量 1208 通过。
-
-### 2026-09-29 10:58 #llbw
-
-init-wiki/init-workspace 任务管理接线「否」失效修复完成（grill 定案）：①根因是命令薄壳不注入开关参数且无意图映射指引，用户答「否」死在自由文本里，opt-out 默认照常接线；②定案维持 opt-out（初始化=一步到位），双通道修复：薄壳补开关参数映射指引段（sync_commands.py _SWITCH_HINTS/_switch_block）+ 渲染正文补用户意愿闸门句（步骤 2/4 开头）；③sync-commands 升级为必做步骤，措辞纠正为「只有 codebuddy 自动映射 MCP prompt 为命令，其余宿主都需 sync-commands」，CLI 宿主判定已自动化无需用户选；④locales zh/en 同步 description 与 args；⑤测试补 5 个断言用例，全量 1211 passed。本仓库薄壳已重新生成（.qoder/.trae 各 23 个）。
-
-### 2026-09-30 22:23 #886d
-
-任务管理适配 Qoder CN 完成（三项）：① SessionStart hook 弹框指引按宿主分支——`.qoder` 副本走 AskUserQuestion（单题 options 硬上限 4：最近 3 个 active 任务 + 跳过，其余任务写进 question 正文由「其他」自由输入承接，新建任务无需第二次弹框），其他宿主保持 ask_followup_question「一框列全」原文；② hook 命令解释器平台感知——`ide_config._resolve_python_cmd()`，Windows 恒 python、POSIX 按 python3>python 探测，并在 merge_settings_json/unwire 中把旧解释器命令原地迁移（含 `python -m codewiki.mcp._ide_hook` 尾部特征匹配）；③ 任务索引 `.index.json` 缺失/损坏/为空时回退扫描 `tasks/*/task.md` frontmatter，active 任务按 task.md+memories 最新 mtime 倒序。验证：全量 pytest 1226 passed / 1 skipped，ruff check+format 干净，真机 `install-hooks --ide qoder` 幂等 + `.qoder/hooks` 副本实测产出 4 选项合规弹框（9 个 active 任务）。下一步：变更尚未提交。
-
-### 2026-09-30 22:54 #8s0x
-
-OCR 委托评审自己的适配改动后修了确认项：capped 档（AskUserQuestion）只按硬上限 4 设计、漏了**硬下限 2**——0 个进行中任务时框里只剩「跳过」一项，弹框调用直接失败（新仓库首个会话最该引导建任务的那次）；现已在有空位时补「新建任务」选项，并把「进行中共 N 个任务…正文任务清单」那段挪进 `if rest:`（之它会悬空指着一个不存在的小节）。同时修了 label 截断撞车：同一前 12 字的长中文标题（task_id 由标题生成、换用 id 仍撞）改为撞车时逐步延长至可区分，因为 label 没有硬字符上限（只有 header 限 12）。`prompts.py` 的 task-workflow 与 AGENTS.md 引导段同步口径（硬上限 4 / 硬下限 2 / 补「新建任务」）。新增 3 条边界测试（选项数 0/1/2/3/4/9 任务、无悬空正文清单、label 唯一），全量 pytest 1229 passed，ruff 干净，.qoder 安装副本已重同步。Medium 「解释器快照写进共享 settings.json」未改行为，只在 ide_config.py 注释里钉下「换机/克隆后重跑 install-hooks 是每机一次」的口径；未提交。
-
-### 2026-10-03 05:22 #pwbh
-
-第二轮 OCR 复审后落的修正（定性比第一轮温和）：手工接线示例里的 `python` **不是 bug**——那些块是 ```powershell 语境（Windows 下 `python` 正确），真正缺的是平台提示。故只在 `codewiki/mcp/prompts.py` 三处补口径（手工接线示例段、模拟事件验证段、步骤 1 判「已启用」段：判据只看脚本相对路径后缀、不看解释器名），`docs/team-memory-hook.md` 前置条件改 `<python>` 并在命令路径段补「解释器是安装机快照 + 127 先看退出码再看接线档位」；去掉新任务选项 description 里嵌套的「」。未动：`ide_config.py:387` docstring 示例（纯示意后缀提取、无解释器语义）。待用户定：刷新本仓 `.codebuddy/` 接线（副本缺 ③ 回退、settings 仍为 `python` → 本机 127，但会改共享配置）。验证：全量 pytest 1229 passed / 1 skipped、targeted 128 passed、ruff check+format 干净、`.qoder` 副本与源 diff 为空、`_prompt_team_memory_hook` 渲染 10204 字符含新口径。仍未提交。
-
-### 2026-10-03 10:10 #afid
-
-get_prompt 工作流名缺口已修（选定「补实现不改契约」路线）：`_WORKFLOW_PROMPTS`（原 handler 函数体内的 prompts_map）提到 `codewiki/mcp/prompts.py` 模块级，成为工作流名→渲染函数唯一真源，新增 `workflow_prompt_names()` / `render_workflow_prompt()`；`handle_get_prompt` 接住 `name` 别名 + kebab/camel 两种写法，`prompt_type` 的 enum 由 `workflow_prompt_names()` 生成（模板类 23 + 工作流 23 = 46，不再手维护），`required` 清空，名字缺失/未知都返回模板类+工作流两份清单；同名时模板类精确优先（`code_analysis` 是模板、`code-analysis` 是工作流）；工作流分支把平铺的 repo_path/workspace_path 转发进 params（否则退回 cwd 指向别的仓库）。薄壳正文与 AGENTS.md 的 `get_prompt(name=...)` 写法一字未改——ADR-0017 契约本来就对，是实现少了一条通道，ADR-0017 末尾补「补充（2026-10-03）」段记录。验证：新增 `tests/test_get_prompt_tool_channel.py` 7 个用例，真机 stdio 冒烟（拉起 `python3 -m codewiki.mcp.server` 走 tools/list + tools/call）拿到 task-workflow 全文 5157 字符、repo_path 转发生效。同轮落了本仓 `.codebuddy/`+`.trae/` 接线刷新（install-hooks：settings/hooks.json 三条命令 python→python3，三份 hook 副本与源 diff 为空）。
+> 原文归档于 memories-archive/iamwangbao-163-com.md，截至 2026-10-29，共 2 条。
 
 ### 2026-10-05 21:55 #b0tu
 
@@ -89,11 +62,51 @@ user_id 漂移修复（B+C）已实施并真机验证（2026-10-10）：新增 `
 
 压缩子代理真机复跑完成并修掉它暴露的落盘缺陷（2026-10-10）：异步 general-purpose 子代理按 compaction_action 执行成功，产品维护热层 3 条归档进 memories-archive/iamwangbao-163-com.md、保留 20 条，全程无用户确认，未碰他人分片（Administrator.md 保持 4528B/7 条）。磁盘核验发现两个问题：①submit 总是前置 `## 早期记忆（摘要）`，而 prepare 返回的 existing_summary 本身带该标题，子代理整段粘回导致标题重复；②摘要正文含 `###` 子标题时被解析器当条目切走（热层实际解析出 21 条而非 20 条，memories_total 虚高）。已修：task_manager.py submit 分支加净化——caller 摘要以 _SUMMARY_HEADING 开头则剥掉（与既有读侧 :299/:783 同口径），并剥空后走「summary required」报错；compaction_action 第②步配方补充「existing_summary 是素材不是正文，摘要正文不得含 ##/### 标题行」。新增测试 test_compact_submit_does_not_double_the_summary_heading，tests/test_task_manager.py + test_task_memory_search.py 共 71 passed，ruff 干净（全量后台复跑中）。**遗留（不修，自愈）**：磁盘热层仍有本次留下的重复标题 + 被误当条目的 `### 本轮追加压缩` 块，因当前 21 条 < 40 条阈值且 21685B < 24576B，compaction_needed=false 无法再 submit 重写；下次真正触发压缩时 submit 会用净化后的摘要整体重写文件，重复块自然归位。另注意：`### 2026-08-26 会话蒸馏完成` 双份是 HEAD 里就存在的旧重复（近重复写入检查上线前的沉积），非本次压缩造成。**MCP 服务进程仍缓存旧模块，本次净化逻辑需 /mcp reload 才对 MCP 通道生效。**
 
-### 2026-10-10 17:50 #zb6u
+### 2026-10-10 17:56 #1sfq
 
-> [superseded 2026-10-10 by #1sfq]
+D + 草稿处置完成，但压缩那一段的结论需修正（2026-10-10，supersedes #zb6u）：①D1/D2 均已完成并实测——`memories/Administrator.md` 7 条经 `locked_rmw` 原样并入正主分片后删文件（备份 .scratch/shard-backup-Administrator-*.md，git 索引已记 D）；`%USERPROFILE%/.codewiki_user_id`（内容 Administrator）备份后删——机理：`_USER_ID_CACHE_PATH` 在 **import 期**由 `APPDATA or expanduser(~)` 定死（config.py:220），两条通道以不同进程环境初始化就会读写两个不同文件，这就是同机双身份的物理形态；healthy/无钉/degraded/MCP 四格均 `iamwangbao-163-com`（pin / git-email / pin / pin）。②四条草稿全部 confirm_note(strong, evidence=test_ref)，逐条对码核实过；我自己写错的假测试名已改回真实的 `tests/test_source_convert.py::test_convertible_suffixes`。③压缩腿：第二轮 compressed 1 / kept 20 / memories_total 20，磁盘实测单一摘要标题、摘要正文无标题行——**但「泄入摘要的 ### 块已自然归位」那句错了**：那个 `### 本轮追加压缩（截至 2026-10-05…）` 块仍在热层（现 :92），与两份重复的 `### 2026-08-26 会话蒸馏完成` 一起成为**永不可压的死重**：`entry_sort_key`（store.py:327）把无时间戳条目排到最后（(1,"")），而 `_split_compaction` 只从最旧端取 compress，所以无日期条目永远落在 keep 窗口内——后果是分片卡在 27391B > 24576B 字节线上，每追加一条就立刻重新触发一次只能吞 1 条真日期的压缩（抖动）。待批准的两个动作：（一）`_split_compaction` 把无日期条目提到 superseded 之后、有日期条目之前优先 compress（语义变化：keep 窗口成员判定不再纯按时间）；（二）一次性用 locked_rmw 将现存三块无日期死重先归档再从热层 dropping。另：archive 里同一时间戳标题最多重复 10 次（历史 legacy 收敛反复重归档，append-only 设计容忍），本轮未动。全仓仍有 15 条更旧草稿（09-20×9、09-21×2、09-22/10-05/10-09 各若干）与 telemetry 6 个历史身份分片未处置；`source_ingest.py:321` 只有 docstring 的 `_convert_to_markdown` 空壳被 :333 同名遮蔽（未修，零运行时影响）。工作区全部未提交；本轮代码改动需 /mcp reload 才对 MCP 通道生效。
 
-D 存量修复 + 草稿处置完成（2026-10-10，用户批准「两个都做」）：①`memories/Administrator.md` 7 条经 `locked_rmw` 原样并入正主分片并删除该文件（幂等脚本、原文备份 .scratch/shard-backup-Administrator-*.md；`_stage_removal` 因 auto_push 与 auto_stage 互斥而 no-op，删除仅体现在工作区）；②污染的第二份机器缓存 `%USERPROFILE%/.codewiki_user_id`（内容 Administrator，旧退化通道 import 期写错路径）已备份到 .scratch 后删除——关键机理：`_USER_ID_CACHE_PATH` 在 **import 期**由 `APPDATA or expanduser(~)` 定死，所以两条通道读写的是两个不同文件，这就是「同一机器两个身份」的物理形态；③再压一轮（子代理遵新增格式纪律：正文不得含 ##/### 标题）：compressed 9 / kept 20 / memories_total 20，磁盘实测单一摘要标题、摘要无标题行——上轮重复标题与泄入摘要的 `###` 块已自然归位；④四条草稿全部改写/核验后 confirm_note(strong, evidence=test_ref)：user_id 漂移 pitfall（重写为 B+C+D 已实施口径、行号刷新 config.py:220/149/296、author 从 Administrator 改回正主 uid）+ 三条 2026-09-29（逐条对码核实：_CONVERTIBLE_SUFFIXES={pdf,docx,xlsx}、convert_error 三分类、sidecar 纯内存不在门落盘）；confirm 时误写了一个不存在的测试名作 test_ref，已改为真实的 `tests/test_source_convert.py::test_convertible_suffixes`。**待用户：全仓另有 15 条更旧草稿（多为 2026-09-20/21）未处置；`repowiki/.meta/telemetry/` 的 6 个历史身份分片未合并（D 菜单里未批准那部分）。顺带发现缺陷（未修，零运行时候影响）：`codewiki/mcp/tools/source_ingest.py:321` 有一个只有 docstring 的 `_convert_to_markdown` 空壳，被 :333 的真实现同名遮蔽（先别动，需确认来源是不是合并事故）。工作区全部未提交。
+### 2026-10-10 18:16 #mrvt
+
+OCR 委托评审完成（2026-10-10，工作区 13 个可审文件，覆盖率 13/13=100%，未做任何修改——用户只要求「审查代码」）。发现 1 中 2 低：①**Medium/bug**：压缩派发指令缺 repo_path——`task_manager.py:1164 _compaction_action(task_id)` 的三步配方和 `prompts.py:1381` 步骤 6 的示例调用都只带 task_id，而 `handle_compact_task_memories:1260-1265` 在无 session 且无 repo_path 时直接返回 `repo_path is required` 错误；异步子代理是全新上下文、唯一信息来源就是这条指令，按字面执行必失败（本轮我自己派发时是手工补的 repo_path，即旁证）。修法：`_compaction_action(output_dir, task_id)` 带上仓库根（output_dir.parent），配方写 `repo_path=<仓库根>`，prompts.py 用现成的 `{repo_path}` 插值同步。②Low：`config.py:226-233` `_read_user_id_cache` docstring 仍称「避免每次冷启动跑 git 子进程」，新链路里缓存已降到 git 之后（只在 git 不可用时兜底），注释与行为矛盾。③Low（未复现，需确认）：`ide_config.py:142-147` 的 `python3 X || python X`——Windows 上 python3 若命中 Microsoft Store 执行别名，横幅走 stdout 且非零退出，UserPromptSubmit 分支（stdout 被宿主机器解析）会拼接噪声；本机根本无 python3 故无法复现。核验通过的点：三个 JSON 的 9 处 command 与常量逐字一致（不产生重复注册）；.gitignore 的 repowiki/.meta/user_id 与 gitignore_entries() 生成式一致且 check-ignore 命中；删掉的 _resolve_python_cmd/_PYTHON_CMD 全仓无残留、os/shutil 非死导入；_relative_hook_suffix 与 _is_codewiki_prompt_cmd 对新命令仍能识别并迁移历史条目；task_manager 引用的 SUMMARY_HEADING/_COMPACTION_* 常量全部存在（不会 NameError），_prepare_compaction_payload 仍被 :1297 使用（非死代码）；全仓已无 user_id() 无参调用点。越界提示（md 不在 OCR 范围）：docs/任务记忆退役与写入检查设计方案.md:23 仍写内联 compaction_work 与旧行号。
+
+### 2026-10-12 11:09 #fho7
+
+提交完成（2026-10-10，用户批准「先修 Medium 再提交」+「按主题拆 3 个提交」）：develop 上三个本地提交，**未推送**。f285ec2 feat: 压缩免确认异步派发 + 身份解析接仓库本地钉（17 files，+542/-178：9 个 codewiki py + 4 tests + 3 宿主 settings + .gitignore）；2a06db6 docs: 设计文档同步口径（8 files：CONTEXT/README + 6 个设计文档）；65a7a66 chore(repowiki): 知识沉淀（15 files，含6 条新 note 入库、memories/Administrator.md 删除）。提交前提交后实证：ruff check/format 全干净；两个相关测试文件 71 passed；全量 pytest 1244 passed / 2 skipped（12m28s，exit 0）——skip 数比早前记录多 1，但在我未改动的文件里（这两个文件本次 0 skip）。Medium 修法落地：_compaction_action(task_id, repo_path) 把调用方自己的 repo_path 回显进配方①③两处 + 一句「子代理无会话上下文」说明，prompts 步骤 6 用 {repo_path} 插值同步，测试加 4 条断言钉住。遗留未入库（等用户点头）：uv.lock +879/-3（markitdown 可选依赖 43 个包的补锁，pyproject 未变，建议单独 chore 提交便于单独 revert）；.scratch/ 47 个未忽略的一次性发布脚本与结果文件（含两份身份备份）——选项是删或加 .gitignore 规则；docs/articles/终结篇.md + images/ 约 20 张图（更早遗留）；repowiki/conversations/ 3 个未蒸馏 raw。代码改动需用户 /mcp reload 才在 MCP 通道生效。
+
+### 2026-10-12 11:25 #is5r
+
+遗留两项已按用户口径处置（2026-10-12）：dfb88b3 chore: .gitignore 忽略 .scratch **顶层散文件**——不能整目录忽略！本仓约定 .scratch/<feature>/issues/*.md 是内部工单区呓 18 个文件已跟踪，故规则为 `.scratch/*` + 反选 `!.scratch/*/`（磁盘已验：18 个工单文件不受影响、子目录新建文件仍显示未跟踪、顶层 47 个 ?? 归 0）。e3ec267 chore: uv.lock 补齐 markitdown 可选 extra 的 43 个传递依赖（pyproject 未变）。develop 现共 5 个本地提交未推送。工作区仍剩 3 个 repowiki 待提交项：子代理派发自包含草稿（**待用户 confirm/reject，确认前不入库**）、#fho7 后的分片增量、wiki log。
+
+### 2026-10-12 11:26 #26g3
+
+收尾（2026-10-12）：上一条 #is5r 里“待提交 3 项”已按用户「提交」入库——子代理派发自包含 lesson 草稿仍为 status: draft（文件入库不等于晋升，待用户 confirm/reject）、任务分片含 #fho7/#is5r 本轮新增、wiki log 同步。commit 后 develop 共 6 个本地提交未推送；工作区只剩 3 个未跟踪 raw 对话与 docs/articles 终结篇旧遗留（都按用户口径不动）。
+
+### 2026-10-12 11:34 #nqvc
+
+本轮 OCR 委托评审闭环已推送：6 个提交（f285ec2..99e4ec0）push 到 origin/develop（81c5004..99e4ec0，fast-forward），Medium 缺陷「压缩派发指令缺 repo_path」的修复随之上线；工作区已跟踪改动归 0，未跟踪仅剩 3 个 repowiki/conversations raw 暂存件。另记一笔待决事项：未跟踪的 docs/articles/CodeWiki-Plus终结篇….md、docs/articles/images/、根目录 vibe_images/ 于 2026-10-12 11:24 被移入 Windows 回收站（非 git 动作，git 从未跟踪过这三者，IDE 本地历史零命中），回收站里仍在、可整件还原，是否恢复待用户决定。
+
+### 2026-10-26 10:25 #nyek
+
+2026-10-26：ADR-0020 P1-3 算子计划链路已实现并通过聚焦测试；随后按 incremental-update 工作流完成 Wiki 增量更新，KnowledgeStore / MCP_Tools_DocWriter / MCP_Tools_Knowledge / MCP_Tools_Quality / MCP_Tools_Workspace 五页重写并重打整文件证据，lint_wiki(stale_refs+stale_evidence) 0 issue，close_session 后 job=done。下一步：提交并推送这批代码+Wiki 变更；另有 13 条 draft 笔记待用户确认后再 batch_set_status 提升。
+
+### 2026-10-28 19:38 #ow41
+
+## SessionEnd capture 长路径修复（2026-10-28）
+
+- **根因**：CodeBuddy IDE transcript 存储路径含 3 段 UUID，messages/<id>.json 达 261+ 字符，超 Windows 260 MAX_PATH；index.json（225 字符）可读而消息文件 stat 全失败 → `_try_expand_codebuddy_index` 展开为空 → capture 报「no usable turns」→ raw/ 始终为空。hook_capture.log 10-23 至 10-28 共 5 条记录证实。
+- **修复**：`codewiki/mcp/_ide_hook.py` 新增 `_win_long_path()` helper（Windows 下给绝对路径加 `\\?\` 前缀，UNC 转 `\\?\UNC\`，非 Windows no-op），在 `_load_transcript` 入口单点应用，下游 messages/ 拼接自动继承前缀。本仓即包源码仓，源头修所有 Windows 用户受益，不依赖用户机管理员权限。
+- **验证**：聚焦测试 40 passed（含 2 个新回归测试：`test_win_long_path_unit`、`test_expand_codebuddy_index_long_path`）；ruff check/format 干净；mypy 干净；真机验证——用真实 CodeBuddy 会话（index 232 字符、消息文件 269 字符）修复前必返 None，修复后成功展开 14 轮对话。
+- **未做**：方案 A（系统 LongPathsEnabled=1）未执行，作为用户本机可选缓解；改动未提交。
+
+### 2026-10-28 22:04 #m0ix
+
+## v5.16.5 发版完成（2026-10-28）
+
+- **发布内容**：MAX_PATH 修复（fix 5ce63ae）+ 版本 bump（82c2a02）+ CI retrigger 空 commit（c45b4cb），PR #45 合并，merge commit 9e53173，tag v5.16.5 打在 merge commit 上。
+- **PyPI**：uv publish 一次成功（TLS 干扰本次未复现，未走 curl.exe 绕法），5.16.5 双产物已核对（whl 1056171 / sdist 18299768）。
+- **新踩坑**：① CI「Collect changed Python files」步骤用 `github.event.pull_request.base.sha`，force-push 后 diff range 失效导致 Lint job 失败（不是 lint 本身问题）——绕法是补空 commit 重新触发；② 本地 ruff format --check 干净 ≠ CI 干净，CI 是对 changed files 跑的，本地需同口径验证；③ soft reset 重拆 commit 时 `git add` 不会移除已暂存项，必须显式 `git restore --staged` 排除文件。
+- **待办**：CI diff-range 对 force-push 脆弱是 workflow 缺陷，可考虑后续修（用 merge-base 或 PR 事件重算）。
 
 ### 本轮追加压缩（截至 2026-10-05，原文归档于 memories-archive/iamwangbao-163-com.md）
 
@@ -126,30 +139,12 @@ D 存量修复 + 草稿处置完成（2026-10-10，用户批准「两个都做�
 - 6 条确认 stable 笔记：query_wiki 全量重建索引、type-filter 单值精确匹配、analyze-repo 并行时序竞态、load-project-checklist 静默回退、changed-components 行区间近似、read-versioned-lines untracked 空列表
 - 待办：aggregation_hint 提示 consolidate_notes（58 条确认、阈值 10）与 refresh_doctrine（阈值 25）到期，已询问用户，待用户决定是否执行
 
-### 2026-10-10 17:56 #1sfq
+### 2026-10-30 11:01 #buiv
 
-D + 草稿处置完成，但压缩那一段的结论需修正（2026-10-10，supersedes #zb6u）：①D1/D2 均已完成并实测——`memories/Administrator.md` 7 条经 `locked_rmw` 原样并入正主分片后删文件（备份 .scratch/shard-backup-Administrator-*.md，git 索引已记 D）；`%USERPROFILE%/.codewiki_user_id`（内容 Administrator）备份后删——机理：`_USER_ID_CACHE_PATH` 在 **import 期**由 `APPDATA or expanduser(~)` 定死（config.py:220），两条通道以不同进程环境初始化就会读写两个不同文件，这就是同机双身份的物理形态；healthy/无钉/degraded/MCP 四格均 `iamwangbao-163-com`（pin / git-email / pin / pin）。②四条草稿全部 confirm_note(strong, evidence=test_ref)，逐条对码核实过；我自己写错的假测试名已改回真实的 `tests/test_source_convert.py::test_convertible_suffixes`。③压缩腿：第二轮 compressed 1 / kept 20 / memories_total 20，磁盘实测单一摘要标题、摘要正文无标题行——**但「泄入摘要的 ### 块已自然归位」那句错了**：那个 `### 本轮追加压缩（截至 2026-10-05…）` 块仍在热层（现 :92），与两份重复的 `### 2026-08-26 会话蒸馏完成` 一起成为**永不可压的死重**：`entry_sort_key`（store.py:327）把无时间戳条目排到最后（(1,"")），而 `_split_compaction` 只从最旧端取 compress，所以无日期条目永远落在 keep 窗口内——后果是分片卡在 27391B > 24576B 字节线上，每追加一条就立刻重新触发一次只能吞 1 条真日期的压缩（抖动）。待批准的两个动作：（一）`_split_compaction` 把无日期条目提到 superseded 之后、有日期条目之前优先 compress（语义变化：keep 窗口成员判定不再纯按时间）；（二）一次性用 locked_rmw 将现存三块无日期死重先归档再从热层 dropping。另：archive 里同一时间戳标题最多重复 10 次（历史 legacy 收敛反复重归档，append-only 设计容忍），本轮未动。全仓仍有 15 条更旧草稿（09-20×9、09-21×2、09-22/10-05/10-09 各若干）与 telemetry 6 个历史身份分片未处置；`source_ingest.py:321` 只有 docstring 的 `_convert_to_markdown` 空壳被 :333 同名遮蔽（未修，零运行时影响）。工作区全部未提交；本轮代码改动需 /mcp reload 才对 MCP 通道生效。
+## 技能 name 语言感知改造（2026-10-30，已实施未提交）
 
-### 2026-10-10 18:16 #mrvt
-
-OCR 委托评审完成（2026-10-10，工作区 13 个可审文件，覆盖率 13/13=100%，未做任何修改——用户只要求「审查代码」）。发现 1 中 2 低：①**Medium/bug**：压缩派发指令缺 repo_path——`task_manager.py:1164 _compaction_action(task_id)` 的三步配方和 `prompts.py:1381` 步骤 6 的示例调用都只带 task_id，而 `handle_compact_task_memories:1260-1265` 在无 session 且无 repo_path 时直接返回 `repo_path is required` 错误；异步子代理是全新上下文、唯一信息来源就是这条指令，按字面执行必失败（本轮我自己派发时是手工补的 repo_path，即旁证）。修法：`_compaction_action(output_dir, task_id)` 带上仓库根（output_dir.parent），配方写 `repo_path=<仓库根>`，prompts.py 用现成的 `{repo_path}` 插值同步。②Low：`config.py:226-233` `_read_user_id_cache` docstring 仍称「避免每次冷启动跑 git 子进程」，新链路里缓存已降到 git 之后（只在 git 不可用时兜底），注释与行为矛盾。③Low（未复现，需确认）：`ide_config.py:142-147` 的 `python3 X || python X`——Windows 上 python3 若命中 Microsoft Store 执行别名，横幅走 stdout 且非零退出，UserPromptSubmit 分支（stdout 被宿主机器解析）会拼接噪声；本机根本无 python3 故无法复现。核验通过的点：三个 JSON 的 9 处 command 与常量逐字一致（不产生重复注册）；.gitignore 的 repowiki/.meta/user_id 与 gitignore_entries() 生成式一致且 check-ignore 命中；删掉的 _resolve_python_cmd/_PYTHON_CMD 全仓无残留、os/shutil 非死导入；_relative_hook_suffix 与 _is_codewiki_prompt_cmd 对新命令仍能识别并迁移历史条目；task_manager 引用的 SUMMARY_HEADING/_COMPACTION_* 常量全部存在（不会 NameError），_prepare_compaction_payload 仍被 :1297 使用（非死代码）；全仓已无 user_id() 无参调用点。越界提示（md 不在 OCR 范围）：docs/任务记忆退役与写入检查设计方案.md:23 仍写内联 compaction_work 与旧行号。
-
-### 2026-10-12 11:09 #fho7
-
-提交完成（2026-10-10，用户批准「先修 Medium 再提交」+「按主题拆 3 个提交」）：develop 上三个本地提交，**未推送**。f285ec2 feat: 压缩免确认异步派发 + 身份解析接仓库本地钉（17 files，+542/-178：9 个 codewiki py + 4 tests + 3 宿主 settings + .gitignore）；2a06db6 docs: 设计文档同步口径（8 files：CONTEXT/README + 6 个设计文档）；65a7a66 chore(repowiki): 知识沉淀（15 files，含6 条新 note 入库、memories/Administrator.md 删除）。提交前提交后实证：ruff check/format 全干净；两个相关测试文件 71 passed；全量 pytest 1244 passed / 2 skipped（12m28s，exit 0）——skip 数比早前记录多 1，但在我未改动的文件里（这两个文件本次 0 skip）。Medium 修法落地：_compaction_action(task_id, repo_path) 把调用方自己的 repo_path 回显进配方①③两处 + 一句「子代理无会话上下文」说明，prompts 步骤 6 用 {repo_path} 插值同步，测试加 4 条断言钉住。遗留未入库（等用户点头）：uv.lock +879/-3（markitdown 可选依赖 43 个包的补锁，pyproject 未变，建议单独 chore 提交便于单独 revert）；.scratch/ 47 个未忽略的一次性发布脚本与结果文件（含两份身份备份）——选项是删或加 .gitignore 规则；docs/articles/终结篇.md + images/ 约 20 张图（更早遗留）；repowiki/conversations/ 3 个未蒸馏 raw。代码改动需用户 /mcp reload 才在 MCP 通道生效。
-
-### 2026-10-12 11:25 #is5r
-
-遗留两项已按用户口径处置（2026-10-12）：dfb88b3 chore: .gitignore 忽略 .scratch **顶层散文件**——不能整目录忽略！本仓约定 .scratch/<feature>/issues/*.md 是内部工单区呓 18 个文件已跟踪，故规则为 `.scratch/*` + 反选 `!.scratch/*/`（磁盘已验：18 个工单文件不受影响、子目录新建文件仍显示未跟踪、顶层 47 个 ?? 归 0）。e3ec267 chore: uv.lock 补齐 markitdown 可选 extra 的 43 个传递依赖（pyproject 未变）。develop 现共 5 个本地提交未推送。工作区仍剩 3 个 repowiki 待提交项：子代理派发自包含草稿（**待用户 confirm/reject，确认前不入库**）、#fho7 后的分片增量、wiki log。
-
-### 2026-10-12 11:26 #26g3
-
-收尾（2026-10-12）：上一条 #is5r 里“待提交 3 项”已按用户「提交」入库——子代理派发自包含 lesson 草稿仍为 status: draft（文件入库不等于晋升，待用户 confirm/reject）、任务分片含 #fho7/#is5r 本轮新增、wiki log 同步。commit 后 develop 共 6 个本地提交未推送；工作区只剩 3 个未跟踪 raw 对话与 docs/articles 终结篇旧遗留（都按用户口径不动）。
-
-### 2026-10-12 11:34 #nqvc
-
-本轮 OCR 委托评审闭环已推送：6 个提交（f285ec2..99e4ec0）push 到 origin/develop（81c5004..99e4ec0，fast-forward），Medium 缺陷「压缩派发指令缺 repo_path」的修复随之上线；工作区已跟踪改动归 0，未跟踪仅剩 3 个 repowiki/conversations raw 暂存件。另记一笔待决事项：未跟踪的 docs/articles/CodeWiki-Plus终结篇….md、docs/articles/images/、根目录 vibe_images/ 于 2026-10-12 11:24 被移入 Windows 回收站（非 git 动作，git 从未跟踪过这三者，IDE 本地历史零命中），回收站里仍在、可整件还原，是否恢复待用户决定。
-
-### 2026-10-26 10:25 #nyek
-
-2026-10-26：ADR-0020 P1-3 算子计划链路已实现并通过聚焦测试；随后按 incremental-update 工作流完成 Wiki 增量更新，KnowledgeStore / MCP_Tools_DocWriter / MCP_Tools_Knowledge / MCP_Tools_Quality / MCP_Tools_Workspace 五页重写并重打整文件证据，lint_wiki(stale_refs+stale_evidence) 0 issue，close_session 后 job=done。下一步：提交并推送这批代码+Wiki 变更；另有 13 条 draft 笔记待用户确认后再 batch_set_status 提升。
+- **定案**：ADR-0019 决策 3 修订——原前提「skill name 必须 ASCII slug」被实测推翻（codebuddy/trae 均可识别中文 frontmatter name）。目录名恒为 `codewiki-<kebab>` 不变（prune 口径/git 历史/文档引用的稳定锚点）；frontmatter `name` 语言感知：zh 用 `codewiki-<中文标题>`（如 `codewiki-初始化单仓Wiki工作区`），en 保持 `codewiki-<kebab>`；`get_prompt(name=...)` 调用块恒英文 kebab（MCP 标识符不本地化）；触发提示 `/<skill_name>` 跟随本地化 name。
+- **改动**：sync_skills.py 新增 `_localized_skill_name()` + docstring 修订；静态资产 SKILL.zh.md name 改中文（`codewiki-一键安装或升级CodeWiki并接线当前项目`）；ADR-0019 决策 3 加修订记录；test_sync_skills.py 5 处断言改写 + 2 个新测试；本仓三宿主技能文件已重生成（24 stubs × 3 hosts）。
+- **验证**：test_sync_skills + test_setup + test_i18n 共 65 passed / 1 skipped；ruff check/format 干净。
+- **行为变更**：zh 用户技能触发词从 `/codewiki-<kebab>` 变为 `/codewiki-<中文标题>`（无 CHANGELOG 文件，说明并入 ADR 修订记录）。
+- **待办**：改动未提交；qoder 宿主未实测中文 name（渐进策略，未验证宿主出问题再回退）。

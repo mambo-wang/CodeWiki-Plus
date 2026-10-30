@@ -217,3 +217,45 @@ prompts.py 渲染正文清理决策引用完成：用户提出 prompt 正文不�
 ### 2026-09-26 20:20 #lol0
 
 待办（P2，来自 agentmemory 调研 Round 2 grill 定案 2026-09-25，用户指示先存档不实施）：MCP 工具面裁剪开关——CODEWIKI_TOOLS=core 环境变量，registry 加 filter，60+ 工具 schema 全量注入占上下文是真缺口。参考 agentmemory 的 AGENTMEMORY_TOOLS=core（裁到 8 个）思路，按本仓场景重定义核心集。依据：repowiki/wiki/queries/agentmemory-调研.md 第六节。
+
+### 2026-10-10 17:50 #zb6u
+
+> [superseded 2026-10-10 by #1sfq]
+
+D 存量修复 + 草稿处置完成（2026-10-10，用户批准「两个都做」）：①`memories/Administrator.md` 7 条经 `locked_rmw` 原样并入正主分片并删除该文件（幂等脚本、原文备份 .scratch/shard-backup-Administrator-*.md；`_stage_removal` 因 auto_push 与 auto_stage 互斥而 no-op，删除仅体现在工作区）；②污染的第二份机器缓存 `%USERPROFILE%/.codewiki_user_id`（内容 Administrator，旧退化通道 import 期写错路径）已备份到 .scratch 后删除——关键机理：`_USER_ID_CACHE_PATH` 在 **import 期**由 `APPDATA or expanduser(~)` 定死，所以两条通道读写的是两个不同文件，这就是「同一机器两个身份」的物理形态；③再压一轮（子代理遵新增格式纪律：正文不得含 ##/### 标题）：compressed 9 / kept 20 / memories_total 20，磁盘实测单一摘要标题、摘要无标题行——上轮重复标题与泄入摘要的 `###` 块已自然归位；④四条草稿全部改写/核验后 confirm_note(strong, evidence=test_ref)：user_id 漂移 pitfall（重写为 B+C+D 已实施口径、行号刷新 config.py:220/149/296、author 从 Administrator 改回正主 uid）+ 三条 2026-09-29（逐条对码核实：_CONVERTIBLE_SUFFIXES={pdf,docx,xlsx}、convert_error 三分类、sidecar 纯内存不在门落盘）；confirm 时误写了一个不存在的测试名作 test_ref，已改为真实的 `tests/test_source_convert.py::test_convertible_suffixes`。**待用户：全仓另有 15 条更旧草稿（多为 2026-09-20/21）未处置；`repowiki/.meta/telemetry/` 的 6 个历史身份分片未合并（D 菜单里未批准那部分）。顺带发现缺陷（未修，零运行时候影响）：`codewiki/mcp/tools/source_ingest.py:321` 有一个只有 docstring 的 `_convert_to_markdown` 空壳，被 :333 的真实现同名遮蔽（先别动，需确认来源是不是合并事故）。工作区全部未提交。
+
+### 2026-09-27 15:53 #x7ef
+
+澄清产品机制：ingest_source 官方口径支持 PDF/MD/DOCX/HTML 四种格式，但代码无扩展名白名单（source_type 默认取后缀，任意文件可存储注册）。文本格式 .md/.markdown/.html/.htm/.txt/.rst 走完整链路（存储+注册+版本感知去重门）；pdf/docx 为二进制格式，_plain_text() 返回 None——无文本提取器，跳过版本去重门，且外部文档知识抽取流程读不回正文，实际只对文本格式可完整走通。PDF/DOCX 建议先转 Markdown 再导入。
+
+### 2026-09-27 19:51 #xerc
+
+ADR-0018 已拍板并实现：ingest_source 引入 markitdown 转换 sidecar。8 项决策全按推荐：①原始文件无条件保留（哈希锚点+可重转）；②ingest 时一次性转换存 raw/sources/<name>.converted.md；③markitdown 为 optional extra [convert]，未装 fail-open 降级（行为同现状）；④转换失败结构化记录 convert_error（dependency_missing/empty_output/converter_exception）；⑤[^src:...] 引用锚定 sidecar 行号；⑥sidecar 随 auto_push 入库；⑦跨格式 version_sibling 门生效（指纹基于转换文本）；⑧工具描述保守口径。实现要点：转换在去重门之前内存完成（指纹覆盖 pdf/docx），门通过后才落盘 sidecar；_plain_text() 扩展读 sidecar 回退；retract remove_refs 把 sidecar 一并移 .trash。新增 tests/test_source_convert.py 9 个测试，全量 1208 通过。
+
+### 2026-09-27 21:04 #tx6y
+
+代码评审（两轴 subagent + 主 Agent 复核）发现并修复孤儿 sidecar bug：_convert_to_markdown 原在版本门之前就落盘 sidecar，门拦下时残留孤儿文件。修复为纯内存转换（返回 (registry_fields, converted_text)），门通过后随最终 dest_name（含哈希后缀）落盘。测试补孤儿文件断言。其余发现：①ADR「转换只做一次确定性缓存」与实现（每次 ingest 重转）不一致——待对齐；②_CONVERTIBLE_SUFFIXES 含 pptx/xlsx/epub 超出 ADR 决策⑧保守口径——待对齐（要么收窄后缀集，要么扩 ADR 口径）；③决策⑤引用锚定仅文档约定无实现（属抽取 command 层职责，可接受）；④retract 中移 .trash 逻辑重复（judgement call，暂不动）。全量 1208 通过。
+
+### 2026-09-27 22:24 #k6kk
+
+评审遗留项已拍板并闭环：①官方口径扩为 PDF/MD/DOCX/HTML/XLSX，_CONVERTIBLE_SUFFIXES 收窄为 {.pdf,.docx,.xlsx}（pptx/epub 未验证不承诺，测试断言同步）；②ADR §2 改为如实描述「每次 ingest 重转，sidecar 随导入覆盖」。ADR-0018 决策⑧已修订并标注修订日期。全量 1208 通过。
+
+### 2026-09-29 10:58 #llbw
+
+init-wiki/init-workspace 任务管理接线「否」失效修复完成（grill 定案）：①根因是命令薄壳不注入开关参数且无意图映射指引，用户答「否」死在自由文本里，opt-out 默认照常接线；②定案维持 opt-out（初始化=一步到位），双通道修复：薄壳补开关参数映射指引段（sync_commands.py _SWITCH_HINTS/_switch_block）+ 渲染正文补用户意愿闸门句（步骤 2/4 开头）；③sync-commands 升级为必做步骤，措辞纠正为「只有 codebuddy 自动映射 MCP prompt 为命令，其余宿主都需 sync-commands」，CLI 宿主判定已自动化无需用户选；④locales zh/en 同步 description 与 args；⑤测试补 5 个断言用例，全量 1211 passed。本仓库薄壳已重新生成（.qoder/.trae 各 23 个）。
+
+### 2026-09-30 22:23 #886d
+
+任务管理适配 Qoder CN 完成（三项）：① SessionStart hook 弹框指引按宿主分支——`.qoder` 副本走 AskUserQuestion（单题 options 硬上限 4：最近 3 个 active 任务 + 跳过，其余任务写进 question 正文由「其他」自由输入承接，新建任务无需第二次弹框），其他宿主保持 ask_followup_question「一框列全」原文；② hook 命令解释器平台感知——`ide_config._resolve_python_cmd()`，Windows 恒 python、POSIX 按 python3>python 探测，并在 merge_settings_json/unwire 中把旧解释器命令原地迁移（含 `python -m codewiki.mcp._ide_hook` 尾部特征匹配）；③ 任务索引 `.index.json` 缺失/损坏/为空时回退扫描 `tasks/*/task.md` frontmatter，active 任务按 task.md+memories 最新 mtime 倒序。验证：全量 pytest 1226 passed / 1 skipped，ruff check+format 干净，真机 `install-hooks --ide qoder` 幂等 + `.qoder/hooks` 副本实测产出 4 选项合规弹框（9 个 active 任务）。下一步：变更尚未提交。
+
+### 2026-09-30 22:54 #8s0x
+
+OCR 委托评审自己的适配改动后修了确认项：capped 档（AskUserQuestion）只按硬上限 4 设计、漏了**硬下限 2**——0 个进行中任务时框里只剩「跳过」一项，弹框调用直接失败（新仓库首个会话最该引导建任务的那次）；现已在有空位时补「新建任务」选项，并把「进行中共 N 个任务…正文任务清单」那段挪进 `if rest:`（之它会悬空指着一个不存在的小节）。同时修了 label 截断撞车：同一前 12 字的长中文标题（task_id 由标题生成、换用 id 仍撞）改为撞车时逐步延长至可区分，因为 label 没有硬字符上限（只有 header 限 12）。`prompts.py` 的 task-workflow 与 AGENTS.md 引导段同步口径（硬上限 4 / 硬下限 2 / 补「新建任务」）。新增 3 条边界测试（选项数 0/1/2/3/4/9 任务、无悬空正文清单、label 唯一），全量 pytest 1229 passed，ruff 干净，.qoder 安装副本已重同步。Medium 「解释器快照写进共享 settings.json」未改行为，只在 ide_config.py 注释里钉下「换机/克隆后重跑 install-hooks 是每机一次」的口径；未提交。
+
+### 2026-10-03 05:22 #pwbh
+
+第二轮 OCR 复审后落的修正（定性比第一轮温和）：手工接线示例里的 `python` **不是 bug**——那些块是 ```powershell 语境（Windows 下 `python` 正确），真正缺的是平台提示。故只在 `codewiki/mcp/prompts.py` 三处补口径（手工接线示例段、模拟事件验证段、步骤 1 判「已启用」段：判据只看脚本相对路径后缀、不看解释器名），`docs/team-memory-hook.md` 前置条件改 `<python>` 并在命令路径段补「解释器是安装机快照 + 127 先看退出码再看接线档位」；去掉新任务选项 description 里嵌套的「」。未动：`ide_config.py:387` docstring 示例（纯示意后缀提取、无解释器语义）。待用户定：刷新本仓 `.codebuddy/` 接线（副本缺 ③ 回退、settings 仍为 `python` → 本机 127，但会改共享配置）。验证：全量 pytest 1229 passed / 1 skipped、targeted 128 passed、ruff check+format 干净、`.qoder` 副本与源 diff 为空、`_prompt_team_memory_hook` 渲染 10204 字符含新口径。仍未提交。
+
+### 2026-10-03 10:10 #afid
+
+get_prompt 工作流名缺口已修（选定「补实现不改契约」路线）：`_WORKFLOW_PROMPTS`（原 handler 函数体内的 prompts_map）提到 `codewiki/mcp/prompts.py` 模块级，成为工作流名→渲染函数唯一真源，新增 `workflow_prompt_names()` / `render_workflow_prompt()`；`handle_get_prompt` 接住 `name` 别名 + kebab/camel 两种写法，`prompt_type` 的 enum 由 `workflow_prompt_names()` 生成（模板类 23 + 工作流 23 = 46，不再手维护），`required` 清空，名字缺失/未知都返回模板类+工作流两份清单；同名时模板类精确优先（`code_analysis` 是模板、`code-analysis` 是工作流）；工作流分支把平铺的 repo_path/workspace_path 转发进 params（否则退回 cwd 指向别的仓库）。薄壳正文与 AGENTS.md 的 `get_prompt(name=...)` 写法一字未改——ADR-0017 契约本来就对，是实现少了一条通道，ADR-0017 末尾补「补充（2026-10-03）」段记录。验证：新增 `tests/test_get_prompt_tool_channel.py` 7 个用例，真机 stdio 冒烟（拉起 `python3 -m codewiki.mcp.server` 走 tools/list + tools/call）拿到 task-workflow 全文 5157 字符、repo_path 转发生效。同轮落了本仓 `.codebuddy/`+`.trae/` 接线刷新（install-hooks：settings/hooks.json 三条命令 python→python3，三份 hook 副本与源 diff 为空）。

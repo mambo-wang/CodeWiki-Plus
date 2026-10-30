@@ -24,10 +24,12 @@ name/description/disable-model-invocation + get_prompt 调用块，不渲染提�
 - 目标为空（仓库没有任何 IDE 目录）→ 兜底写 ``.trae/skills/`` 作为仓库级技能
   登记处（agent 读到仓库即知可用技能，不依赖宿主原生识别）
 
-命名（决策 3）：skill 目录名恒为 ``codewiki-<kebab-name>``，不随 locale 变化
-（skill name 必须是 ASCII slug；一层拍平布局下目录名即技能名，`codewiki-`
-前缀是命名空间等价物）；--lang 决定整文件语言（frontmatter description、
-正文样板与开关映射指引均中英双态）。
+命名（决策 3，2026-10-30 修订）：skill 目录名恒为 ``codewiki-<kebab-name>``，不随
+locale 变化（一层拍平布局下目录名是 prune 口径与文档引用的稳定锚点）；frontmatter
+``name`` 语言感知——zh 用本地化标题（``codewiki-<title>``，codebuddy/trae 实测均可
+识别中文 name），en 保持 ``codewiki-<kebab-name>``。``--lang`` 决定整文件语言
+（frontmatter name/description、正文样板与开关映射指引均中英双态）；正文
+``get_prompt(name=...)`` 调用块恒为英文 kebab（MCP prompt 标识符，不本地化）。
 
 覆盖（决策 5）：每次执行全量覆盖 + prune——目标目录下不在本次渲染集合内的
 ``codewiki-*/`` 目录一并删除（只碰前缀，绝不动用户其他技能），文件是生成
@@ -183,6 +185,17 @@ def _switch_block(meta: dict, lang: str) -> str:
     return str(body["switch_head"]) + "\n" + "\n".join(hints) + "\n\n"
 
 
+def _localized_skill_name(name: str, title: str, lang: str) -> str:
+    """frontmatter name 语言感知（ADR-0019 决策 3 修订）。
+
+    zh 用本地化标题（``codewiki-<title>``，codebuddy/trae 实测可识别中文 name）；
+    en 保持 ``codewiki-<kebab-name>``。目录名不受影响，恒为 ``codewiki-<kebab>``。
+    """
+    if lang == "zh":
+        return f"{_SKILL_PREFIX}{title}"
+    return f"{_SKILL_PREFIX}{name}"
+
+
 def _render_skill(name: str, title: str, description: str, lang: str) -> str:
     """渲染单个技能薄壳（SKILL.md 全文，整文件语言跟随 lang）。"""
     meta: dict = {"args": []}
@@ -194,7 +207,7 @@ def _render_skill(name: str, title: str, description: str, lang: str) -> str:
     arguments = _default_arguments(meta)
     if arguments:
         args_line = f", arguments={arguments}"
-    skill_name = f"{_SKILL_PREFIX}{name}"
+    skill_name = _localized_skill_name(name, title, lang)
     body = _body(lang)
     if meta.get("auto"):
         # 自动触发型：不写 disable-model-invocation，模型可按 description 主动路由

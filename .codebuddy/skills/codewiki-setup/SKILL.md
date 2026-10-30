@@ -1,5 +1,5 @@
 ---
-name: codewiki-setup
+name: codewiki-一键安装或升级CodeWiki并接线当前项目
 description: "一键安装或升级 CodeWiki 并把当前项目接好线：pip 安装 codewiki-plus 后执行 codewiki setup（hook 与会话采集 + .mcp.json + 技能文件）"
 disable-model-invocation: true
 ---
@@ -30,6 +30,6 @@ codewiki setup
 
 setup 会一次完成三件事：为检测到的宿主 IDE 接线 hook 与会话采集、在项目根创建或合并 `.mcp.json`（codewiki MCP server）、生成 `codewiki-*` 技能文件。
 
-完成后可执行 `/codewiki-init-wiki` 初始化项目 wiki。
+完成后可执行 `/codewiki-初始化单仓Wiki工作区` 初始化项目 wiki。
 
-本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-setup 触发。
+本技能是手动触发入口（disable-model-invocation: true），不占常驻上下文；由用户显式调用 /codewiki-一键安装或升级CodeWiki并接线当前项目 触发。

@@ -72,7 +72,8 @@ def test_static_setup_skill_in_render_set():
     by_dir = {dir_name: content for dir_name, _, content in rendered}
     assert "codewiki-setup" in by_dir
     content = by_dir["codewiki-setup"]
-    assert content.startswith("---\nname: codewiki-setup\n")
+    # zh：静态资产 name 同步本地化（目录名不变）
+    assert content.startswith("---\nname: codewiki-一键安装或升级CodeWiki并接线当前项目\n")
     assert "disable-model-invocation: true" in content
     assert "pip install --upgrade codewiki-plus" in content
     assert "codewiki setup" in content
@@ -91,7 +92,8 @@ def test_static_setup_skill_en_no_chinese_residue():
 
 
 # ---------------------------------------------------------------------------
-# 命名：目录名恒 codewiki-<kebab-name>，不随 locale 变化（ADR-0019 决策 3）
+# 命名：目录名恒 codewiki-<kebab-name>，不随 locale 变化；frontmatter name
+# 语言感知（ADR-0019 决策 3 修订，2026-10-30）
 # ---------------------------------------------------------------------------
 
 
@@ -102,6 +104,16 @@ def test_skill_dir_name_locale_invariant():
     en_dirs = {dir_name for dir_name, _, _ in _render_all("en")}
     assert zh_dirs == en_dirs
     assert "codewiki-init-wiki" in zh_dirs
+
+
+def test_skill_frontmatter_name_localized_zh():
+    """zh：frontmatter name 用本地化标题；en：保持 kebab。"""
+    zh_content = _render("init-wiki", "zh")
+    fm = parse_skill_frontmatter(zh_content)
+    assert fm["name"] == "codewiki-初始化单仓Wiki工作区"
+    en_content = _render("init-wiki", "en")
+    fm = parse_skill_frontmatter(en_content)
+    assert fm["name"] == "codewiki-init-wiki"
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +153,8 @@ def test_arguments_switch_skipped():
 
 def test_skill_frontmatter_three_lines():
     content = _render("init-wiki")
-    assert content.startswith('---\nname: codewiki-init-wiki\ndescription: "')
+    # zh：name 语言感知，用本地化标题（ADR-0019 决策 3 修订）
+    assert content.startswith('---\nname: codewiki-初始化单仓Wiki工作区\ndescription: "')
     assert "\ndisable-model-invocation: true\n---\n" in content
     # 字段顺序固定：name → description → disable-model-invocation（对齐 grill-me 先例）
     head = content.split("---\n", 2)[1]
@@ -149,12 +162,20 @@ def test_skill_frontmatter_three_lines():
     assert keys == ["name", "description", "disable-model-invocation"]
 
 
+def test_skill_frontmatter_name_en_is_kebab():
+    content = _render("init-wiki", "en")
+    assert content.startswith('---\nname: codewiki-init-wiki\ndescription: "')
+
+
 def test_skill_points_to_get_prompt():
     content = _render("init-wiki")
     assert "\n# 初始化单仓Wiki工作区\n" in content
+    # get_prompt 调用块恒为英文 kebab（MCP prompt 标识符不本地化）
     assert 'get_prompt(name="init-wiki", arguments={"repo_path": "."})' in content
     assert "以 `get_prompt` 返回内容为准" in content
-    assert "/codewiki-init-wiki" in content
+    # 触发提示跟随本地化 name（zh 为中文标题）
+    assert "/codewiki-初始化单仓Wiki工作区" in content
+    assert "/codewiki-init-wiki" not in content
 
 
 def test_skill_description_double_quoted():
@@ -417,7 +438,6 @@ def test_frontmatter_roundtrip_via_skill_match_parser(lang):
     i18n.set_lang(lang)
     for dir_name, name, content in _render_all(lang):
         fm = parse_skill_frontmatter(content)
-        assert fm["name"] == dir_name
         if name in _STATIC_SKILL_NAMES:
             # 静态资产：name 本身即技能全名（自带 codewiki- 前缀），description
             # 是手写真源，不走 i18n——只校验非空
@@ -425,6 +445,11 @@ def test_frontmatter_roundtrip_via_skill_match_parser(lang):
             assert len(fm["description"]) >= 10
         else:
             assert dir_name == f"codewiki-{name}"
+            # name 语言感知（ADR-0019 决策 3 修订）：zh 用本地化标题，en 保持 kebab
+            if lang == "zh":
+                assert fm["name"] == f"codewiki-{i18n.t(f'prompts.{name}.title')}"
+            else:
+                assert fm["name"] == dir_name
             expected = i18n.t(f"prompts.{name}.description")
             assert _unescape(fm["description"]) == " ".join(expected.split())
         if _meta_of(name).get("auto") if name not in _STATIC_SKILL_NAMES else False:
