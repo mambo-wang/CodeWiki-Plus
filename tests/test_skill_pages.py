@@ -451,3 +451,68 @@ def test_skill_lint_capacity_grading(tmp_path):
         _write_raw_skill(od, f"cap-{i}")
     errs = [i for i in _lint_skill(repo) if "at/over capacity" in i["message"]]
     assert len(errs) == 1 and errs[0]["severity"] == "error"
+
+
+def _with_script(skill_path: Path, filename: str) -> None:
+    """Drop a file into the skill's scripts/ dir (bypasses submit)."""
+    sdir = skill_path.parent / "scripts"
+    sdir.mkdir(exist_ok=True)
+    (sdir / filename).write_text("echo ok\n", encoding="utf-8")
+
+
+def test_skill_lint_unresolved_script_ref(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    sections = "\n".join(f"## {s}\n\ncontent" for s in _SECTIONS)
+
+    # bare-name reference, no scripts/ dir at all -> warning (linseer form)
+    _write_raw_skill(od, "bare-missing", body=sections + "\n\nrun hf_download.py first\n")
+    hits = [i for i in _lint_skill(repo) if "unresolved_script_ref" in i["message"]]
+    assert len(hits) == 1 and hits[0]["severity"] == "warning"
+    assert "hf_download.py" in hits[0]["message"]
+    assert hits[0]["file"] == "skills/bare-missing/SKILL.md"
+
+    # canonical reference with the file present -> neither new warning fires
+    p = _write_raw_skill(od, "canonical-ok", body=sections + "\n\nrun scripts/run.sh here\n")
+    _with_script(p, "run.sh")
+    mine = [i for i in _lint_skill(repo) if i["file"] == "skills/canonical-ok/SKILL.md"]
+    assert not [i for i in mine if "unresolved_script_ref" in i["message"]]
+    assert not [i for i in mine if "unreferenced_script" in i["message"]]
+
+    # canonical reference but file missing -> same warning (lint backstops
+    # submit's script_ref_missing error for hand-written drafts)
+    _write_raw_skill(od, "canonical-missing", body=sections + "\n\nrun scripts/gone.py next\n")
+    hits = [
+        i
+        for i in _lint_skill(repo)
+        if "unresolved_script_ref" in i["message"]
+        and i["file"] == "skills/canonical-missing/SKILL.md"
+    ]
+    assert len(hits) == 1 and hits[0]["severity"] == "warning"
+    assert "gone.py" in hits[0]["message"]
+
+
+def test_skill_lint_unreferenced_script(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    sections = "\n".join(f"## {s}\n\ncontent" for s in _SECTIONS)
+
+    # scripts/ holds a file the body never mentions -> orphan warning
+    p = _write_raw_skill(od, "orphan-skill")
+    _with_script(p, "orphan.py")
+    hits = [i for i in _lint_skill(repo) if "unreferenced_script" in i["message"]]
+    assert len(hits) == 1 and hits[0]["severity"] == "warning"
+    assert "orphan.py" in hits[0]["message"]
+    assert hits[0]["file"] == "skills/orphan-skill/SKILL.md"
+
+    # canonical reference counts -> no orphan, no unresolved
+    p = _write_raw_skill(od, "canonical-ref", body=sections + "\n\nsee scripts/tool.py\n")
+    _with_script(p, "tool.py")
+    mine = [i for i in _lint_skill(repo) if i["file"] == "skills/canonical-ref/SKILL.md"]
+    assert not [i for i in mine if "unreferenced_script" in i["message"]]
+    assert not [i for i in mine if "unresolved_script_ref" in i["message"]]
+
+    # bare-name reference also counts as a reference
+    p = _write_raw_skill(od, "bare-ref", body=sections + "\n\nrun deploy.sh now\n")
+    _with_script(p, "deploy.sh")
+    mine = [i for i in _lint_skill(repo) if i["file"] == "skills/bare-ref/SKILL.md"]
+    assert not [i for i in mine if "unreferenced_script" in i["message"]]
+    assert not [i for i in mine if "unresolved_script_ref" in i["message"]]

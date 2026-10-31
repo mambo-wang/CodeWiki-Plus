@@ -1670,7 +1670,11 @@ def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
     revise/retire decision, never auto), skill_drift (draft normalized
     hash != installed_hash: revised after install, the effect zone still
     serves the old version; reinstall is a user action, ADR-0004),
-    capacity orange.
+    unresolved_script_ref (body references a script — canonical or bare
+    form — that scripts/ does not provide; canonical refs are already a
+    submit error, lint backstops hand-written drafts, issue #47),
+    unreferenced_script (scripts/ holds a file the body never references
+    — a dead asset install would copy as-is), capacity orange.
     """
     issues: List[Dict[str, Any]] = []
     try:
@@ -1678,6 +1682,7 @@ def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
             _BODY_LIMIT_BYTES,
             _MAX_SKILLS,
             _ORANGE_SKILLS,
+            _extract_script_refs,
             _normalized_hash,
             _read_body,
             _read_frontmatter,
@@ -1846,6 +1851,61 @@ def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
                         ),
                     }
                 )
+
+        # Script asset channel (warnings, issue #47): backstop for drafts
+        # hand-written outside submit (canonical refs are already a submit
+        # error). Reference extraction is skill_creator._extract_script_refs
+        # — the single point both layers share. A reference (canonical or
+        # bare) with no file in scripts/ = unresolved_script_ref; a file in
+        # scripts/ the body never references = unreferenced_script (a dead
+        # asset install would copy as-is).
+        canonical_refs, bare_refs = _extract_script_refs(body)
+        referenced = canonical_refs | bare_refs
+        scripts_dir = path.parent / "scripts"
+        on_disk = (
+            {p.name for p in scripts_dir.iterdir() if p.is_file()}
+            if scripts_dir.is_dir()
+            else set()
+        )
+        missing_scripts = sorted(referenced - on_disk)
+        if missing_scripts:
+            issues.append(
+                {
+                    "check": "skill_lint",
+                    "severity": "warning",
+                    "message": (
+                        f"Skill '{rel}': unresolved_script_ref — body references "
+                        f"{', '.join(missing_scripts)} but scripts/ provides no "
+                        "such file."
+                    ),
+                    "file": rel,
+                    "suggestion": (
+                        "Ship the script in the skill package (skill_creator "
+                        "submit scripts[], canonical scripts/<file> reference) "
+                        "or inline the standard practice — external local files "
+                        "are not portable."
+                    ),
+                }
+            )
+        orphan_scripts = sorted(on_disk - referenced)
+        if orphan_scripts:
+            issues.append(
+                {
+                    "check": "skill_lint",
+                    "severity": "warning",
+                    "message": (
+                        f"Skill '{rel}': unreferenced_script — scripts/ contains "
+                        f"{', '.join(orphan_scripts)} but the body never "
+                        "references it."
+                    ),
+                    "file": rel,
+                    "suggestion": (
+                        "Reference it in the body (scripts/<file>) or drop it — "
+                        "an updated submit's scripts[] full-replacement deletes "
+                        "unlisted files."
+                    ),
+                }
+            )
 
     # --- capacity (mirror skill_creator grading; deprecated don't count) ---
     live = [s for s in skills if s.get("status") != "deprecated"]
