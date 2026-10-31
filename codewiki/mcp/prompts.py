@@ -1501,10 +1501,12 @@ def _prompt_skill_creator(args: dict[str, str]) -> str:
 3. 正文五段骨架：工作场景 / 适用条件 / 核心 SOP / 判断逻辑 / 禁忌与反模式；正文 ≤8KB
 4. 证据段带量化回链："依据：notes/xxx.md 的 Y 结论"，不止 source_refs 路径
 5. **禁绝对路径（/Users/、C:\\…）与密钥**——submit 会拒收
+6. **脚本必须自包含**：正文引用任何脚本，必须把脚本全文经 submit 的 `scripts[]` 传入（落盘到技能包 `scripts/`，正文用 `scripts/<文件名>` 规范写法引用），或把标准做法直接内联进正文；**禁止引用外部环境本地路径/脚本名**——安装后的技能必须可移植
 
 ## 步骤 3：提交
-`skill_creator(mode="submit", report={{"skills": [{{"name": "<slug>", "action": "created|updated", "description": "...", "body": "<五段正文>", "source_refs": ["wiki/scenarios/...", "notes/..."], "summary": "<40 字内>", "revision_note": "<修订原因，updated 时建议附>"}}]}})`
-- 校验失败会返回**具体规则名**（name_slug / description_trigger / body_too_large / sensitive_content / source_refs_required / name_conflict / batch_fragmentation / capacity_orange 等）——按规则修正后重交，失败轮次不落盘
+`skill_creator(mode="submit", report={{"skills": [{{"name": "<slug>", "action": "created|updated", "description": "...", "body": "<五段正文>", "source_refs": ["wiki/scenarios/...", "notes/..."], "summary": "<40 字内>", "revision_note": "<修订原因，updated 时建议附>", "scripts": [{{"filename": "xxx.py", "content": "<脚本全文>"}}]（可选）}}]}})`
+- 校验失败会返回**具体规则名**（name_slug / description_trigger / body_too_large / sensitive_content / source_refs_required / name_conflict / script_ref_missing / batch_fragmentation / capacity_orange 等）——按规则修正后重交，失败轮次不落盘
+- updated 时 `scripts[]` 一旦传入即**全量替换**（本次列表是完整真相，未列出的旧脚本被删除）；不传该键则既有 scripts/ 原样保留
 - 素材不足、不值得编译时：提交**空 report**（no_action 是合法轮次，不算失败）
 - 成功后工具自动写双向溯源（技能 source_refs ⇄ 素材 compiled_into）、追加 revisions、重建索引
 
