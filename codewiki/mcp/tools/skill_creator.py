@@ -19,14 +19,20 @@ tool does deterministic bookkeeping; the host agent does the writing):
 
   mode='submit'
       Takes ``report.skills[]`` = [{name, action(created|updated),
-      description, body, source_refs[], summary?, revision_note?}] —
-      validates each entry (failures name the exact rule), writes
-      ``skills/<name>/SKILL.md`` with OKF frontmatter (render_frontmatter
-      round-trip), appends revisions on update, records bidirectional
-      provenance (skill ``metadata.source_refs`` ⇄ material
-      ``metadata.compiled_into``) and rebuilds the search index. An empty
-      report (``no_action``) is a legal round: "material not worth
-      compiling" is not an error.
+      description, body, source_refs[], summary?, revision_note?,
+      scripts?}] — validates each entry (failures name the exact rule),
+      writes ``skills/<name>/SKILL.md`` with OKF frontmatter
+      (render_frontmatter round-trip), appends revisions on update,
+      records bidirectional provenance (skill ``metadata.source_refs`` ⇄
+      material ``metadata.compiled_into``) and rebuilds the search index.
+      An empty report (``no_action``) is a legal round: "material not
+      worth compiling" is not an error. ``scripts[]`` = [{filename,
+      content}] is the bundled script asset channel (issue #47): files
+      land in ``skills/<name>/scripts/`` — on update a submitted list is
+      the COMPLETE truth (unlisted old scripts are deleted; omit the key
+      to leave scripts untouched), script contents pass the same
+      sensitive-string scan, and a canonical ``scripts/<file>`` body
+      reference with no matching file is rejected (script_ref_missing).
 
 Out of scope here (later tickets): the eight SKILL.md lint checks (#27).
 Draft-zone skills are indexed but never effective — the two-zone gate
@@ -104,6 +110,45 @@ def _sensitive_scan(text: str) -> Optional[Tuple[str, str]]:
     return None
 
 
+# Script asset channel (issue #47): report.skills[] entries may carry
+# scripts[] = [{filename, content}] which lands in skills/<name>/scripts/.
+# Filenames are flat (no directories) on a safe charset — the anti-traversal
+# check runs on the RAW string first, same discipline as source_refs.
+_SCRIPT_FILENAME_RE = re.compile(r"[A-Za-z0-9._-]+")
+# Reference extraction whitelist (宁缺勿滥, design Q9+Q12): only these
+# extensions count as script references in a body.
+_SCRIPT_EXTS = (".py", ".sh", ".ps1", ".js", ".ts", ".rb", ".pl")
+_EXT_ALT = "|".join(re.escape(e) for e in sorted(_SCRIPT_EXTS, key=len, reverse=True))
+_SCRIPT_STEM = r"[A-Za-z0-9_-]+"
+# Canonical form "scripts/<file>": not preceded by word/path chars (so
+# "myscripts/x.py" and "tools/scripts/x.py" do NOT count) and not glued to a
+# longer dotted suffix ("scripts/x.py.bak" does not count).
+_CANONICAL_REF_RE = re.compile(rf"(?<![\w./-])scripts/({_SCRIPT_STEM}(?:{_EXT_ALT}))(?![\w.])")
+# Bare form "<file>": same charset, and NOT preceded by a path separator —
+# the canonical form's "scripts/<file>" is therefore never double-counted
+# as a bare reference.
+_BARE_REF_RE = re.compile(rf"(?<![\w./-])({_SCRIPT_STEM}(?:{_EXT_ALT}))(?![\w.])")
+
+
+def _extract_script_refs(body: str) -> Tuple[Set[str], Set[str]]:
+    """Extract script references from a skill body (issue #47).
+
+    Two forms are recognised: the canonical ``scripts/<file>`` form and the
+    bare ``<file>`` form, both restricted to the extension whitelist
+    ``_SCRIPT_EXTS``. Returns ``(canonical, bare)`` — two disjoint sets of
+    filenames WITHOUT the ``scripts/`` prefix.
+
+    Single point of truth shared by submit validation (canonical reference
+    without a matching scripts[] entry = error) and the wiki_lint backstop
+    (#47: bare-name reference without a file / orphan script = warnings), so
+    the two layers can never drift apart on what counts as a reference.
+    """
+    text = body or ""
+    canonical = set(_CANONICAL_REF_RE.findall(text))
+    bare = set(_BARE_REF_RE.findall(text)) - canonical
+    return canonical, bare
+
+
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
@@ -153,7 +198,13 @@ _SKILL_WRITING_SYSTEM = (
     "7. A skill's 核心 SOP must be the PROCEDURE BACKBONE — the ordered "
     "steps with their checkpoints. Pitfalls are annotations on those steps, "
     "never substitutes for them; a body whose steps are all caveats is not "
-    "a skill.\n\n"
+    "a skill.\n"
+    "8. Scripts must be SELF-CONTAINED: any script the body references is "
+    "either bundled with the skill (pass its full content via the entry's "
+    "scripts[] and reference it as scripts/<filename>) or inlined as the "
+    "standard practice directly in the body. NEVER reference external local "
+    "paths or script names that live outside the skill package — an "
+    "installed skill must be portable.\n\n"
     "STRATEGY (anti-fragmentation):\n"
     "1. Default is UPDATE; at most ONE new skill per batch.\n"
     "2. Before CREATE, read >= 2 most-similar existing skills; the conflict "
@@ -164,8 +215,9 @@ _SKILL_WRITING_SYSTEM = (
     "(2) For revisions of existing skills, fold in their open issues "
     "(flag_issue feedback, grouped in prepare).\n"
     "(3) Call skill_creator(mode='submit', report={skills: [{name, action, "
-    "description, body, source_refs, summary?, revision_note?}]}) — the "
-    "tool writes the SKILL.md draft (status=draft). Nothing is effective "
+    "description, body, source_refs, summary?, revision_note?, scripts?}]}) — "
+    "the tool writes the SKILL.md draft (status=draft) plus any bundled "
+    "scripts/ assets. Nothing is effective "
     "until install, which is a separate user action (T3).\n"
     "Empty output is legal: when the material is not worth compiling, "
     "submit an empty report (no_action)."
@@ -543,6 +595,79 @@ def _validate_entry(
             f"skills/{name}/SKILL.md not found; action='updated' requires an existing draft.",
         )
 
+    # Script asset channel (issue #47). scripts is None when the key is
+    # absent (= leave the draft's scripts/ untouched on update); a provided
+    # list — even an empty one — is the COMPLETE truth on write.
+    raw_scripts = entry.get("scripts")
+    scripts: Optional[List[Dict[str, str]]] = None
+    if raw_scripts is not None:
+        if not isinstance(raw_scripts, list):
+            return _err(
+                "scripts_invalid",
+                "scripts must be a list of {filename, content} objects.",
+            )
+        scripts = []
+        seen_scripts: Set[str] = set()
+        for item in raw_scripts:
+            if not isinstance(item, dict):
+                return _err(
+                    "scripts_invalid",
+                    "each scripts[] entry must be an object {filename, content}.",
+                )
+            # Reject on the RAW string first — same anti-traversal
+            # discipline as source_refs above: flat safe charset only, no
+            # path separators, no "..", no whitespace.
+            fname = str(item.get("filename") or "")
+            if not _SCRIPT_FILENAME_RE.fullmatch(fname) or ".." in fname:
+                return _err(
+                    "script_filename_invalid",
+                    f"script filename '{fname}' is invalid: flat safe charset "
+                    "[A-Za-z0-9._-] only — no path separators, no '..', no "
+                    "whitespace.",
+                )
+            if fname in seen_scripts:
+                return _err(
+                    "script_filename_invalid",
+                    f"duplicate script filename '{fname}' in this entry.",
+                )
+            seen_scripts.add(fname)
+            content = item.get("content")
+            if not isinstance(content, str) or not content.strip():
+                return _err(
+                    "script_content_required",
+                    f"script '{fname}' content is required (the full script text).",
+                )
+            hit = _sensitive_scan(content)
+            if hit:
+                return _err(
+                    "sensitive_content",
+                    f"script '{fname}' matches sensitive {hit[0]} pattern "
+                    f"('{hit[1]}'); pass such values in as parameters or "
+                    "environment variables instead of hardcoding them.",
+                )
+            scripts.append({"filename": fname, "content": content})
+
+    # Canonical script references (scripts/<file>) are a strong promise: the
+    # file must ship in this entry's scripts[] — or, for an update that
+    # leaves scripts untouched, already exist in the draft's scripts/ dir.
+    # Bare-name references are a weak signal (lint warning territory, #47),
+    # NOT a submit blocker.
+    canonical_refs, _bare_refs = _extract_script_refs(body)
+    script_files = {s["filename"] for s in scripts or ()}
+    if action == "updated" and scripts is None:
+        sdir = path.parent / "scripts"
+        if sdir.is_dir():
+            script_files |= {p.name for p in sdir.iterdir() if p.is_file()}
+    missing = sorted(r for r in canonical_refs if r not in script_files)
+    if missing:
+        return _err(
+            "script_ref_missing",
+            f"body references {', '.join('scripts/' + m for m in missing)} "
+            "but the skill package does not provide it; pass the script in "
+            "this entry's scripts[] or inline the standard practice in the "
+            "body (external local paths are forbidden).",
+        )
+
     return (
         None,
         {
@@ -551,6 +676,7 @@ def _validate_entry(
             "description": description,
             "body": body.strip(),
             "source_refs": refs,
+            "scripts": scripts,
             "summary": str(entry.get("summary") or "").strip()[:_SUMMARY_CHARS],
             "revision_note": str(entry.get("revision_note") or "").strip(),
             "path": path,
@@ -562,6 +688,31 @@ def _render_skill_doc(fm: Dict[str, Any], body: str) -> str:
     from codewiki.src.frontmatter import render_frontmatter
 
     return render_frontmatter(fm) + "\n" + body + "\n"
+
+
+def _write_scripts(skill_dir: Path, scripts: Optional[List[Dict[str, str]]]) -> None:
+    """Write the script asset channel (issue #47) with full-replacement
+    semantics.
+
+    ``None`` leaves ``skills/<name>/scripts/`` untouched (an update that
+    omits the key does not touch scripts); a provided list IS the complete
+    truth — files not listed are deleted, unlike source_refs' append-only
+    merge (scripts are executable content: retired versions must disappear).
+    """
+    if scripts is None:
+        return
+    from codewiki.src.store import locked_write
+
+    sdir = skill_dir / "scripts"
+    if sdir.is_dir():
+        for old in sdir.iterdir():
+            if old.is_file():
+                old.unlink()
+    if not scripts:
+        return
+    sdir.mkdir(parents=True, exist_ok=True)
+    for s in scripts:
+        locked_write(sdir / s["filename"], s["content"])
 
 
 def _create_skill_file(values: Dict[str, Any], output_dir: Path) -> bool:
@@ -591,6 +742,7 @@ def _create_skill_file(values: Dict[str, Any], output_dir: Path) -> bool:
     try:
         values["path"].parent.mkdir(parents=True, exist_ok=True)
         locked_write(values["path"], _render_skill_doc(fm, values["body"]))
+        _write_scripts(values["path"].parent, values["scripts"])
         return True
     except OSError as e:
         logger.warning("skill create failed for %s: %s", values["name"], e)
@@ -644,7 +796,10 @@ def _update_skill_file(values: Dict[str, Any], output_dir: Path) -> bool:
         return _render_skill_doc(fm, values["body"])
 
     try:
-        return locked_rmw(values["path"], _transform) is not None
+        if locked_rmw(values["path"], _transform) is None:
+            return False
+        _write_scripts(values["path"].parent, values["scripts"])
+        return True
     except OSError as e:
         logger.warning("skill update failed for %s: %s", values["name"], e)
         return False
@@ -954,8 +1109,9 @@ def handle_skill_creator(arguments: Dict[str, Any], store: Any) -> str:
             {
                 "error": (
                     "mode='submit' requires 'report': {skills: [{name, action, "
-                    "description, body, source_refs, summary?, revision_note?}]} "
-                    "with action in created|updated (skills may be empty)."
+                    "description, body, source_refs, summary?, revision_note?, "
+                    "scripts?}]} with action in created|updated (skills may be "
+                    "empty)."
                 )
             }
         )

@@ -10,6 +10,9 @@ Covers the first two modes of skill_creator (docs/skill-creator需求与设计
   provenance + index rebuild; updated appends revisions; every validation
   failure returns its specific rule name; no_action (empty report) is legal;
   anti-fragmentation (batch > 1 created) and capacity (orange) rejection
+- submit scripts[] asset channel (issue #47): filename safety validation,
+  sensitive-content rejection, canonical scripts/<file> reference
+  enforcement, created landing zone, updated full-replacement semantics
 """
 
 import json
@@ -650,3 +653,310 @@ def test_retire_requires_reason(tmp_path):
     assert "error" in resp and "reason" in resp["error"]
     resp = _call(repo, {"mode": "retire", "name": "ghost", "reason": "x"})
     assert "error" in resp
+
+
+# --------------------------------------------------------------------------- #
+# 6. submit: scripts[] asset channel (issue #47)
+# --------------------------------------------------------------------------- #
+def test_submit_scripts_created_lands_under_skill_scripts_dir(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    _write_note(od, "some-note")
+    run_py = "print('hello from run.py')\n"
+    pack_sh = "#!/bin/sh\necho packing\n"
+    resp = _call(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "skills": [
+                    _skill_entry(
+                        "asset-skill",
+                        body="## 工作场景\nrun scripts/run.py to rebuild the cache",
+                        scripts=[
+                            {"filename": "run.py", "content": run_py},
+                            # provided but unreferenced = orphan, a lint
+                            # warning (#47 ticket 03), NOT a submit blocker
+                            {"filename": "pack.sh", "content": pack_sh},
+                        ],
+                    )
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "completed", resp
+    assert resp["processed"][0]["file"] == "skills/asset-skill/SKILL.md"
+
+    sdir = od / "skills" / "asset-skill" / "scripts"
+    assert (sdir / "run.py").read_text(encoding="utf-8") == run_py
+    assert (sdir / "pack.sh").read_text(encoding="utf-8") == pack_sh
+    fm = _fm(od / "skills" / "asset-skill" / "SKILL.md")
+    assert fm["name"] == "asset-skill"
+    assert fm["status"] == "draft"
+
+
+def test_submit_script_filename_validation(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    bad_names = [
+        "../evil.py",
+        "sub/dir.py",
+        "sub\\dir.py",
+        "has space.py",
+        "..",
+        "",
+        "a/../b.py",
+    ]
+    for bad in bad_names:
+        resp = _call(
+            repo,
+            {
+                "mode": "submit",
+                "report": {
+                    "skills": [
+                        _skill_entry(
+                            "fn-skill",
+                            scripts=[{"filename": bad, "content": "print(1)\n"}],
+                        )
+                    ]
+                },
+            },
+        )
+        assert resp["status"] == "error", (bad, resp)
+        rules = {e["rule"] for e in resp["errors"]}
+        assert "script_filename_invalid" in rules, (bad, resp["errors"])
+    # nothing landed for any failing round
+    assert not (od / "skills" / "fn-skill").exists()
+
+
+def test_submit_scripts_shape_validation(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    cases = [
+        ("not-a-list", "scripts_invalid"),
+        (["not-a-dict"], "scripts_invalid"),
+        ([{"filename": "run.py"}], "script_content_required"),
+        ([{"filename": "run.py", "content": "  \n"}], "script_content_required"),
+        (
+            [
+                {"filename": "run.py", "content": "print(1)\n"},
+                {"filename": "run.py", "content": "print(2)\n"},
+            ],
+            "script_filename_invalid",  # duplicate filename
+        ),
+    ]
+    for scripts, rule in cases:
+        resp = _call(
+            repo,
+            {
+                "mode": "submit",
+                "report": {"skills": [_skill_entry("shape-skill", scripts=scripts)]},
+            },
+        )
+        assert resp["status"] == "error", (rule, resp)
+        rules = {e["rule"] for e in resp["errors"]}
+        assert rule in rules, (rule, resp["errors"])
+    assert not (od / "skills" / "shape-skill").exists()
+
+
+def test_submit_script_content_sensitive_rejected(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    cases = [
+        "data = 'C:\\models\\tokenizer'\n",
+        "key = 'sk-abc123def456ghi789jkl0'\n",
+    ]
+    for content in cases:
+        resp = _call(
+            repo,
+            {
+                "mode": "submit",
+                "report": {
+                    "skills": [
+                        _skill_entry(
+                            "sec-skill",
+                            scripts=[{"filename": "run.py", "content": content}],
+                        )
+                    ]
+                },
+            },
+        )
+        assert resp["status"] == "error", resp
+        rules = {e["rule"] for e in resp["errors"]}
+        assert "sensitive_content" in rules, resp["errors"]
+        msg = resp["errors"][0]["message"]
+        assert "run.py" in msg
+        assert "environment variables" in msg
+    assert not (od / "skills" / "sec-skill").exists()
+
+
+def test_submit_canonical_script_ref_missing_is_error(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    body = "## 工作场景\nrun scripts/helper.py first, then scripts/pack.sh to ship"
+    resp = _call(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "skills": [
+                    _skill_entry(
+                        "ref-skill",
+                        body=body,
+                        scripts=[{"filename": "helper.py", "content": "print(1)\n"}],
+                    )
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "error", resp
+    rules = {e["rule"] for e in resp["errors"]}
+    assert "script_ref_missing" in rules, resp["errors"]
+    msg = resp["errors"][0]["message"]
+    assert "scripts/pack.sh" in msg
+    assert "helper.py" not in msg  # only the MISSING file is named
+    assert not (od / "skills" / "ref-skill").exists()
+
+
+def test_submit_bare_script_ref_does_not_block(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    body = (
+        "## 工作场景\n"
+        "compare with helper.py and setup.py before running; "
+        "see scripts/readme.txt for the manual; "
+        "myscripts/x.py and tools/scripts/x.py are NOT package references; "
+        "neither is scripts/x.py.bak"
+    )
+    resp = _call(
+        repo,
+        {
+            "mode": "submit",
+            "report": {"skills": [_skill_entry("bare-skill", body=body)]},
+        },
+    )
+    assert resp["status"] == "completed", resp
+    # no scripts[] passed — no scripts/ dir created
+    assert not (od / "skills" / "bare-skill" / "scripts").exists()
+
+
+def test_submit_updated_replaces_scripts_full_set(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    note1 = _write_note(od, "note-one")
+    resp = _call(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "skills": [
+                    _skill_entry(
+                        "swap-skill",
+                        source_refs=[note1],
+                        scripts=[
+                            {"filename": "old.py", "content": "print('old')\n"},
+                            {"filename": "keep.py", "content": "print('v1')\n"},
+                        ],
+                    )
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "completed", resp
+    sdir = od / "skills" / "swap-skill" / "scripts"
+    assert (sdir / "old.py").is_file()
+
+    note2 = _write_note(od, "note-two")
+    resp = _call(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "skills": [
+                    _skill_entry(
+                        "swap-skill",
+                        action="updated",
+                        source_refs=[note2],
+                        revision_note="swap script set",
+                        scripts=[
+                            {"filename": "keep.py", "content": "print('v2')\n"},
+                            {"filename": "new.py", "content": "print('new')\n"},
+                        ],
+                    )
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "completed", resp
+    # full replacement: the submitted list is the COMPLETE truth
+    assert not (sdir / "old.py").exists(), "unlisted old script must be deleted"
+    assert (sdir / "keep.py").read_text(encoding="utf-8") == "print('v2')\n"
+    assert (sdir / "new.py").read_text(encoding="utf-8") == "print('new')\n"
+    # source_refs stay append-only (semantics unchanged, unlike scripts)
+    fm = _fm(od / "skills" / "swap-skill" / "SKILL.md")
+    assert set(fm["metadata"]["source_refs"]) == {note1, note2}
+
+
+def test_submit_updated_scripts_omitted_untouched_empty_clears(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    note1 = _write_note(od, "note-one")
+    body_with_ref = "## 工作场景\nrun scripts/run.py to rebuild the cache"
+    resp = _call(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "skills": [
+                    _skill_entry(
+                        "touch-skill",
+                        source_refs=[note1],
+                        body=body_with_ref,
+                        scripts=[{"filename": "run.py", "content": "print(1)\n"}],
+                    )
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "completed", resp
+    sdir = od / "skills" / "touch-skill" / "scripts"
+    assert (sdir / "run.py").is_file()
+
+    # Key omitted = leave scripts/ untouched; the canonical reference
+    # validates against the on-disk scripts/ dir of the existing draft.
+    note2 = _write_note(od, "note-two")
+    resp = _call(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "skills": [
+                    _skill_entry(
+                        "touch-skill",
+                        action="updated",
+                        source_refs=[note2],
+                        body=body_with_ref,
+                        revision_note="body-only revision",
+                    )
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "completed", resp
+    assert (sdir / "run.py").read_text(encoding="utf-8") == "print(1)\n"
+
+    # Explicit empty list = clear the whole scripts/ dir (dir itself stays).
+    note3 = _write_note(od, "note-three")
+    resp = _call(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "skills": [
+                    _skill_entry(
+                        "touch-skill",
+                        action="updated",
+                        source_refs=[note3],
+                        body="## 工作场景\ninline the practice, no scripts any more",
+                        revision_note="drop scripts",
+                        scripts=[],
+                    )
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "completed", resp
+    assert sdir.is_dir()
+    assert list(sdir.iterdir()) == []
