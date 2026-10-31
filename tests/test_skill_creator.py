@@ -656,6 +656,113 @@ def test_retire_requires_reason(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# 5b. install / retire script channel (issue #47 ticket 02)
+# --------------------------------------------------------------------------- #
+def _write_draft_scripts(od: Path, name: str, scripts: dict) -> None:
+    sdir = od / "skills" / name / "scripts"
+    sdir.mkdir(parents=True, exist_ok=True)
+    for fname, content in scripts.items():
+        (sdir / fname).write_text(content, encoding="utf-8")
+
+
+def test_install_copies_scripts_and_clears_stale_effect_zone(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    _write_skill_draft(od, "scripted-skill")
+    _write_draft_scripts(
+        od, "scripted-skill", {"run.py": "print('v1')\n", "pack.sh": "#!/bin/sh\n"}
+    )
+
+    # stale effect-zone residue from an older install must be wiped
+    eff_dir = Path(repo) / ".codebuddy" / "skills" / "scripted-skill"
+    stale = eff_dir / "scripts" / "stale.py"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("print('stale')\n", encoding="utf-8")
+
+    resp = _call(repo, {"mode": "install", "name": "scripted-skill"})
+    assert resp["status"] == "installed", resp
+    assert (eff_dir / "SKILL.md").is_file()
+    assert (eff_dir / "scripts" / "run.py").read_text(encoding="utf-8") == "print('v1')\n"
+    assert (eff_dir / "scripts" / "pack.sh").is_file()
+    assert not stale.exists()  # clear-then-copy: residue gone
+
+    # idempotent reinstall: same hash, same file set
+    resp2 = _call(repo, {"mode": "install", "name": "scripted-skill"})
+    assert resp2["hash"] == resp["hash"]
+    assert sorted(p.name for p in (eff_dir / "scripts").iterdir()) == ["pack.sh", "run.py"]
+
+    # draft scripts revised → reinstall replaces the whole set
+    (od / "skills" / "scripted-skill" / "scripts" / "pack.sh").unlink()
+    _write_draft_scripts(od, "scripted-skill", {"run.py": "print('v2')\n"})
+    resp3 = _call(repo, {"mode": "install", "name": "scripted-skill"})
+    assert resp3["hash"] != resp["hash"]
+    assert (eff_dir / "scripts" / "run.py").read_text(encoding="utf-8") == "print('v2')\n"
+    assert not (eff_dir / "scripts" / "pack.sh").exists()
+
+
+def test_install_without_scripts_clears_effect_scripts_residue(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    _write_skill_draft(od, "plain-skill")
+    eff_dir = Path(repo) / ".codebuddy" / "skills" / "plain-skill"
+    leftover = eff_dir / "scripts" / "leftover.py"
+    leftover.parent.mkdir(parents=True)
+    leftover.write_text("print('old')\n", encoding="utf-8")
+
+    resp = _call(repo, {"mode": "install", "name": "plain-skill"})
+    assert resp["status"] == "installed", resp
+    assert (eff_dir / "SKILL.md").is_file()
+    assert not (eff_dir / "scripts").exists()  # two zones stay consistent
+
+
+def test_retire_removes_whole_effect_directory(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    _write_skill_draft(od, "dir-skill")
+    _write_draft_scripts(od, "dir-skill", {"run.py": "print('x')\n"})
+    _call(repo, {"mode": "install", "name": "dir-skill"})
+    eff_dir = Path(repo) / ".codebuddy" / "skills" / "dir-skill"
+    assert (eff_dir / "scripts" / "run.py").is_file()
+
+    resp = _call(repo, {"mode": "retire", "name": "dir-skill", "reason": "obsolete"})
+    assert resp["status"] == "retired", resp
+    assert resp["effect_removed"] is True
+    assert not eff_dir.exists()  # whole directory, scripts included
+
+    # draft zone untouched (audit)
+    assert (od / "skills" / "dir-skill" / "SKILL.md").is_file()
+    assert (od / "skills" / "dir-skill" / "scripts" / "run.py").is_file()
+
+    # idempotent: retiring an absent effect directory is not an error
+    resp2 = _call(repo, {"mode": "retire", "name": "dir-skill", "reason": "again"})
+    assert resp2["status"] == "retired"
+    assert resp2["effect_removed"] is False
+
+    # legacy residue (a stray file, no SKILL.md) is swept away too
+    eff_dir.mkdir(parents=True)
+    (eff_dir / "legacy.txt").write_text("old format\n", encoding="utf-8")
+    resp3 = _call(repo, {"mode": "retire", "name": "dir-skill", "reason": "cleanup"})
+    assert resp3["status"] == "retired"
+    assert resp3["effect_removed"] is True
+    assert not eff_dir.exists()
+
+
+def test_install_hash_covers_script_content(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    _write_skill_draft(od, "hashy-skill")
+    r0 = _call(repo, {"mode": "install", "name": "hashy-skill"})
+
+    _write_draft_scripts(od, "hashy-skill", {"run.py": "print('v1')\n"})
+    r1 = _call(repo, {"mode": "install", "name": "hashy-skill"})
+    assert r1["hash"] != r0["hash"]  # adding a script moves the hash
+
+    _write_draft_scripts(od, "hashy-skill", {"run.py": "print('v2')\n"})
+    r2 = _call(repo, {"mode": "install", "name": "hashy-skill"})
+    assert r2["hash"] != r1["hash"]  # a script content change moves the hash
+
+    # the draft stamp tracks the same hash the response reports
+    fm = _fm(od / "skills" / "hashy-skill" / "SKILL.md")
+    assert fm["metadata"]["installed_hash"] == r2["hash"]
+
+
+# --------------------------------------------------------------------------- #
 # 6. submit: scripts[] asset channel (issue #47)
 # --------------------------------------------------------------------------- #
 def test_submit_scripts_created_lands_under_skill_scripts_dir(tmp_path):

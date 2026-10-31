@@ -42,10 +42,14 @@ install / retire (T3, issue #26) live here too: install strips all
 management frontmatter and writes a minimal {name, description} + body
 SKILL.md into the EFFECT zone (repo-root .codebuddy/skills/, discovered by
 the IDE), stamping installed_at / installed_to / installed_hash back onto
-the draft. The normalized hash (name + description + body, design §4.2) is
-the drift-detection contract lint (#27) compares against. retire marks the
-draft deprecated and removes the effect-zone copy; the draft body stays
-for audit.
+the draft. The normalized hash (name + description + body + every bundled
+script, design §4.2 + issue #47) is the drift-detection contract lint
+(#27) compares against — a script revision moves the hash and lint flags
+the drift. install also syncs the script channel: the effect-zone
+``scripts/`` dir is wiped first, then the draft's scripts are copied
+(idempotent, the two zones can never diverge). retire marks the draft
+deprecated and removes the WHOLE effect-zone ``<name>/`` directory —
+scripts and any legacy residue with it; the draft body stays for audit.
 """
 
 from __future__ import annotations
@@ -53,6 +57,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -819,15 +824,55 @@ def _write_backlinks(values: Dict[str, Any], output_dir: Path) -> int:
 # --------------------------------------------------------------------------- #
 # Install / retire (T3, issue #26) — effect-zone management
 # --------------------------------------------------------------------------- #
-def _normalized_hash(name: str, description: str, body: str) -> str:
-    """Drift-detection contract (design §4.2): hash of the EXACT content that
-    lands in the effect zone — name + description + body, management
-    frontmatter excluded (both sides strip it, whole-file hashes would never
-    match)."""
+def _normalized_hash(
+    name: str,
+    description: str,
+    body: str,
+    scripts: Optional[List[Dict[str, str]]] = None,
+) -> str:
+    """Drift-detection contract (design §4.2 + issue #47): hash of the EXACT
+    content that lands in the effect zone — name + description + body +
+    every bundled script (sorted by filename, filename + content each),
+    management frontmatter excluded (both sides strip it, whole-file hashes
+    would never match). ``None``/empty scripts keeps the pre-#47 digest, so
+    existing script-less installs don't phantom-drift."""
     import hashlib
 
-    payload = f"{name}\x00{description}\x00{body.strip()}".encode("utf-8")
-    return "sha256:" + hashlib.sha256(payload).hexdigest()
+    payload = f"{name}\x00{description}\x00{body.strip()}"
+    for s in sorted(scripts or (), key=lambda item: item["filename"]):
+        payload += f"\x00{s['filename']}\x00{s['content']}"
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _read_draft_scripts(skill_dir: Path) -> List[Dict[str, str]]:
+    """Read back ``skills/<name>/scripts/`` (issue #47) for the drift hash —
+    install and lint must hash the same content, so both read the DRAFT
+    zone through this one helper (sorted by filename for determinism)."""
+    sdir = skill_dir / "scripts"
+    if not sdir.is_dir():
+        return []
+    return [
+        {"filename": p.name, "content": p.read_text(encoding="utf-8")}
+        for p in sorted(sdir.iterdir())
+        if p.is_file()
+    ]
+
+
+def _install_effect_scripts(scripts: List[Dict[str, str]], effect_skill_dir: Path) -> None:
+    """Clear-then-copy the script channel into the effect zone (issue #47):
+    wipe ``<name>/scripts/`` first so the effect set can never diverge from
+    the draft set — a draft without scripts still wipes the residue (two
+    zones stay consistent, reinstall is idempotent)."""
+    from codewiki.src.store import locked_write
+
+    sdir = effect_skill_dir / "scripts"
+    if sdir.exists():
+        shutil.rmtree(sdir)
+    if not scripts:
+        return
+    sdir.mkdir(parents=True, exist_ok=True)
+    for s in scripts:
+        locked_write(sdir / s["filename"], s["content"])
 
 
 def _effect_zone_dir(output_dir: Path) -> Path:
@@ -859,6 +904,11 @@ def _mode_install(arguments: Dict[str, Any], output_dir: Path) -> str:
 
     skill_name = str(fm.get("name") or name)
     description = str(fm.get("description") or "")
+    # Script channel (issue #47): hash covers exactly the draft-zone
+    # scripts that will be copied over — computed once, used for the draft
+    # stamp and the response.
+    scripts = _read_draft_scripts(draft.parent)
+    installed_hash = _normalized_hash(skill_name, description, body, scripts)
 
     # Effect-zone file: ONLY name/description frontmatter + body (design
     # §4.2 install strip — the host reads the whole file into context; every
@@ -887,7 +937,7 @@ def _mode_install(arguments: Dict[str, Any], output_dir: Path) -> str:
         # ".codebuddy/skills/<name>/") — hand-built, NOT via _norm_rel whose
         # lstrip("./") would eat the leading dot of .codebuddy/.
         meta["installed_to"] = f".codebuddy/skills/{name}/"
-        meta["installed_hash"] = _normalized_hash(skill_name, description, body)
+        meta["installed_hash"] = installed_hash
         # Status lifecycle (design §10): an installed draft is no longer an
         # uninstalled draft, so it stops being offered by the UserPromptSubmit
         # matcher. A later submit revision flips it back to "draft" (the
@@ -897,14 +947,16 @@ def _mode_install(arguments: Dict[str, Any], output_dir: Path) -> str:
         return _render_skill_doc(dfm, old_body)
 
     try:
-        # Idempotent: rewriting the same effect content and re-stamping the
-        # draft is safe; content is deterministic from the draft alone.
+        # Idempotent: rewriting the same effect content, re-syncing the
+        # scripts dir and re-stamping the draft is safe; content is
+        # deterministic from the draft alone.
         effect_file.parent.mkdir(parents=True, exist_ok=True)
         locked_write = None
         from codewiki.src.store import locked_write as _lw
 
         locked_write = _lw
         locked_write(effect_file, effect_content)
+        _install_effect_scripts(scripts, effect_file.parent)
         locked_rmw(draft, _transform_draft)
     except OSError as e:
         logger.warning("install failed for %s: %s", name, e)
@@ -916,7 +968,7 @@ def _mode_install(arguments: Dict[str, Any], output_dir: Path) -> str:
             "mode": "install",
             "name": name,
             "installed_to": f".codebuddy/skills/{name}/",
-            "hash": _normalized_hash(skill_name, description, body),
+            "hash": installed_hash,
             "digest": _hashlib.sha256(effect_content.encode("utf-8")).hexdigest()[:12],
             "message": (
                 f"Skill '{name}' installed to the effect zone — the IDE will "
@@ -966,15 +1018,17 @@ def _mode_retire(arguments: Dict[str, Any], output_dir: Path) -> str:
         fm["metadata"] = meta
         return _render_skill_doc(fm, body)
 
-    # Effect-zone removal (absent = already clean; not an error).
+    # Effect-zone removal is DIRECTORY-level (issue #47): the whole <name>/
+    # dir goes — scripts/ and any legacy residue with it (absent = already
+    # clean; not an error).
     removed_effect = False
-    effect_file = _effect_zone_dir(output_dir) / name / "SKILL.md"
-    if effect_file.is_file():
+    effect_dir = _effect_zone_dir(output_dir) / name
+    if effect_dir.exists():
         try:
             # Keep the body recoverable: move to system trash semantics are
-            # overkill for a derived file — the DRAFT still holds the full
+            # overkill for derived files — the DRAFT still holds the full
             # content, the effect copy is disposable.
-            effect_file.unlink()
+            shutil.rmtree(effect_dir)
             removed_effect = True
         except OSError as e:
             logger.warning("effect-zone removal failed for %s: %s", name, e)

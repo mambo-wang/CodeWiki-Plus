@@ -1680,6 +1680,7 @@ def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
             _ORANGE_SKILLS,
             _normalized_hash,
             _read_body,
+            _read_draft_scripts,
             _read_frontmatter,
             _scan_skills,
             _sensitive_scan,
@@ -1829,7 +1830,10 @@ def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
         # skill_drift (warning, design Q6): draft revised after install
         installed_hash = meta.get("installed_hash")
         if installed_hash:
-            current = _normalized_hash(name, description, body)
+            # Issue #47: the hash also covers bundled scripts — a script
+            # revision drifts exactly like a body revision. Read the DRAFT
+            # zone through the same helper install uses (single algorithm).
+            current = _normalized_hash(name, description, body, _read_draft_scripts(path.parent))
             if current != installed_hash:
                 issues.append(
                     {

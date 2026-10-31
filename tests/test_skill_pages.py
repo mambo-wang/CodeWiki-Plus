@@ -441,6 +441,42 @@ def test_skill_lint_drift_after_revision(tmp_path):
     assert "effect zone still serves the old version" in drift[0]["message"]
 
 
+def test_skill_lint_drift_after_script_revision(tmp_path):
+    """Issue #47: a script revision moves installed_hash → drift warning."""
+    repo, od = _mk_repo(tmp_path)
+    from codewiki.mcp.tools.skill_creator import (
+        _normalized_hash,
+        _read_body,
+        _read_draft_scripts,
+    )
+
+    p = _write_raw_skill(od, "scripted-drift")
+    sdir = od / "skills" / "scripted-drift" / "scripts"
+    sdir.mkdir()
+    run_py = sdir / "run.py"
+    run_py.write_text("print('v1')\n", encoding="utf-8")
+
+    # simulate install stamping: hash of current content, scripts included
+    raw = p.read_text(encoding="utf-8")
+    head_end = raw.find("---", 3)
+    fm = yaml.safe_load(raw[3:head_end])
+    fm["metadata"]["installed_hash"] = _normalized_hash(
+        fm["name"], fm["description"], _read_body(p), _read_draft_scripts(p.parent)
+    )
+    p.write_text(
+        "---\n" + yaml.safe_dump(fm, allow_unicode=True) + "---" + raw[head_end + 3 :],
+        encoding="utf-8",
+    )
+
+    # unchanged scripts → the read-back hash matches, no drift
+    assert not [i for i in _lint_skill(repo) if "drifted" in i["message"]]
+
+    # script revised → drift warning
+    run_py.write_text("print('v2')\n", encoding="utf-8")
+    drift = [i for i in _lint_skill(repo) if "drifted" in i["message"]]
+    assert len(drift) == 1 and drift[0]["severity"] == "warning"
+
+
 def test_skill_lint_capacity_grading(tmp_path):
     repo, od = _mk_repo(tmp_path)
     for i in range(_ORANGE := 9):
