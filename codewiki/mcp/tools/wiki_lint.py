@@ -1670,9 +1670,10 @@ def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
     revise/retire decision, never auto), skill_drift (draft normalized
     hash != installed_hash: revised after install, the effect zone still
     serves the old version; reinstall is a user action, ADR-0004),
-    unresolved_script_ref (body references a script — canonical or bare
-    form — that scripts/ does not provide; canonical refs are already a
-    submit error, lint backstops hand-written drafts, issue #47),
+    unresolved_script_ref (a BARE-name script reference that scripts/
+    does not provide — weak signal; canonical scripts/<file> refs are
+    submit's script_ref_missing error and lint does not repeat them,
+    spec L31 severity split, issue #47),
     unreferenced_script (scripts/ holds a file the body never references
     — a dead asset install would copy as-is), capacity orange.
     """
@@ -1856,13 +1857,15 @@ def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
                     }
                 )
 
-        # Script asset channel (warnings, issue #47): backstop for drafts
-        # hand-written outside submit (canonical refs are already a submit
-        # error). Reference extraction is skill_creator._extract_script_refs
-        # — the single point both layers share. A reference (canonical or
-        # bare) with no file in scripts/ = unresolved_script_ref; a file in
-        # scripts/ the body never references = unreferenced_script (a dead
-        # asset install would copy as-is).
+        # Script asset channel (warnings, issue #47, spec L31 severity
+        # split): reference extraction is skill_creator._extract_script_refs
+        # — the single point both layers share. A CANONICAL (scripts/<file>)
+        # reference with no file is submit's script_ref_missing error (a
+        # strong promise) — lint does NOT repeat it here. Only a BARE-name
+        # reference with no file = unresolved_script_ref (weak signal: the
+        # name may just be a generic filename like setup.py). A file in
+        # scripts/ the body never references (either form counts) =
+        # unreferenced_script (a dead asset install would copy as-is).
         canonical_refs, bare_refs = _extract_script_refs(body)
         referenced = canonical_refs | bare_refs
         scripts_dir = path.parent / "scripts"
@@ -1871,7 +1874,7 @@ def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
             if scripts_dir.is_dir()
             else set()
         )
-        missing_scripts = sorted(referenced - on_disk)
+        missing_scripts = sorted(bare_refs - on_disk)
         if missing_scripts:
             issues.append(
                 {

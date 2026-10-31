@@ -514,17 +514,16 @@ def test_skill_lint_unresolved_script_ref(tmp_path):
     assert not [i for i in mine if "unresolved_script_ref" in i["message"]]
     assert not [i for i in mine if "unreferenced_script" in i["message"]]
 
-    # canonical reference but file missing -> same warning (lint backstops
-    # submit's script_ref_missing error for hand-written drafts)
+    # canonical reference but file missing -> NO lint warning (that is
+    # submit's script_ref_missing error — a strong promise; lint does not
+    # repeat it, spec L31 severity split)
     _write_raw_skill(od, "canonical-missing", body=sections + "\n\nrun scripts/gone.py next\n")
-    hits = [
+    assert not [
         i
         for i in _lint_skill(repo)
         if "unresolved_script_ref" in i["message"]
         and i["file"] == "skills/canonical-missing/SKILL.md"
     ]
-    assert len(hits) == 1 and hits[0]["severity"] == "warning"
-    assert "gone.py" in hits[0]["message"]
 
 
 def test_skill_lint_unreferenced_script(tmp_path):

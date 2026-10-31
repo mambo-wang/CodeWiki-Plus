@@ -621,9 +621,10 @@ def _validate_entry(
                 )
             # Reject on the RAW string first — same anti-traversal
             # discipline as source_refs above: flat safe charset only, no
-            # path separators, no "..", no whitespace.
+            # path separators, no "..", no whitespace, and not a pure-dot
+            # degenerate name ("." / "..." — nothing left once dots go).
             fname = str(item.get("filename") or "")
-            if not _SCRIPT_FILENAME_RE.fullmatch(fname) or ".." in fname:
+            if not _SCRIPT_FILENAME_RE.fullmatch(fname) or ".." in fname or not fname.strip("."):
                 return _err(
                     "script_filename_invalid",
                     f"script filename '{fname}' is invalid: flat safe charset "
@@ -701,8 +702,10 @@ def _write_scripts(skill_dir: Path, scripts: Optional[List[Dict[str, str]]]) -> 
 
     ``None`` leaves ``skills/<name>/scripts/`` untouched (an update that
     omits the key does not touch scripts); a provided list IS the complete
-    truth — files not listed are deleted, unlike source_refs' append-only
-    merge (scripts are executable content: retired versions must disappear).
+    truth — the whole directory (including hand-dropped subdirectories) is
+    removed and rebuilt, unlike source_refs' append-only merge (scripts are
+    executable content: retired versions must disappear). Mirrors the
+    install side's ``_install_effect_scripts`` wipe-then-copy semantics.
     """
     if scripts is None:
         return
@@ -710,9 +713,7 @@ def _write_scripts(skill_dir: Path, scripts: Optional[List[Dict[str, str]]]) -> 
 
     sdir = skill_dir / "scripts"
     if sdir.is_dir():
-        for old in sdir.iterdir():
-            if old.is_file():
-                old.unlink()
+        shutil.rmtree(sdir)
     if not scripts:
         return
     sdir.mkdir(parents=True, exist_ok=True)

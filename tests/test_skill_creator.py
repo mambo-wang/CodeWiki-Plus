@@ -811,6 +811,8 @@ def test_submit_script_filename_validation(tmp_path):
         "..",
         "",
         "a/../b.py",
+        ".",
+        "...",
     ]
     for bad in bad_names:
         resp = _call(
@@ -965,6 +967,9 @@ def test_submit_updated_replaces_scripts_full_set(tmp_path):
     assert resp["status"] == "completed", resp
     sdir = od / "skills" / "swap-skill" / "scripts"
     assert (sdir / "old.py").is_file()
+    # a hand-dropped subdirectory (bypasses submit) must also disappear
+    (sdir / "vendor").mkdir()
+    (sdir / "vendor" / "junk.py").write_text("print('junk')\n", encoding="utf-8")
 
     note2 = _write_note(od, "note-two")
     resp = _call(
@@ -990,6 +995,7 @@ def test_submit_updated_replaces_scripts_full_set(tmp_path):
     assert resp["status"] == "completed", resp
     # full replacement: the submitted list is the COMPLETE truth
     assert not (sdir / "old.py").exists(), "unlisted old script must be deleted"
+    assert not (sdir / "vendor").exists(), "hand-dropped subdir must be wiped too"
     assert (sdir / "keep.py").read_text(encoding="utf-8") == "print('v2')\n"
     assert (sdir / "new.py").read_text(encoding="utf-8") == "print('new')\n"
     # source_refs stay append-only (semantics unchanged, unlike scripts)
@@ -1044,7 +1050,7 @@ def test_submit_updated_scripts_omitted_untouched_empty_clears(tmp_path):
     assert resp["status"] == "completed", resp
     assert (sdir / "run.py").read_text(encoding="utf-8") == "print(1)\n"
 
-    # Explicit empty list = clear the whole scripts/ dir (dir itself stays).
+    # Explicit empty list = wipe the whole scripts/ dir (dir included).
     note3 = _write_note(od, "note-three")
     resp = _call(
         repo,
@@ -1065,5 +1071,6 @@ def test_submit_updated_scripts_omitted_untouched_empty_clears(tmp_path):
         },
     )
     assert resp["status"] == "completed", resp
-    assert sdir.is_dir()
-    assert list(sdir.iterdir()) == []
+    # wipe-then-rebuild semantics (mirrors install's _install_effect_scripts):
+    # an empty list removes the whole scripts/ dir, not just its files.
+    assert not sdir.exists()
