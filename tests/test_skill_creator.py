@@ -813,6 +813,9 @@ def test_submit_script_filename_validation(tmp_path):
         "a/../b.py",
         ".",
         "...",
+        ".py",  # empty stem
+        "run.",  # empty extension
+        "my.tool.py",  # multi-dot: unreferenceable by the extractor
     ]
     for bad in bad_names:
         resp = _call(

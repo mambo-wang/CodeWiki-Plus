@@ -119,7 +119,11 @@ def _sensitive_scan(text: str) -> Optional[Tuple[str, str]]:
 # scripts[] = [{filename, content}] which lands in skills/<name>/scripts/.
 # Filenames are flat (no directories) on a safe charset — the anti-traversal
 # check runs on the RAW string first, same discipline as source_refs.
-_SCRIPT_FILENAME_RE = re.compile(r"[A-Za-z0-9._-]+")
+# A filename must stay referenceable by _SCRIPT_STEM below: a dotless stem
+# plus at most ONE extension dot — "run.py" ok, "my.tool.py" / ".py" / "a."
+# are not (the extractor could never recognise a reference to them, so lint
+# would false-positive them as orphans).
+_SCRIPT_FILENAME_RE = re.compile(r"[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)?")
 # Reference extraction whitelist (宁缺勿滥, design Q9+Q12): only these
 # extensions count as script references in a body.
 _SCRIPT_EXTS = (".py", ".sh", ".ps1", ".js", ".ts", ".rb", ".pl")
@@ -620,16 +624,17 @@ def _validate_entry(
                     "each scripts[] entry must be an object {filename, content}.",
                 )
             # Reject on the RAW string first — same anti-traversal
-            # discipline as source_refs above: flat safe charset only, no
-            # path separators, no "..", no whitespace, and not a pure-dot
-            # degenerate name ("." / "..." — nothing left once dots go).
+            # discipline as source_refs above. The fullmatch pattern is the
+            # whole defence: flat name on a safe charset, at most one
+            # extension dot — so no path separators, no "..", no whitespace,
+            # no pure-dot or multi-dot degenerate names.
             fname = str(item.get("filename") or "")
-            if not _SCRIPT_FILENAME_RE.fullmatch(fname) or ".." in fname or not fname.strip("."):
+            if not _SCRIPT_FILENAME_RE.fullmatch(fname):
                 return _err(
                     "script_filename_invalid",
-                    f"script filename '{fname}' is invalid: flat safe charset "
-                    "[A-Za-z0-9._-] only — no path separators, no '..', no "
-                    "whitespace.",
+                    f"script filename '{fname}' is invalid: expected "
+                    "<stem>[.<ext>] on charset [A-Za-z0-9._-] with at most "
+                    "one dot — no path separators, no '..', no whitespace.",
                 )
             if fname in seen_scripts:
                 return _err(
