@@ -11,7 +11,7 @@ aliases:
 - ADR-0019
 metadata:
   date: 2026-10-20
-  confidence_level: strong
+  confidence_level: weak
   task_id: 日常维护
   related_modules:
   - cli
@@ -25,10 +25,14 @@ author: iamwangbao-163-com
 generated:
   by: codewiki/5.15.0
   at: 2026-10-20 10:16:52+00:00
-stale_after: '2027-10-20'
+stale_after: '2027-10-31'
 verified:
 - by: codewiki/5.15.0
   at: '2026-10-20T10:28:14Z'
+- by: codewiki/5.16.6
+  at: '2026-10-31T01:16:56Z'
+source_conversations:
+- conversations/conv-codewiki-setup命令，生成的skill为什么没有根据语言生成不同的内容和名称-@SKILL.md-2-2.md
 ---
 
 ## 决策
@@ -52,3 +56,16 @@ verified:
 
 - tests/test_sync_skills.py 30 个测试（frontmatter 三行、中英双态无残留、round-trip、prune、宿主判定、开关指引）。
 - 实现：codewiki/cli/commands/sync_skills.py；步骤文案：codewiki/mcp/prompts.py `_SYNC_SKILLS_STEP` 单一模块级副本（消除 ADR-0017 时代双副本漂移温床）。
+
+## 技能 frontmatter name 按语言国际化而目录名恒为 codewiki-kebab（ADR-0019 决策 3 修订）
+
+> 合并自蒸馏候选：技能 frontmatter name 按语言国际化而目录名恒为 codewiki-kebab（ADR-0019 决策 3 修订）
+
+## 修订记录（2026-10-30）：决策 3 的 name 前提被实测推翻
+
+用户实测 CodeBuddy 与 Trae 均能识别中文 frontmatter name 并触发，原前提「skill name 必须是 ASCII slug」不成立。修订定案（已实施，65 passed / 1 skipped）：
+
+- frontmatter `name` 按语言国际化：zh 产物 name 为 `codewiki-<中文标题>`（标题取自 `codewiki/mcp/locales/zh.yaml` 的 title，如 `codewiki-蒸馏对话提取记忆和经验`）；en 产物维持 `codewiki-<kebab>` 完全不变。
+- **目录名恒为 `codewiki-<kebab>` 不动**：prune 口径（`codewiki/cli/commands/sync_skills.py:32-34`，目标目录 `codewiki-*` 全集 == 本次渲染集合）决定目录名本地化会让 `--lang en` 把 zh 目录当陈旧产物整体删掉。
+- 实现收敛在 `sync_skills.py` 新增的 `_localized_skill_name()`；静态资产 `codewiki/assets/skills/codewiki-setup/SKILL.zh.md` name 行同步改中文；`docs/adr/0019` 已加修订记录。行为变更：zh 技能触发词从 `/codewiki-<kebab>` 变为 `/codewiki-<中文标题>`。
+- 遗留：qoder 宿主未实测中文 name（只验了 codebuddy/trae），回退点集中在 `_localized_skill_name()` 一处。

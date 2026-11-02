@@ -1,21 +1,27 @@
 ---
 type: pitfall
-title: "PowerShell 下命令输出与临时文件的四个编码/语法坑：%TEMP% 不展开、utf8NoBOM 不支持、重定向是 UTF-16 LE、管道输出可能为空"
-tags: ["pitfall", "powershell"]
+title: PowerShell 下命令输出与临时文件的四个编码/语法坑：%TEMP% 不展开、utf8NoBOM 不支持、重定向是 UTF-16 LE、管道输出可能为空
+tags:
+- pitfall
+- powershell
 metadata:
   date: 2026-10-30
   confidence_level: weak
   task_id: 发版本
-  source_session: "5dee23d20a5649afa4429fdc1594bc07"
+  source_session: 5dee23d20a5649afa4429fdc1594bc07
   severity: medium
-  source_ref: "conversations/conv-@command-windows-python-release-发布版本5.16.3.md"
-  scene: "发版本"
-status: draft
+  source_ref: conversations/conv-@command-windows-python-release-发布版本5.16.3.md
+  scene: 发版本
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.16.5, at: 2026-10-30T03:28:47Z }
-stale_after: 2027-04-28
+generated:
+  by: codewiki/5.16.5
+  at: 2026-10-30 03:28:47+00:00
+stale_after: '2027-04-28'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-30T05:59:32Z'
 ---
 
 ## 现象与正确做法（Windows PowerShell 发版/测试流程实测）
