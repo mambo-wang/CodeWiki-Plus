@@ -1,36 +1,32 @@
 ## 早期记忆（摘要）
 
-**竞品与外部调研结论：** GitHub 类似项目分三层——直接竞品 TencentDB Agent Memory（重点盯防）；理念源头 Karpathy LLM Wiki 家族；通用记忆中间件 mem0/Letta/Zep/Cognee（设计参考）。腾讯云 Harness 文章调研经 grill 定案：三项借鉴全部不立项（PreToolUse 硬拦截→absorbed，claude-mem v13 反证 DENY 已被行业放弃，既有 P2-2 软闸门已覆盖；等待 skill→deferred 归「发版本」线；close-loop→excluded 超产品边界）。微借鉴：「不在中间任何一步静默停下」作为多步骤 prompt 写作原则。
+**竞品调研（定案）：** GitHub 类似项目分三层——直接竞品 TencentDB Agent Memory；理念源头 Karpathy LLM Wiki 家族；通用记忆中间件 mem0/Letta/Zep/Cognee（设计参考）。腾讯云 Harness 文章 grill 定案：三项借鉴全部不立项（PreToolUse 硬拦截→absorbed，claude-mem v13 反证 DENY 已被行业放弃，既有 P2-2 软闸门已覆盖；等待 skill→deferred 归「发版本」线；close-loop→excluded 超产品边界）。微借鉴：「不在中间任何一步静默停下」作为多步骤 prompt 写作原则。
 
-**Prompt 正文原则（已定案）：** prompt 渲染正文只描述当前实现，不引用 ADR 编号、设计文档地址、历史决策变动；Python 源码注释里的 ADR 指针按惯例保留供维护者溯源。
+**Prompt 正文原则（定案）：** 渲染正文只描述当前实现，不引用 ADR 编号/设计文档地址/历史决策变动；Python 源码注释里的 ADR 指针保留供维护者溯源。
 
-**Windows 闪窗修复：** 根因是 MCP server 由 IDE 无控制台拉起，git 子进程新分配控制台闪现。git_sync.py 新增共享 helper windows_creationflags()（CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP）并覆盖 run_git_bounded 及 config.py、doc_writer.py、note_query.py、workspace_bootstrap.py 共 5 处，加守门测试；MCP server 需重启生效。
+**Windows 闪窗修复：** 根因是 MCP server 由 IDE 无控制台拉起，git 子进程新分配控制台闪现。git_sync.py 新增共享 helper windows_creationflags()，覆盖 config.py 等 5 处 git 子进程调用点，加守门测试；MCP server 需重启生效。
 
-**ingest_source 格式机制（已定案）：** 官方口径 PDF/MD/DOCX/HTML/XLSX；_CONVERTIBLE_SUFFIXES={.pdf,.docx,.xlsx}（pptx/epub 未验证不承诺）。ADR-0018 markitdown 转换 sidecar 已实现：原始文件无条件保留（哈希锚点）；ingest 时一次性转换，在版本去重门之前纯内存完成（门通过后才落盘 sidecar，修过孤儿 sidecar bug），存 raw/sources/<name>.converted.md；markitdown 为 optional extra [convert]，未装 fail-open 降级；转换失败结构化记录 convert_error 三分类；sidecar 随 auto_push 入库；跨格式 version_sibling 门基于转换文本指纹；retract remove_refs 把 sidecar 一并移 .trash。ADR §2 已修订为如实描述「每次 ingest 重转，sidecar 随导入覆盖」。文本格式 .md/.markdown/.html/.htm/.txt/.rst 走完整链路（存储+注册+版本感知去重门）。
+**ingest_source 格式机制（ADR-0018 定案）：** 官方口径 PDF/MD/DOCX/HTML/XLSX；_CONVERTIBLE_SUFFIXES={.pdf,.docx,.xlsx}（pptx/epub 未验证不承诺）；文本格式（.md/.html/.txt/.rst 等）走完整链路。markitdown sidecar：原始文件无条件保留（哈希锚点）；ingest 时一次性转换，在版本去重门前纯内存完成（门通过后才落盘，修过孤儿 sidecar bug），存 raw/sources/<name>.converted.md；markitdown 为 optional extra [convert]，未装 fail-open 降级；转换失败记 convert_error 三分类；sidecar 随 auto_push 入库；跨格式 version_sibling 门基于转换文本指纹；retract 把 sidecar 一并移 .trash。
 
-**任务管理接线修复（2026-09-29）：** init-wiki/init-workspace 用户答「否」失效的根因是命令薄壳不注入开关参数且无意图映射指引。定案维持 opt-out（初始化=一步到位），双通道修复：薄壳补开关参数映射指引段（sync_commands.py _SWITCH_HINTS/_switch_block）+ 渲染正文补用户意愿闸门句；sync-commands 升级为必做步骤（只有 codebuddy 自动映射 MCP prompt 为命令，其余宿主都需 sync-commands）；locales zh/en 同步；补 5 个测试断言用例。
+**任务管理接线修复（2026-09-29）：** init-wiki/init-workspace 用户答「否」失效根因是命令薄壳不注入开关参数且无意图映射指引。定案维持 opt-out，双通道修复：薄壳补开关参数映射指引（sync_commands.py _SWITCH_HINTS/_switch_block）+ 渲染正文补用户意愿闸门句；sync-commands 升级为必做步骤（仅 codebuddy 自动映射 MCP prompt 为命令，其余宿主都需 sync-commands）；locales zh/en 同步；补 5 个测试用例。
 
-**Qoder CN 适配（2026-09-30）：** ① SessionStart hook 弹框按宿主分支——.qoder 副本走 AskUserQuestion（单题 options 硬上限 4：最近 3 个 active 任务 + 跳过，其余任务写进 question 正文由「其他」自由输入承接），其他宿主保持 ask_followup_question「一框列全」；② hook 命令解释器平台感知 ide_config._resolve_python_cmd()（Windows 恒 python、POSIX 探测 python3>python），merge_settings_json/unwire 原地迁移旧解释器命令；③ 任务索引 .index.json 损坏/为空时回退扫描 tasks/*/task.md frontmatter，active 按 mtime 倒序。OCR 评审后补修：capped 档补硬下限 2（0 任务时补「新建任务」选项）；label 截断撞车改为逐步延长至可区分（header 限 12）。新增边界测试，全量 pytest 1229 passed。
+**Qoder CN 适配（2026-09-30）：** ① SessionStart hook 弹框按宿主分支——.qoder 副本走 AskUserQuestion（单题 options 硬上限 4、硬下限 2：最近 3 个 active 任务 + 跳过，0 任务补「新建任务」，其余任务写进 question 正文由「其他」自由输入承接；label 截断撞车逐步延长至可区分，header 限 12），其他宿主保持 ask_followup_question「一框列全」；② hook 解释器平台感知 ide_config._resolve_python_cmd()（Windows 恒 python、POSIX 探测 python3>python），merge_settings_json/unwire 原地迁移旧命令；③ 任务索引 .index.json 损坏/为空时回退扫描 tasks/*/task.md frontmatter，active 按 mtime 倒序。全量 pytest 1229 passed。
 
-**user_id 漂移与分片存量修复（2026-10-10，用户批准「两个都做」）：** ① memories/Administrator.md 7 条经 locked_rmw 并入正主分片并删除该文件（幂等脚本，备份在 .scratch/）；② 污染的第二份机器缓存 %USERPROFILE%/.codewiki_user_id 已备份删除——关键机理：_USER_ID_CACHE_PATH 在 import 期由 APPDATA or expanduser(~) 定死，两条通道读写不同文件，即「同一机器两个身份」的物理形态；③ 再压一轮（compressed 9 / kept 20）；④ 四条草稿 confirm（user_id 漂移 pitfall 重写为 B+C+D 已实施口径，config.py:220/149/296）。
+**Qoder CN 配置查找位置（2026-10-05 实测，否掉「.qoder-cn 还要再适配一轮」潜在工作项）：** Qoder CN 读项目级 .qoder/（不是 .qoder-cn/）；~/.qoder-cn/ 只管用户级（settings.json 无 hooks 键、hooks/ 目录不存在），其 mcp.json 与 settings.json.mcpServers 里的 codewiki（python3 -m codewiki.mcp.server，53 工具）就是当前连上的那条，证明项目 settings.json 里 Windows .venv\Scripts\python.exe 那条未生效。同一项目 .qoder/ 被 5 个同源目录（.qoder-cli/.qoder-cn/.qoderwork/.qoderworkcn，进程名相同）共用 → install-hooks --ide qoder 装一次全版本受益，不按版本分叉。
 
-**OCR 复审修正（2026-10-03）：** 手工接线示例里的 `python` 不是 bug——那些块是 powershell 语境（Windows 下 python 正确），真正缺的是平台提示。只在 codewiki/mcp/prompts.py 三处补口径（手工接线示例段、模拟事件验证段、步骤 1 判「已启用」段：判据只看脚本相对路径后缀、不看解释器名），docs/team-memory-hook.md 前置条件改 `<python>` 并补「解释器是安装机快照 + 127 先看退出码再看接线档位」。验证：全量 pytest 1229 passed / 1 skipped、ruff 干净、.qoder 副本与源 diff 为空。
+**user_id 漂移与分片存量修复（2026-10-10，用户批准）：** ① memories/Administrator.md 7 条经 locked_rmw 并入正主分片并删除；② 污染缓存 %USERPROFILE%/.codewiki_user_id 已备份删除——机理：_USER_ID_CACHE_PATH 在 import 期由 APPDATA or expanduser(~) 定死，两条通道读写不同文件，即「同一机器两个身份」；③ 再压一轮（compressed 9 / kept 20）；④ 四条草稿 confirm（user_id 漂移 pitfall 重写为已实施口径）。
 
-**get_prompt 工作流名缺口修复（2026-10-03）：** 选定「补实现不改契约」路线：_WORKFLOW_PROMPTS 提到 codewiki/mcp/prompts.py 模块级，成为工作流名→渲染函数唯一真源，新增 workflow_prompt_names()/render_workflow_prompt()；handle_get_prompt 接住 name 别名 + kebab/camel 两种写法，prompt_type enum 由 workflow_prompt_names() 生成（模板类 23 + 工作流 23 = 46，不再手维护），required 清空，名字缺失/未知都返回两份清单；同名时模板类精确优先（code_analysis 是模板、code-analysis 是工作流）；工作流分支把平铺的 repo_path/workspace_path 转发进 params。薄壳正文与 AGENTS.md 写法一字未改——ADR-0017 契约本来就对，是实现少了一条通道，末尾补「补充（2026-10-03）」段。验证：新增 tests/test_get_prompt_tool_channel.py 7 用例，真机 stdio 冒烟拿到 task-workflow 全文 5157 字符、repo_path 转发生效。同轮刷新本仓 .codebuddy/+.trae/ 接线（hooks.json 三条命令 python→python3，副本与源 diff 为空）。
+**OCR 复审修正（2026-10-03）：** 手工接线示例里的 `python` 不是 bug——那些块是 powershell 语境，真正缺的是平台提示。只在 prompts.py 三处补口径（判「已启用」只看脚本相对路径后缀、不看解释器名），docs/team-memory-hook.md 前置条件改 `<python>` 并补「解释器是安装机快照 + 127 先看退出码再看接线档位」。验证：全量 pytest 绿、ruff 干净、.qoder 副本与源 diff 为空。
 
-**蒸馏与压缩闭环：** 产品维护任务蒸馏积压曾清零，3 条笔记确认 stable（MCP 参数超限走文件侧通道 workaround、无知识密度对话提交空结果 architecture、doctrine SessionStart hook 硬注入 additionalContext）。
+**get_prompt 工作流名缺口修复（2026-10-03，「补实现不改契约」）：** _WORKFLOW_PROMPTS 提到 prompts.py 模块级成为工作流名→渲染函数唯一真源，新增 workflow_prompt_names()/render_workflow_prompt()；handle_get_prompt 接住 name 别名 + kebab/camel 写法，prompt_type enum 由 workflow_prompt_names() 生成（46 项自动生成不再手维护），required 清空，名字缺失/未知都返回两份清单；同名时模板类精确优先；工作流分支把平铺的 repo_path/workspace_path 转发进 params（修掉「平铺参数被静默丢弃」Medium 缺陷）。薄壳正文与 AGENTS.md 未改，ADR-0017 末尾补「补充（2026-10-03）」段。验证：新增 test_get_prompt_tool_channel.py 7 用例；真机 stdio 冒烟 repo_path 转发生效。
 
-**未决事项：** ①MCP 工具面裁剪开关（P2，agentmemory 调研 Round 2 定案存档不实施）：CODEWIKI_TOOLS=core 环境变量 + registry filter，60+ 工具 schema 全量注入占上下文是真缺口，须按本仓场景重定义核心集（依据 repowiki/wiki/queries/agentmemory-调研.md 第六节）；②distill-worker 是否加 model 字段换弱模型待用户决定，若改须同步随包源变体 codewiki/agents/distill-worker.md 与 claude 家族变体，且需真机验证生效；③全仓另有 15 条更旧草稿（多为 2026-09-20/21）未处置；repowiki/.meta/telemetry/ 的 6 个历史身份分片未合并（D 菜单未批准部分）；④已知缺陷未修（零运行时影响）：codewiki/mcp/tools/source_ingest.py:321 只有 docstring 的 _convert_to_markdown 空壳被 :333 真实现同名遮蔽，需确认是否合并事故；⑤可选深扒 TencentDB Agent Memory 架构逐点对比。
+**Qoder CN + get_prompt 工作流通道（2026-10-05 已提交 develop）：** 1 个 commit、31 文件（含 .codebuddy/.qoder/.trae 三宿主接线刷新与 repowiki 知识层同步，hooks.json python→python3），未 push。第三轮 OCR 委托评审 13/13 覆盖、4 条发现全修。验证：全量 pytest 1237 passed / 1 skipped、ruff 干净、真机 stdio 三种调用形状全绿。
 
-> 原文归档于 memories-archive/iamwangbao-163-com.md，截至 2026-10-29，共 2 条。
+**蒸馏与压缩闭环：** 蒸馏积压曾清零，3 条笔记 stable（MCP 参数超限文件侧通道、空对话提交空结果、doctrine hook 硬注入 additionalContext）。
 
-### 2026-10-05 21:55 #b0tu
+**未决事项：** ① MCP 工具面裁剪开关（P2，agentmemory 调研 Round 2 定案存档不实施）：CODEWIKI_TOOLS=core 环境变量 + registry filter，60+ 工具 schema 全量注入占上下文是真缺口，核心集须按本仓场景重定义；② distill-worker 是否加 model 字段换弱模型待用户决定，若改须同步随包源变体 codewiki/agents/distill-worker.md 与 claude 家族变体并真机验证；③ 全仓另有 15 条更旧草稿（多为 2026-09-20/21）未处置；repowiki/.meta/telemetry/ 的 6 个历史身份分片未合并；历史草稿笔记裁决未到线（consolidate_notes 阈值 10，当前 notes_since=3）；④ 已知缺陷未修（零运行时影响）：source_ingest.py:321 只有 docstring 的 _convert_to_markdown 空壳被 :333 真实现同名遮蔽，需确认是否合并事故；⑤ 可选深扒 TencentDB Agent Memory 架构逐点对比。
 
-任务管理适配 Qoder CN + get_prompt 工具通道接工作流名这两轮改动已于 2026-10-05 提交到 develop（1 个 commit，31 文件，含 .codebuddy/.qoder/.trae 接线刷新与 repowiki 知识层同步），working tree 干净，**未 push**（用户只说提交）。上一轮 #scvp 的「仍未提交」作废；其评审结论保留：第三轮 OCR 委托评审 13/13 覆盖、4 条发现全修（关键 Medium=平铺工作流参数被静默丢弃，现由 `_workflow_params()` 全量转发）。验证口径：全量 pytest 1237 passed / 1 skipped、ruff check 干净、真机 stdio 三种调用形状（薄壳嵌套/宿主平铺/平铺 name）全绿。剩余待办：历史草稿笔记仍积压未裁决（consolidate_notes 阈值 10，当前 notes_since=3 未到线）。
-
-### 2026-10-05 21:59 #tse6
-
-澄清宿主配置查找位置（2026-10-05 实测，否掉了「.qoder-cn 还要再适配一轮」这个潜在工作项）：Qoder CN 读**项目级 .qoder/**（不是 .qoder-cn/），本会话 [active-settle] UserPromptSubmit 注入即来自 .qoder/settings.json 的 `python3 -m codewiki.mcp._ide_hook`；~/.qoder-cn/settings.json **无 hooks 键**、~/.qoder-cn/hooks/ 不存在。~/.qoder-cn/ 只管**用户级**：mcp.json 与 settings.json.mcpServers 里的 codewiki（python3）就是当前连上的 53 工具那条（pid 94312 父进程 Qoder CN，cmd 为 python3 -m codewiki.mcp.server，证明项目 settings.json 里那条 Windows `.venv\Scripts\python.exe` 未生效）。同一项目 .qoder/ 被 5 个同源目录（.qoder/.qoder-cli/.qoder-cn/.qoderwork/.qoderworkcn，进程名相同）共用 → install-hooks --ide qoder 装一次全版本受益，不按版本分叉。
+> 原文归档于 memories-archive/iamwangbao-163-com.md，截至 2026-10-31，共 1 条。
 
 ### 2026-10-08 17:23 #czyp
 
@@ -108,6 +104,24 @@ OCR 委托评审完成（2026-10-10，工作区 13 个可审文件，覆盖率 1
 - **新踩坑**：① CI「Collect changed Python files」步骤用 `github.event.pull_request.base.sha`，force-push 后 diff range 失效导致 Lint job 失败（不是 lint 本身问题）——绕法是补空 commit 重新触发；② 本地 ruff format --check 干净 ≠ CI 干净，CI 是对 changed files 跑的，本地需同口径验证；③ soft reset 重拆 commit 时 `git add` 不会移除已暂存项，必须显式 `git restore --staged` 排除文件。
 - **待办**：CI diff-range 对 force-push 脆弱是 workflow 缺陷，可考虑后续修（用 merge-base 或 PR 事件重算）。
 
+### 2026-10-30 11:01 #buiv
+
+## 技能 name 语言感知改造（2026-10-30，已实施未提交）
+
+- **定案**：ADR-0019 决策 3 修订——原前提「skill name 必须 ASCII slug」被实测推翻（codebuddy/trae 均可识别中文 frontmatter name）。目录名恒为 `codewiki-<kebab>` 不变（prune 口径/git 历史/文档引用的稳定锚点）；frontmatter `name` 语言感知：zh 用 `codewiki-<中文标题>`（如 `codewiki-初始化单仓Wiki工作区`），en 保持 `codewiki-<kebab>`；`get_prompt(name=...)` 调用块恒英文 kebab（MCP 标识符不本地化）；触发提示 `/<skill_name>` 跟随本地化 name。
+- **改动**：sync_skills.py 新增 `_localized_skill_name()` + docstring 修订；静态资产 SKILL.zh.md name 改中文（`codewiki-一键安装或升级CodeWiki并接线当前项目`）；ADR-0019 决策 3 加修订记录；test_sync_skills.py 5 处断言改写 + 2 个新测试；本仓三宿主技能文件已重生成（24 stubs × 3 hosts）。
+- **验证**：test_sync_skills + test_setup + test_i18n 共 65 passed / 1 skipped；ruff check/format 干净。
+- **行为变更**：zh 用户技能触发词从 `/codewiki-<kebab>` 变为 `/codewiki-<中文标题>`（无 CHANGELOG 文件，说明并入 ADR 修订记录）。
+- **待办**：改动未提交；qoder 宿主未实测中文 name（渐进策略，未验证宿主出问题再回退）。
+
+### 2026-10-31 09:39 #x88n
+
+## skill-creator 技能包脚本资产通道定案（2026-10-30/31 grill）
+
+- **背景**：内网用户编译 linseer-preset-multimodal-asset 技能时，正文照搬笔记里的本机脚本名（hf_download.py / zip_assets.py，G:\models 本地工具），技能不可移植。
+- **定案（Q1-Q15）**：submit report.skills[] 新增可选 scripts[]=[{filename,content}]，agent 显式传入（不做工作区路径抓取）；落盘 skills/<name>/scripts/ 扁平目录（filename 拒路径分隔符/../空白，先拒原始串再规范化）；updated 全量替换（区别于 source_refs 只增不减）；引用提取认规范写法 scripts/xxx.py + 裸文件名，扩展名白名单 .py/.sh/.ps1/.js/.ts/.rb/.pl；严重级拆分：规范写法缺文件=submit error，裸名缺文件=lint warning；脚本内容过敏感串扫描（绝对路径/密钥）命中拒收；漂移哈希扩展覆盖 scripts 全部文件内容；install 先清空生效区 scripts/ 再复制；retire 删生效区整个技能目录（顺带修现状只删单文件的残留缺陷）；lint 加孤儿脚本 warning；不设大小/数量限制（用户定案，靠 8KB 正文上限间接约束）；不做通用 assets/、子目录、文件侧通道。
+- **下一步**：to-spec 流程发布 GitHub Issue（ready-for-agent），测试接缝复用 tests/test_skill_creator.py 的 _call handler 直调 + test_skill_pages.py lint 模式，无新接缝。
+
 ### 本轮追加压缩（截至 2026-10-05，原文归档于 memories-archive/iamwangbao-163-com.md）
 
 **auto_push 链路（核心事实，codewiki/src/git_sync.py）：**
@@ -139,12 +153,10 @@ OCR 委托评审完成（2026-10-10，工作区 13 个可审文件，覆盖率 1
 - 6 条确认 stable 笔记：query_wiki 全量重建索引、type-filter 单值精确匹配、analyze-repo 并行时序竞态、load-project-checklist 静默回退、changed-components 行区间近似、read-versioned-lines untracked 空列表
 - 待办：aggregation_hint 提示 consolidate_notes（58 条确认、阈值 10）与 refresh_doctrine（阈值 25）到期，已询问用户，待用户决定是否执行
 
-### 2026-10-30 11:01 #buiv
+### 2026-10-31 15:56 #hpa3
 
-## 技能 name 语言感知改造（2026-10-30，已实施未提交）
+Issue #47（skill-creator 技能包 scripts/ 资产通道）已实现并交付 PR #48（ready for review，base main，closing #47）。4 commits：fcabb39 submit scripts[] 通道（校验 5 规则 + 全量替换落盘 + _extract_script_refs 单点）、a75ca30 install 清空再复制/retire 目录级删除/_normalized_hash 扩展覆盖脚本、d63bfd7 lint 两条 warning（unresolved_script_ref/unreferenced_script）、9daad95 code-review 修复（unresolved_script_ref 回归 spec 严重级拆分只报裸名、_write_scripts 改 rmtree 整目录替换、拒纯点文件名）。验证：全量 1378 passed/2 skipped，okf 契约 120/6 与已知基线一致，ruff 干净。决策记录：unresolved_script_ref 只报裸名引用（规范写法缺文件归 submit error 层，lint 不重复）；空 scripts[] 现删除整个 scripts/ 目录（与 install 侧语义对齐）。下一步：等 PR review 合并；worktree t01/t02/t03 清理动作被用户跳过（保留在 d:\repos\cw-wt\）。
 
-- **定案**：ADR-0019 决策 3 修订——原前提「skill name 必须 ASCII slug」被实测推翻（codebuddy/trae 均可识别中文 frontmatter name）。目录名恒为 `codewiki-<kebab>` 不变（prune 口径/git 历史/文档引用的稳定锚点）；frontmatter `name` 语言感知：zh 用 `codewiki-<中文标题>`（如 `codewiki-初始化单仓Wiki工作区`），en 保持 `codewiki-<kebab>`；`get_prompt(name=...)` 调用块恒英文 kebab（MCP 标识符不本地化）；触发提示 `/<skill_name>` 跟随本地化 name。
-- **改动**：sync_skills.py 新增 `_localized_skill_name()` + docstring 修订；静态资产 SKILL.zh.md name 改中文（`codewiki-一键安装或升级CodeWiki并接线当前项目`）；ADR-0019 决策 3 加修订记录；test_sync_skills.py 5 处断言改写 + 2 个新测试；本仓三宿主技能文件已重生成（24 stubs × 3 hosts）。
-- **验证**：test_sync_skills + test_setup + test_i18n 共 65 passed / 1 skipped；ruff check/format 干净。
-- **行为变更**：zh 用户技能触发词从 `/codewiki-<kebab>` 变为 `/codewiki-<中文标题>`（无 CHANGELOG 文件，说明并入 ADR 修订记录）。
-- **待办**：改动未提交；qoder 宿主未实测中文 name（渐进策略，未验证宿主出问题再回退）。
+### 2026-11-02 11:02 #52y6
+
+PR #48 二轮 code-review 复审通过：上轮 3 项修复确认到位；新发现多点文件名 bug（my.tool.py 过校验但提取器 _SCRIPT_STEM 不含点、永远无法构成引用→lint 误报孤儿），修复=a6352f0：_SCRIPT_FILENAME_RE 收紧为 [A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)? 单扩展点，校验字符集与提取器 stem 对齐，51 passed。决策：选「收紧校验」而非「放宽提取器」——宁缺勿滥，保持提取正则不动的回归风险最小。PR 现 5 commits 可合，等用户合并。

@@ -1,22 +1,30 @@
 ---
 type: decision
-title: "移除 caw 订阅模式后端：产品不考虑 claude-code/codex 订阅模式，Windows fcntl 环境性失败随之消失"
-tags: ["codewiki", "decision"]
+title: 移除 caw 订阅模式后端：产品不考虑 claude-code/codex 订阅模式，Windows fcntl 环境性失败随之消失
+tags:
+- codewiki
+- decision
 metadata:
   date: 2026-10-30
   confidence_level: weak
   task_id: 发版本
-  source_session: "5dee23d20a5649afa4429fdc1594bc07"
-  related_modules: ["codewiki/src/be", "codewiki/cli"]
+  source_session: 5dee23d20a5649afa4429fdc1594bc07
+  related_modules:
+  - codewiki/src/be
+  - codewiki/cli
   severity: high
-  source_ref: "conversations/conv-@command-windows-python-release-发布版本5.16.3.md"
-  scene: "产品维护"
-status: draft
+  source_ref: conversations/conv-@command-windows-python-release-发布版本5.16.3.md
+  scene: 产品维护
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.16.5, at: 2026-10-30T03:33:09Z }
-stale_after: 2027-10-30
+generated:
+  by: codewiki/5.16.5
+  at: 2026-10-30 03:33:09+00:00
+stale_after: '2027-10-30'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-30T05:59:26Z'
 ---
 
 ## Background

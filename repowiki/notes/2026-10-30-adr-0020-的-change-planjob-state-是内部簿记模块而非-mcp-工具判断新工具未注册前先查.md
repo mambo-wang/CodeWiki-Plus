@@ -1,22 +1,28 @@
 ---
 type: lesson
-title: "ADR-0020 的 change_plan/job_state 是内部簿记模块而非 MCP 工具：判断「新工具未注册」前先查 TOOL_REGISTRY"
-tags: ["lesson"]
+title: ADR-0020 的 change_plan/job_state 是内部簿记模块而非 MCP 工具：判断「新工具未注册」前先查 TOOL_REGISTRY
+tags:
+- lesson
 metadata:
   date: 2026-10-30
   confidence_level: weak
   task_id: 发版本
-  source_session: "5dee23d20a5649afa4429fdc1594bc07"
-  related_modules: ["codewiki/mcp"]
+  source_session: 5dee23d20a5649afa4429fdc1594bc07
+  related_modules:
+  - codewiki/mcp
   severity: medium
-  source_ref: "conversations/conv-@command-windows-python-release-发布版本5.16.3.md"
-  scene: "产品维护"
-status: draft
+  source_ref: conversations/conv-@command-windows-python-release-发布版本5.16.3.md
+  scene: 产品维护
+status: stable
 author: iamwangbao-163-com
-generated: { by: codewiki/5.16.5, at: 2026-10-30T03:33:16Z }
-stale_after: 2027-04-28
+generated:
+  by: codewiki/5.16.5
+  at: 2026-10-30 03:33:16+00:00
+stale_after: '2027-04-28'
 origin: conversation
-
+verified:
+- by: human:iamwangbao-163-com
+  at: '2026-10-30T05:59:29Z'
 ---
 
 ## Background

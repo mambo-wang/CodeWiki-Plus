@@ -259,3 +259,11 @@ OCR 委托评审自己的适配改动后修了确认项：capped 档（AskUserQu
 ### 2026-10-03 10:10 #afid
 
 get_prompt 工作流名缺口已修（选定「补实现不改契约」路线）：`_WORKFLOW_PROMPTS`（原 handler 函数体内的 prompts_map）提到 `codewiki/mcp/prompts.py` 模块级，成为工作流名→渲染函数唯一真源，新增 `workflow_prompt_names()` / `render_workflow_prompt()`；`handle_get_prompt` 接住 `name` 别名 + kebab/camel 两种写法，`prompt_type` 的 enum 由 `workflow_prompt_names()` 生成（模板类 23 + 工作流 23 = 46，不再手维护），`required` 清空，名字缺失/未知都返回模板类+工作流两份清单；同名时模板类精确优先（`code_analysis` 是模板、`code-analysis` 是工作流）；工作流分支把平铺的 repo_path/workspace_path 转发进 params（否则退回 cwd 指向别的仓库）。薄壳正文与 AGENTS.md 的 `get_prompt(name=...)` 写法一字未改——ADR-0017 契约本来就对，是实现少了一条通道，ADR-0017 末尾补「补充（2026-10-03）」段记录。验证：新增 `tests/test_get_prompt_tool_channel.py` 7 个用例，真机 stdio 冒烟（拉起 `python3 -m codewiki.mcp.server` 走 tools/list + tools/call）拿到 task-workflow 全文 5157 字符、repo_path 转发生效。同轮落了本仓 `.codebuddy/`+`.trae/` 接线刷新（install-hooks：settings/hooks.json 三条命令 python→python3，三份 hook 副本与源 diff 为空）。
+
+### 2026-10-05 21:55 #b0tu
+
+任务管理适配 Qoder CN + get_prompt 工具通道接工作流名这两轮改动已于 2026-10-05 提交到 develop（1 个 commit，31 文件，含 .codebuddy/.qoder/.trae 接线刷新与 repowiki 知识层同步），working tree 干净，**未 push**（用户只说提交）。上一轮 #scvp 的「仍未提交」作废；其评审结论保留：第三轮 OCR 委托评审 13/13 覆盖、4 条发现全修（关键 Medium=平铺工作流参数被静默丢弃，现由 `_workflow_params()` 全量转发）。验证口径：全量 pytest 1237 passed / 1 skipped、ruff check 干净、真机 stdio 三种调用形状（薄壳嵌套/宿主平铺/平铺 name）全绿。剩余待办：历史草稿笔记仍积压未裁决（consolidate_notes 阈值 10，当前 notes_since=3 未到线）。
+
+### 2026-10-05 21:59 #tse6
+
+澄清宿主配置查找位置（2026-10-05 实测，否掉了「.qoder-cn 还要再适配一轮」这个潜在工作项）：Qoder CN 读**项目级 .qoder/**（不是 .qoder-cn/），本会话 [active-settle] UserPromptSubmit 注入即来自 .qoder/settings.json 的 `python3 -m codewiki.mcp._ide_hook`；~/.qoder-cn/settings.json **无 hooks 键**、~/.qoder-cn/hooks/ 不存在。~/.qoder-cn/ 只管**用户级**：mcp.json 与 settings.json.mcpServers 里的 codewiki（python3）就是当前连上的 53 工具那条（pid 94312 父进程 Qoder CN，cmd 为 python3 -m codewiki.mcp.server，证明项目 settings.json 里那条 Windows `.venv\Scripts\python.exe` 未生效）。同一项目 .qoder/ 被 5 个同源目录（.qoder/.qoder-cli/.qoder-cn/.qoderwork/.qoderworkcn，进程名相同）共用 → install-hooks --ide qoder 装一次全版本受益，不按版本分叉。

@@ -39,6 +39,8 @@ disable-model-invocation: true
 
 ADR-0017 决策 4（zh 用标题 slug、en 用 prompt name）在 skill 布局下不成立：skill name 必须是 ASCII slug，且一层拍平后目录名即技能名——zh/en 双写会产出两套目录、CJK 目录名跨宿主兼容性未验证。目录名恒为 `codewiki-<kebab-name>`，`codewiki-` 前缀是拍平一层的命名空间等价物（避免与 skill_creator 产出及用户其他技能撞名）；`--lang` 决定整文件语言（见决策 2）。
 
+> **修订（2026-10-30）**：原前提「skill name 必须是 ASCII slug」经实测推翻——CodeBuddy 与 TRAE 均可识别中文 frontmatter name 并正常触发。决策修订为：**目录名恒为 `codewiki-<kebab-name>` 不变**（prune 口径、git 历史、文档引用的稳定锚点），**frontmatter `name` 语言感知**——zh 用本地化标题（`codewiki-<title>`，如 `codewiki-初始化单仓Wiki工作区`），en 保持 `codewiki-<kebab-name>`。正文 `get_prompt(name=...)` 调用块恒为英文 kebab（MCP prompt 标识符不本地化）；触发提示 `/<skill_name>` 跟随本地化 name。行为变更：zh 用户的技能触发词从 `/codewiki-<kebab>` 变为 `/codewiki-<中文标题>`。
+
 ### 4. 宿主判定：codebuddy 不再豁免
 
 显式 `--ide`（qwenwork 无配置目录仍报错）> 枚举仓库根 IDE 配置目录（**含 codebuddy**）> 兜底 `.trae/skills/` 作仓库级技能登记处。
