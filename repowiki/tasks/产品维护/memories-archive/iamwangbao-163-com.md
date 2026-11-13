@@ -224,6 +224,12 @@ prompts.py 渲染正文清理决策引用完成：用户提出 prompt 正文不�
 
 D 存量修复 + 草稿处置完成（2026-10-10，用户批准「两个都做」）：①`memories/Administrator.md` 7 条经 `locked_rmw` 原样并入正主分片并删除该文件（幂等脚本、原文备份 .scratch/shard-backup-Administrator-*.md；`_stage_removal` 因 auto_push 与 auto_stage 互斥而 no-op，删除仅体现在工作区）；②污染的第二份机器缓存 `%USERPROFILE%/.codewiki_user_id`（内容 Administrator，旧退化通道 import 期写错路径）已备份到 .scratch 后删除——关键机理：`_USER_ID_CACHE_PATH` 在 **import 期**由 `APPDATA or expanduser(~)` 定死，所以两条通道读写的是两个不同文件，这就是「同一机器两个身份」的物理形态；③再压一轮（子代理遵新增格式纪律：正文不得含 ##/### 标题）：compressed 9 / kept 20 / memories_total 20，磁盘实测单一摘要标题、摘要无标题行——上轮重复标题与泄入摘要的 `###` 块已自然归位；④四条草稿全部改写/核验后 confirm_note(strong, evidence=test_ref)：user_id 漂移 pitfall（重写为 B+C+D 已实施口径、行号刷新 config.py:220/149/296、author 从 Administrator 改回正主 uid）+ 三条 2026-09-29（逐条对码核实：_CONVERTIBLE_SUFFIXES={pdf,docx,xlsx}、convert_error 三分类、sidecar 纯内存不在门落盘）；confirm 时误写了一个不存在的测试名作 test_ref，已改为真实的 `tests/test_source_convert.py::test_convertible_suffixes`。**待用户：全仓另有 15 条更旧草稿（多为 2026-09-20/21）未处置；`repowiki/.meta/telemetry/` 的 6 个历史身份分片未合并（D 菜单里未批准那部分）。顺带发现缺陷（未修，零运行时候影响）：`codewiki/mcp/tools/source_ingest.py:321` 有一个只有 docstring 的 `_convert_to_markdown` 空壳，被 :333 的真实现同名遮蔽（先别动，需确认来源是不是合并事故）。工作区全部未提交。
 
+### 2026-10-26 10:25 #nyek
+
+> [superseded 2026-10-26 by #7ss1]
+
+2026-10-26：ADR-0020 P1-3 算子计划链路已实现并通过聚焦测试；随后按 incremental-update 工作流完成 Wiki 增量更新，KnowledgeStore / MCP_Tools_DocWriter / MCP_Tools_Knowledge / MCP_Tools_Quality / MCP_Tools_Workspace 五页重写并重打整文件证据，lint_wiki(stale_refs+stale_evidence) 0 issue，close_session 后 job=done。下一步：提交并推送这批代码+Wiki 变更；另有 13 条 draft 笔记待用户确认后再 batch_set_status 提升。
+
 ### 2026-09-27 15:53 #x7ef
 
 澄清产品机制：ingest_source 官方口径支持 PDF/MD/DOCX/HTML 四种格式，但代码无扩展名白名单（source_type 默认取后缀，任意文件可存储注册）。文本格式 .md/.markdown/.html/.htm/.txt/.rst 走完整链路（存储+注册+版本感知去重门）；pdf/docx 为二进制格式，_plain_text() 返回 None——无文本提取器，跳过版本去重门，且外部文档知识抽取流程读不回正文，实际只对文本格式可完整走通。PDF/DOCX 建议先转 Markdown 再导入。
