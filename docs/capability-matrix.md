@@ -69,14 +69,14 @@
 | consolidate_notes | stable | 仅手动触发 | disposition 三值（absorbed/excluded/deferred），UPDATE>CREATE 协议 | — | `note_consolidation.py:411-413,50-54,582-639` |
 | skill 两区制生命周期 | beta | 草稿区索引但 `query_wiki` 永不召回；install 为独立用户动作 | draft skill 不生效 | — | `skill_creator.py:35-38,689-745`、`wiki_search.py:706-710` |
 
-## lint_wiki 检查项（25 项，默认 `checks=["all"]`）
+## lint_wiki 检查项（27 项，默认 `checks=["all"]`）
 
 error 级：`stale_refs` `broken_links` `okf_conformance` `scenario_capacity`（超容）`skill_sections` `skill_lint`（六类）。
-warning 级：`undocumented`（依赖数≥5）`orphan_pages` `stale_sources` `overview_stale` `unsupported_claims`（阈值 0.3）`stale_evidence` `stale_notes` `low_adoption`（5/0/60 + last_hit 60 天窗口）`layout_violations` `team_layout_gitignore` `open_conflicts`（ADR-0007，超期窗口默认 14 天，schema.yaml `lint.open_conflict_max_age_days` 可调）。
+warning 级：`undocumented`（依赖数≥5）`orphan_pages` `stale_sources` `overview_stale` `unsupported_claims`（阈值 0.3）`stale_evidence` `stale_notes` `low_adoption`（5/0/60 + last_hit 60 天窗口）`layout_violations` `team_layout_gitignore` `open_conflicts`（ADR-0007，超期窗口默认 14 天，schema.yaml `lint.open_conflict_max_age_days` 可调）`threshold_drift`（ADR-0013，阈值镜像文案漂移）`provenance_backstop`（溯源背撑：source_notes/回链缺失、废弃未吸收、draft 未确认、软删除；吸收退役不误报）。
 info 级：`cycles` `coverage` `isolated_components` `no_outlinks` `missing_aliases` `superseded_pages` `note_clusters`（≥3）`scenario_orphan`。
 
-证据：`codewiki/mcp/tools/wiki_lint.py:25-59,2270-2274`；阈值见各 check 实现行号（事实清单 2026-09-12，2026-09-12 复核更新至 25 项）。
-历史注记：2026-09-12 首次登记时 registry 描述写「22 checks」实际 24 项——已在本轮修复（描述与枚举均同步 25）。
+证据：`codewiki/mcp/tools/wiki_lint.py:25-70`；阈值见各 check 实现行号（事实清单 2026-09-12，2026-11-19 复核更新至 27 项）。
+历史注记：2026-09-12 首次登记时 registry 描述写「22 checks」实际 24 项——已在当轮修复（描述与枚举均同步 25）。2026-11-19 新增 provenance_backstop 并闭掉三处历史漂移：registry prose 25→27 且补漏 layout_violations/team_layout_gitignore/threshold_drift 三项、本表 25→27、okf 回归断言 16→27。
 
 ---
 

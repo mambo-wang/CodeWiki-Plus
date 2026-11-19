@@ -421,6 +421,76 @@ def test_skill_lint_possibly_stale(tmp_path):
     assert len(stale) == 1
 
 
+def test_skill_lint_absorbed_material_not_stale(tmp_path):
+    """他山之石 Q1/Q2: absorbed retirement (zh/en reject_reason keywords) is
+    normal lifecycle — the shared classifier must not false-flag it."""
+    repo, od = _mk_repo(tmp_path)
+    (od / "notes").mkdir(exist_ok=True)
+    (od / "notes" / "absorbed-zh.md").write_text(
+        "---\ntype: pitfall\ntitle: a\nstatus: deprecated\n"
+        "reject_reason: 聚合进场景：Redis 运维方法\n---\nbody\n",
+        encoding="utf-8",
+    )
+    (od / "notes" / "absorbed-en.md").write_text(
+        "---\ntype: lesson\ntitle: b\nstatus: deprecated\n"
+        "reject_reason: consolidated into Redis scene\n---\nbody\n",
+        encoding="utf-8",
+    )
+    _write_raw_skill(
+        od,
+        "absorb-skill",
+        fm_overrides={
+            "metadata": {"source_refs": ["notes/absorbed-zh.md", "notes/absorbed-en.md"]}
+        },
+    )
+    assert not [i for i in _lint_skill(repo) if "possibly stale" in i["message"]]
+
+
+def test_skill_lint_reports_every_bad_ref(tmp_path):
+    """The old break hid later refs — every bad material now gets a warning."""
+    repo, od = _mk_repo(tmp_path)
+    _write_raw_skill(
+        od,
+        "multi-bad",
+        fm_overrides={"metadata": {"source_refs": ["notes/ghost-1.md", "notes/ghost-2.md"]}},
+    )
+    stale = [i for i in _lint_skill(repo) if "possibly stale" in i["message"]]
+    assert len(stale) == 2
+    assert all(i["severity"] == "warning" for i in stale)
+
+
+def test_skill_lint_draft_note_material_warns(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    (od / "notes").mkdir(exist_ok=True)
+    (od / "notes" / "unconfirmed.md").write_text(
+        "---\ntype: pitfall\ntitle: u\nstatus: draft\n---\nbody\n", encoding="utf-8"
+    )
+    _write_raw_skill(
+        od, "draft-src", fm_overrides={"metadata": {"source_refs": ["notes/unconfirmed.md"]}}
+    )
+    stale = [i for i in _lint_skill(repo) if "possibly stale" in i["message"]]
+    assert len(stale) == 1 and "still draft" in stale[0]["message"]
+
+
+def test_skill_lint_deprecated_reason_in_message(tmp_path):
+    repo, od = _mk_repo(tmp_path)
+    (od / "notes").mkdir(exist_ok=True)
+    (od / "notes" / "superseded-note.md").write_text(
+        "---\ntype: decision\ntitle: s\nstatus: deprecated\n"
+        "reject_reason: 已被新方案取代\n---\nbody\n",
+        encoding="utf-8",
+    )
+    _write_raw_skill(
+        od,
+        "reason-skill",
+        fm_overrides={"metadata": {"source_refs": ["notes/superseded-note.md"]}},
+    )
+    stale = [i for i in _lint_skill(repo) if "possibly stale" in i["message"]]
+    assert len(stale) == 1
+    assert "without absorption" in stale[0]["message"]
+    assert "已被新方案取代" in stale[0]["message"]
+
+
 def test_skill_lint_drift_after_revision(tmp_path):
     repo, od = _mk_repo(tmp_path)
     from codewiki.mcp.tools.skill_creator import _normalized_hash

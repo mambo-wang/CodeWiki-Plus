@@ -477,6 +477,13 @@ tools:
     stale_note_suggestion: "Unverified for {overdue_days} days. If it is still accurate, renew it with confirm_note(note_file=\"{rel_path}\") (refreshes stale_after per the type window); if it is outdated, retire it with reject_note."
     low_adoption_suggestion: "Recalled often but adopted zero times: content is likely relevant but not actionable enough. Consider rewriting it in a more executable form (concrete steps / commands / expected results) — draft it via distill_conversation then confirm_note, or update it directly with edit_doc_file on {rel_path}."
     check_done: "Lint complete: {count} issue(s)"
+    provenance_missing: "Provenance target missing: {ref} does not exist (truncated filename, renamed or deleted)."
+    provenance_invalidated: "Source deprecated without absorption: {ref} (reject_reason: {reason}) — knowledge citing it may be invalidated."
+    provenance_no_reason: "Source deprecated with no reject_reason recorded: {ref} — cannot tell absorbed retirement from invalidation; needs human review."
+    provenance_draft: "Source note is still draft (unconfirmed): {ref} — scenes should not cite unconfirmed notes."
+    provenance_deleted: "Source soft-deleted (body is [DELETED]): {ref}."
+    provenance_backlink_missing: "Backlink target missing: {field} points to {ref}, which does not exist."
+    provenance_suggestion: "Review this provenance link by hand: fix the reference path, record the reject_reason, or update/retire the citing asset. Lint only hints; it never auto-fixes."
   task_manager:
     compact_instruction: "Read entries_to_compress (if existing_summary is non-empty it holds the previously compressed summary — the new summary should supersede it) and write a Markdown summary of the task's early memories in English, at most {max_chars} characters. Cover: key facts and decisions already made, open questions, and context that may still affect later work (past pitfalls, conventions, external dependencies). Drop pure process detail, keep conclusions. Then call compact_task_memories(mode='submit', task_id=..., summary=...). If submit reports exceeding the limit, the error states the overage — trim by that amount and retry."
   prompt_server:

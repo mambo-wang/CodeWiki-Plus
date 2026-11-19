@@ -481,6 +481,13 @@ tools:
     stale_note_suggestion: "超过 {overdue_days} 天未验证。确认仍然准确用 confirm_note(note_file=\"{rel_path}\") 续期（将按类型窗口刷新 stale_after），已过时用 reject_note 退役。"
     low_adoption_suggestion: "高频召回但零采纳：内容相关但可能不够 actionable。建议重写为更可执行的形式（补充具体步骤/命令/预期结果），可用 distill_conversation 产出草稿后 confirm_note，或用 edit_doc_file 直接更新 {rel_path}。"
     check_done: "检查完成: {count} 个问题"
+    provenance_missing: "溯源目标缺失：{ref} 不存在（文件名截断、改名或误删）。"
+    provenance_invalidated: "源材料已废弃且未被吸收：{ref}（reject_reason：{reason}）——引用方知识可能失效。"
+    provenance_no_reason: "源材料被废弃但未记录 reject_reason：{ref}——无法区分吸收退役与失效，需人工复核。"
+    provenance_draft: "源笔记仍是 draft（未确认）：{ref}——场景不应引用未确认笔记。"
+    provenance_deleted: "源材料已被软删除（正文 [DELETED]）：{ref}。"
+    provenance_backlink_missing: "回链目标缺失：{field} 指向的 {ref} 不存在。"
+    provenance_suggestion: "人工复核该溯源链接：修正引用路径、补记 reject_reason，或更新/退役引用方。lint 只提示，不自动修改。"
   task_manager:
     compact_instruction: "阅读 entries_to_compress（若 existing_summary 非空，它包含此前压缩的旧摘要，新摘要应覆盖其内容），生成一份任务早期记忆的中文 Markdown 摘要，不超过 {max_chars} 字。摘要应覆盖：关键事实与已完成决策、未决事项、仍可能影响后续工作的上下文（历史坑、约定、外部依赖）。丢掉纯过程性细节，保留结论性信息。完成后调用 compact_task_memories(mode='submit', task_id=..., summary=...)。若 submit 报超限，报错会给出超出字数，按差额删减后重试。"
   prompt_server:

@@ -407,6 +407,9 @@ def test_submit_updated_appends_revision_and_merges_refs(tmp_path):
 def test_submit_validation_rule_names(tmp_path):
     repo, od = _mk_repo(tmp_path)
     _write_skill_draft(od, "existing-skill")
+    # submit now validates source existence (溯源背撑 Q6) — the default
+    # material must be real so rule-specific cases trip their own rule first
+    _write_note(od, "some-note")
 
     cases = [
         (_skill_entry("Bad Name!"), "name_slug"),
@@ -429,6 +432,7 @@ def test_submit_validation_rule_names(tmp_path):
             "sensitive_content",
         ),
         (_skill_entry("ok-name", source_refs=[]), "source_refs_required"),
+        (_skill_entry("ok-name", source_refs=["notes/ghost.md"]), "source_refs_missing"),
         (_skill_entry("ok-name", action="installed"), "action_invalid"),
         (_skill_entry("existing-skill"), "name_conflict"),
         (_skill_entry("ghost-skill", action="updated"), "not_found"),
@@ -468,6 +472,8 @@ def test_submit_empty_report_is_legal_no_action(tmp_path):
 
 def test_submit_rejects_multiple_created_in_one_batch(tmp_path):
     repo, od = _mk_repo(tmp_path)
+    # batch rules run AFTER per-entry validation — the material must exist
+    _write_note(od, "n")
     resp = _call(
         repo,
         {
