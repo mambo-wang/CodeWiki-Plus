@@ -24,15 +24,11 @@ metadata:
   - notes/2026-08-23-distill-worker-subagent-定义随包发布hook-启用时自动拷贝到项目-codebuddyagent.md
   - notes/2026-08-23-hook-采集机制仅正式接线-codebuddyreadme-措辞用仅接线支持.md
   - notes/2026-09-07-skill-creator-工具设计定档scenario-直译-mode-c-两区制确认闸门不建自动评分门控.md
-  - notes/2026-09-07-userpromptsubmit-的-ide-hook
+  - 'notes/2026-09-07-userpromptsubmit-的-ide-hook---enable-是-draft-技能提示通道advisory只.md'
   - notes/2026-09-08-codebuddy-hooks-matcher-语义sessionstart-只匹配-sourcestartupsess.md
   - notes/2026-09-10-弹框工具的-options-条数建议会诱导-agent-拆成多框须在注入文案里显式覆盖.md
-  summary: 补入 Hooks matcher 官方语义、弹框 options 条数建议诱导拆框的注入覆盖
-  heat: 6
-  confidence_level: weak
----enable-是-draft-技能提示通道advisory只.md
   summary: 补入多宿主家族分发变体、MCP 不透传自定义子代理的绕法、hook 防御清单与 stdin BOM 容错
-  heat: 4
+  heat: 6
   confidence_level: weak
 ---
 ## 工作场景

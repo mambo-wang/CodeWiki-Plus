@@ -137,13 +137,13 @@
       "written_at": "2026-09-08T05:54:02Z"
     },
     "wiki/scenarios/发布与依赖治理方法.md": {
-      "git_head": "b88a49a2dd3c157f70abe4d5c9148bcd56a84f48",
+      "git_head": "5e7d07e8c43fd68d7edbe18001d833aad491787f",
       "components": [],
       "files": [],
       "source_fingerprint": null,
       "repo": "CodeWiki-Plus",
-      "producer": "codewiki/5.10.1",
-      "written_at": "2026-09-20T02:01:51Z"
+      "producer": "codewiki/5.16.7",
+      "written_at": "2026-11-19T12:13:29Z"
     },
     "wiki/scenarios/对话蒸馏管线与raw暂存区.md": {
       "git_head": "d1f75b45f2b67b60d44d008db344b3527c079e43",
@@ -164,13 +164,13 @@
       "written_at": "2026-09-20T02:02:23Z"
     },
     "wiki/scenarios/IDE-Hook采集链路方法.md": {
-      "git_head": "a56d62bbf47979bc77053c1040d1214b393ad0ea",
+      "git_head": "5e7d07e8c43fd68d7edbe18001d833aad491787f",
       "components": [],
       "files": [],
       "source_fingerprint": null,
       "repo": "CodeWiki-Plus",
-      "producer": "codewiki/5.10.1",
-      "written_at": "2026-09-20T02:03:22Z"
+      "producer": "codewiki/5.16.7",
+      "written_at": "2026-11-19T12:13:27Z"
     },
     "wiki/scenarios/Wiki页面生成约定与数据结构.md": {
       "git_head": "92bb7bb20109350ff1bda3c0d0519918cfbcc7fa",
