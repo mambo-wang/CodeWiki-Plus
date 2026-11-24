@@ -1,19 +1,41 @@
 ---
 type: architecture
-title: "Home Repo 模式与多仓工作区同构：知识工程 vs 共享治理"
-tags: ["architecture"]
-aliases: ["Home Repo", "home repo pattern", "Matt Pocock", "多仓工作区", "harness 仓", "中心仓", "共享 skills 去重", "渐进披露", "竞品对比", "aihero"]
+title: Home Repo 模式与多仓工作区同构：知识工程 vs 共享治理
+tags:
+- architecture
+aliases:
+- Home Repo
+- home repo pattern
+- Matt Pocock
+- 多仓工作区
+- harness 仓
+- 中心仓
+- 共享 skills 去重
+- 渐进披露
+- 竞品对比
+- aihero
 metadata:
   date: 2026-11-13
   confidence_level: weak
   task_id: 他山之石
-  related_modules: ["MCP_Tools_Workspace"]
-  source_ref: "The Home Repo Pattern, https://www.aihero.dev/the-home-repo-pattern (2026-11-12)；译文 opensource-research/articles/mattpocock-home-repo/translation.md"
-  reason: "用户本会话批准归档为 draft，待 confirm_note 确认；结论已对 workspace_bootstrap.py 代码核对"
-status: draft
+  related_modules:
+  - MCP_Tools_Workspace
+  source_ref: The Home Repo Pattern, https://www.aihero.dev/the-home-repo-pattern
+    (2026-11-12)；译文 opensource-research/articles/mattpocock-home-repo/translation.md
+  reason: 用户本会话批准归档为 draft，待 confirm_note 确认；结论已对 workspace_bootstrap.py 代码核对
+  verification:
+    reviewed_by: agent:qoder
+status: stable
 author: wanderingbug
-generated: { by: codewiki/5.16.7, at: 2026-11-13T06:59:42Z }
-stale_after: 2027-11-13
+generated:
+  by: codewiki/5.16.7
+  at: 2026-11-13 06:59:42+00:00
+stale_after: '2027-11-19'
+verified:
+- by: human:wanderingbug
+  at: '2026-11-14T01:33:40Z'
+- by: codewiki/5.16.7
+  at: '2026-11-19T12:35:35Z'
 ---
 
 ## 背景
