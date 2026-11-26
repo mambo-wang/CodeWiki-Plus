@@ -194,6 +194,14 @@ async def test_unavailable_mermaid_diagram_is_not_claimed_valid(tmp_path, monkey
     assert "syntax correct" not in report
 
 
+def test_doc_writer_mermaid_error_marker_requires_invalid_report_prefix():
+    from codewiki.mcp.tools.doc_writer import _has_mermaid_syntax_errors
+
+    assert _has_mermaid_syntax_errors("Mermaid syntax errors found in file: page.md\nDiagram 1: bad")
+    assert not _has_mermaid_syntax_errors("Mermaid validation unavailable for file: page.md\nHTTP 503")
+    assert not _has_mermaid_syntax_errors("All mermaid diagrams in file: page.md are syntax correct")
+
+
 @pytest.mark.parametrize(
     ("status_code", "body", "expected"),
     [
@@ -244,7 +252,7 @@ def test_repository_tree_keeps_only_declared_nested_checkouts(tmp_path):
 
     def visit(node):
         if node["type"] == "file":
-            paths.add(node["path"])
+            paths.add(node["path"].replace("\\", "/"))
         for child in node.get("children", []):
             visit(child)
 

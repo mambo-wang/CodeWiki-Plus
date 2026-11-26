@@ -717,6 +717,10 @@ async def _validate_mermaid(file_path: str, relative_path: str) -> str:
         return f"Mermaid validation skipped: {e}"
 
 
+def _has_mermaid_syntax_errors(result: str) -> bool:
+    return "mermaid syntax errors found in file:" in result.lower()
+
+
 def _auto_fix_mermaid(content: str) -> tuple[str, list[str]]:
     """Apply mechanical auto-fixes to Mermaid blocks in *content*.
 
@@ -1497,7 +1501,7 @@ async def handle_write_doc_file(
     mermaid_result = await _validate_mermaid(str(doc_path), filename)
 
     # strict mode: block the write if Mermaid validation STILL has errors after auto-fix
-    if strict and "mermaid syntax errors found in file:" in mermaid_result.lower():
+    if strict and _has_mermaid_syntax_errors(mermaid_result):
         try:
             doc_path.unlink()
         except OSError:
@@ -1591,7 +1595,7 @@ async def handle_write_doc_file(
     if advisories:
         result["advisories"] = advisories
     # BUG-17: surface Mermaid warnings prominently in the response
-    if "syntax errors" in mermaid_result.lower():
+    if _has_mermaid_syntax_errors(mermaid_result):
         result["mermaid_warnings"] = mermaid_result
     if crosslink_info:
         result["crosslinks"] = crosslink_info
@@ -1907,7 +1911,7 @@ async def handle_edit_doc_file(
         "mermaid_validation": mermaid_result,
     }
     # BUG-17: surface Mermaid warnings prominently in the response
-    if "syntax errors" in mermaid_result.lower():
+    if _has_mermaid_syntax_errors(mermaid_result):
         result["mermaid_warnings"] = mermaid_result
 
     # LLM Wiki: update index.md and log.md
