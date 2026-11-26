@@ -21,3 +21,27 @@ Grilling 第 1 轮 9 项决策全部按推荐落定（用户「按推荐」）�
 ### 2026-11-19 21:48 #efve
 
 【收尾：已提交并推送（2026-11-19）】用户明说「提交推送代码」后拆两笔落地：① 0e7eb18 feat 溯源背撑 lint + submit 存在性校验（14 文件，代码/测试/i18n/registry/capability-matrix/分析报告）；② b811e8f fix(repowiki) 两个场景 frontmatter 修复（3 文件含 page_manifest）。pathspec 限定提交，并行会话 staged 的 notes/tasks/log/reading-guide 原样未动（含本会话知识闭环对 TAM 处置笔记/Home Repo 笔记的修改，留给并行会话提交）。已推 origin develop（5e7d07e..b811e8f）。双轴审查（OCR + code-review）无阻塞项；遗留 low/judgement 项未修：lint 分类器无逃逸守卫、英文注释语言闸门软违规、basename 解析三处重复、「溯源背撑」未入 CONTEXT.md 术语表、reason 回退链超 spec 字面口径（建议笔记补记）。本任务无待办。
+
+### 2026-11-26 07:08 #qoau
+
+【里程碑：CodeWiki 上游增量调研完成（2026-11-26）】对比 FSoft-AI4Code/CodeWiki 050dd26..f07bb46（191 commits），本地 develop@7cd5740；报告 docs/CodeWiki上游增量调研-2026-11-26.md。结论：不整仓 merge。P0 先借 parse timeout BaseException、构造器入组件、C/C++ declarator helper、Git stdin=DEVNULL、Mermaid daemon thread；P1 借 nested Git 边界、reference index、ownership closure、tree repair、write guard 补到 ADR-0020 job/change_plan 旁，不搬整套 updater。新语言、UsageLedger、artifact、provider/TechDocs/Docker 按明确需求单独立项。下一步待用户选择是否实施切片 A；未改业务代码、未提交。
+
+### 2026-11-26 13:04 #wt3i
+
+【grill-with-docs 第 1 轮已拍板（2026-11-26）】用户“按推荐”：①首批只做切片 A 六项 correctness/stability：parse timeout、JS/TS 构造器、C/C++ declarator、Git stdin=DEVNULL、Mermaid daemon thread、nested Git boundary；B/C/D 不混入。②全部薄适配，保留本地 Node ID、跨服务路由、增量缓存、PageRank/transitive impact；不整文件覆盖 analyzer，不引入整套 updater。③每项先补可复现缺陷的回归测试，再修；聚焦测试+ruff+变更文件 mypy，最后全量 pytest；MCP 契约只要求不新增失败。④本轮更新调研报告处置与切片，切片 B 语义确定后再决定是否新增 ADR。下一步继续 grill 切片 A 的逐项设计与验收。
+
+### 2026-11-26 13:17 #ckjm
+
+【grill-with-docs 第 2 轮已拍板（2026-11-26）】用户“按推荐”：①Timeout 仅改 BaseException，保留 30 秒与平台保护，测试手动触发 signal handler。②Constructor 只改 JS/TS，保留现有 ID 与 __proto__/prototype 排除，验收节点+调用边。③C/C++ 新增共享 declarator helper；C++ 修定义及现有类内声明，不扩展全局声明。④Git stdin 修全部 11 个产品代码直接调用点，不动临时脚本，不加 wrapper。⑤Mermaid 内部 valid/invalid/unavailable 三态+daemon thread；unavailable 不阻断写入，明确返回 validation unavailable。⑥嵌套 Git 解析根 .gitmodules，仅放行声明子模块，文件树与 fallback gitignore 同边界。下一步收敛实施顺序、测试组织与提交粒度。
+
+### 2026-11-26 13:47 #2tmn
+
+【grill-with-docs 第 3 轮已拍板（2026-11-26）】用户“按推荐”：实施分三批独立验证/回退：①Timeout+JS/TS constructor；②C/C++ shared declarator helper；③Git stdin+Mermaid+nested Git boundary。新增 tests/test_analyzer_correctness.py 与 tests/test_runtime_boundaries.py，不使用 smoke test。设计树已无未决分支；待用户最终确认后更新调研报告并实施，不新增 ADR、不预先 commit。
+
+### 2026-11-26 15:45 #fyec
+
+【里程碑：上游六项 correctness/stability 薄适配完成（2026-11-26）】已落地 timeout BaseException、JS/TS constructor、共享 C/C++ declarator、11 个 Git DEVNULL 调用、Mermaid daemon+三态、nested Git 边界；独立审查补修冗余括号 declarator。25 项专项回归、128 项相关 MCP 测试通过；最终全量 1428 passed/2 skipped；MCP 契约 121/5，基线 120/6 无新增失败；ruff 通过，新增 helper/tests mypy 0，存量 84 未清理。报告 docs/CodeWiki上游增量调研-2026-11-26.md 已补第十二节，现有经验笔记仍 draft；未提交 git。补蒸馏 submit 参数类型错误，1 条 raw 按约束保留待下次处理。下一步由用户决定是否提交或启动切片 B。
+
+### 2026-11-26 19:30 #uwyb
+
+【收尾：代码与知识提交推送（2026-11-26）】代码提交 a546780 已推送到 origin/develop，本地与远端同步；用户随后明确要求把笔记和任务记忆也一起提交推送。本轮知识提交限定 repowiki/notes 与本任务 wanderingbug.md，排除 telemetry、原始会话及并行工作树改动；临时 rebase stash 已清理。
