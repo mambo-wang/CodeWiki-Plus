@@ -27,6 +27,33 @@
 **未决事项：** ① MCP 工具面裁剪开关（P2，agentmemory 调研 Round 2 定案存档不实施）：CODEWIKI_TOOLS=core 环境变量 + registry filter，60+ 工具 schema 全量注入占上下文是真缺口，核心集须按本仓场景重定义；② distill-worker 是否加 model 字段换弱模型待用户决定，若改须同步随包源变体 codewiki/agents/distill-worker.md 与 claude 家族变体并真机验证；③ 全仓另有 15 条更旧草稿（多为 2026-09-20/21）未处置；repowiki/.meta/telemetry/ 的 6 个历史身份分片未合并；历史草稿笔记裁决未到线（consolidate_notes 阈值 10，当前 notes_since=3）；④ 已知缺陷未修（零运行时影响）：source_ingest.py:321 只有 docstring 的 _convert_to_markdown 空壳被 :333 真实现同名遮蔽，需确认是否合并事故；⑤ 可选深扒 TencentDB Agent Memory 架构逐点对比。
 
 > 原文归档于 memories-archive/iamwangbao-163-com.md，截至 2026-10-31，共 1 条。
+**已定案结论**：竞品调研三层——直接竞品 TencentDB Agent Memory（重点盯防借鉴）、理念源头 Karpathy LLM Wiki、通用中间件 mem0/Letta/Zep/Cognee（设计参考）。腾讯云 Harness 文章三项借鉴均不立项：PreToolUse 硬拦截 absorbed（P2-2 软闸门 + P2-1' 附加上下文已覆盖）、等待 skill deferred（归发版本线）、close-loop excluded（超产品边界）；仅采纳「不在中间任何一步静默停下」写作原则。不借 Obsidian vault+REST，不做全量衰减高频扫描（lint 按需）。Prompt 渲染正文只描述当前实现，不引用 ADR 编号/设计文档/历史决策（源码注释中的 ADR 指针保留），prompts.py 已清理 13 处。Windows 闪窗根因：IDE 无控制台拉起 MCP server，git 子进程闪窗；git_sync.py 新增 windows_creationflags()（CREATE_NO_WINDOW|CREATE_NEW_PROCESS_GROUP，非 Windows 返回 0），覆盖 run_git_bounded 及 config/doc_writer/note_query/workspace_bootstrap 4 处，需重启 MCP server。蒸馏积压曾清零，3 条笔记 stable；早前 2 条草稿被用户拒绝 deprecated。
+
+**ingest_source 格式口径（ADR-0018 定案）**：官方支持 PDF/MD/DOCX/HTML/XLSX；代码无扩展名白名单（source_type 取后缀），文本格式 .md/.markdown/.html/.htm/.txt/.rst 走完整链路，pdf/docx 无文本提取器、跳过版本去重门，建议先转 MD。markitdown 转换 sidecar 八项决策：原始文件无条件保留；ingest 时转换存 raw/sources/<name>.converted.md；optional extra [convert]、未装 fail-open；convert_error 三分类 dependency_missing/empty_output/converter_exception；[^src:] 锚定 sidecar 行号；随 auto_push 入库；跨格式 version_sibling 门；描述保守。转换在去重门前内存完成（防孤儿 sidecar，门过后才按最终 dest_name 落盘），_plain_text() 读 sidecar 回退，retract 把 sidecar 一并移 .trash。评审闭环：_CONVERTIBLE_SUFFIXES 收窄为 {.pdf,.docx,.xlsx}（pptx/epub 不承诺），ADR §2 改为「每次 ingest 重转、sidecar 随导入覆盖」。tests/test_source_convert.py 9 测试，全量 1208 通过。引用锚定仅文档约定无实现（抽取层职责）；retract 移 .trash 逻辑重复暂不动。
+
+**任务管理接线与宿主适配**：init-wiki/init-workspace 答「否」失效，根因命令薄壳不注入开关参数；维持 opt-out，双通道修复：_SWITCH_HINTS/_switch_block 开关映射指引 + 渲染正文用户意愿闸门句；sync-commands 升为必做（仅 codebuddy 自动映射 MCP prompt 为命令）；locales zh/en 同步；1211 passed，.qoder/.trae 各 23 个薄壳已重生成。Qoder CN 适配：SessionStart hook 按宿主分支（.qoder 用 AskUserQuestion：最近 3 个 active + 跳过，其余写正文由「其他」承接）；hook 解释器平台感知 _resolve_python_cmd()（Windows 恒 python，POSIX python3>python）并原地迁移旧命令；.index.json 缺失或损坏时回退扫 tasks/*/task.md frontmatter。评审补：AskUserQuestion 还有硬下限 2（0 任务时只剩「跳过」会失败），补「新建任务」；「进行中共 N 个」正文挪进 if rest:；label 撞车逐步延长（label 无字符上限、header 限 12）；prompts.py 与 AGENTS.md 同步；1229 passed，未提交。
+
+**身份分片与草稿**：memories/Administrator.md 7 条已并入正主分片并删除；污染机器缓存用户目录下的 .codewiki_user_id（内容 Administrator）已备份删除——_USER_ID_CACHE_PATH 在 import 期由 APPDATA 或 expanduser(~) 定死，两通道读写不同文件即「同一机器两身份」的物理形态。压缩格式纪律：摘要正文不得含标题行。
+
+**遗留待办**：①全仓另 15 条更旧草稿（多为 2026-09-20/21）与 13 条 draft 待用户确认后 batch_set_status；②repowiki/.meta/telemetry/ 6 个历史身份分片未合并；③source_ingest.py:321 只有 docstring 的 _convert_to_markdown 空壳被 :333 真实现遮蔽（零运行时影响，未修，需查是否合并事故）；④ADR-0020 P1-3 算子计划链路已过聚焦测试、五个 Wiki 页重写且 lint 0 issue，代码与 Wiki 变更待提交推送；⑤MCP 工具面裁剪开关（CODEWIKI_TOOLS=core、registry filter，参考 agentmemory 裁到 8 个），用户指示先存档不实施；⑥distill-worker 是否加 model 字段换弱模型待用户决定（须同步随包变体与 claude 变体，真机验证）；⑦可选深扒 TencentDB Agent Memory 逐点对比、lint_wiki 验证 Wiki 健康度。
+
+> 原文归档于 memories-archive/iamwangbao-163-com.md，截至 2026-10-31，共 9 条。
+
+### 2026-10-03 05:22 #pwbh
+
+第二轮 OCR 复审后落的修正（定性比第一轮温和）：手工接线示例里的 `python` **不是 bug**——那些块是 ```powershell 语境（Windows 下 `python` 正确），真正缺的是平台提示。故只在 `codewiki/mcp/prompts.py` 三处补口径（手工接线示例段、模拟事件验证段、步骤 1 判「已启用」段：判据只看脚本相对路径后缀、不看解释器名），`docs/team-memory-hook.md` 前置条件改 `<python>` 并在命令路径段补「解释器是安装机快照 + 127 先看退出码再看接线档位」；去掉新任务选项 description 里嵌套的「」。未动：`ide_config.py:387` docstring 示例（纯示意后缀提取、无解释器语义）。待用户定：刷新本仓 `.codebuddy/` 接线（副本缺 ③ 回退、settings 仍为 `python` → 本机 127，但会改共享配置）。验证：全量 pytest 1229 passed / 1 skipped、targeted 128 passed、ruff check+format 干净、`.qoder` 副本与源 diff 为空、`_prompt_team_memory_hook` 渲染 10204 字符含新口径。仍未提交。
+
+### 2026-10-03 10:10 #afid
+
+get_prompt 工作流名缺口已修（选定「补实现不改契约」路线）：`_WORKFLOW_PROMPTS`（原 handler 函数体内的 prompts_map）提到 `codewiki/mcp/prompts.py` 模块级，成为工作流名→渲染函数唯一真源，新增 `workflow_prompt_names()` / `render_workflow_prompt()`；`handle_get_prompt` 接住 `name` 别名 + kebab/camel 两种写法，`prompt_type` 的 enum 由 `workflow_prompt_names()` 生成（模板类 23 + 工作流 23 = 46，不再手维护），`required` 清空，名字缺失/未知都返回模板类+工作流两份清单；同名时模板类精确优先（`code_analysis` 是模板、`code-analysis` 是工作流）；工作流分支把平铺的 repo_path/workspace_path 转发进 params（否则退回 cwd 指向别的仓库）。薄壳正文与 AGENTS.md 的 `get_prompt(name=...)` 写法一字未改——ADR-0017 契约本来就对，是实现少了一条通道，ADR-0017 末尾补「补充（2026-10-03）」段记录。验证：新增 `tests/test_get_prompt_tool_channel.py` 7 个用例，真机 stdio 冒烟（拉起 `python3 -m codewiki.mcp.server` 走 tools/list + tools/call）拿到 task-workflow 全文 5157 字符、repo_path 转发生效。同轮落了本仓 `.codebuddy/`+`.trae/` 接线刷新（install-hooks：settings/hooks.json 三条命令 python→python3，三份 hook 副本与源 diff 为空）。
+
+### 2026-10-05 21:55 #b0tu
+
+任务管理适配 Qoder CN + get_prompt 工具通道接工作流名这两轮改动已于 2026-10-05 提交到 develop（1 个 commit，31 文件，含 .codebuddy/.qoder/.trae 接线刷新与 repowiki 知识层同步），working tree 干净，**未 push**（用户只说提交）。上一轮 #scvp 的「仍未提交」作废；其评审结论保留：第三轮 OCR 委托评审 13/13 覆盖、4 条发现全修（关键 Medium=平铺工作流参数被静默丢弃，现由 `_workflow_params()` 全量转发）。验证口径：全量 pytest 1237 passed / 1 skipped、ruff check 干净、真机 stdio 三种调用形状（薄壳嵌套/宿主平铺/平铺 name）全绿。剩余待办：历史草稿笔记仍积压未裁决（consolidate_notes 阈值 10，当前 notes_since=3 未到线）。
+
+### 2026-10-05 21:59 #tse6
+
+澄清宿主配置查找位置（2026-10-05 实测，否掉了「.qoder-cn 还要再适配一轮」这个潜在工作项）：Qoder CN 读**项目级 .qoder/**（不是 .qoder-cn/），本会话 [active-settle] UserPromptSubmit 注入即来自 .qoder/settings.json 的 `python3 -m codewiki.mcp._ide_hook`；~/.qoder-cn/settings.json **无 hooks 键**、~/.qoder-cn/hooks/ 不存在。~/.qoder-cn/ 只管**用户级**：mcp.json 与 settings.json.mcpServers 里的 codewiki（python3）就是当前连上的 53 工具那条（pid 94312 父进程 Qoder CN，cmd 为 python3 -m codewiki.mcp.server，证明项目 settings.json 里那条 Windows `.venv\Scripts\python.exe` 未生效）。同一项目 .qoder/ 被 5 个同源目录（.qoder/.qoder-cli/.qoder-cn/.qoderwork/.qoderworkcn，进程名相同）共用 → install-hooks --ide qoder 装一次全版本受益，不按版本分叉。
 
 ### 2026-10-08 17:23 #czyp
 
@@ -121,6 +148,9 @@ OCR 委托评审完成（2026-10-10，工作区 13 个可审文件，覆盖率 1
 - **背景**：内网用户编译 linseer-preset-multimodal-asset 技能时，正文照搬笔记里的本机脚本名（hf_download.py / zip_assets.py，G:\models 本地工具），技能不可移植。
 - **定案（Q1-Q15）**：submit report.skills[] 新增可选 scripts[]=[{filename,content}]，agent 显式传入（不做工作区路径抓取）；落盘 skills/<name>/scripts/ 扁平目录（filename 拒路径分隔符/../空白，先拒原始串再规范化）；updated 全量替换（区别于 source_refs 只增不减）；引用提取认规范写法 scripts/xxx.py + 裸文件名，扩展名白名单 .py/.sh/.ps1/.js/.ts/.rb/.pl；严重级拆分：规范写法缺文件=submit error，裸名缺文件=lint warning；脚本内容过敏感串扫描（绝对路径/密钥）命中拒收；漂移哈希扩展覆盖 scripts 全部文件内容；install 先清空生效区 scripts/ 再复制；retire 删生效区整个技能目录（顺带修现状只删单文件的残留缺陷）；lint 加孤儿脚本 warning；不设大小/数量限制（用户定案，靠 8KB 正文上限间接约束）；不做通用 assets/、子目录、文件侧通道。
 - **下一步**：to-spec 流程发布 GitHub Issue（ready-for-agent），测试接缝复用 tests/test_skill_creator.py 的 _call handler 直调 + test_skill_pages.py lint 模式，无新接缝。
+### 2026-10-26 10:26 #7ss1
+
+2026-10-26：ADR-0020 P1-3 代码 + 增量 Wiki 变更已提交并推送 develop（提交 d561097，rebase 到远程 5.16.3 之后；冲突仅 telemetry/log 追加区，按双方并集解决）。提交前 68 项聚焦测试全过，lint_wiki(stale_refs+stale_evidence) 0 issue，job=done。遗留：repowiki/wiki/reading-guide.md 被重生成成英文版（与中文产出闸门冲突），有意未纳入提交，留待定夺；另有 13 条 draft 笔记待确认。
 
 ### 本轮追加压缩（截至 2026-10-05，原文归档于 memories-archive/iamwangbao-163-com.md）
 
@@ -160,3 +190,6 @@ Issue #47（skill-creator 技能包 scripts/ 资产通道）已实现并交付 P
 ### 2026-11-02 11:02 #52y6
 
 PR #48 二轮 code-review 复审通过：上轮 3 项修复确认到位；新发现多点文件名 bug（my.tool.py 过校验但提取器 _SCRIPT_STEM 不含点、永远无法构成引用→lint 误报孤儿），修复=a6352f0：_SCRIPT_FILENAME_RE 收紧为 [A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)? 单扩展点，校验字符集与提取器 stem 对齐，51 passed。决策：选「收紧校验」而非「放宽提取器」——宁缺勿滥，保持提取正则不动的回归风险最小。PR 现 5 commits 可合，等用户合并。
+### 2026-11-03 09:01 #yv02
+
+用 mattpocock retro 框架对本品做了一轮体检（2026-11-03，未改任何文件）：①护栏静默失效——CI 的 okf_regression_test 仍 continue-on-error 且有 6 条断言落后产品变更（AGENTS.md 载明），mypy 也 continue-on-error，handler 契约实际无硬门；②.pre-commit-config.yaml 存在但本机 .git/hooks/pre-commit 未安装，Agent 直接 commit 不走钩子；③工具面税实测 53 个工具、tools/list 载荷 94632 字符（description 43852），单 query_wiki 5838；④无 CODING_STANDARDS.md，机械型规则散在 AGENTS.md/Doctrine 里、未下沉为确定性检查；⑤AGENTS.md 任务记忆段与 SessionStart 注入重复，属 no-op 候选。按 retro 判据的建议形态：①②修接线而非写规则，④机械型转 linter/CI 规则。待用户决定是否立项。另：记忆压缩抖动未处理（无时间戳死重条目使字节阈值卡线，热层 29665B > 24576B）。

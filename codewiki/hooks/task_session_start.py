@@ -1,24 +1,26 @@
 #!/usr/bin/env python3
-"""CodeBuddy SessionStart hook: inject active-task guidance into a new session.
+"""Cross-IDE SessionStart hook: inject active-task guidance into a new session.
 
 The task-memory layer lets long-running work span sessions. This hook makes the
 "pick (or create) a task" prompt *deterministic* at session start: it reads
-``repowiki/tasks/.index.json`` and emits a ``hookSpecificOutput.additionalContext``
-instructing the agent to ask the user which task to bind (or to create a new
-one) before work begins.
+``repowiki/tasks/.index.json``, existing session-task bindings, and (when the
+host supplies one) the current transcript, then emits a
+``hookSpecificOutput.additionalContext`` that either resumes the already-chosen
+task, preserves an explicit skip, or instructs the agent to ask the user which
+task to bind (or to create a new one) before work begins.
 
 This is the **source** copy of the hook, shipped inside the ``codewiki``
 package. When a user enables task management, the ``team-memory-hook`` MCP
-prompt copies this file into the project's ``.codebuddy/hooks/task_session_start.py``
-and registers it for the ``SessionStart`` event. CodeBuddy runs the *copied*
-file, not this one.
+prompt copies this file into each detected IDE's ``hooks/task_session_start.py``
+and registers it for the ``SessionStart`` event. IDEs run the *copied* file,
+not this one.
 
 Why a SessionStart hook (not just AGENTS.md guidance):
     AGENTS.md guidance is a *soft* constraint — an agent may or may not honor
     "at session start, list tasks and ask the user". A SessionStart hook is a
     *hard* trigger: the IDE waits for this script's stdout and injects the
-    returned ``additionalContext`` into the agent's context, so the task prompt is
-    guaranteed to surface every time.
+    returned ``additionalContext`` into the agent's context, so first-run task
+    selection is guaranteed to surface and repeat starts reuse prior choices.
 
 The same hard-trigger channel also injects the Team Doctrine
 (``repowiki/wiki/doctrine.md``, ~3KB) into the fresh session. The doctrine is
@@ -28,12 +30,12 @@ front, and far more reliable than AGENTS.md's soft "query_wiki first" advice
 
 Unlike the SessionEnd capture hook (which fires-and-forgets via a detached
 subprocess), this hook MUST return its ``systemMessage`` synchronously — the IDE
-is waiting on stdout. It is therefore deliberately lightweight: it reads at
-most two small JSON files (task index + raw capture index) and prints one JSON
-line, and never imports the ``codewiki`` package (no import-path dance, fast
+is waiting on stdout. It is therefore deliberately lightweight: metadata reads
+are small, transcript reads are byte/entry bounded and stop at the first decisive
+result, and it never imports the ``codewiki`` package (no import-path dance, fast
 startup, no risk of a slow import blocking the IDE).
 
-CodeBuddy invokes it with the event as JSON on stdin, e.g.:
+Hosts invoke it with the event as JSON on stdin, e.g.:
 
     {
       "session_id": "abc123",
@@ -43,13 +45,14 @@ CodeBuddy invokes it with the event as JSON on stdin, e.g.:
       "source": "startup"
     }
 
-Stdout is emitted in the CodeBuddy-expected ``{continue, systemMessage}`` shape.
+Stdout is emitted in the hook-expected ``{continue, hookSpecificOutput}`` shape.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -188,6 +191,658 @@ def _load_active_tasks(repo_path: str) -> list:
         return _task_recent_ts(tasks_dir / str(t.get("id") or ""))
 
     return sorted(tasks, key=recent, reverse=True)
+
+
+# ---------------------------------------------------------------------------
+# 已有任务关联：同一会话重复触发 SessionStart 时不再弹框
+# ---------------------------------------------------------------------------
+
+# SessionStart 是同步 hook，不能像采集 hook 那样无界读完整 transcript。任务选择
+# 通常发生在会话开头；超过上限就保守地回退到 binding/raw/弹框，不拿截断内容猜任务。
+_TRANSCRIPT_MAX_BYTES = 8 * 1024 * 1024
+_TRANSCRIPT_MESSAGE_MAX_BYTES = 1024 * 1024
+_TRANSCRIPT_MAX_ENTRIES = 20_000
+_TASK_CHOOSERS = frozenset({"askuserquestion", "askuserquestionasync", "ask_followup_question"})
+_SKIP_ANSWERS = frozenset(
+    {
+        "跳过",
+        "skip",
+        "不绑定",
+        "不关联",
+        "不关联任务",
+        "本次不做任务关联",
+        "暂不关联",
+        "暂不关联任务",
+    }
+)
+
+
+def _event_session_id(event: dict) -> str:
+    """读取会话 id，兼容不同宿主的字段大小写。"""
+    return str(
+        event.get("session_id") or event.get("sessionId") or event.get("source_session_id") or ""
+    ).strip()
+
+
+def _event_transcript_path(event: dict) -> str:
+    """只使用当前事件显式提供的 transcript 路径。"""
+    value = event.get("transcript_path") or event.get("transcriptPath") or event.get("transcript")
+    return str(value).strip() if value else ""
+
+
+def _read_text_bounded(path: Path, limit: int) -> str:
+    """最多读取 ``limit`` 字节；超限文件按不可用处理。"""
+    try:
+        with path.open("rb") as fh:
+            raw = fh.read(limit + 1)
+    except OSError:
+        return ""
+    if len(raw) > limit:
+        return ""
+    return raw.decode("utf-8-sig", errors="replace")
+
+
+def _read_json_bounded(path: Path, limit: int) -> object:
+    text = _read_text_bounded(path, limit)
+    if not text.strip():
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
+def _safe_message_id(message_id: object) -> bool:
+    value = str(message_id or "")
+    return bool(
+        value
+        and value not in (".", "..")
+        and not any(char in value for char in ("/", "\\", "\x00"))
+    )
+
+
+def _is_codebuddy_index(path: Path, messages: list) -> bool:
+    if not messages or not (path.parent / "messages").is_dir():
+        return False
+    first = messages[0] if isinstance(messages[0], dict) else None
+    if not first or "id" not in first:
+        return False
+    return not any(key in first for key in ("content", "message", "text"))
+
+
+def _iter_codebuddy_entries(index_path: Path, messages: list):
+    """展开 CodeBuddy 的 ``index.json + messages/*.json`` 布局，不等待 IDE 收尾。
+
+    采集 hook 以后台方式运行，可以等 IDE 完成文件迁移；本 hook 是同步执行，
+    消息文件缺失时直接跳过并回退到弹框。工具块必须保留：采集阶段会把它们压缩掉，
+    但任务选择恢复需要工具调用 id 与成功/失败结果。所有消息共享一个总字节预算。
+    """
+    total = 0
+    for meta in messages[:_TRANSCRIPT_MAX_ENTRIES]:
+        if not isinstance(meta, dict):
+            continue
+        message_id = meta.get("id")
+        if not _safe_message_id(message_id):
+            continue
+        message_file = index_path.parent / "messages" / f"{message_id}.json"
+        try:
+            size = message_file.stat().st_size
+        except OSError:
+            continue
+        if total + size > _TRANSCRIPT_MAX_BYTES:
+            return
+        total += size
+        data = _read_json_bounded(message_file, _TRANSCRIPT_MESSAGE_MAX_BYTES)
+        if not isinstance(data, dict):
+            continue
+        role = data.get("role") or meta.get("role") or ""
+        message_raw = data.get("message")
+        message = message_raw
+        if isinstance(message_raw, str):
+            try:
+                message = json.loads(message_raw)
+            except json.JSONDecodeError:
+                message = None
+        if isinstance(message, dict):
+            role = message.get("role") or role
+            content = message.get("content")
+        else:
+            content = data.get("content")
+        yield {"message": {"role": role, "content": content}}
+
+
+def _entries_from_json(data: object, path: Path):
+    if isinstance(data, list):
+        if _is_codebuddy_index(path, data):
+            yield from _iter_codebuddy_entries(path, data)
+        else:
+            for item in data:
+                if isinstance(item, dict):
+                    yield item
+        return
+    if not isinstance(data, dict):
+        return
+    for key in ("messages", "conversation", "turns", "transcript_turns", "chat"):
+        value = data.get(key)
+        if isinstance(value, list):
+            if _is_codebuddy_index(path, value):
+                yield from _iter_codebuddy_entries(path, value)
+            else:
+                for item in value:
+                    if isinstance(item, dict):
+                        yield item
+            return
+    yield data
+
+
+def _iter_jsonl_entries(path: Path):
+    """流式读取 JSONL 前缀，尽早出现决策时无需读完整个文件。"""
+    total = 0
+    count = 0
+    try:
+        with path.open("rb") as fh:
+            for raw_line in fh:
+                total += len(raw_line)
+                if total > _TRANSCRIPT_MAX_BYTES or count >= _TRANSCRIPT_MAX_ENTRIES:
+                    return
+                line = raw_line.decode("utf-8-sig", errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(obj, dict):
+                    count += 1
+                    yield obj
+    except OSError:
+        return
+
+
+def _iter_transcript_entries(path: Path):
+    """有界加载 Qoder/Claude JSONL 或 CodeBuddy index 形态的 transcript。"""
+    if not path.is_file():
+        return
+    if path.name == "index.json":
+        data = _read_json_bounded(path, _TRANSCRIPT_MAX_BYTES)
+        yield from _entries_from_json(data, path)
+        return
+
+    if path.suffix.lower() == ".jsonl":
+        yield from _iter_jsonl_entries(path)
+        return
+
+    text = _read_text_bounded(path, _TRANSCRIPT_MAX_BYTES)
+    if text.strip():
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            for line in text.splitlines()[:_TRANSCRIPT_MAX_ENTRIES]:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(obj, dict):
+                    yield obj
+        else:
+            yield from _entries_from_json(data, path)
+        return
+
+    # 未知后缀但文件超限：保守地尝试 JSONL 前缀，不能仅因后续轮次很大就拒绝整段对话。
+    yield from _iter_jsonl_entries(path)
+
+
+def _entry_message(entry: dict) -> dict:
+    message = entry.get("message")
+    return message if isinstance(message, dict) else entry
+
+
+def _entry_role(entry: dict) -> str:
+    return str(_entry_message(entry).get("role") or entry.get("type") or "").lower()
+
+
+def _entry_blocks(entry: dict) -> list:
+    content = _entry_message(entry).get("content")
+    return content if isinstance(content, list) else []
+
+
+def _parse_object(value: object) -> dict:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _short_tool_name(name: str) -> str:
+    value = str(name or "").strip().replace("-", "_").lower()
+    return value.rsplit("__", 1)[-1]
+
+
+def _canonical_tool(name: str, raw_input: object) -> tuple[str, dict]:
+    """拆开直接 MCP 工具名与 Qoder 的通用 ``mcp_call`` 信封。"""
+    tool = _short_tool_name(name)
+    args = _parse_object(raw_input)
+    if tool != "mcp_call":
+        return tool, args
+    target = args.get("toolName") or args.get("tool_name") or args.get("name") or ""
+    return _short_tool_name(str(target)), _parse_object(args.get("arguments") or args.get("args"))
+
+
+def _tool_call(block: dict) -> tuple[str, str, dict] | None:
+    kind = str(block.get("type") or "").replace("-", "_").lower()
+    if kind not in ("tool_use", "tool_call"):
+        return None
+    function = block.get("function")
+    function = function if isinstance(function, dict) else {}
+    name = (
+        block.get("name") or block.get("toolName") or block.get("tool_name") or function.get("name")
+    )
+    if not name:
+        return None
+    call_id = str(
+        block.get("id")
+        or block.get("toolCallId")
+        or block.get("tool_call_id")
+        or block.get("call_id")
+        or ""
+    )
+    raw_input = block.get("input")
+    if raw_input is None:
+        raw_input = block.get("args")
+    if raw_input is None:
+        raw_input = block.get("arguments")
+    if raw_input is None:
+        raw_input = function.get("arguments")
+    tool, args = _canonical_tool(str(name), raw_input)
+    return tool, call_id, args
+
+
+def _tool_result(block: dict) -> tuple[str, str, bool] | None:
+    kind = str(block.get("type") or "").replace("-", "_").lower()
+    if kind != "tool_result":
+        return None
+    result_id = str(
+        block.get("tool_use_id")
+        or block.get("toolUseId")
+        or block.get("toolCallId")
+        or block.get("tool_call_id")
+        or block.get("call_id")
+        or ""
+    )
+    is_error = bool(block.get("is_error") or block.get("isError"))
+    return result_id, str(block.get("name") or block.get("toolName") or ""), is_error
+
+
+def _flatten_text(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "\n".join(_flatten_text(item) for item in value)
+    if isinstance(value, dict):
+        for key in ("text", "content", "output", "result", "message", "value"):
+            if key in value:
+                return _flatten_text(value[key])
+        return json.dumps(value, ensure_ascii=False)
+    return ""
+
+
+def _result_text(block: dict) -> str:
+    for key in ("content", "text", "output", "result"):
+        if key in block:
+            return _flatten_text(block[key]).strip()
+    return ""
+
+
+def _result_is_error(block: dict, text: str) -> bool:
+    if block.get("is_error") or block.get("isError"):
+        return True
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        value = None
+    if isinstance(value, dict) and (value.get("error") or value.get("ok") is False):
+        return True
+    lowered = text.lower()
+    return text.startswith("Error:") or "only available in plan mode" in lowered
+
+
+def _contains_ok(value: object) -> bool:
+    if isinstance(value, dict):
+        if value.get("ok") is True or value.get("success") is True:
+            return True
+        return any(_contains_ok(value.get(key)) for key in ("data", "result", "content"))
+    if isinstance(value, list):
+        return any(_contains_ok(item) for item in value)
+    return False
+
+
+def _result_ok(text: str) -> bool:
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        return False
+    return _contains_ok(value)
+
+
+def _answer_value(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        for item in value:
+            answer = _answer_value(item)
+            if answer:
+                return answer
+    if isinstance(value, dict):
+        for key in ("answers", "answer", "selected", "selection", "value"):
+            if key in value:
+                answer = _answer_value(value[key])
+                if answer:
+                    return answer
+        # Some hosts encode answers as {"<question>": "<answer>"}.
+        for item in value.values():
+            answer = _answer_value(item)
+            if answer:
+                return answer
+    return ""
+
+
+def _clean_answer(answer: str) -> str:
+    value = answer.strip().strip("\"'")
+    for prefix in ("Other:", "其他:"):
+        if value.startswith(prefix):
+            value = value[len(prefix) :].strip()
+            break
+    return value.splitlines()[0].strip() if value else ""
+
+
+def _choice_answer(text: str) -> str:
+    """提取同步回答；异步工具只发布问题，不返回用户答案。"""
+    marker = "Your questions have been answered:"
+    if marker in text:
+        tail = text.split(marker, 1)[1].strip()
+        match = re.search(r'="(.*?)"\.', tail, re.DOTALL)
+        if match:
+            return _clean_answer(match.group(1))
+    try:
+        answer = _answer_value(json.loads(text))
+    except json.JSONDecodeError:
+        answer = ""
+    if answer:
+        return _clean_answer(answer)
+    if not text or text.startswith("Questions published"):
+        return ""
+    return _clean_answer(text)
+
+
+def _plain_user_text(entry: dict) -> str:
+    """只取用户文本；JSONL 的 tool_result 块也可能挂在 user 角色下。"""
+    if _entry_role(entry) != "user":
+        return ""
+    content = _entry_message(entry).get("content")
+    if isinstance(content, str):
+        return content.strip()
+    texts = [
+        str(block.get("text") or "")
+        for block in _entry_blocks(entry)
+        if isinstance(block, dict) and str(block.get("type") or "").lower() == "text"
+    ]
+    return "\n".join(text for text in texts if text).strip()
+
+
+def _is_task_chooser(tool: str, args: dict) -> bool:
+    if tool not in _TASK_CHOOSERS:
+        return False
+    encoded = json.dumps(args, ensure_ascii=False)
+    return (
+        "任务关联" in encoded
+        or "跨会话任务记忆" in encoded
+        or ("task_id" in encoded and "跳过" in encoded)
+    )
+
+
+def _task_id_from_answer(answer: str, active: list) -> str:
+    match = re.search(r"task_id=([^）)\s]+)", answer)
+    if match:
+        return match.group(1).strip("\"'")
+    folded = answer.casefold()
+    exact = [
+        str(task.get("id") or "")
+        for task in active
+        if folded in (str(task.get("id") or "").casefold(), str(task.get("title") or "").casefold())
+    ]
+    if exact:
+        return exact[0]
+    matches = [
+        str(task.get("id") or "")
+        for task in active
+        if folded
+        and (
+            folded in str(task.get("id") or "").casefold()
+            or folded in str(task.get("title") or "").casefold()
+        )
+    ]
+    return matches[0] if len(matches) == 1 else ""
+
+
+def _classify_choice(answer: str, active: list) -> tuple[str, str]:
+    """返回 ``(kind, task_id)``；未命中的自由文本按新建任务处理。"""
+    value = _clean_answer(answer)
+    folded = value.casefold()
+    if folded in _SKIP_ANSWERS or folded.startswith(
+        ("跳过", "不绑定", "不关联", "本次不做任务关联", "暂不关联")
+    ):
+        return "skip", ""
+    task_id = _task_id_from_answer(value, active)
+    if task_id:
+        return "existing", task_id
+    if value.startswith("新建任务"):
+        remainder = re.sub(r"^新建任务\s*[：:]?\s*", "", value).strip()
+        if remainder and not remainder.startswith(("…", "(", "（")):
+            return "new", ""
+        return "new_unnamed", ""
+    return "new", ""
+
+
+def _lookup_pending_call(
+    calls: dict[str, tuple[str, dict]], result_id: str, tool: str
+) -> tuple[str, dict] | None:
+    if result_id and result_id in calls:
+        return calls.pop(result_id)
+    if result_id:
+        return None
+    for call_id, call in reversed(list(calls.items())):
+        if call[0] == tool:
+            calls.pop(call_id)
+            return call
+    return None
+
+
+def _safe_transcript_entries(path: Path):
+    try:
+        yield from _iter_transcript_entries(path)
+    except Exception:
+        # 宿主中途改变 transcript 形状时，Hook 注入也不能失败。错误前的部分证据仍可用；
+        # 没有可用证据时，调用方回退到 binding/raw/弹框。
+        return
+
+
+def _load_transcript_task(event: dict, active: list) -> tuple[str, str]:
+    """从当前 transcript 恢复首个真实任务选择决策。
+
+    只有任务管理工具的成功结果才算绑定。首个跳过是终态；绑定失败不是终态，
+    后续重试或重选可以成功。即使选择框已被压缩掉，只要成功绑定记录仍在，也是
+    直接证据。不扫描目录，也不跨会话猜测。
+    """
+    transcript_path = _event_transcript_path(event)
+    if not transcript_path:
+        return "", ""
+    entries = _safe_transcript_entries(Path(transcript_path))
+
+    calls: dict[str, tuple[str, dict]] = {}
+    first_choice = False
+    choice_kind = ""
+    pending_choice_id = ""
+    pending_choice_async = False
+    awaiting_new_name = False
+    saw_create = False
+    created_ok = False
+
+    for entry in entries:
+        blocks = _entry_blocks(entry)
+        candidates = blocks if blocks else [entry]
+        for block in candidates:
+            if not isinstance(block, dict):
+                continue
+            call = _tool_call(block)
+            if call is None:
+                continue
+            tool, call_id, args = call
+            if call_id:
+                calls[call_id] = (tool, args)
+            if tool == "create_task" and (
+                not first_choice or choice_kind in ("new", "new_unnamed")
+            ):
+                saw_create = True
+            elif _is_task_chooser(tool, args):
+                # 只有首个决策尚未完成，或首个回答要求补输新建任务名称时，
+                # 后续选择框才与当前恢复流程相关。
+                if not first_choice or choice_kind == "new_unnamed":
+                    pending_choice_id = call_id
+                    pending_choice_async = tool == "askuserquestionasync"
+                    awaiting_new_name = False
+
+        for block in candidates:
+            if not isinstance(block, dict):
+                continue
+            result = _tool_result(block)
+            if result is None:
+                continue
+            result_id, result_name, is_error = result
+            text = _result_text(block)
+            if not result_id and result_name:
+                tool_hint = _short_tool_name(result_name)
+            else:
+                tool_hint = ""
+            pending = _lookup_pending_call(calls, result_id, tool_hint)
+            if pending is None:
+                continue
+            tool, args = pending
+            if _result_is_error(block, text):
+                if tool in _TASK_CHOOSERS and result_id == pending_choice_id:
+                    pending_choice_id = ""
+                    pending_choice_async = False
+                continue
+
+            if tool in _TASK_CHOOSERS:
+                answer = _choice_answer(text)
+                if not answer:
+                    continue  # async publication: wait for the user's next text
+                first_choice = True
+                choice_kind, _ = _classify_choice(answer, active)
+                pending_choice_id = ""
+                pending_choice_async = False
+                awaiting_new_name = choice_kind == "new_unnamed"
+                saw_create = choice_kind in ("new", "new_unnamed")
+                created_ok = False
+                if choice_kind == "skip":
+                    return "", "skipped"
+            elif tool == "create_task":
+                if _result_ok(text) and (not first_choice or choice_kind in ("new", "new_unnamed")):
+                    created_ok = True
+            elif tool == "set_session_task":
+                if not _result_ok(text):
+                    continue
+                task_id = str(args.get("task_id") or "").strip()
+                if not task_id:
+                    continue
+                if saw_create and not created_ok:
+                    continue
+                return task_id, "transcript"
+
+        user_text = _plain_user_text(entry)
+        if not user_text:
+            continue
+        if pending_choice_async or awaiting_new_name:
+            answer = _clean_answer(user_text)
+            first_choice = True
+            choice_kind, _ = _classify_choice(answer, active)
+            pending_choice_id = ""
+            pending_choice_async = False
+            awaiting_new_name = choice_kind == "new_unnamed"
+            saw_create = choice_kind in ("new", "new_unnamed")
+            created_ok = False
+            if choice_kind == "skip":
+                return "", "skipped"
+
+    return "", ""
+
+
+def _safe_session_id(session_id: str) -> bool:
+    """拒绝路径分隔符，避免把宿主传入的 id 直接当文件名使用。"""
+    return bool(
+        session_id
+        and session_id not in (".", "..")
+        and not any(char in session_id for char in ("/", "\\", "\x00"))
+    )
+
+
+def _load_session_task(
+    repo_path: str,
+    session_id: str,
+    event: dict | None = None,
+    active_tasks: list | None = None,
+) -> tuple[str, str]:
+    """返回当前会话已有的 ``(task_id, source)`` 决策。
+
+    优先级：当前 live/consumed 绑定 > 当前事件 transcript > raw 采集索引。
+    transcript 桥接兼容宿主在恢复同一逻辑对话时重新生成 ``session_id`` 的情况。
+    所有读取都有界且 fail-open；没有证据时恢复首次选择弹框。
+    """
+    if not _safe_session_id(session_id):
+        return "", ""
+    bindings_dir = Path(repo_path) / "repowiki" / ".meta" / "task_bindings"
+    for path in (
+        bindings_dir / f"{session_id}.json",
+        bindings_dir / "consumed" / f"{session_id}.json",
+    ):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig", errors="replace"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(data, dict):
+            task_id = str(data.get("task_id") or "").strip()
+            if task_id:
+                return task_id, "binding"
+
+    if event is not None:
+        task_id, source = _load_transcript_task(event, active_tasks or [])
+        if task_id or source == "skipped":
+            return task_id, source
+
+    # 旧版本可能已删除一次性绑定凭证，但 raw 仍保留归属；最新匹配采集优先。
+    try:
+        idx_path = Path(repo_path) / "repowiki" / "raw" / ".index.json"
+        data = json.loads(idx_path.read_text(encoding="utf-8-sig", errors="replace"))
+        files = data.get("files", []) if isinstance(data, dict) else []
+        for entry in reversed(files):
+            if not isinstance(entry, dict):
+                continue
+            if str(entry.get("source_session") or "") != session_id:
+                continue
+            task_id = str(entry.get("task_id") or "").strip()
+            if task_id:
+                return task_id, "history"
+    except (OSError, json.JSONDecodeError, AttributeError, TypeError):
+        pass
+    return "", ""
 
 
 # ---------------------------------------------------------------------------
@@ -438,25 +1093,43 @@ def _build_message(event: dict, repo_path: str) -> str:
     option list and pushes the remainder into the question body + free-text
     "Other" input.
     """
-    session_id = str(event.get("session_id") or "").strip()
+    session_id = _event_session_id(event)
     active = _load_active_tasks(repo_path)
     channel = _chooser_channel()
     cap = channel["option_cap"]
+    bound_task, bound_source = _load_session_task(repo_path, session_id, event, active)
+    skipped = bound_source == "skipped"
+    resolved = bool(bound_task) or skipped
 
     lines = ["[task-memory] 本会话开始前，请先处理「任务关联」（跨会话任务记忆）。"]
-    lines.append("")
-    lines.append(
-        "【硬性执行顺序】无论用户第一条消息问什么（哪怕是关于代码、文件、bug 的具体问题），"
-        "本会话的第一个动作都必须是下面这个任务关联弹框流程；弹框、绑定、拉取上下文完成后，"
-        "才允许开始读文件/搜索代码/回答用户提问（有积压时先阻塞补蒸馏，"
-        "见下方「补蒸馏」段落，蒸馏完成后再回答）。严禁先探索代码或直接回答，事后再补弹任务关联框。"
-    )
+    if not resolved:
+        lines.append("")
+        lines.append(
+            "【硬性执行顺序】无论用户第一条消息问什么（哪怕是关于代码、文件、bug 的具体问题），"
+            "本会话的第一个动作都必须是下面这个任务关联弹框流程；弹框、绑定、拉取上下文完成后，"
+            "才允许开始读文件/搜索代码/回答用户提问（有积压时先阻塞补蒸馏，"
+            "见下方「补蒸馏」段落，蒸馏完成后再回答）。严禁先探索代码或直接回答，事后再补弹任务关联框。"
+        )
     lines.append("")
     tool = str(channel["tool"])
     bind_call = (
         f"set_session_task(source_session_id={session_id or '<当前会话id>'}, task_id=<选中任务>)"
     )
-    if cap is None:
+    if bound_task:
+        lines.append(
+            f"【已有任务关联】会话记录显示本会话已选择任务「{bound_task}」，无需重复弹框。"
+        )
+        lines.append(
+            f"不要再次调用 {tool} 询问任务；只有用户明确要求切换任务，"
+            "或 get_task_context 返回任务不存在时，才重新选择。"
+        )
+    elif skipped:
+        lines.append("【已有会话决策】历史对话中的首个任务选择是「跳过/不绑定」，无需重复弹框。")
+        lines.append(
+            f"不要再次调用 {tool} 询问任务，也不要调用 set_session_task 或 get_task_context；"
+            "直接开始回答用户。只有用户明确要求关联任务时，才重新选择。"
+        )
+    elif cap is None:
         # 无限选项宿主（CodeBuddy 系）：一框列全，压过 schema 的「建议 2-4」。
         lines.append(
             f"【必须弹框：只弹一次，一框列全】请立即调用 {tool} 工具弹出结构化选择框"
@@ -548,27 +1221,42 @@ def _build_message(event: dict, repo_path: str) -> str:
         )
 
     lines.append("")
-    lines.append(
-        "关联完成后调用 get_task_context(task_id=<选中任务>) 拉取该任务上下文继续工作。"
-        "返回中的 pending_raw_count 是本任务尚未蒸馏的历史对话数：若大于 0，按下方"
-        "「补蒸馏」发一个异步蒸馏 subagent（后台执行，不阻塞回答），"
-        "在自然停顿点拉取蒸馏结果并展示待确认草稿。"
-        "若用户明确表示本次会话与任何任务无关，可跳过本提示。"
-    )
+    if skipped:
+        lines.append("本会话不关联任务，直接开始回答；不要拉取任务上下文或按任务补蒸馏。")
+    elif bound_task:
+        if bound_source in ("history", "transcript"):
+            restore_call = f"set_session_task(source_session_id={session_id}, task_id={bound_task})"
+            lines.append(
+                f"为恢复会话绑定，请先调用 {restore_call}，再调用 "
+                f"get_task_context(task_id={bound_task}) 拉取该任务上下文继续工作。"
+            )
+        else:
+            lines.append(
+                f"请直接调用 get_task_context(task_id={bound_task}) 拉取该任务上下文继续工作。"
+            )
+    else:
+        lines.append(
+            "关联完成后调用 get_task_context(task_id=<选中任务>) 拉取该任务上下文继续工作。"
+            "返回中的 pending_raw_count 是本任务尚未蒸馏的历史对话数：若大于 0，按下方"
+            "「补蒸馏」发一个异步蒸馏 subagent（后台执行，不阻塞回答），"
+            "在自然停顿点拉取蒸馏结果并展示待确认草稿。"
+            "若用户明确表示本次会话与任何任务无关，可跳过本提示。"
+        )
 
     # Catch-up distillation backlog: deterministic trigger so agents that never
     # "think to" distill still clear the backlog at session start.
     pending_counts = _count_pending_raws(repo_path)
-    if pending_counts:
+    if pending_counts and not skipped:
         total = sum(pending_counts.values())
         lines.append("")
         lines.append(f"【补蒸馏】检测到 {total} 条未蒸馏的历史对话积压：")
         for tid, n in sorted(pending_counts.items()):
             label = f"任务 {tid}" if tid else "未关联任务"
             lines.append(f"  - {label}: {n} 条")
+        binding_prefix = "已有任务关联，直接" if bound_task else "绑定任务之后，"
         if IDE_DIR_NAME == ".codebuddy":
             lines.append(
-                "绑定任务之后，立即用 Task 工具发一个**异步**「蒸馏 worker」subagent "
+                f"{binding_prefix}立即用 Task 工具发一个**异步**「蒸馏 worker」subagent "
                 "（.codebuddy/agents/distill-worker.md，已授权 codewiki MCP；"
                 "Task 工具传 name=<成员名> 参数即以后台 team member 运行，不阻塞主 Agent）执行补蒸馏"
                 "（**清空本任务的全部待蒸馏积压**，不设条数上限——只挑最近几条会让老积压永远轮不到）；"
@@ -580,7 +1268,7 @@ def _build_message(event: dict, repo_path: str) -> str:
             # MCP 权限（实测），委托改走内置 general-purpose 子代理，
             # 以 distill-worker.md 正文为剧本。包内源副本同走此分支。
             lines.append(
-                "绑定任务之后，立即用 Task 工具发一个**异步**内置 general-purpose 子代理执行补蒸馏："
+                f"{binding_prefix}立即用 Task 工具发一个**异步**内置 general-purpose 子代理执行补蒸馏："
                 f"让它先读 {IDE_DIR_NAME}/agents/distill-worker.md（蒸馏 worker 剧本），"
                 "再按其中 Mode C 流程执行（本宿主自定义子代理拿不到 MCP 权限，须用内置子代理；"
                 "**清空本任务的全部待蒸馏积压**，不设条数上限）；"

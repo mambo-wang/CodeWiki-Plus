@@ -63,6 +63,10 @@ _ALL_CHECKS = {
     # registry.py / prompts.py behaviour-contract copy must match the
     # single-source constants in codewiki/mcp/tools/limits.py
     "threshold_drift",
+    # 他山之石 (TAM ontology article borrow): provenance backstop —
+    # source_notes / backlink integrity for assets that bypassed submit;
+    # absorbed retirement is normal lifecycle, not staleness
+    "provenance_backstop",
 }
 
 # 归档/调试暂存目录不参与 wiki 一致性审计：.trash/（deprecated 笔记归档区，
@@ -1657,6 +1661,194 @@ def _check_skill_sections(output_dir: Path) -> List[Dict[str, Any]]:
     return issues
 
 
+# ---------------------------------------------------------------------------
+#  Provenance backstop (他山之石: TAM ontology article borrow)
+# ---------------------------------------------------------------------------
+
+# Absorption keywords in the retirement reason: a deprecated source whose
+# reject_reason carries one of these was absorbed into a scene/skill (normal
+# lifecycle), NOT invalidated.  Data fact: reject_note writes the reason to
+# the TOP-LEVEL reject_reason field, Chinese («聚合进场景：…») or English
+# ('consolidated into …'); metadata.disposition.reason is a legacy fallback.
+_PROVENANCE_ABSORB_WORDS = ("聚合", "吸收", "consolidated", "并入", "成块", "归入", "合并进")
+
+
+def _provenance_refs(meta: Dict[str, Any], key: str) -> List[str]:
+    """Read a provenance list field (str or list), filtering empty strings.
+
+    Data fact: empty consolidated_into / compiled_into entries exist in the
+    wild — an empty string is not a link.
+    """
+    v = meta.get(key)
+    if isinstance(v, str):
+        v = [v]
+    if not isinstance(v, list):
+        return []
+    return [str(x).replace("\\", "/").strip() for x in v if str(x).strip()]
+
+
+def _classify_provenance_target(output_dir: Path, ref: str) -> Tuple[str, str]:
+    """Classify one provenance target.  Returns (form, detail).
+
+    Forms:
+      ok          — live target (stable, or draft outside notes/)
+      absorbed    — deprecated WITH absorption keywords in the reason
+      missing     — target file does not exist (notes/ basename fallback)
+      invalidated — deprecated with a non-absorption reason
+      no_reason   — deprecated with no reason recorded (suspicious)
+      draft       — NOTE target still draft (unconfirmed knowledge)
+      deleted     — body is exactly the soft-delete marker
+      unparseable — frontmatter unreadable; okf_conformance §11 owns that error
+
+    ``detail`` carries the retirement reason for absorbed/invalidated, else "".
+    Shared by provenance_backstop and skill_lint possibly_stale (single-point
+    convergence: both consumers must agree on what "absorbed" means).
+    """
+    from codewiki.mcp.tools.note_consolidation import (
+        _read_body,
+        _read_frontmatter,
+        _SOFT_DELETE_MARKER,
+    )
+    from codewiki.src.config import NOTES_DIR
+
+    ref_norm = str(ref).replace("\\", "/").strip()
+    if not ref_norm:
+        return ("ok", "")
+    target = output_dir / ref_norm
+    if not target.is_file():
+        # mirrors submit's backlink resolution: bare note filenames resolve
+        # against notes/ (hand-written provenance often omits the directory)
+        alt = output_dir / NOTES_DIR / Path(ref_norm).name
+        if not alt.is_file():
+            return ("missing", "")
+        target = alt
+    fm = _read_frontmatter(target)
+    if fm is None:
+        return ("unparseable", "")
+    status = str(fm.get("status") or "stable").lower()
+    if status in ("deprecated", "superseded", "rejected"):
+        meta = fm.get("metadata")
+        if not isinstance(meta, dict):
+            meta = {}
+        disp = meta.get("disposition")
+        if not isinstance(disp, dict):
+            disp = {}
+        reason = str(
+            fm.get("reject_reason") or disp.get("reason") or fm.get("reason") or ""
+        ).strip()
+        if any(w in reason.lower() for w in _PROVENANCE_ABSORB_WORDS):
+            return ("absorbed", reason)
+        if not reason:
+            return ("no_reason", "")
+        return ("invalidated", reason)
+    try:
+        rel_parts = target.relative_to(output_dir).parts
+    except ValueError:
+        rel_parts = ()
+    if status == "draft" and NOTES_DIR in rel_parts:
+        # draft is the NORMAL zone for skills/scenarios — only an unconfirmed
+        # NOTE is a suspicious source ("demoted draft" form)
+        return ("draft", "")
+    if _read_body(target) == _SOFT_DELETE_MARKER:
+        return ("deleted", "")
+    return ("ok", "")
+
+
+def _check_provenance_backstop(output_dir: Path) -> List[Dict[str, Any]]:
+    """Provenance backstop: audit the source/target links that submit validates.
+
+    Backstop semantics (same as skill_lint): consolidate_notes / skill_creator
+    submit reject missing sources; this check catches hand-written or
+    hand-edited assets that bypassed the tools.
+
+      - forward: wiki/scenarios/*.md metadata.source_notes → each target
+        classified by _classify_provenance_target (absorbed retirement is
+        normal lifecycle and does NOT flag);
+      - backward: notes/*.md metadata.consolidated_into / compiled_into /
+        promoted_to → target must exist (submit writes full relative paths;
+        a missing target means the scene/skill/page was renamed, moved or
+        deleted without updating the backlink).
+
+    Warning-only, hint-only: no auto-fix, no fuzzy candidates (design Q3).
+    Unparseable frontmatter is skipped — okf_conformance §11 already errors.
+    """
+    from codewiki.mcp import i18n as _i18n
+    from codewiki.mcp.tools.note_consolidation import (
+        _read_body,
+        _read_frontmatter,
+        _scenarios_dir,
+        _SOFT_DELETE_MARKER,
+    )
+    from codewiki.src.config import NOTES_DIR
+
+    issues: List[Dict[str, Any]] = []
+    suggestion = _i18n.t("tools.wiki_lint.provenance_suggestion")
+    form_keys = {
+        "missing": "provenance_missing",
+        "invalidated": "provenance_invalidated",
+        "no_reason": "provenance_no_reason",
+        "draft": "provenance_draft",
+        "deleted": "provenance_deleted",
+    }
+
+    scen_dir = _scenarios_dir(output_dir)
+    if scen_dir.is_dir():
+        for p in sorted(scen_dir.glob("*.md")):
+            if _read_body(p) == _SOFT_DELETE_MARKER:
+                continue  # pending soft-delete cleanup, same as _scan_scenarios
+            fm = _read_frontmatter(p)
+            if fm is None:
+                continue
+            rel = p.relative_to(output_dir).as_posix()
+            meta = fm.get("metadata")
+            if not isinstance(meta, dict):
+                meta = {}
+            for ref in _provenance_refs(meta, "source_notes"):
+                form, detail = _classify_provenance_target(output_dir, ref)
+                key = form_keys.get(form)
+                if key is None:
+                    continue
+                issues.append(
+                    {
+                        "check": "provenance_backstop",
+                        "severity": "warning",
+                        "message": _i18n.t(f"tools.wiki_lint.{key}", ref=ref, reason=detail or "-"),
+                        "file": rel,
+                        "suggestion": suggestion,
+                    }
+                )
+
+    notes_dir = output_dir / NOTES_DIR
+    if notes_dir.is_dir():
+        for p in sorted(notes_dir.glob("*.md")):
+            if _read_body(p) == _SOFT_DELETE_MARKER:
+                continue
+            fm = _read_frontmatter(p)
+            if fm is None:
+                continue
+            rel = p.relative_to(output_dir).as_posix()
+            meta = fm.get("metadata")
+            if not isinstance(meta, dict):
+                meta = {}
+            for key in ("consolidated_into", "compiled_into", "promoted_to"):
+                for ref in _provenance_refs(meta, key):
+                    if not (output_dir / ref).is_file():
+                        issues.append(
+                            {
+                                "check": "provenance_backstop",
+                                "severity": "warning",
+                                "message": _i18n.t(
+                                    "tools.wiki_lint.provenance_backlink_missing",
+                                    field=key,
+                                    ref=ref,
+                                ),
+                                "file": rel,
+                                "suggestion": suggestion,
+                            }
+                        )
+    return issues
+
+
 def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
     """skill-creator T4 (issue #27, design §4.5): the full SKILL.md check set.
 
@@ -1666,11 +1858,12 @@ def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
     errors: name_slug / description_trigger / frontmatter_required /
     body_too_large / sensitive_content / revisions_required; capacity at
     the red line. warnings: skill_possibly_stale (a source_refs material
-    is deprecated / soft-deleted / missing, design Q5 — prompt a human
-    revise/retire decision, never auto), skill_drift (draft normalized
-    hash != installed_hash: revised after install, the effect zone still
-    serves the old version; reinstall is a user action, ADR-0004),
-    capacity orange.
+    is missing / deprecated-without-absorption / an unconfirmed draft note /
+    soft-deleted — absorbed retirement is normal lifecycle and does not
+    flag; prompt a human revise/retire decision, never auto), skill_drift
+    (draft normalized hash != installed_hash: revised after install, the
+    effect zone still serves the old version; reinstall is a user action,
+    ADR-0004), capacity orange.
     """
     issues: List[Dict[str, Any]] = []
     try:
@@ -1798,20 +1991,24 @@ def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
                 }
             )
 
-        # skill_possibly_stale (warning, design Q5)
+        # skill_possibly_stale (warning, design Q5) — delegates to the shared
+        # provenance classifier (single-point convergence with
+        # provenance_backstop): absorbed retirement no longer false-flags,
+        # and EVERY bad ref is reported (the old break hid later refs).
         for ref in refs:
-            ref_norm = str(ref).replace("\\", "/")
-            target = output_dir / ref_norm
-            stale_reason = None
-            if not target.is_file():
-                stale_reason = "material file missing"
-            else:
-                mfm = _read_frontmatter(target) or {}
-                m_status = str(mfm.get("status") or "").lower()
-                if m_status in ("deprecated", "superseded", "rejected"):
-                    stale_reason = f"material status={m_status}"
-                elif _read_body(target) == "[DELETED]":
-                    stale_reason = "material soft-deleted"
+            ref_norm = str(ref).replace("\\", "/").strip()
+            if not ref_norm:
+                continue
+            form, detail = _classify_provenance_target(output_dir, ref_norm)
+            stale_reason = {
+                "missing": "material file missing",
+                "invalidated": (
+                    f"material deprecated without absorption (reject_reason: {detail})"
+                ),
+                "no_reason": "material deprecated with no reject_reason",
+                "draft": "material still draft (unconfirmed note)",
+                "deleted": "material soft-deleted",
+            }.get(form)
             if stale_reason:
                 issues.append(
                     {
@@ -1824,7 +2021,6 @@ def _check_skill_lint(output_dir: Path) -> List[Dict[str, Any]]:
                         "suggestion": "Review the skill; revise against current material or retire it.",
                     }
                 )
-                break  # one warning per skill is enough to trigger review
 
         # skill_drift (warning, design Q6): draft revised after install
         installed_hash = meta.get("installed_hash")
@@ -2618,6 +2814,11 @@ def handle_lint_wiki(
         # skill-creator T4 (issue #27): thresholds are imported from
         # skill_creator constants — single source, no hardcoded copies.
         all_issues.extend(_check_skill_lint(output_dir))
+
+    if "provenance_backstop" in checks and output_dir:
+        # 他山之石: provenance links the submits validate — lint backstops
+        # hand-written/hand-edited assets (warning-only, hint-only).
+        all_issues.extend(_check_provenance_backstop(output_dir))
 
     if "okf_conformance" in checks and output_dir:
         all_issues.extend(

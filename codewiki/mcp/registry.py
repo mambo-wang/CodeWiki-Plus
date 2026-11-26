@@ -818,7 +818,7 @@ _register(
         name="lint_wiki",
         description=(
             "Check documentation-code consistency. Works with or without an active session. "
-            "Runs 25 available checks: stale_refs (docs reference deleted components), "
+            "Runs 27 available checks: stale_refs (docs reference deleted components), "
             "broken_links (markdown links to non-existent pages), "
             "undocumented (high-impact components without docs), "
             "cycles (circular module dependencies), coverage (documentation coverage gaps), "
@@ -852,7 +852,16 @@ _register(
             "install), "
             "open_conflicts (ADR-0007 conflict cases that are open beyond the "
             "adjudication window or whose claimant files went missing — "
-            "adjudicate via adjudicate_conflict). "
+            "adjudicate via adjudicate_conflict), "
+            "layout_violations (centralized-layout discipline: knowledge files "
+            "must live inside the centralized corpus layout), "
+            "team_layout_gitignore (rebuildable derived files must stay untracked), "
+            "threshold_drift (task-memory threshold numbers mirrored in "
+            "registry/prompts copy must match the limits.py constants), "
+            "provenance_backstop (source_notes / consolidated_into / compiled_into / "
+            "promoted_to provenance links: missing targets, deprecated-without-"
+            "absorption sources, unconfirmed draft notes, soft-deleted sources — "
+            "absorbed retirement is normal lifecycle and does not flag). "
             "Run checks=['all'] for a comprehensive audit. "
             "After fixing issues, use flag_issue to track remaining problems. "
             "MANDATORY FINAL STEP: after lint passes (or issues are tracked), you MUST call "
@@ -898,6 +907,7 @@ _register(
                             "team_layout_gitignore",
                             "open_conflicts",
                             "threshold_drift",
+                            "provenance_backstop",
                         ],
                     },
                     "description": 'Which checks to run (default: ["all"])',

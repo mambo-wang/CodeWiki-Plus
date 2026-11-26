@@ -96,6 +96,8 @@ CodeWiki-Plus 是一个由 AI IDE（CodeBuddy、Cursor、Claude Desktop 等）�
 
 整个过程只需 3 步，不需要任何 API Key。
 
+> **免手工做法（推荐）**：[codewiki/assets/skills/codewiki-setup](codewiki/assets/skills/codewiki-setup) 是一份「一键装机」技能（`SKILL.zh.md` / `SKILL.en.md`，随 pip 包一起分发）。把该目录放进 IDE 的技能目录（如 `.qoder/skills/`、`.codebuddy/skills/`、`.trae/skills/`），然后执行 `codewiki-setup` 技能——它会自动安装 pip 依赖（`pip install --upgrade codewiki-plus`）、接线 hooks 与对话采集、生成 MCP 配置和 `codewiki-*` 技能文件，即下面 3 步的全部内容一次做完。装好之后直接调用对应技能使用即可，不必再回到本节；下面的手工步骤留给需要逐项确认或自定义配置的场景。
+
 **第 1 步：安装 CodeWiki-Plus**
 
 ```bash
@@ -733,6 +735,8 @@ MCP Server 内置 **23 个工作流 Prompt**，在 AI IDE 中通过 Prompt 面�
 
 ### 使用场景示例
 
+> 下面的示例都是自然语言提示词。接线完成后，同一件事也可以直接调用对应的 `codewiki-*` 技能（如 `/codewiki-generate-wiki`、`/codewiki-search-wiki`、`/codewiki-quality-check`）或 MCP 的 Prompt / 工具命令，不必先描述意图。
+
 **场景 1：生成仓库文档**
 
 ```
@@ -955,6 +959,8 @@ After:
 ### Quick Start (CodeBuddy Example)
 
 3 steps, no API key needed.
+
+> **Zero manual steps (recommended)**: [codewiki/assets/skills/codewiki-setup](codewiki/assets/skills/codewiki-setup) is a one-shot installer skill (`SKILL.zh.md` / `SKILL.en.md`, shipped inside the pip package). Drop that directory into your IDE's skills folder (e.g. `.qoder/skills/`, `.codebuddy/skills/`, `.trae/skills/`) and invoke the `codewiki-setup` skill — it installs the pip dependency (`pip install --upgrade codewiki-plus`), wires hooks + session capture, and generates the MCP config plus the `codewiki-*` skill files, i.e. everything in the 3 steps below in one pass. Afterwards just call the skills directly; the manual steps below remain for per-item control or custom configuration.
 
 **Step 1: Install CodeWiki-Plus**
 

@@ -518,6 +518,14 @@ def _validate_entry(
             (Path(output_dir) / rel).resolve().relative_to(Path(output_dir).resolve())
         except ValueError:
             return _err("source_refs_invalid", f"source_ref '{rel}' escapes output_dir.")
+        # 溯源背撑（他山之石 Q6）：submit 是严格闸门——素材必须真实存在，
+        # 缺失直接条目 error（lint 的 skill_lint 只兜手写手改的草稿）。
+        if not (Path(output_dir) / rel).is_file():
+            return _err(
+                "source_refs_missing",
+                f"source_ref '{rel}' does not exist under output_dir; "
+                "fix the path or ingest the material first.",
+            )
         refs.append(rel)
     if not refs:
         return _err("source_refs_required", "source_refs must contain at least one path.")

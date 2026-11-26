@@ -316,6 +316,68 @@ def test_submit_validation_error_keeps_counter(tmp_path):
     assert state["notes_since_last_consolidation"] == 1  # NOT reset
 
 
+def test_submit_missing_source_notes_is_entry_error(tmp_path):
+    """溯源背撑（他山之石 Q6）：submit 校验源目标存在——缺失→条目 error，
+    不写半截溯源（双向都不落），计数器不归零。"""
+    repo = str(tmp_path)
+    _set_thresholds(repo)
+    nf = _ingest(repo, "Real source note")
+    _confirm(repo, nf)
+    scen = _write_scenario(repo, "prov-scene", with_provenance=False)
+    resp = _consolidate(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "scenarios": [
+                    {
+                        "file": scen,
+                        "action": "created",
+                        "source_notes": [f"notes/{nf}", "notes/ghost-note.md"],
+                        "summary": "prov test",
+                        "heat": 1,
+                    }
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "error", resp
+    assert any("source_notes not found" in str(e) for e in resp["errors"])
+    # no half-written provenance on either side
+    assert "source_notes" not in _fm(repo, scen)["metadata"]
+    assert "consolidated_into" not in _fm(repo, f"notes/{nf}")["metadata"]
+    state = agg.load_state(Path(repo) / "repowiki")
+    assert state["notes_since_last_consolidation"] == 1  # NOT reset
+
+
+def test_submit_source_notes_basename_fallback_accepted(tmp_path):
+    """bare note filenames resolve against notes/ (same as backlink writes)."""
+    repo = str(tmp_path)
+    _set_thresholds(repo)
+    nf = _ingest(repo, "Basename fallback note")
+    _confirm(repo, nf)
+    scen = _write_scenario(repo, "fallback-scene", with_provenance=False)
+    resp = _consolidate(
+        repo,
+        {
+            "mode": "submit",
+            "report": {
+                "scenarios": [
+                    {
+                        "file": scen,
+                        "action": "created",
+                        "source_notes": [nf],
+                        "summary": "fallback test",
+                        "heat": 1,
+                    }
+                ]
+            },
+        },
+    )
+    assert resp["status"] == "completed", resp
+    assert scen in _fm(repo, f"notes/{nf}")["metadata"]["consolidated_into"]
+
+
 # --------------------------------------------------------------------------- #
 # 3b. candidate dispositions (every pending note needs a destination)
 # --------------------------------------------------------------------------- #

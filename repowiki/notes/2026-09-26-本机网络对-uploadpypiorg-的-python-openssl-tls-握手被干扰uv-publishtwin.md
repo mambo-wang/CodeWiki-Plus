@@ -25,7 +25,7 @@ origin: conversation
 verified:
 - by: human:wangbao
   at: '2026-09-26T13:58:03Z'
-source_conversations: ['conversations/conv-working_memory_content-The-following-is-the-existing-working-3-16f142.md']
+source_conversations: ['conversations/conv-working_memory_content-The-following-is-the-existing-working-3-16f142.md', 'conversations/conv-@command-windows-python-release-发布小版本5.16.7.md']
 
 ---
 
@@ -60,3 +60,15 @@ Python 生态上传工具（uv/twine）在 TLS 被干扰的网络里不可用，
 3. **必须字段 :action=file_upload**：缺失时 PyPI 返回 405 Method Not Allowed。
 
 Rationale：上文推荐的 `-K 配置文件` 路线在本机默认 curl.exe（PATH 解析到 System32 7.55.1）下会静默失效，本次发布为此多轮 405/400 排查才定位；三个硬前提是 curl 直传路线能否跑通的判定依据，须并入。
+
+## 本机对 upload.pypi.org 的 TLS 干扰是间歇性的：v5.16.7 时 uv publish 直连成功，先直连再降级 curl.exe 绕法
+
+> 合并自蒸馏候选：本机对 upload.pypi.org 的 TLS 干扰是间歇性的：v5.16.7 时 uv publish 直连成功，先直连再降级 curl.exe 绕法
+
+## 补充：TLS 干扰是间歇性的，先直连 uv publish 再降级 curl.exe 绕法（2026-11 v5.16.7 发布实测）
+
+上文记录的「uv publish/twine 全部超时失败」并非恒定状态：v5.16.7 发布（2026-11）时 `uv publish` **直接成功**，双产物正常上传，未触发任何 TLS 超时——干扰是间歇性的。
+
+结论：发布流程中应先直接尝试 `uv publish`（token 从 keyring 取、经环境变量传入），失败（连接超时）时再降级到 curl.exe multipart 绕法；不要一上来就走绕法，也不要因一次直连成功就删掉绕法预案。
+
+Rationale：把间歇性网络故障当成恒定故障会白白增加发布步骤；把一次成功当成永久修复则会在下次被干扰时卡死。先直连、失败降级是成本最低的顺序。

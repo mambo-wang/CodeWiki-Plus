@@ -566,10 +566,27 @@ def handle_consolidate_notes(arguments: Dict[str, Any], store: Any) -> str:
             if str(s).strip()
         ]
         if source_notes:
-            _append_meta_list(path, "source_notes", source_notes)
             from codewiki.src.config import NOTES_DIR
 
             notes_dir = Path(output_dir) / NOTES_DIR
+            # 溯源背撑（他山之石 Q6）：submit 是严格闸门——源目标缺失直接
+            # 条目 error，不写半截溯源（lint 的 provenance_backstop 只兜
+            # 绕过工具的手写手改，不依赖下游幂等当安全网）。
+            missing_srcs = [
+                src
+                for src in source_notes
+                if not (Path(output_dir) / src).is_file()
+                and not (notes_dir / Path(src).name).is_file()
+            ]
+            if missing_srcs:
+                errors.append(
+                    {
+                        "file": rel,
+                        "error": f"source_notes not found: {', '.join(missing_srcs)}",
+                    }
+                )
+                continue
+            _append_meta_list(path, "source_notes", source_notes)
             for src in source_notes:
                 note_path = Path(output_dir) / src
                 if note_path.is_file():

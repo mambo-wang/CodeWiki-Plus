@@ -1082,7 +1082,7 @@ def main():
     r = json.loads(handle_lint_wiki({"session_id": sid, "checks": ["all"]}, store))
     lint_data = json.loads(Path(r["file"]).read_text(encoding="utf-8")) if "file" in r else r
     checks_run = lint_data.get("checks_run", [])
-    check("lint_wiki", "16项检查全跑", len(checks_run) == 16, str(checks_run))
+    check("lint_wiki", "27项检查全跑", len(checks_run) == 27, str(checks_run))
     check("lint_wiki", "含okf_conformance", "okf_conformance" in checks_run, str(checks_run))
     okf_issues = [i for i in lint_data.get("issues", []) if i.get("check") == "okf_conformance"]
     kinds = {i.get("file", ""): i.get("message", "") for i in okf_issues}

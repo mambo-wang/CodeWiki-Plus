@@ -468,6 +468,11 @@ def _mk_skill_repo(tmp_path: Path, status: str = "draft") -> tuple[str, Path, Pa
         encoding="utf-8",
     )
     draft = _write_draft(od / "skills", "fork-pr-conflict", status)
+    # submit validates source existence (溯源背撑 Q6) — the revision tests
+    # reference notes/some.md, so the fixture must materialize it
+    (od / "notes" / "some.md").write_text(
+        "---\ntype: pitfall\ntitle: some\nstatus: stable\n---\nbody\n", encoding="utf-8"
+    )
     return str(repo), od, draft
 
 

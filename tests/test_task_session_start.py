@@ -33,14 +33,14 @@ EVENT = json.dumps(
 )
 
 
-def _run_hook(repo: Path, hook: Path = HOOK) -> dict:
+def _run_hook(repo: Path, hook: Path = HOOK, event: dict | None = None) -> dict:
     env = dict(os.environ)
     env["CODEBUDDY_PROJECT_DIR"] = str(repo)
     # Deterministic UTF-8 stdout regardless of the Windows console code page.
     env["PYTHONUTF8"] = "1"
     proc = subprocess.run(
         [sys.executable, str(hook)],
-        input=EVENT,
+        input=EVENT if event is None else json.dumps(event, ensure_ascii=False),
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -461,3 +461,713 @@ def test_empty_index_also_falls_back_to_scan(tmp_path):
 
     ctx = _context(_run_hook(tmp_path))
     assert "空索引用目录扫描（task_id=keep）" in ctx
+
+
+# ---------------------------------------------------------------------------
+# 同一会话重复触发 SessionStart：已有选择直接续接，不再弹任务框。
+# ---------------------------------------------------------------------------
+
+
+def _session_event(session_id: str, transcript_path: Path | None = None) -> dict:
+    event = {
+        "session_id": session_id,
+        "cwd": "/",
+        "hook_event_name": "SessionStart",
+        "source": "startup",
+    }
+    if transcript_path is not None:
+        event["transcript_path"] = str(transcript_path)
+    return event
+
+
+def _write_session_binding(
+    repo: Path, session_id: str, task_id: str, *, consumed: bool = False
+) -> Path:
+    directory = repo / "repowiki" / ".meta" / "task_bindings"
+    if consumed:
+        directory /= "consumed"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{session_id}.json"
+    path.write_text(
+        json.dumps({"task_id": task_id, "bound_at": "2026-11-26T00:00:00Z"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_live_binding_skips_qoder_chooser_and_keeps_common_context(tmp_path):
+    _write_tasks_index(tmp_path, [{"id": "task-one", "title": "任务一", "status": "active"}])
+    _write_session_binding(tmp_path, "session-1", "task-one")
+    _write_raw_file(tmp_path, "conv-a.md", "task-one")
+    wiki = tmp_path / "repowiki" / "wiki"
+    wiki.mkdir(parents=True, exist_ok=True)
+    (wiki / "doctrine.md").write_text(
+        "---\ntype: Doctrine\n---\n\nKeep modules deep.\n", encoding="utf-8"
+    )
+
+    ctx = _context(
+        _run_hook(tmp_path, hook=_install_qoder_copy(tmp_path), event=_session_event("session-1"))
+    )
+
+    assert "【已有任务关联】" in ctx
+    assert "无需重复弹框" in ctx
+    assert "get_task_context(task_id=task-one)" in ctx
+    assert "必须弹框" not in ctx
+    assert "该 question 的 options" not in ctx
+    assert "set_session_task" not in ctx
+    # 跳过选择框不意味着丢掉补蒸馏、Doctrine 等公共注入。
+    assert "【补蒸馏】" in ctx
+    assert "已有任务关联，直接" in ctx
+    assert "Keep modules deep." in ctx
+
+
+def test_consumed_binding_also_skips_chooser(tmp_path):
+    _write_tasks_index(tmp_path, [{"id": "task-one", "title": "任务一", "status": "completed"}])
+    _write_session_binding(tmp_path, "session-1", "task-one", consumed=True)
+
+    ctx = _context(
+        _run_hook(tmp_path, hook=_install_qoder_copy(tmp_path), event=_session_event("session-1"))
+    )
+
+    assert "无需重复弹框" in ctx
+    assert "get_task_context(task_id=task-one)" in ctx
+    assert "必须弹框" not in ctx
+
+
+def test_history_capture_restores_binding_without_asking_again(tmp_path):
+    _write_tasks_index(tmp_path, [{"id": "task-one", "title": "任务一", "status": "active"}])
+    _write_raw_file(tmp_path, "conv-a.md", "task-one")
+    _write_raw_index(
+        tmp_path,
+        [
+            {
+                "relpath": "conv-a.md",
+                "status": "pending",
+                "source_session": "session-1",
+                "task_id": "task-one",
+            }
+        ],
+    )
+
+    ctx = _context(
+        _run_hook(tmp_path, hook=_install_qoder_copy(tmp_path), event=_session_event("session-1"))
+    )
+
+    assert "无需重复弹框" in ctx
+    assert "set_session_task(source_session_id=session-1, task_id=task-one)" in ctx
+    assert "get_task_context(task_id=task-one)" in ctx
+    assert "必须弹框" not in ctx
+    assert "该 question 的 options" not in ctx
+
+
+def test_binding_for_another_session_does_not_skip_chooser(tmp_path):
+    _write_tasks_index(tmp_path, [{"id": "task-one", "title": "任务一", "status": "active"}])
+    _write_session_binding(tmp_path, "other-session", "task-one")
+
+    ctx = _context(
+        _run_hook(tmp_path, hook=_install_qoder_copy(tmp_path), event=_session_event("session-1"))
+    )
+
+    assert "必须弹框" in ctx
+    assert "AskUserQuestion" in ctx
+    assert "【已有任务关联】" not in ctx
+
+
+def test_corrupt_binding_falls_back_to_chooser(tmp_path):
+    _write_tasks_index(tmp_path, [{"id": "task-one", "title": "任务一", "status": "active"}])
+    binding = _write_session_binding(tmp_path, "session-1", "task-one")
+    binding.write_text("{not valid json", encoding="utf-8")
+
+    ctx = _context(
+        _run_hook(tmp_path, hook=_install_qoder_copy(tmp_path), event=_session_event("session-1"))
+    )
+
+    assert "必须弹框" in ctx
+    assert "【已有任务关联】" not in ctx
+
+
+def test_unsafe_session_id_cannot_escape_binding_directory(tmp_path):
+    _write_tasks_index(tmp_path, [{"id": "task-one", "title": "任务一", "status": "active"}])
+    outside = tmp_path / "repowiki" / ".meta" / "victim.json"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text(json.dumps({"task_id": "task-one"}), encoding="utf-8")
+
+    ctx = _context(
+        _run_hook(tmp_path, hook=_install_qoder_copy(tmp_path), event=_session_event("../victim"))
+    )
+
+    assert "必须弹框" in ctx
+    assert "【已有任务关联】" not in ctx
+
+
+# ---------------------------------------------------------------------------
+# 换 session_id 的同一逻辑对话：只读当前事件提供的 transcript，识别首个真实
+# 任务选择。工具提示文案、普通聊天中的任务名、失败的绑定都不算证据。
+# ---------------------------------------------------------------------------
+
+
+def _write_jsonl(path: Path, entries: list[dict]) -> Path:
+    path.write_text(
+        "".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in entries),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _qoder_tool_use(call_id: str, name: str, tool_input: dict) -> dict:
+    return {
+        "type": "assistant",
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": call_id, "name": name, "input": tool_input}],
+        },
+    }
+
+
+def _qoder_tool_result(call_id: str, result: object, *, is_error: bool = False) -> dict:
+    content = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
+    return {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": call_id,
+                    "content": content,
+                    "is_error": is_error,
+                }
+            ],
+        },
+    }
+
+
+def _qoder_user_text(text: str) -> dict:
+    return {
+        "type": "user",
+        "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+    }
+
+
+def _task_question() -> dict:
+    return {
+        "questions": [
+            {
+                "header": "任务关联",
+                "question": "请选择要关联的任务",
+                "options": [
+                    {"label": "任务一", "description": "任务一（task_id=task-one）"},
+                    {"label": "跳过", "description": "本次不做任务关联"},
+                ],
+            }
+        ]
+    }
+
+
+def _qoder_ask(call_id: str, *, async_tool: bool = False) -> dict:
+    name = "AskUserQuestionAsync" if async_tool else "AskUserQuestion"
+    return _qoder_tool_use(call_id, name, _task_question())
+
+
+def _qoder_answer(call_id: str, answer: str) -> dict:
+    return _qoder_tool_result(
+        call_id,
+        f'Your questions have been answered: "请选择要关联的任务"="{answer}". '
+        "You can now continue with the user's answers.",
+    )
+
+
+def _qoder_mcp_call(call_id: str, tool_name: str, arguments: dict) -> dict:
+    return _qoder_tool_use(
+        call_id,
+        "mcp_call",
+        {"toolName": f"mcp__codewiki__{tool_name}", "arguments": arguments},
+    )
+
+
+def _assert_restored(ctx: str, task_id: str, session_id: str = "session-new") -> None:
+    assert "【已有任务关联】" in ctx
+    assert "无需重复弹框" in ctx
+    assert f"set_session_task(source_session_id={session_id}, task_id={task_id})" in ctx
+    assert f"get_task_context(task_id={task_id})" in ctx
+    assert "必须弹框" not in ctx
+    assert "该 question 的 options" not in ctx
+
+
+def test_transcript_restores_task_when_host_mints_new_session_id(tmp_path):
+    _write_tasks_index(tmp_path, [{"id": "task-one", "title": "任务一", "status": "active"}])
+    transcript = _write_jsonl(
+        tmp_path / "qoder.jsonl",
+        [
+            _qoder_ask("ask-1"),
+            _qoder_answer("ask-1", "任务一"),
+            _qoder_mcp_call(
+                "bind-1",
+                "set_session_task",
+                {"source_session_id": "session-old", "task_id": "task-one"},
+            ),
+            _qoder_tool_result("bind-1", {"ok": True, "task_id": "task-one"}),
+        ],
+    )
+
+    ctx = _context(
+        _run_hook(
+            tmp_path,
+            hook=_install_qoder_copy(tmp_path),
+            event=_session_event("session-new", transcript),
+        )
+    )
+
+    _assert_restored(ctx, "task-one")
+
+
+def test_transcript_accepts_direct_set_session_task_after_compaction(tmp_path):
+    _write_tasks_index(tmp_path, [{"id": "task-one", "title": "任务一", "status": "active"}])
+    transcript = _write_jsonl(
+        tmp_path / "claude.jsonl",
+        [
+            _qoder_tool_use(
+                "bind-1",
+                "mcp__codewiki__set_session_task",
+                {"source_session_id": "session-old", "task_id": "task-one"},
+            ),
+            _qoder_tool_result("bind-1", {"ok": True, "task_id": "task-one"}),
+        ],
+    )
+
+    ctx = _context(
+        _run_hook(
+            tmp_path,
+            hook=_install_qoder_copy(tmp_path),
+            event=_session_event("session-new", transcript),
+        )
+    )
+
+    _assert_restored(ctx, "task-one")
+
+
+def test_first_skip_is_terminal_even_if_later_binding_succeeds(tmp_path):
+    _write_tasks_index(tmp_path, [{"id": "task-one", "title": "任务一", "status": "active"}])
+    transcript = _write_jsonl(
+        tmp_path / "skip.jsonl",
+        [
+            _qoder_ask("ask-1"),
+            _qoder_answer("ask-1", "跳过"),
+            _qoder_mcp_call(
+                "bind-1",
+                "set_session_task",
+                {"source_session_id": "session-old", "task_id": "task-one"},
+            ),
+            _qoder_tool_result("bind-1", {"ok": True, "task_id": "task-one"}),
+        ],
+    )
+
+    ctx = _context(
+        _run_hook(
+            tmp_path,
+            hook=_install_qoder_copy(tmp_path),
+            event=_session_event("session-new", transcript),
+        )
+    )
+
+    assert "【已有会话决策】" in ctx
+    assert "首个任务选择是「跳过/不绑定」" in ctx
+    assert "无需重复弹框" in ctx
+    assert "必须弹框" not in ctx
+    assert "get_task_context(task_id=" not in ctx
+    assert "set_session_task(source_session_id=" not in ctx
+
+
+def test_async_chooser_skip_is_terminal(tmp_path):
+    _write_tasks_index(tmp_path, [{"id": "task-one", "title": "任务一", "status": "active"}])
+    transcript = _write_jsonl(
+        tmp_path / "async-skip.jsonl",
+        [
+            _qoder_ask("ask-1", async_tool=True),
+            _qoder_tool_result("ask-1", "Questions published. Wait for the user's answers."),
+            _qoder_user_text("跳过"),
+            _qoder_mcp_call(
+                "bind-1",
+                "set_session_task",
+                {"source_session_id": "session-old", "task_id": "task-one"},
+            ),
+            _qoder_tool_result("bind-1", {"ok": True, "task_id": "task-one"}),
+        ],
+    )
+
+    ctx = _context(
+        _run_hook(
+            tmp_path,
+            hook=_install_qoder_copy(tmp_path),
+            event=_session_event("session-new", transcript),
+        )
+    )
+
+    assert "【已有会话决策】" in ctx
+    assert "必须弹框" not in ctx
+
+
+def test_failed_chooser_call_can_be_followed_by_async_choice(tmp_path):
+    _write_tasks_index(tmp_path, [{"id": "task-one", "title": "任务一", "status": "active"}])
+    transcript = _write_jsonl(
+        tmp_path / "chooser-retry.jsonl",
+        [
+            _qoder_ask("ask-1"),
+            _qoder_tool_result(
+                "ask-1",
+                "Error: AskUserQuestion is only available in Plan mode.",
+                is_error=True,
+            ),
+            _qoder_ask("ask-2", async_tool=True),
+            _qoder_tool_result("ask-2", "Questions published. Wait for the user's answers."),
+            _qoder_user_text("任务一"),
+            _qoder_mcp_call(
+                "bind-1",
+                "set_session_task",
+                {"source_session_id": "session-old", "task_id": "task-one"},
+            ),
+            _qoder_tool_result("bind-1", {"ok": True, "task_id": "task-one"}),
+        ],
+    )
+
+    ctx = _context(
+        _run_hook(
+            tmp_path,
+            hook=_install_qoder_copy(tmp_path),
+            event=_session_event("session-new", transcript),
+        )
+    )
+
+    _assert_restored(ctx, "task-one")
+
+
+def test_new_task_choice_without_name_waits_for_followup_text(tmp_path):
+    _write_tasks_index(tmp_path, [])
+    transcript = _write_jsonl(
+        tmp_path / "new-name.jsonl",
+        [
+            _qoder_ask("ask-1"),
+            _qoder_answer("ask-1", "新建任务"),
+            _qoder_user_text("全新任务"),
+            _qoder_mcp_call("create-1", "create_task", {"title": "全新任务"}),
+            _qoder_tool_result("create-1", {"ok": True, "task_id": "全新任务"}),
+            _qoder_mcp_call(
+                "bind-1",
+                "set_session_task",
+                {"source_session_id": "session-old", "task_id": "全新任务"},
+            ),
+            _qoder_tool_result("bind-1", {"ok": True, "task_id": "全新任务"}),
+        ],
+    )
+
+    ctx = _context(
+        _run_hook(
+            tmp_path,
+            hook=_install_qoder_copy(tmp_path),
+            event=_session_event("session-new", transcript),
+        )
+    )
+
+    _assert_restored(ctx, "全新任务")
+
+
+def test_failed_binding_can_be_followed_by_successful_reselection(tmp_path):
+    _write_tasks_index(
+        tmp_path,
+        [
+            {"id": "task-one", "title": "任务一", "status": "active"},
+            {"id": "task-two", "title": "任务二", "status": "active"},
+        ],
+    )
+    transcript = _write_jsonl(
+        tmp_path / "retry.jsonl",
+        [
+            _qoder_ask("ask-1"),
+            _qoder_answer("ask-1", "任务一"),
+            _qoder_mcp_call(
+                "bind-1",
+                "set_session_task",
+                {"source_session_id": "session-old", "task_id": "task-one"},
+            ),
+            _qoder_tool_result("bind-1", {"ok": False, "error": "task missing"}),
+            _qoder_ask("ask-2"),
+            _qoder_answer("ask-2", "任务二"),
+            _qoder_mcp_call(
+                "bind-2",
+                "set_session_task",
+                {"source_session_id": "session-old", "task_id": "task-two"},
+            ),
+            _qoder_tool_result("bind-2", {"ok": True, "task_id": "task-two"}),
+        ],
+    )
+
+    ctx = _context(
+        _run_hook(
+            tmp_path,
+            hook=_install_qoder_copy(tmp_path),
+            event=_session_event("session-new", transcript),
+        )
+    )
+
+    _assert_restored(ctx, "task-two")
+
+
+def test_new_task_requires_create_and_bind_success(tmp_path):
+    _write_tasks_index(tmp_path, [])
+    failed = _write_jsonl(
+        tmp_path / "new-failed.jsonl",
+        [
+            _qoder_ask("ask-1"),
+            _qoder_answer("ask-1", "全新任务"),
+            _qoder_mcp_call("create-1", "create_task", {"title": "全新任务"}),
+            _qoder_tool_result("create-1", {"ok": False, "error": "create failed"}),
+            _qoder_mcp_call(
+                "bind-1",
+                "set_session_task",
+                {"source_session_id": "session-old", "task_id": "全新任务"},
+            ),
+            _qoder_tool_result("bind-1", {"ok": True, "task_id": "全新任务"}),
+        ],
+    )
+    ctx = _context(
+        _run_hook(
+            tmp_path,
+            hook=_install_qoder_copy(tmp_path),
+            event=_session_event("session-new", failed),
+        )
+    )
+    assert "必须弹框" in ctx
+    assert "【已有任务关联】" not in ctx
+
+    succeeded = _write_jsonl(
+        tmp_path / "new-succeeded.jsonl",
+        [
+            _qoder_ask("ask-1"),
+            _qoder_answer("ask-1", "全新任务"),
+            _qoder_mcp_call("create-1", "create_task", {"title": "全新任务"}),
+            _qoder_tool_result("create-1", {"ok": True, "task_id": "全新任务"}),
+            _qoder_mcp_call(
+                "bind-1",
+                "set_session_task",
+                {"source_session_id": "session-old", "task_id": "全新任务"},
+            ),
+            _qoder_tool_result("bind-1", {"ok": True, "task_id": "全新任务"}),
+        ],
+    )
+    ctx = _context(
+        _run_hook(
+            tmp_path,
+            hook=_install_qoder_copy(tmp_path),
+            event=_session_event("session-new", succeeded),
+        )
+    )
+    _assert_restored(ctx, "全新任务")
+
+
+def test_ordinary_chat_task_name_is_not_binding_evidence(tmp_path):
+    _write_tasks_index(tmp_path, [{"id": "task-one", "title": "任务一", "status": "active"}])
+    transcript = _write_jsonl(
+        tmp_path / "chat.jsonl",
+        [
+            _qoder_user_text("我们选任务一吧"),
+            _qoder_tool_use("read-1", "Read", {"file_path": "README.md"}),
+            _qoder_tool_result("read-1", "file contents"),
+        ],
+    )
+
+    ctx = _context(
+        _run_hook(
+            tmp_path,
+            hook=_install_qoder_copy(tmp_path),
+            event=_session_event("session-new", transcript),
+        )
+    )
+
+    assert "必须弹框" in ctx
+    assert "【已有任务关联】" not in ctx
+
+
+def test_codebuddy_index_transcript_restores_task(tmp_path):
+    _write_tasks_index(tmp_path, [{"id": "task-one", "title": "任务一", "status": "active"}])
+    session_dir = tmp_path / "codebuddy-session"
+    messages_dir = session_dir / "messages"
+    messages_dir.mkdir(parents=True)
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool-call",
+                    "id": "ask-1",
+                    "toolName": "ask_followup_question",
+                    "args": _task_question(),
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "content": [
+                {
+                    "type": "tool-result",
+                    "toolCallId": "ask-1",
+                    "text": json.dumps(
+                        {"answers": {"请选择要关联的任务": "任务一"}}, ensure_ascii=False
+                    ),
+                }
+            ],
+        },
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool-call",
+                    "id": "bind-1",
+                    "toolName": "mcp_call",
+                    "args": {
+                        "toolName": "mcp__codewiki__set_session_task",
+                        "arguments": {"source_session_id": "session-old", "task_id": "task-one"},
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "content": [{"type": "tool-result", "toolCallId": "bind-1", "text": '{"ok": true}'}],
+        },
+    ]
+    index_messages = []
+    for idx, message in enumerate(messages, start=1):
+        message_id = f"m{idx}"
+        index_messages.append(
+            {"id": message_id, "role": message["role"], "type": "text", "isComplete": True}
+        )
+        (messages_dir / f"{message_id}.json").write_text(
+            json.dumps(
+                {"role": message["role"], "message": json.dumps(message, ensure_ascii=False)},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    transcript = session_dir / "index.json"
+    transcript.write_text(json.dumps({"messages": index_messages}), encoding="utf-8")
+
+    ctx = _context(
+        _run_hook(
+            tmp_path,
+            hook=_install_qoder_copy(tmp_path),
+            event=_session_event("session-new", transcript),
+        )
+    )
+
+    _assert_restored(ctx, "task-one")
+
+
+def test_transcript_skip_does_not_fall_back_to_stale_raw_attribution(tmp_path):
+    _write_raw_file(tmp_path, "conv-a.md", "task-one")
+    _write_raw_index(
+        tmp_path,
+        [
+            {
+                "relpath": "conv-a.md",
+                "status": "pending",
+                "source_session": "session-new",
+                "task_id": "task-one",
+            }
+        ],
+    )
+    transcript = _write_jsonl(
+        tmp_path / "skip-with-raw.jsonl",
+        [_qoder_ask("ask-1"), _qoder_answer("ask-1", "跳过")],
+    )
+
+    ctx = _context(
+        _run_hook(
+            tmp_path,
+            hook=_install_qoder_copy(tmp_path),
+            event=_session_event("session-new", transcript),
+        )
+    )
+
+    assert "【已有会话决策】" in ctx
+    assert "【已有任务关联】" not in ctx
+    assert "必须弹框" not in ctx
+
+
+def test_codebuddy_and_trae_copies_share_transcript_recovery(tmp_path):
+    entries = [
+        _qoder_ask("ask-1"),
+        _qoder_answer("ask-1", "任务一"),
+        _qoder_mcp_call(
+            "bind-1",
+            "set_session_task",
+            {"source_session_id": "session-old", "task_id": "task-one"},
+        ),
+        _qoder_tool_result("bind-1", {"ok": True, "task_id": "task-one"}),
+    ]
+    for host in ("codebuddy", "trae"):
+        repo = tmp_path / host
+        _write_tasks_index(repo, [{"id": "task-one", "title": "任务一", "status": "active"}])
+        transcript = _write_jsonl(repo / "session.jsonl", entries)
+        hook = repo / f".{host}" / "hooks" / "task_session_start.py"
+        hook.parent.mkdir(parents=True)
+        shutil.copy(HOOK, hook)
+
+        ctx = _context(_run_hook(repo, hook=hook, event=_session_event("session-new", transcript)))
+
+        _assert_restored(ctx, "task-one")
+
+
+def test_large_jsonl_still_recovers_an_early_decision(tmp_path):
+    _write_tasks_index(tmp_path, [{"id": "task-one", "title": "任务一", "status": "active"}])
+    transcript = tmp_path / "large.jsonl"
+    early = [
+        _qoder_ask("ask-1"),
+        _qoder_answer("ask-1", "任务一"),
+        _qoder_mcp_call(
+            "bind-1",
+            "set_session_task",
+            {"source_session_id": "session-old", "task_id": "task-one"},
+        ),
+        _qoder_tool_result("bind-1", {"ok": True, "task_id": "task-one"}),
+    ]
+    with transcript.open("w", encoding="utf-8") as fh:
+        for entry in early:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        fh.write(json.dumps(_qoder_user_text("x" * (9 * 1024 * 1024)), ensure_ascii=False) + "\n")
+
+    ctx = _context(
+        _run_hook(
+            tmp_path,
+            hook=_install_qoder_copy(tmp_path),
+            event=_session_event("session-new", transcript),
+        )
+    )
+
+    _assert_restored(ctx, "task-one")
+
+
+def test_unreadable_transcript_keeps_raw_index_fallback(tmp_path):
+    _write_raw_file(tmp_path, "conv-a.md", "task-one")
+    _write_raw_index(
+        tmp_path,
+        [
+            {
+                "relpath": "conv-a.md",
+                "status": "pending",
+                "source_session": "session-new",
+                "task_id": "task-one",
+            }
+        ],
+    )
+    transcript = tmp_path / "broken.jsonl"
+    transcript.write_text("{not valid json", encoding="utf-8")
+
+    ctx = _context(
+        _run_hook(
+            tmp_path,
+            hook=_install_qoder_copy(tmp_path),
+            event=_session_event("session-new", transcript),
+        )
+    )
+
+    _assert_restored(ctx, "task-one")
