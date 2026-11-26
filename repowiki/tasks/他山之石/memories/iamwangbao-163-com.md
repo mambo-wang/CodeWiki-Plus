@@ -1,54 +1,36 @@
 ## 早期记忆（摘要）
 
-## 早期记忆（摘要）
-
-2026-09-04 ~ 09-19 他山之石调研结论摘要：
+2026-09-04 ~ 09-20 他山之石调研结论摘要：
 
 【已完成研究】①caveman：SKILL.md 单事实源经三条链路注入（hooks/Native Pack/skills 目录），SessionStart stdout 隐藏注入 + compact 重注入防漂移；2 条 architecture 笔记 stable；技能已装 ~/.codebuddy/skills。②ponytail：三层加载档位 T1 指令/T2 技能/T3 hooks，CodeBuddy 属 T2；机制草稿已 reject。③wikiskill：SKILL 自动生成定档方案 C 半闭环（单向编译器 B：confirmed notes/scenarios → SKILL.md draft → 确认闸门 → .codebuddy/skills/），不建自动评分门控。④skill-creator 设计定稿：四 mode prepare/submit/install/retire、两区制（草稿 repowiki/skills/ 不生效 → install 到 .codebuddy/skills/）、容量硬顶 12、批次最多新建 1；consolidate_notes 产知识层 scenario，skill_creator 产行为层，单向下游。未决：Q10 回流验证判定、Q11 lint 规则与容量取值。⑤humanizer v2.11.2 已装用户级。⑥ponytail/caveman 融合方向定档但未落地。
 
-【teamai-cli（09-10）】v0.20.0→v0.23.1，8 候选 0 采纳。判据=只有实测缺口才做。证伪：friction_score 已有打分（friction.py），锁已有 OS flock（store.py:166-189）。#336 实测无缺口 excluded（n=1 样本警告）；#374 模型相反。
+【letta（09-19~20）】letta-ai/letta main 只是 landing page，实现在 letta-ai/letta-code。报告 docs/letta-调研与借鉴分析.md。核心机制：.letta MemFS、memory 写入即 git commit 且 reason 必填、reflection 子代理每 25 step 在隔离 worktree 改记忆、失败压制、记忆与 Skill 同通道沉淀。借鉴定案 ADR-0013（docs/adr/0013-letta-stable-reason-and-limits-module.md）：① ingest_note 加可选 reason 字段，status=stable 直写时必填（draft/confirm 等豁免）；② 新建 codewiki/mcp/tools/limits.py 收敛压缩阈值组（40 条/24KB/keep 20/摘要 4096）与写入窗口软限（5 条），lint_wiki 加 threshold_drift 检查。方案 B 修订：stable 直写另加可选 evidence 字段（test_ref/commit_ref/reviewed_by），提供时记 metadata.verification 并升 confidence_level=strong；reason 管可见性（防静默），evidence 管验证（人工可核验锚点）。排除四项：worktree 隔离（consolidate 已有两段式）、step-count 触发（轮与 step 不同构）、失败压制（触发稀疏）、技能同通道（skill_hint 已有）。顺序 E 先 B 后（同文件 registry.py）。聚合 frontmatter 折行 pitfall 已确认入库。
 
-【整体增量调研（09-11）】11 项目 44 候选 → 0 采纳/15 deferred/29 excluded，报告 docs/借鉴项目整体增量调研报告-2026-09.md；claude-mem 细节另存 docs/claude-mem-增量调研与借鉴分析-2026-09.md（对方依托 OpenRouter 计费归因+插件市场分发，本仓无此前提）。方法论三条：①一半候选本仓早有等价；②他仓服务端/队列/多租户取向不是缺口；③主线是成本/预算从软约束变硬约束，本仓空档在扫描侧预算与 deprecated 笔记是否被新 ingest 复活。deferred 三类：留档照抄 9、转多仓工作区 1（⚠️作废：CBM workspace manifest 实为 Rust Cargo 清单，与审批无关，勿再消费）、自查 3（wikilink 代码围栏切分/ADR 是否整文件重写/deprecated 是否被复活）。
-
-【口径修正（重要）】[tool-error] 只由 tool_digest 产生，仅 _ide_hook.py 与 capture_conversation.py 两个调用点，session-end 补采集不经过它 → 之前「漏检率 0%」测的是通道覆盖面而非漏检率。
-
-【流程与坑】借鉴项目统一克隆到 D:\repos；蒸馏 subagent 自报笔记状态不可信，须 get_task_context related_notes 复核；CodeBuddy UserPromptSubmit 是否喂 stdin/消费 stdout 未真机验证（后已实施 active-settle 薄触发并真机验证）。
-
-【graphiti（09-18）】借鉴落地为 ADR-0011（归产品维护）：蒸馏 LLM 输出防御性校验（解析失败保留 raw + parse_failed 状态）+ 中文标题分词复用 retrieval.tokenize + 缺字段 note 剔除记 invalid_note。Round 2：_is_title_subset 降级规则——真子集且 sim∈[0.6,0.8) 降级弱冲突带，≥0.8 近全同改写走快路径。教训：改判定带阈值后必须实测真实标题对分布。
-
-【llm-wiki-compiler（09-18）】llmwiki v1.3.0，通用知识编译器。可借鉴认知：eval 量化门禁、freshness 四态、意图日志原子性、profile-as-data；不借 TS 栈与 CLP 全量 FSM。处置笔记 stable。
-
-【cognee（09-18~19）】8 借鉴点全部证伪 0 采纳（6 条本仓已有等价：pending-status≈水位线、tool_digest≈LIVE 快路径、secret_redact≈脱敏、submit 单次多产出、usage_heat≈流式加权、file_lock+noop≈抢锁放弃；2 条语义不同）。价值定位「独立收敛互证」。报告 §三/§五已按证伪改写。
-
-【memos（09-19）】MCP 协议合规工程最高水平。absorbed 1 条挂起搭车：registry 加 annotations 参数，destructive 集合={edit_doc_file, reject_note, delete_task}，等下次 registry 契约变更顺路落地，不单独立项。deferred 3（structuredContent 与错误形状同根、任务级 eval 并入质量量化主线）、excluded 6。
-
-【supermemory（09-19）】开源仓是客户端/集成层，核心引擎闭源。12 候选 0 立即落地。「declined 即 forgotten」本仓已有更精细三层等价（handler 跳过 deprecated + 索引层 -0.35 降权 + 蒸馏去重豁免；曾误判降权是死代码被代码核对证伪）。derives/isLatest deferred；SMFS 归 Cli能力、MemoryBench 归质量量化、SKILL.md 范本归技能提取。
+【hindsight 借鉴 grill 拷问定案（09-19）】五题全按推荐落定：①absorbed 语义=必须有可指认落点（prompt/文档/代码行），否则降级 deferred；②两条规则只落 _DISTILL_SYSTEM；③reason+NO COMPUTATION 合并成一条；④deferred 不定触发信号（留档非 backlog）；⑤索引抑制不动代码。已落地：_DISTILL_SYSTEM 新增第 6 条纪律「Reasoned and literal」（distill_conversation.py），tests/test_distill_p1.py 补断言，全量 1169 passed 零回归。ADR-0012 已写入 docs/adr/；decision 草稿已补「落地」章节；调研报告处置表 #3 改 absorbed。待办：两条草稿（索引抑制 pitfall、distill 规则 decision）待 confirm_note。
 
 【hindsight（09-19）】vectorize-io 生物拟态记忆，重基建重 LLM，与本仓前提相反。absorbed 2：①索引抑制——注入块列知识页清单致 40 轮 0 次搜索（本仓只列 3 条最新笔记已部分符合）；②consolidation prompt 两规则——每条 op 必带 reason、NO COMPUTATION。deferred 2：knowledge page delta 刷新、4 臂检索+RRF（等 query_wiki 多路召回需求）。
 
-【遗留待办】2026-09-04 旧 draft「在 CodeBuddy 使用跨 Agent 技能」保留待定未裁决；IDE hook 修复已提交推送待验收；09-11 的 3 条蒸馏草稿待 confirm（版本化资产架构事实/小样本不能当证否/增量调研 SOP）。
+【teamai-cli（09-10）】v0.20.0→v0.23.1，8 候选 0 采纳，判据=只有实测缺口才做。证伪：friction_score 已有打分（friction.py），锁已有 OS flock（store.py:166-189）；#336 实测无缺口 excluded（n=1 样本警告）；#374 模型相反。
 
-> 原文归档于 memories-archive/iamwangbao-163-com.md，截至 2026-09-24，共 30 条。
+【整体增量调研（09-11）】11 项目 44 候选 → 0 采纳/15 deferred/29 excluded，报告 docs/借鉴项目整体增量调研报告-2026-09.md；claude-mem 细节另存 docs/claude-mem-增量调研与借鉴分析-2026-09.md（对方依托 OpenRouter 计费归因+插件市场分发，本仓无此前提）。方法论：①一半候选本仓早有等价；②他仓服务端/队列/多租户取向不是缺口；③主线是成本/预算从软约束变硬约束，本仓空档在扫描侧预算与 deprecated 笔记是否被新 ingest 复活。deferred 三类：留档照抄 9、转多仓工作区 1（⚠️作废：CBM workspace manifest 实为 Rust Cargo 清单，与审批无关，勿再消费）、自查 3（wikilink 代码围栏切分/ADR 是否整文件重写/deprecated 是否被复活）。
 
-### 2026-09-19 23:11 #ar98
+【口径修正（重要）】[tool-error] 只由 tool_digest 产生，仅 _ide_hook.py 与 capture_conversation.py 两个调用点，session-end 补采集不经过它 → 之前「漏检率 0%」测的是通道覆盖面而非漏检率。
 
-letta 调研完成（2026-09-19）：letta-ai/letta main 分支只是 landing page，当前实现在 letta-ai/letta-code（TS 编码 agent）。报告落盘 docs/letta-调研与借鉴分析.md。核心机制：.letta 目录 MemFS（Markdown+frontmatter）、memory 工具写入即 git commit 且 reason 必填、reflection 子代理默认每 25 step 触发在隔离 worktree 改记忆、mergePolicy auto/explicit 显式合并、失败压制自动反思、记忆与 Skill 同通道沉淀。借鉴点：worktree 隔离合并、commit-on-write+reason、step-count 触发、失败压制、限额集中管理（directory-limits.ts 模式）。不借鉴：云端 MemFS 同步、LLM 自由编辑记忆、遥测、Mods。
+【流程与坑】借鉴项目统一克隆到 D:\repos；蒸馏 subagent 自报笔记状态不可信，须 get_task_context related_notes 复核；CodeBuddy UserPromptSubmit 喂 stdin/消费 stdout 已通过 active-settle 薄触发真机验证。
 
-### 2026-09-19 23:23 #hge5
+【graphiti（09-18）】借鉴落地为 ADR-0011（归产品维护）：蒸馏 LLM 输出防御性校验（解析失败保留 raw + parse_failed 状态）+ 中文标题分词复用 retrieval.tokenize + 缺字段 note 剔除记 invalid_note。Round 2：_is_title_subset 降级——真子集且 sim∈[0.6,0.8) 降级弱冲突带，≥0.8 走快路径。教训：改判定阈值后必须实测真实标题对分布。
 
-## hindsight 借鉴 grill 拷问定案（2026-09-19）
-- grill 五题全按推荐落定：①absorbed 语义=必须有可指认落点（prompt/文档/代码行），否则降级 deferred；②两条规则只落 _DISTILL_SYSTEM；③reason+NO COMPUTATION 合并成一条；④deferred 不定触发信号（deferred 是留档不是 backlog）；⑤索引抑制不动代码。
-- 已落地：_DISTILL_SYSTEM 新增第 6 条纪律「Reasoned and literal」（codewiki/mcp/tools/distill_conversation.py），tests/test_distill_p1.py 补断言，全量 1169 passed 零回归。
-- ADR-0012 已写入 docs/adr/；decision 草稿笔记已补「落地」章节；调研报告处置表 #3 改为 absorbed（已落地）。
-- 待办：两条草稿笔记（索引抑制 pitfall、distill 规则 decision）仍待用户 confirm_note。
+【llm-wiki-compiler（09-18）】llmwiki v1.3.0，通用知识编译器。可借鉴认知：eval 量化门禁、freshness 四态、意图日志原子性、profile-as-data；不借 TS 栈与 CLP 全量 FSM。处置笔记 stable。
 
-### 2026-09-20 10:56 #d489
+【cognee（09-18~19）】8 借鉴点全部证伪 0 采纳（6 条本仓已有等价：pending-status≈水位线、tool_digest≈LIVE 快路径、secret_redact≈脱敏、submit 单次多产出、usage_heat≈流式加权、file_lock+noop≈抢锁放弃；2 条语义不同）。价值定位「独立收敛互证」。
 
-letta 借鉴 grill 拷问定案（2026-09-20）：ADR-0013 已落盘 docs/adr/0013-letta-stable-reason-and-limits-module.md。落地两项：① ingest_note 加可选 reason 字段进 frontmatter，status=stable 直写时必填（draft/confirm_note/batch_set_status/add_task_memory 豁免）；② 新建 codewiki/mcp/tools/limits.py 收敛 task_manager 压缩阈值组（40 条/24KB/keep 20/摘要 4096）与写入窗口软限（5 条），lint_wiki 加 threshold_drift 检查防文案漂移。排除四项：worktree 隔离（consolidate 已有两段式）、step-count 触发（轮与 step 不同构）、失败压制（触发稀疏，自我修正推翻初判）、技能同通道（skill_hint 已有）。顺序 E 先 B 后（同文件 registry.py 避免冲突）。调研报告 §四已同步处置状态。
+【memos（09-19）】MCP 协议合规工程最高水平。absorbed 1 条挂起搭车：registry 加 annotations 参数，destructive 集合={edit_doc_file, reject_note, delete_task}，等下次 registry 契约变更顺路落地。deferred 3、excluded 6。
 
-### 2026-09-20 11:17 #vj5o
+【supermemory（09-19）】开源仓是客户端/集成层，核心引擎闭源。12 候选 0 立即落地。「declined 即 forgotten」本仓已有三层等价（handler 跳过 deprecated + 索引层 -0.35 降权 + 蒸馏去重豁免；曾误判降权是死代码被代码核对证伪）。derives/isLatest deferred；SMFS 归 Cli能力、MemoryBench 归质量量化、SKILL.md 范本归技能提取。
 
-ADR-0013 方案 B 修订（2026-09-20）：ingest_note stable 直写除 reason 必填外，新增可选 evidence 字段（test_ref/commit_ref/reviewed_by），复用 confirm_note 语义——提供时记 metadata.verification 并升 confidence_level=strong。分工：reason 管可见性（防静默，自报意图声明，可被编造），evidence 管验证（人工可核验的结构化锚点）。ADR 已补能力边界声明。另：聚合 frontmatter 折行 pitfall 笔记已确认入库（stable）。
+【遗留待办】2026-09-04 旧 draft「在 CodeBuddy 使用跨 Agent 技能」保留待定未裁决；IDE hook 修复已提交推送待验收；09-11 的 3 条蒸馏草稿待 confirm（版本化资产架构事实/小样本不能当证否/增量调研 SOP）；hindsight 2 条草稿待 confirm（见上）。
+
+> 原文归档于 memories-archive/iamwangbao-163-com.md，截至 2026-11-26，共 2 条。
 
 ### 2026-09-20 12:03 #l5dy
 
@@ -85,6 +67,22 @@ Workspace Conventions 模板瘦身完成（ADR-0015 同款收敛）：①两个�
 ### 2026-09-24 20:55 #fnyx
 
 完成 agentmemory（rohitg00/agentmemory）源码调研并存档 repowiki/wiki/queries/agentmemory-调研.md。核心发现：重运行时路线（常驻 iii-engine、hooks 全量自动采集、264 函数、BM25+向量+图 RRF 检索、四层记忆巩固+衰减驱逐）。三项借鉴候选全部不立项：合成压缩→absorbed（与确认闸门冲突）；自动衰减驱逐→deferred（与「候选必有去向」Doctrine 冲突，等 lint_wiki low_adoption 数据）；slots 固定槽位→excluded（MEMORY.md+AGENTS.md+任务记忆三件套已覆盖）。总体判断：全自动采集/巩固/驱逐路线 CodeWiki 明确不走，本次调研价值在确认架构边界。
+
+### 2026-09-25 21:35 #dvsa
+
+skill hint 评估裁决（2026-09-25）：蒸馏 worker 提示笔记「hook 注册命令用 python -m 包内入口」命令密度 4 可能值得编译成技能。经 skill_creator prepare + 材料实读裁决不编译（no_action 已提交）：① 该笔记是 architecture 类型，不在 skill 素材边界内（素材只收 scenarios + stable pitfall/lesson/decision）；② 内容是结构认知（回答「hook 行为更新要不要改 settings.json」），非可触发行为指令，编译无触发场景。顺带发现：prepare 标记 worth_compiling=true 的同主题 pitfall「全局 codewiki.exe 无法 import 本地包，install-hooks 需用 python -m codewiki.cli.main」——deferred：信息量单薄（一条命令选择），单独成技能碎片化，等同类素材积累后并入。
+
+### 2026-09-25 22:03 #o805
+
+agentmemory Round 2 小优化 grill 定案（2026-09-25，用户裁决「按推荐」）：① MCP 工具面裁剪开关立项（P2）——CODEWIKI_TOOLS=core 环境变量，registry 加 filter，参考 agentmemory core-8 思路按本仓场景重定义核心集，归产品维护；② 会话多样性约束 deferred（等 lint_wiki 重复笔记数据）；③ RRF 融合 excluded（单流 BM25 无第二路可融，未来加向量检索时再议）；④ related_notes 语义召回 excluded（注入场景要确定性，task_id 精确匹配是特性不是缺陷）。已核对本仓等价物：同义词扩展（ontology.yaml）、CJK 分词（jieba+regex 降级）、SHA-256 去重（capture content_hash）均已有，无需行动。调研文档已更新第六节+处置表（repowiki/wiki/queries/agentmemory-调研.md）。
+
+### 2026-11-19 15:45 #at1g
+
+TDAM 增量调研（2026-11-19，基线 906b582 → HEAD 42d4cde，46 commits，v2.0.2→v2.0.3）：①文章《本体与 RSI》核心的三层图谱/bug_fixed/本体在开源代码零命中（grep 全仓 0 结果）——那是腾讯内部研发实践，未开源，开源仓只有四类资产（Chat Memory/Skill/Wiki/CodeGraph）。②开源增量两个真机制：Skill 按需选择（MemoryProxy/src/skill/selection/，JEV 决策服务可插拔 provider，client_tool 交付=proxy 伪造 tool_use 让客户端自己 curl 加载，MAX_CLIENT_LOADS=3/失败熔断 2 次，detect.ts:50-56 的 SYNTHETIC_USER_PATTERNS 合成用户消息识别）+ team_memory.enabled 实例级总开关（fail-open 全路径回退 true）。③本仓实测（probe_synthetic_user.py，4052 条 user 消息）：question-echo 4.6%/manually-attached-skills 0.8%/continued-session 0.6%，均低于 20% 阈值 → 噪声过滤候选 excluded（无实测缺口）。④文章可借鉴认知（非代码）：经验需带适用条件+被排除解释、失败归因到具体对象（概念/映射/检索/执行四层）、「读过但没落实」需追踪经验是否改变行为。
+
+### 2026-11-26 09:53 #896z
+
+完成 commit 0ac6081（fix: 续接会话时避免重复选择任务）的 code review：41 项测试全过、ruff 干净、四个 hook 副本哈希一致。核心逻辑为三级恢复（binding > transcript > raw 索引）+ 跳过终态 + 绑定失败重试，实现与测试匹配。发现 2 个 Low（raw 索引回退可能返回过时归属；异步弹框后任意用户文本被当作答案）与 2 个 Info，结论 Approve 不阻塞。
 
 ### 2026-09-10
 
@@ -141,11 +139,3 @@ HL-Mem 调研（docs/HL-Mem-调研与借鉴分析.md，基线 v1.1.7/aa5d0688）
 六参考项目（hl_mem/claude-mem/mem0/CBM/OpenViking/teamai-cli）存储与压缩机制对比已完成，产出 repowiki/wiki/queries/参考项目记忆存储与压缩机制对比-2026-09.md。要点：①「压缩」四分类（写入时/归纳式/上下文预算/衰减）不可混用；②全场只有 teamai-cli self 模式与本仓一样知识随业务仓 git 版本化；③OpenViking merge_policy 与本仓 Doctrine 合并纪律几乎逐句对应（独立收敛互证）；④HL-Mem Mental Model 归纳 ⇔ compact_task_memories 同一形态。
 
 **重要修正（作废一条转注）**：整体调研报告 deferred #10「CBM workspace manifest 审批键」系误读——CBM 的 workspace manifest 实为 Rust Cargo.toml workspace 清单（跨 crate 导入解析，pass_lsp_cross.c:478-488），与审批/多仓无关。此前转注到「多仓工作区」任务的这条参考已失效，实施多仓工作区时勿再消费该参考。
-
-### 2026-09-25 21:35 #dvsa
-
-skill hint 评估裁决（2026-09-25）：蒸馏 worker 提示笔记「hook 注册命令用 python -m 包内入口」命令密度 4 可能值得编译成技能。经 skill_creator prepare + 材料实读裁决不编译（no_action 已提交）：① 该笔记是 architecture 类型，不在 skill 素材边界内（素材只收 scenarios + stable pitfall/lesson/decision）；② 内容是结构认知（回答「hook 行为更新要不要改 settings.json」），非可触发行为指令，编译无触发场景。顺带发现：prepare 标记 worth_compiling=true 的同主题 pitfall「全局 codewiki.exe 无法 import 本地包，install-hooks 需用 python -m codewiki.cli.main」——deferred：信息量单薄（一条命令选择），单独成技能碎片化，等同类素材积累后并入。
-
-### 2026-09-25 22:03 #o805
-
-agentmemory Round 2 小优化 grill 定案（2026-09-25，用户裁决「按推荐」）：① MCP 工具面裁剪开关立项（P2）——CODEWIKI_TOOLS=core 环境变量，registry 加 filter，参考 agentmemory core-8 思路按本仓场景重定义核心集，归产品维护；② 会话多样性约束 deferred（等 lint_wiki 重复笔记数据）；③ RRF 融合 excluded（单流 BM25 无第二路可融，未来加向量检索时再议）；④ related_notes 语义召回 excluded（注入场景要确定性，task_id 精确匹配是特性不是缺陷）。已核对本仓等价物：同义词扩展（ontology.yaml）、CJK 分词（jieba+regex 降级）、SHA-256 去重（capture content_hash）均已有，无需行动。调研文档已更新第六节+处置表（repowiki/wiki/queries/agentmemory-调研.md）。
