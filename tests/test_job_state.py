@@ -338,7 +338,6 @@ def test_close_reports_missing_pages_as_degraded(analyzed_repo):
     from codewiki.mcp.tools.module_tree import handle_save_module_tree
 
     repo, store = analyzed_repo
-    output = repo / "repowiki"
 
     handle_save_module_tree(
         {"repo_path": str(repo), "module_tree": {"core": {"components": ["a.py::func_a"]}}},
