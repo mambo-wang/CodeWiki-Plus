@@ -29,6 +29,7 @@
 
 「WanderingBug」公众号发布的本项目系列技术专栏，欢迎阅读：
 
+- [CodeWiki-Plus 技术白皮书：代码文档+任务记忆+经验沉淀](https://mp.weixin.qq.com/s/VNJzc4k5RunhK1oV2ZwcKQ)（2026-10-23）
 - [专栏开篇词：从代码文档到 AI 知识引擎](https://mp.weixin.qq.com/s/WpjiDAs62_81mytBWUsDQw)（2026-07-26）
 - [第 2 篇：双层 Prompt 架构同时服务人和模型](https://mp.weixin.qq.com/s/1lNjR_SsrU5Fw2NKnkxnMA)（2026-08-01）
 - [第 3 篇：零依赖检索设计](https://mp.weixin.qq.com/s/T7r-ojyWC-YOpM_U5BNbEw)（2026-08-06）
