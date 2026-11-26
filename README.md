@@ -49,7 +49,7 @@
 
 ### 这个项目是什么？
 
-CodeWiki-Plus 是一个由 AI IDE（CodeBuddy、Cursor、Claude Desktop 等）自身模型驱动的仓库知识引擎：**无需配置任何大模型 API**，即可完成 Wiki 文档生成，并在此基础上提供检索、笔记、任务记忆、团队遥测等完整知识管理能力。
+CodeWiki-Plus 是一个由 AI IDE（CodeBuddy、Qoder、Trae 等）自身模型驱动的仓库知识引擎：**无需配置任何大模型 API**，即可完成 Wiki 文档生成，并在此基础上提供检索、笔记、任务记忆、团队遥测等完整知识管理能力。
 
 项目最初 fork 自 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) 并在其工具链（Tree-sitter AST 解析、依赖图构建、拓扑排序、Mermaid 校验）基础上独立演进，现已发展为架构定位不同的独立项目——详见[致谢](#致谢)。
 
