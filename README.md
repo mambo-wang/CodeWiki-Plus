@@ -27,7 +27,7 @@
 
 ### 专栏文章
 
-「迎风追日 / WanderingBug」公众号发布的本项目系列技术专栏，欢迎阅读：
+「WanderingBug」公众号发布的本项目系列技术专栏，欢迎阅读：
 
 - [专栏开篇词：从代码文档到 AI 知识引擎](https://mp.weixin.qq.com/s/WpjiDAs62_81mytBWUsDQw)（2026-07-26）
 - [第 2 篇：双层 Prompt 架构同时服务人和模型](https://mp.weixin.qq.com/s/1lNjR_SsrU5Fw2NKnkxnMA)（2026-08-01）
