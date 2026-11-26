@@ -33,8 +33,8 @@ from codewiki.src.be.dependency_analyzer.utils.external_symbols import (
 logger = logging.getLogger(__name__)
 
 
-class TimeoutError(Exception):
-    """Raised when file parsing exceeds timeout."""
+class TimeoutError(BaseException):
+    """必须绕过语言分析器内部的 Exception 捕获，由分派层统一处理。"""
 
     pass
 

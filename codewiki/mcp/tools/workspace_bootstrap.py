@@ -385,7 +385,12 @@ def _clone_repo(workspace_p: Path, name: str, url: str, timeout: int) -> dict:
     try:
         import os
 
-        _kw: dict = {"capture_output": True, "text": True, "timeout": timeout}
+        _kw: dict = {
+            "capture_output": True,
+            "stdin": subprocess.DEVNULL,
+            "text": True,
+            "timeout": timeout,
+        }
         if os.name == "nt":
             # Console-less parent (IDE-spawned MCP server): without this
             # flag every git child allocates a flashing console window.

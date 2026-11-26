@@ -165,6 +165,7 @@ def _git_config_value(key: str, lookup_dir: Optional[str] = None) -> str:
     )
     kwargs: dict = {
         "capture_output": True,
+        "stdin": subprocess.DEVNULL,
         "text": True,
         "timeout": 2,
         "encoding": "utf-8",

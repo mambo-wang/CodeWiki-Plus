@@ -531,7 +531,12 @@ def _last_commit_time(target_path: Path, repo_root: Path) -> Optional[datetime]:
     import os
     import subprocess
 
-    _kw: dict = {"capture_output": True, "text": True, "timeout": 10}
+    _kw: dict = {
+        "capture_output": True,
+        "stdin": subprocess.DEVNULL,
+        "text": True,
+        "timeout": 10,
+    }
     if os.name == "nt":
         # Console-less parent (IDE-spawned MCP server): without this flag
         # every git child allocates a flashing console window.

@@ -3,8 +3,9 @@ import os
 import re
 import sys
 import threading
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Literal, Tuple
 import logging
 import tiktoken
 
@@ -66,50 +67,66 @@ def count_tokens(text: str) -> int:
 # ------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _DiagramResult:
+    status: Literal["valid", "invalid", "unavailable"]
+    message: str = ""
+
+
+def _is_parse_error(message: str) -> bool:
+    return bool(
+        re.search(r"parse error|lexical error|syntax error|no diagram type detected", message, re.I)
+    )
+
+
+def _diagram_message(message: str, diagram_num: int, line_start: int) -> str:
+    message = re.sub(
+        r"line (\d+)",
+        lambda match: f"line {line_start + int(match.group(1))}",
+        message,
+    )
+    return f"Diagram {diagram_num}: {message}"
+
+
 async def validate_mermaid_diagrams(md_file_path: str, relative_path: str) -> str:
-    """
-    Validate all Mermaid diagrams in a markdown file.
-
-    Args:
-        md_file_path: Path to the markdown file to check
-        relative_path: Relative path to the markdown file
-    Returns:
-        "All mermaid diagrams are syntax correct" if all diagrams are valid,
-        otherwise returns error message with details about invalid diagrams
-    """
-
+    """验证文件中的 Mermaid 图，并区分语法错误与校验不可用。"""
     try:
-        # Read the markdown file
         file_path = Path(md_file_path)
         if not file_path.exists():
             return f"Error: File '{md_file_path}' does not exist"
 
         content = file_path.read_text(encoding="utf-8")
-
-        # Extract all mermaid code blocks
         mermaid_blocks = extract_mermaid_blocks(content)
-
         if not mermaid_blocks:
             return "No mermaid diagrams found in the file"
 
-        # Validate each mermaid diagram sequentially to avoid segfaults
         errors = []
+        unavailable = []
         for i, (line_start, diagram_content) in enumerate(mermaid_blocks, 1):
-            error_msg = await validate_single_diagram(diagram_content, i, line_start)
-            if error_msg:
-                errors.append("\n")
-                errors.append(error_msg)
-
-        # if errors:
-        #     logger.debug(f"Mermaid syntax errors found in file: {md_file_path}: {errors}")
+            result = await _validate_diagram(diagram_content)
+            if result.status == "invalid":
+                errors.append("\n" + _diagram_message(result.message, i, line_start))
+            elif result.status == "unavailable":
+                unavailable.append(
+                    "\nWarning: Mermaid validation unavailable: "
+                    + _diagram_message(result.message, i, line_start)
+                )
 
         if errors:
             return (
-                "Mermaid syntax errors found in file: " + relative_path + "\n" + "\n".join(errors)
+                "Mermaid syntax errors found in file: "
+                + relative_path
+                + "\n"
+                + "".join(errors + unavailable)
             )
-        else:
-            return "All mermaid diagrams in file: " + relative_path + " are syntax correct"
-
+        if unavailable:
+            return (
+                "Mermaid validation unavailable for file: "
+                + relative_path
+                + "\n"
+                + "".join(unavailable)
+            )
+        return "All mermaid diagrams in file: " + relative_path + " are syntax correct"
     except Exception as e:
         return f"Error processing file: {str(e)}"
 
@@ -299,7 +316,7 @@ async def _try_pythonmonkey_parse(diagram_content: str) -> str | None:
             _PYTHONMONKEY_BROKEN = True
             return None
         match = re.search(r"Error:(.*?)(?=Stack Trace:|$)", error_str, re.DOTALL)
-        if match:
+        if match and _is_parse_error(match.group(0)):
             return match.group(0).strip()
         # Unknown error from the JS parser — fall back rather than surface it.
         return None
@@ -308,83 +325,106 @@ async def _try_pythonmonkey_parse(diagram_content: str) -> str | None:
         sys.stderr = old_stderr
 
 
-def _parse_via_mermaid_py(diagram_content: str) -> str:
-    """Validate via mermaid-py. Returns parse-error text, or "" if valid.
+def _remote_result(status_code: int, body: str) -> _DiagramResult:
+    if 200 <= status_code < 300:
+        return _DiagramResult("valid")
+    if status_code in (400, 422) and _is_parse_error(body):
+        return _DiagramResult("invalid", body)
+    return _DiagramResult("unavailable", f"HTTP {status_code}: {body[:500]}")
 
-    mermaid-py raises MermaidError on parse failure and returns an SVG body
-    on success — we must drive the result off the exception, not the body
-    text, otherwise a successful SVG gets reported as a parse error.
-    """
+
+def _parse_via_mermaid_py(diagram_content: str) -> _DiagramResult:
+    """通过 mermaid-py 的 HTTP 响应区分有效、语法错误与服务不可用。"""
     import mermaid as md
 
     try:
-        md.Mermaid(diagram_content)
-        return ""
+        diagram = md.Mermaid(diagram_content)
     except Exception as e:
-        return str(e)
+        if isinstance(e, getattr(md, "MermaidError", ())):
+            status_code = getattr(e, "status_code", None)
+            if isinstance(status_code, int):
+                return _remote_result(status_code, getattr(e, "response_text", str(e)))
+        return _DiagramResult("unavailable", str(e))
+
+    checked_response = False
+    for name in ("svg_response", "img_response"):
+        response = getattr(diagram, name, None)
+        if response is None:
+            continue
+        checked_response = True
+        status_code = getattr(response, "status_code", None)
+        if not isinstance(status_code, int):
+            return _DiagramResult("unavailable", "renderer returned no HTTP response")
+        result = _remote_result(status_code, response.text)
+        if result.status != "valid":
+            return result
+    if not checked_response:
+        return _DiagramResult("unavailable", "renderer returned no HTTP response")
+    return _DiagramResult("valid")
+
+
+def _run_in_daemon_thread(fn, *args) -> asyncio.Future:
+    """在 daemon 线程执行阻塞调用，避免超时后解释器退出被永久 join。"""
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+
+    def _set(setter, value):
+        if not future.done():
+            setter(value)
+
+    def _worker():
+        try:
+            setter, value = future.set_result, fn(*args)
+        except BaseException as e:
+            setter, value = future.set_exception, e
+        try:
+            loop.call_soon_threadsafe(_set, setter, value)
+        except RuntimeError:
+            pass
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return future
+
+
+async def _validate_diagram(diagram_content: str) -> _DiagramResult:
+    global _MERMAID_PY_BROKEN
+    for line in diagram_content.split("\n"):
+        if line.strip().startswith("click "):
+            return _DiagramResult(
+                "invalid",
+                "Interactive 'click' directive is not allowed in documentation diagrams.",
+            )
+
+    core_error = await _try_pythonmonkey_parse(diagram_content)
+    if core_error is not None:
+        if not core_error:
+            return _DiagramResult("valid")
+        if _is_parse_error(core_error):
+            return _DiagramResult("invalid", core_error)
+    if _MERMAID_PY_BROKEN:
+        return _DiagramResult("unavailable", "remote validation disabled or previously timed out")
+    try:
+        return await asyncio.wait_for(
+            _run_in_daemon_thread(_parse_via_mermaid_py, diagram_content),
+            timeout=15.0,
+        )
+    except asyncio.TimeoutError:
+        _MERMAID_PY_BROKEN = True
+        logger.warning("Mermaid validation timed out (15s); skipping further remote validation")
+        return _DiagramResult("unavailable", "remote renderer timed out after 15s")
+    except Exception as e:
+        return _DiagramResult("unavailable", str(e))
 
 
 async def validate_single_diagram(diagram_content: str, diagram_num: int, line_start: int) -> str:
-    """
-    Validate a single mermaid diagram.
-
-    Args:
-        diagram_content: The mermaid diagram content
-        diagram_num: Diagram number for error reporting
-        line_start: Starting line number in the file
-
-    Returns:
-        Error message if invalid, empty string if valid
-    """
-    # Pre-check: reject interactive 'click' directives (semantic issue, not
-    # auto-fixable). Must be caught before the external parser which may or
-    # may not flag them depending on version.
-    for line in diagram_content.split("\n"):
-        if line.strip().startswith("click "):
-            return (
-                f"Diagram {diagram_num}: Interactive 'click' directive is not "
-                f"allowed in documentation diagrams."
-            )
-
-    global _MERMAID_PY_BROKEN
-    core_error = await _try_pythonmonkey_parse(diagram_content)
-    if core_error is None:
-        if _MERMAID_PY_BROKEN:
-            # Validation disabled/unavailable is not a syntax error — a
-            # non-empty return here would make callers report valid diagrams
-            # as broken and send agents into fix loops.
-            logger.debug(
-                "Diagram %d: validation skipped (mermaid-py disabled or unavailable)", diagram_num
-            )
-            return ""
-        try:
-            core_error = await asyncio.wait_for(
-                asyncio.to_thread(_parse_via_mermaid_py, diagram_content),
-                timeout=15.0,
-            )
-        except asyncio.TimeoutError:
-            # Inconclusive, not a parse failure. Latch so the remaining
-            # diagrams (and later calls) don't each block 15s on the same
-            # broken Node.js setup.
-            _MERMAID_PY_BROKEN = True
-            logger.warning(
-                "Diagram %d: mermaid validation timed out (15s); skipping further validation",
-                diagram_num,
-            )
-            return ""
-        except Exception as e:
-            return f"  Diagram {diagram_num}: Exception during validation - {str(e)}"
-
-    if not core_error:
+    """保留字符串接口：仅有效结果返回空串，不可用结果显式告警。"""
+    result = await _validate_diagram(diagram_content)
+    if result.status == "valid":
         return ""
-
-    line_match = re.search(r"line (\d+)", core_error)
-    if line_match:
-        error_line_in_diagram = int(line_match.group(1))
-        actual_line_in_file = line_start + error_line_in_diagram
-        newline = "\n"
-        return f"Diagram {diagram_num}: Parse error on line {actual_line_in_file}:{newline}{newline.join(core_error.split(newline)[1:])}"
-    return f"Diagram {diagram_num}: {core_error}"
+    message = _diagram_message(result.message, diagram_num, line_start)
+    if result.status == "unavailable":
+        return "Warning: Mermaid validation unavailable: " + message
+    return message
 
 
 if __name__ == "__main__":

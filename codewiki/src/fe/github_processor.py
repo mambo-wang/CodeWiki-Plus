@@ -64,6 +64,7 @@ class GitHubRepoProcessor:
                 result = subprocess.run(
                     ["git", "clone", clone_url, target_dir],
                     capture_output=True,
+                    stdin=subprocess.DEVNULL,
                     text=True,
                     timeout=WebAppConfig.CLONE_TIMEOUT,
                 )
@@ -77,6 +78,7 @@ class GitHubRepoProcessor:
                     ["git", "checkout", commit_id],
                     cwd=target_dir,
                     capture_output=True,
+                    stdin=subprocess.DEVNULL,
                     text=True,
                     timeout=30,
                 )
@@ -96,6 +98,7 @@ class GitHubRepoProcessor:
                         target_dir,
                     ],
                     capture_output=True,
+                    stdin=subprocess.DEVNULL,
                     text=True,
                     timeout=WebAppConfig.CLONE_TIMEOUT,
                 )

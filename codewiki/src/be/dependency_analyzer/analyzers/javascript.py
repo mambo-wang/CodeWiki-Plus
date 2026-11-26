@@ -190,8 +190,7 @@ class TreeSitterJSAnalyzer:
                 if method_name:
                     method_node = self._create_method_node(child, method_name, class_name)
                     if method_node:
-                        if method_name != "constructor":
-                            self.nodes.append(method_node)
+                        self.nodes.append(method_node)
                         self.top_level_nodes[method_node.name] = method_node
             elif child.type == "field_definition":
                 # Handle arrow function properties

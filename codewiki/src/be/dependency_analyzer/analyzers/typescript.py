@@ -609,7 +609,7 @@ class TreeSitterTSAnalyzer:
             return None
 
     def _should_include_node(self, node: Node) -> bool:
-        excluded_names = {"constructor", "__proto__", "prototype"}
+        excluded_names = {"__proto__", "prototype"}
 
         if node.component_type == "variable":
             return False

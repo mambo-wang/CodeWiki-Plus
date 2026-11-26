@@ -1497,7 +1497,7 @@ async def handle_write_doc_file(
     mermaid_result = await _validate_mermaid(str(doc_path), filename)
 
     # strict mode: block the write if Mermaid validation STILL has errors after auto-fix
-    if strict and "syntax errors" in mermaid_result.lower():
+    if strict and "mermaid syntax errors found in file:" in mermaid_result.lower():
         try:
             doc_path.unlink()
         except OSError:
