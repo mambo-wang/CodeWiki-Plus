@@ -169,3 +169,7 @@ C2 Lean 4 薄适配已完成：保留 path::logical_name 组件 ID，新增 head
 ### 2026-11-28 05:23 #5w2t
 
 已按用户授权提交并推送代码：commit fae7731e8fd428810ee7c7aaf4318f0a24eef3ca（feat: 扩展多语言分析并加固增量缓存），分支 feat/codewiki-upstream-b1-b5-c2-c3，本地与 origin 同步。提交仅含 codewiki/、pyproject.toml、uv.lock 和六个新增语言测试；未纳入文档、repowiki 笔记/任务记忆、telemetry、.qoder/settings.json、work/ 等并行会话产物。全量回归 1911 passed/2 skipped。
+
+### 2026-11-28 05:25 #5126
+
+非代码交付物已按用户授权提交并推送：commit 9ec88b5da362ab7909d0ddea653234b25aa893dc（docs: 归档多语言适配决策与任务记忆），包含 2 份任务文档、8 篇决策/经验草稿和本任务记忆；分支 feat/codewiki-upstream-b1-b5-c2-c3 已与 origin 同步。仍排除 .qoder/settings.json、telemetry、会话 raw、work/、wiki log 与并行用户记忆等运行时/并行会话产物。
