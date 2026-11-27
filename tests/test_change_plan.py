@@ -384,9 +384,7 @@ def test_execute_deletions_rejects_manifest_path_outside_wiki(tmp_path):
 
     assert deleted == []
     assert outside.read_text(encoding="utf-8") == "# keep\n"
-    delete = next(
-        op for op in cp.load_plan(repo, docs)["ops"] if op["op"] == "delete_subtree"
-    )
+    delete = next(op for op in cp.load_plan(repo, docs)["ops"] if op["op"] == "delete_subtree")
     assert delete["status"] == "failed"
 
 
@@ -539,16 +537,16 @@ def test_cached_tree_missing_a_component_is_reclustered(tmp_path, monkeypatch):
     docs = tmp_path / "repowiki"
     (docs / ".meta").mkdir(parents=True)
     cached = {"Core": {"components": ["a.py::f"], "children": {}}}
-    (docs / ".meta" / "first_module_tree.json").write_text(
-        json.dumps(cached), encoding="utf-8"
-    )
+    (docs / ".meta" / "first_module_tree.json").write_text(json.dumps(cached), encoding="utf-8")
 
     calls: list[list[str]] = []
 
     def fake_cluster(leaf_nodes, components, config, completer=None):
         calls.append(list(leaf_nodes))
-        return {"Core": {"components": ["a.py::f"], "children": {}},
-                "New": {"components": ["b.py::g"], "children": {}}}
+        return {
+            "Core": {"components": ["a.py::f"], "children": {}},
+            "New": {"components": ["b.py::g"], "children": {}},
+        }
 
     monkeypatch.setattr(dg, "cluster_modules", fake_cluster)
 
@@ -699,6 +697,118 @@ def test_update_with_a_new_top_level_module_plans_and_closes_done(analyzed_repo)
     assert closed["job"]["missing_pages"] == []
     assert closed["change_plan"]["failed"] == 0
     assert closed["change_plan"]["skipped"] == 0
+
+
+def test_centralized_module_lookup_stays_in_current_partition():
+    manifest = {
+        "pages": {
+            "wiki/modules/a/Core.md": {"files": ["a.py"]},
+            "wiki/modules/z/Core.md": {"files": ["z.py"]},
+            "wiki/queries/Core.md": {"files": ["query.md"]},
+        }
+    }
+    plan = _build(
+        previous_tree={"Core": _leaf("old.py::Core")},
+        module_tree={},
+        page_manifest=manifest,
+        module_repo="z",
+    )
+
+    deleted = [op for op in plan["ops"] if op["op"] == "delete_subtree"]
+    assert [(op["page_key"], op["reason"]) for op in deleted] == [
+        ("wiki/modules/z/Core.md", "module_removed")
+    ]
+
+
+def test_centralized_removed_module_does_not_borrow_another_partition_page():
+    plan = _build(
+        previous_tree={"Core": _leaf("old.py::Core")},
+        module_tree={},
+        page_manifest={"pages": {"wiki/modules/a/Core.md": {"files": ["a.py"]}}},
+        module_repo="z",
+    )
+
+    assert [op for op in plan["ops"] if op["op"] == "delete_subtree"] == []
+
+
+def test_overview_operator_uses_canonical_page_not_same_stem_entity():
+    pages = {
+        "wiki/entities/overview.md": {"files": []},
+        "wiki/overview.md": {"files": []},
+    }
+
+    op = cp._overview_op(pages)
+
+    assert op["page_key"] == "wiki/overview.md"
+
+
+def test_legacy_delete_rejects_query_path_without_page_key(tmp_path):
+    repo, docs = _repo(tmp_path)
+    query = docs / "wiki" / "queries" / "Core.md"
+    query.parent.mkdir(parents=True)
+    query.write_text("# keep\n", encoding="utf-8")
+    plan = cp.build_plan(previous_tree=None, module_tree={})
+    plan["ops"] = [
+        {
+            "op_id": "delete_subtree:queries/Core",
+            "op": "delete_subtree",
+            "page": "queries/Core",
+            "path": ["queries", "Core"],
+            "status": "pending",
+        }
+    ]
+    plan["plan_hash"] = cp.compute_plan_hash(plan)
+    cp.write_plan(repo, docs, plan)
+
+    assert cp.execute_deletions(repo, docs) == []
+    assert query.read_text(encoding="utf-8") == "# keep\n"
+    assert cp.load_plan(repo, docs)["ops"][0]["status"] == "failed"
+
+
+@pytest.mark.parametrize("page_key", ["wiki/queries/Core.md", "notes/Core.md"])
+def test_legacy_unique_update_settles_actual_shared_page(tmp_path, page_key):
+    repo, docs = _repo(tmp_path)
+    plan = cp.build_plan(previous_tree=None, module_tree={})
+    plan["ops"] = [
+        {
+            "op_id": "update_page:Core",
+            "op": "update_page",
+            "page": "Core",
+            "status": "pending",
+        }
+    ]
+    plan["plan_hash"] = cp.compute_plan_hash(plan)
+    cp.write_plan(repo, docs, plan)
+
+    summary = cp.mark_op_done(repo, docs, "Core.md", page_key=page_key)
+
+    assert summary is not None
+    assert summary["done"] == 1
+    assert summary["pending_pages"] == []
+
+
+def test_legacy_ambiguous_update_does_not_settle_same_stem_pages(tmp_path):
+    repo, docs = _repo(tmp_path)
+    plan = cp.build_plan(previous_tree=None, module_tree={})
+    plan["ops"] = [
+        {
+            "op_id": "update_page:Core",
+            "op": "update_page",
+            "page": "Core",
+            "status": "pending",
+        },
+        {
+            "op_id": "update_page:Core:2",
+            "op": "update_page",
+            "page": "Core",
+            "status": "pending",
+        },
+    ]
+    plan["plan_hash"] = cp.compute_plan_hash(plan)
+    cp.write_plan(repo, docs, plan)
+
+    assert cp.mark_op_done(repo, docs, "Core.md", page_key="wiki/queries/Core.md") is None
+    assert [op["status"] for op in cp.load_plan(repo, docs)["ops"]] == ["pending", "pending"]
 
 
 @pytest.mark.parametrize("content", ['{"ops": "not-a-list"}', "{not json"])

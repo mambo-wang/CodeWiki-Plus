@@ -120,7 +120,26 @@ _register(
             "generate docs later (incremental mode auto-reuses the cache). "
             "INCREMENTAL UPDATE: If docs already exist in output_dir (.meta/metadata.json + "
             ".meta/module_tree.json), the response includes a 'changes' field showing which "
-            "files changed and which modules need updating. "
+            "files changed and which modules need updating. For renamed/deleted components, "
+            "'component_changes' and 'referencing_pages' identify documentation pages that "
+            "still reference the old component IDs; the tool never rewrites those pages. "
+            "For untracked changed components, 'effective_owner_candidates' provides "
+            "deterministic same-file, same-directory, and one-hop neighbor candidates, "
+            "while 'unresolved_deletions' keeps unassignable deletions visible; the host "
+            "must confirm ownership before changing the module tree. 'ownership_tree_status' "
+            "distinguishes a loaded, missing, or invalid tree, and invalid trees include an "
+            "'ownership_warning' without dropping unresolved components. "
+            "'tree_repair' is an observe-only deterministic plan for rename, delete, "
+            "empty-node pruning, and rule-based additions; 'tree_repair_status' and "
+            "'tree_repair_warning' expose missing/invalid trees. The plan never edits "
+            "the module tree; save_module_tree applies it only with explicit repair_mode='apply'. "
+            "BUILD/DEPLOY FACTS: 'artifact_facts' records deterministic facts from Makefiles, "
+            "CI, Docker/Compose, manifests, schemas and scripts. Artifact IDs use a separate "
+            "'artifact:' namespace and never enter source components, dependency edges or the "
+            "module tree. No artifact command is executed and environment values/command bodies "
+            "are not exported. 'changes.artifact_changed_files' makes artifact-only edits visible "
+            "even when source fingerprints report no changes; 'artifact_facts.status' and its "
+            "summary expose parse failures, truncation, omissions and collection limits. "
             "MONOREPO CROSS-SERVICE: automatically detects sub-services within a single "
             "repo (via docker-compose, Dockerfiles, build manifests, convention directories) "
             "and runs intra-repo cross-service matching (HTTP + MQ). Results appear in the "
@@ -277,6 +296,26 @@ _register(
                     "type": "boolean",
                     "description": "Optional, default false. When true, Mermaid validation failure blocks the write and returns an error. When false (default), invalid diagrams are written with a mermaid_warnings field in the response.",
                 },
+                "write_guard_mode": {
+                    "type": "string",
+                    "enum": ["observe", "enforce"],
+                    "default": "observe",
+                    "description": (
+                        "Plan write gate. observe preserves existing writes and records "
+                        "out-of-plan pages with a warning; enforce allows only pending "
+                        "plan pages and an explicitly matching target. A missing/corrupt "
+                        "plan fails closed in enforce unless target matches. This does "
+                        "not replace path traversal/symlink checks."
+                    ),
+                },
+                "target": {
+                    "type": "string",
+                    "description": (
+                        "Optional explicit current page (filename or wiki-relative path). "
+                        "Use only when intentionally authorizing this one non-pending "
+                        "page in enforce mode; it cannot authorize a delete-only page."
+                    ),
+                },
             },
             "required": ["filename"],
         },
@@ -347,6 +386,24 @@ _register(
                     "type": "integer",
                     "description": "Line number for insert (0-indexed)",
                 },
+                "write_guard_mode": {
+                    "type": "string",
+                    "enum": ["observe", "enforce"],
+                    "default": "observe",
+                    "description": (
+                        "Plan write gate for str_replace/insert/undo. Default observe "
+                        "preserves writes; enforce permits only pending plan pages or "
+                        "an explicitly matching target. Missing/corrupt plans fail "
+                        "closed unless target matches; delete-only pages stay blocked."
+                    ),
+                },
+                "target": {
+                    "type": "string",
+                    "description": (
+                        "Optional explicit current page (filename or wiki-relative path), "
+                        "authorizing this one non-pending page in enforce mode."
+                    ),
+                },
             },
             "required": ["filename", "command"],
         },
@@ -370,7 +427,17 @@ _register(
             "The module tree format: each key is a module name, value is a dict "
             "{'components': [component_ids], 'children': {nested module dict}}. "
             "The children field must be a dict/object (not an array). "
-            "For large trees (>50 components), use module_tree_file instead of inline JSON."
+            "For large trees (>50 components), use module_tree_file instead of inline JSON. "
+            "With an active analyze_repo session, repair_mode='observe' (default) returns "
+            "a deterministic tree_repair plan but saves the submitted tree unchanged; "
+            "repair_mode='apply' explicitly applies rename/delete/prune/add repairs before "
+            "saving and requires a fresh analyze_repo session with a component diff. "
+            "Orphans remain unplaced and leaf growth only raises warnings. "
+            "With an active analyze_repo session it also returns observe-only "
+            "clustering_validation diagnostics: full-scope-file token estimates, "
+            "micro/oversized leaves, same-file split ownership, uncovered files, "
+            "unknown IDs and unmeasured files. Review and re-save corrections yourself; "
+            "the validator never rewrites the tree."
         ),
         inputSchema={
             "type": "object",
@@ -389,6 +456,16 @@ _register(
                 "module_tree_file": {
                     "type": "string",
                     "description": "Alternative to module_tree: absolute path to a JSON file. Use for large trees (>50 components).",
+                },
+                "repair_mode": {
+                    "type": "string",
+                    "enum": ["observe", "apply"],
+                    "default": "observe",
+                    "description": (
+                        "observe returns tree_repair decisions without changing the submitted "
+                        "tree; apply explicitly applies deterministic repairs and requires a "
+                        "fresh analyze_repo session with a component diff."
+                    ),
                 },
             },
             "required": ["repo_path"],

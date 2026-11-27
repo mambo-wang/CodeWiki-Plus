@@ -513,6 +513,7 @@ EXTENSION_TO_LANGUAGE = {
     ".php": "php",
     ".phtml": "php",
     ".inc": "php",
+    ".rb": "ruby",
 }
 
 

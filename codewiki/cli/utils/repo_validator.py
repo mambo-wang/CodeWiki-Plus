@@ -32,6 +32,7 @@ SUPPORTED_EXTENSIONS = {
     ".inc",  # PHP includes
     ".kt",  # Kotlin
     ".kts",  # Kotlin Scripts
+    ".rb",  # Ruby
 }
 
 

@@ -353,6 +353,27 @@ class AnalysisCache:
     def set_last_commit_id(self, cid: str):
         self._mset("last_commit_id", cid)
 
+    def get_reference_symbols(self) -> Dict[str, str]:
+        """读取反向索引的持久符号基线，用于索引文件删除后的重建。"""
+        try:
+            data = json.loads(self._mget("reference_symbols", "{}"))
+        except (TypeError, ValueError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {
+            str(name): str(component_id)
+            for name, component_id in data.items()
+            if isinstance(name, str) and isinstance(component_id, str)
+        }
+
+    def save_reference_symbols(self, symbols: Dict[str, str]) -> None:
+        """保存反向索引的持久符号基线，不随索引文件删除而丢失。"""
+        self._mset(
+            "reference_symbols",
+            json.dumps(symbols, ensure_ascii=False, sort_keys=True),
+        )
+
     # NOTE (output_dir convergence): set_output_dir / get_output_dir are
     # retired — output_dir is a pure function of repo_path under the active
     # layout (workspace_layout.default_output_dir) and must never be persisted
@@ -925,6 +946,8 @@ class AnalysisCache:
         ".kts",
         ".go",
         ".php",
+        ".rs",
+        ".rb",
     }
 
     def detect_changes(self) -> Optional[Dict[str, Any]]:

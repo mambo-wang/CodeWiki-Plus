@@ -280,3 +280,47 @@ letta 借鉴 grill 拷问定案（2026-09-20）：ADR-0013 已落盘 docs/adr/00
 ### 2026-09-20 11:17 #vj5o
 
 ADR-0013 方案 B 修订（2026-09-20）：ingest_note stable 直写除 reason 必填外，新增可选 evidence 字段（test_ref/commit_ref/reviewed_by），复用 confirm_note 语义——提供时记 metadata.verification 并升 confidence_level=strong。分工：reason 管可见性（防静默，自报意图声明，可被编造），evidence 管验证（人工可核验的结构化锚点）。ADR 已补能力边界声明。另：聚合 frontmatter 折行 pitfall 笔记已确认入库（stable）。
+
+### 2026-11-27 00:23 #hwb1
+
+> [superseded 2026-11-27 by #t2wh]
+
+B4 计划写入门禁与 B5 聚类质量 validator 已实施，均作为内部模块接入既有 MCP handler、不新增工具。B4 默认 observe，enforce 仅放行 pending 页面或精确 target；按实际 routed 路径、计划 schema/hash 身份与当前 centralized 仓分区判定，delete-only 不授权重建；计划外写入落审计且不污染 plan_hash。B5 按完整 scope 文件分块估算 token，父模块聚合后代并集；缺测/逃逸/不可读显式进入 unmeasured，部分缺测不判微页；使用轻量组件元数据与会话签名缓存，异常降级 unavailable，不自动改树。两轮独立审查的安全边界与性能问题均已修复，schema 中英模板同步。验证：B4 专项 39、B5 专项 20、联合 189、相邻 B1-B5 63、B4 周边 107；全量 1537 passed/2 skipped；MCP 契约 121 passed/5 failed（既有 OKF/frontmatter/confirm gate 基线，无新增）；ruff、相关 mypy、stdio 53 工具/schema/prompt、diff check 通过；未运行 smoke。已更新后续借鉴清单并生成 B4/B5 两篇 decision draft（待用户 confirm，未自动确认）。本轮未提交、未推送。下一步仅在明确需求下启动 C1/C2/C3，不自动展开。
+
+### 2026-09-20 12:03 #l5dy
+
+ADR-0013 E 项实施完成（2026-09-20）：① 新建 codewiki/mcp/tools/limits.py（压缩阈值组 40/24KB/keep20/4096 + 写入窗口软限 5 + 压缩级别 0.75/0.875）；② task_manager.py 改为 import + 历史私有名 re-export，行为等价；③ wiki_lint.py 新增 threshold_drift 检查（扫 registry.py/prompts.py 文案 vs limits.py 常量，锚定正则避免 50KB 误报）+ registry schema enum 同步；④ 首日即抓到真实漂移：registry.py:2953 compact 描述写 2048 实际常量 4096，已修文案；⑤ 新增 tests/test_threshold_drift.py 6 用例全过，全量 1168+6 passed。B 项（ingest_note reason 必填 + evidence 可选）待实施。
+
+### 2026-11-27 00:25 #t2wh
+
+> [superseded 2026-11-27 by #4xve]
+
+B4 计划写入门禁与 B5 聚类质量 validator 已实施，均作为内部模块接入既有 MCP handler、不新增工具。B4 默认 observe，enforce 仅放行 pending 页面或精确 target；按实际 routed 路径、计划 schema/hash 身份与当前 centralized 仓分区判定，delete-only 不授权重建；计划外写入落审计且不污染 plan_hash。B5 按完整 scope 文件分块估算 token，父模块聚合后代并集；缺测/逃逸/不可读显式进入 unmeasured，部分缺测不判微页；使用轻量组件元数据与会话签名缓存，异常降级 unavailable，不自动改树。两轮独立审查的安全边界与性能问题均已修复，schema 中英模板同步。验证：B4 专项 39、B5 专项 20、联合 189、相邻 B1-B5 63、B4 周边 107；全量 1524 passed/2 skipped/1 warning；MCP 契约 121 passed/5 failed（既有 OKF/frontmatter/confirm gate 基线，无新增）；ruff、相关 mypy、stdio 53 工具/schema/prompt、diff check 通过；未运行 smoke。已更新后续借鉴清单并生成 B4/B5 两篇 decision draft（待用户 confirm，未自动确认）。本轮未提交、未推送。下一步仅在明确需求下启动 C1/C2/C3，不自动展开。
+
+### 2026-11-27 00:50 #4xve
+
+> [superseded 2026-11-27 by #7hpa]
+
+B4 计划写入门禁与 B5 聚类质量 validator 已实施并完成最终验证，均作为内部模块接入既有 MCP handler、不新增工具。B4 默认 observe，enforce 仅放行 pending 页面或精确 target；按实际 routed page key、计划 schema/hash 身份与当前 centralized 仓分区判定，delete-only 不授权重建；计划外写入落审计且不污染 plan_hash。最终审查修复了同 stem 跨仓归因：plan 构建/delete/replan/manifest 查询、删除执行、mark_op_done 与 job ledger 均按当前分区及实际 page key 结算；query/entity/他仓模块页只计 other_written，不误关缺页 job，overview 保留明确例外。B5 按完整 scope 文件分块估算 token，父模块聚合后代并集；缺测/逃逸/不可读显式进入 unmeasured，部分缺测不判微页；使用轻量组件元数据与会话签名缓存，异常降级 unavailable，不自动改树。验证：B4 专项 39、B5 专项 20、B1-B5 联合 63、跨仓修复后 B4 周边 114、文档写入/路由周边 51；最终全量 1531 passed/2 skipped/1 warning；MCP 契约 121 passed/5 failed（既有 OKF/frontmatter/confirm gate 基线，无新增）；核心 5 文件与新增专项测试 mypy、ruff、diff check 通过；未运行 smoke。已更新后续借鉴清单并保留 B4/B5 两篇 decision draft（待用户 confirm，未自动确认）。本轮未提交、未推送。下一步仅在明确需求下启动 C1/C2/C3，不自动展开。
+
+### 2026-09-20 12:25 #5c41
+
+ADR-0013 B 项实施完成（2026-09-20）：① note_ingest.py 加 reason 校验（status=stable 必填，缺失拒绝并提示改走 draft→confirm；draft 可选）+ evidence 处理（复用 confirm_note 语义：test_ref/commit_ref/reviewed_by，提供时升 confidence_level=strong 并记 metadata.verification，未知 key 拒绝）；② reason/verification 写进 frontmatter metadata；③ registry.py ingest_note schema 加 reason/evidence 参数描述，status 描述同步更新；④ 新增 tests/test_ingest_reason_evidence.py 7 用例，修 4 处既有裸 stable 调用补 reason；⑤ 全量 1182 passed。ADR-0013 全部落地（E+B）。
+
+### 2026-09-20 19:39 #ki12
+
+完成 hook/AGENTS.md 竞品调研（claude-mem、hindsight、teamai-cli、letta-code、openwiki、better-harness、caveman、project-cairn）。核心结论：①AGENTS.md 应瘦身成路由层（cairn ≤60 行预算 + 文档职责表），细节外置 wiki 按需检索；②task-memory 协议存在 AGENTS.md 块与 SessionStart hook 双通道重复注入，应单点收敛（建议保留 hook 硬通道，AGENTS.md 留一行指针）；③hook 可借鉴 teamai-cli golden fixture 钉渲染输出、claude-mem 原生 async:true（需真机验证 CodeBuddy 支持）；④明确不借 claude-mem 六事件全采集（噪音）、inline bash 路径解析、letta commit-on-write（模型相反）。下一步：向用户确认优化方案后落地。
+
+### 2026-09-20 20:43 #f5gt
+
+ADR-0015 落地完成：AGENTS.md 托管块瘦身与注入通道收敛。改动：①zh.yaml/en.yaml CodeWiki 块 89→45 行（保留采纳声明/标注依据/语言闸门，纠正识别三步流程并入使用建议第 3 条，归档示例 JSON 删除指向 get_prompt(ingest-note)，路由表压成单行）；②prompts.py _TASK_MEMORY_AGENTS_SECTION 40→8 行指针式（hook 注入优先，未注入时按 task-workflow prompt 执行，全文收敛到 hook 硬通道+prompt）；③本仓 AGENTS.md 163→97 行，Team memory fusion 节外移到 repowiki/wiki/team-memory-fusion.md；④本仓两块用产品渲染器刷新（_build_section + upsert_agents_section）。全量测试 1109 passed。golden fixture（D5）deferred 到下次动 ide_config.py 前补。待办：commit 未做（等用户确认）。
+
+### 2026-11-27 06:58 #r0xt
+
+> [superseded 2026-11-27 by #sdc2]
+
+C2 第二语言 Ruby 薄适配已实施：独立 tree-sitter-ruby 0.23.1 + grammar preflight，保留完整 namespace、#/. 方法身份、词法常量/继承作用域与保守接收者推断；跨文件裸调用延迟解析且不做尾名猜测。两轮审查反例已修复。验证：Ruby 专项 43 passed、Ruby/Rust 68 passed、加入 correctness/latest compat 联合 81 passed；真实 Ruby 标准库 19 样本得到 956 组件/2823 关系；正式 stdio MCP 首次 16 组件。增量复测发现并修复 AnalysisCache._SRC_EXTS 缺 .rb/.rs，导致无改动全量误报；修复后 no_changes=true，单文件新增只报 support.rb 与 #report。OKF 契约 121/5 与基线一致。backlog 已更新，Ruby 决策草稿保持 draft。最终全量测试正在复跑；未提交、未推送、未确认草稿。
+
+### 2026-09-20 21:26 #os6r
+
+ADR-0015 已提交推送：cb305c7 feat: ADR-0015 AGENTS.md 托管块瘦身与注入通道收敛（5 文件，+102/-196），已推送 origin/develop。排除项：repowiki/schema.yaml（auto-sync 副作用重写，非本次改动）、.codebuddy/memory（工作记忆）。后续 deferred 项：①UserPromptSubmit 薄触发提升主动沉淀命中率（方案已给出，用户暂不做）；②golden fixture 测试（下次动 ide_config.py 前补）。

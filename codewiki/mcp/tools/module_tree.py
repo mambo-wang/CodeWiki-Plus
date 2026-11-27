@@ -102,9 +102,89 @@ def _validate_module_tree(
     Ported from upstream FSoft-AI4Code/CodeWiki (PR by LiberiFatali).
     """
     assigned = _collect_component_ids(module_tree)
-    unmatched = sorted(assigned - known_ids)
-    leftover = sorted(known_ids - assigned)
-    return unmatched, leftover
+    normalized_known: dict[str, list[str]] = {}
+    for component_id in known_ids:
+        normalized_known.setdefault(str(component_id).replace("\\", "/"), []).append(component_id)
+    assigned_known: set = set()
+    unmatched: list[str] = []
+    for raw_id in assigned:
+        if raw_id in known_ids:
+            assigned_known.add(raw_id)
+            continue
+        matches = normalized_known.get(str(raw_id).replace("\\", "/"), [])
+        if len(matches) == 1:
+            assigned_known.add(matches[0])
+        else:
+            unmatched.append(raw_id)
+    leftover = sorted(known_ids - assigned_known)
+    return sorted(unmatched), leftover
+
+
+def _clustering_validation_info(
+    module_tree: dict[str, Any],
+    *,
+    session: SessionState | None,
+    workspace: SessionWorkspace | None,
+    repo_path: str | None,
+    output_dir: str,
+) -> tuple[dict[str, Any] | None, str]:
+    """Run B5 as an observe-only diagnostic; never alter the submitted tree."""
+    if session is None or not repo_path:
+        return None, ""
+    diagnostic: dict[str, Any]
+    try:
+        from codewiki.mcp.tools.clustering_validator import (
+            load_clustering_validation_config,
+            measure_scope_file_tokens,
+            validate_clustering,
+        )
+        from codewiki.mcp.tools.page_router import load_schema
+
+        config = load_clustering_validation_config(load_schema(output_dir))
+        if not config["enabled"]:
+            diagnostic = {"mode": "observe", "status": "disabled", "enabled": False}
+            if workspace is not None:
+                workspace.write_json("clustering_validation.json", diagnostic)
+            return diagnostic, ""
+        counts, unmeasured = measure_scope_file_tokens(
+            repo_path,
+            session.components,
+            config["chars_per_token"],
+            cache=session.clustering_file_cache,
+        )
+        diagnostic = validate_clustering(
+            module_tree,
+            session.components,
+            counts,
+            unmeasured_files=unmeasured,
+            config=config,
+        )
+        if workspace is not None:
+            workspace.write_json("clustering_validation.json", diagnostic)
+    except Exception as exc:
+        # The tree is already persisted. Diagnostics must not turn a successful
+        # save into a failure because schema/config/cache/workspace data is bad.
+        logger.warning("clustering validation unavailable: %s", exc)
+        diagnostic = {"mode": "observe", "status": "unavailable", "error": str(exc)}
+        if workspace is not None:
+            try:
+                workspace.write_json("clustering_validation.json", diagnostic)
+            except Exception:
+                logger.warning("clustering diagnostic persistence failed", exc_info=True)
+    if diagnostic.get("status") == "issues":
+        summary = diagnostic["summary"]
+        warning = (
+            f"Clustering validation found {summary['issue_count']} issue(s): "
+            f"{summary['micro_page_count']} micro page(s), "
+            f"{summary['oversized_leaf_count']} oversized leaf(s), "
+            f"{summary['split_file_count']} split file(s), "
+            f"{summary['uncovered_file_count']} uncovered file(s). "
+            "Review clustering_validation and re-save a corrected tree before generation."
+        )
+        return diagnostic, warning
+    if diagnostic.get("status") == "unavailable":
+        return diagnostic, f"Clustering validation unavailable: {diagnostic['error']}"
+    return diagnostic, ""
 
 
 def _change_plan_info(
@@ -127,8 +207,10 @@ def _change_plan_info(
     try:
         from codewiki.mcp.tools import change_plan as plan_mod
         from codewiki.mcp.tools.page_manifest import load_manifest
+        from codewiki.mcp.tools.workspace_layout import routing_for_write
 
         existing = plan_mod.load_plan(repo_path, output_dir)
+        module_repo = routing_for_write(output_dir, repo_path)
         same_tree = previous_tree is not None and previous_tree == module_tree
         if (
             existing is not None
@@ -139,9 +221,7 @@ def _change_plan_info(
             # A resumed attempt may have been killed mid-delete; re-running the
             # deterministic deletions is free, and the summary must reflect them.
             plan_mod.execute_deletions(repo_path, output_dir)
-            return plan_mod.plan_summary(
-                plan_mod.load_plan(repo_path, output_dir) or existing
-            )
+            return plan_mod.plan_summary(plan_mod.load_plan(repo_path, output_dir) or existing)
         if not previous_tree:
             return None
 
@@ -156,6 +236,7 @@ def _change_plan_info(
             base_commit=plan_mod.base_commit_for(repo_path, output_dir),
             surface="mcp",
             job_id=(job_before or {}).get("job_id"),
+            module_repo=module_repo,
         )
         _, plan = plan_mod.write_plan(repo_path, output_dir, plan)
         deleted = plan_mod.execute_deletions(repo_path, output_dir)
@@ -178,6 +259,7 @@ def _save_and_compute_order(
     session: SessionState | None = None,
     workspace: SessionWorkspace | None = None,
     repo_path: str | None = None,
+    repair_plan: dict[str, Any] | None = None,
 ) -> str:
     """Persist a module tree and compute the leaf-first processing order.
 
@@ -189,7 +271,7 @@ def _save_and_compute_order(
     if repo_path:
         from codewiki.mcp.cache import analysis_meta_dir
 
-        meta_dir = _Path(analysis_meta_dir(repo_path, output_dir))
+        meta_dir = _Path(analysis_meta_dir(_Path(repo_path), _Path(output_dir)))
     else:
         meta_dir = _Path(meta_join(output_dir, ""))
     first_path = meta_dir / FIRST_MODULE_TREE_FILENAME
@@ -252,6 +334,17 @@ def _save_and_compute_order(
             warning = " ".join(warnings)
             logger.warning("save_module_tree: %s", warning)
 
+    clustering_validation, clustering_warning = _clustering_validation_info(
+        module_tree,
+        session=session,
+        workspace=ws,
+        repo_path=repo_path,
+        output_dir=output_dir,
+    )
+    if clustering_warning:
+        warning = f"{warning} {clustering_warning}".strip()
+        logger.warning("save_module_tree: %s", clustering_warning)
+
     # Compute processing order and write to workspace file
     order = _get_processing_order(module_tree)
     order_file = None
@@ -278,9 +371,7 @@ def _save_and_compute_order(
     # unchanged).
     job_before = job_state.load_job(repo_path, output_dir) if repo_path else None
 
-    plan_info = _change_plan_info(
-        repo_path, output_dir, previous_tree, module_tree, job_before
-    )
+    plan_info = _change_plan_info(repo_path, output_dir, previous_tree, module_tree, job_before)
 
     if plan_info is not None:
         # The plan decides what this attempt owes: a plan-driven update must
@@ -301,7 +392,7 @@ def _save_and_compute_order(
             [entry["module"] for entry in order] + ["overview"],
         )
 
-    result = {
+    result: dict[str, Any] = {
         "status": "saved",
         "module_count": total_modules,
         "total_components_assigned": total_assigned,
@@ -317,6 +408,10 @@ def _save_and_compute_order(
     }
     if validation is not None:
         result["validation"] = validation
+    if clustering_validation is not None:
+        result["clustering_validation"] = clustering_validation
+    if repair_plan is not None:
+        result["tree_repair"] = repair_plan
     if warning:
         result["warning"] = warning
     if plan_info is not None:
@@ -366,8 +461,49 @@ def handle_save_module_tree(
         return json.dumps(
             {"error": "module_tree or module_tree_file is required."}, ensure_ascii=False
         )
+    repair_mode = str(arguments.get("repair_mode") or "observe").strip().lower()
+    if repair_mode not in {"observe", "apply"}:
+        return json.dumps(
+            {"error": "repair_mode must be 'observe' or 'apply'."}, ensure_ascii=False
+        )
+    repair_plan = None
+    component_changes = session.component_changes if session is not None else None
+    if repair_mode == "apply" and session is None:
+        return json.dumps(
+            {"error": "repair_mode='apply' requires an active analyze_repo session."},
+            ensure_ascii=False,
+        )
+    if repair_mode == "apply" and component_changes is None:
+        return json.dumps(
+            {
+                "error": "repair_mode='apply' requires a fresh analyze_repo session with a component diff."
+            },
+            ensure_ascii=False,
+        )
+    if session is not None:
+        from codewiki.mcp.tools.tree_repair import repair_module_tree
+
+        try:
+            repair_plan = repair_module_tree(
+                module_tree,
+                session.components,
+                component_changes=component_changes
+                if component_changes is not None
+                else {"added": [], "deleted": [], "renamed": []},
+                tracked_component_ids=session.leaf_nodes,
+                apply=repair_mode == "apply",
+            )
+        except (TypeError, ValueError) as exc:
+            return json.dumps({"error": f"invalid module_tree: {exc}"}, ensure_ascii=False)
+        if repair_mode == "apply":
+            module_tree = repair_plan["repaired_tree"]
     return _save_and_compute_order(
-        output_dir, module_tree, session=session, workspace=workspace, repo_path=rp
+        output_dir,
+        module_tree,
+        session=session,
+        workspace=workspace,
+        repo_path=rp,
+        repair_plan=repair_plan,
     )
 
 
@@ -402,7 +538,7 @@ def handle_get_processing_order(
     if not module_tree:
         from codewiki.mcp.cache import resolve_analysis_meta_file
 
-        tree_path = resolve_analysis_meta_file(rp, output_dir, MODULE_TREE_FILENAME)
+        tree_path = resolve_analysis_meta_file(_Path(rp), _Path(output_dir), MODULE_TREE_FILENAME)
         if os.path.exists(tree_path):
             with open(tree_path, encoding="utf-8") as f:
                 module_tree = json.load(f)

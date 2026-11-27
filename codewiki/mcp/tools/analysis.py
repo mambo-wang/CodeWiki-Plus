@@ -16,13 +16,14 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, overload
 
 from codewiki.mcp.cache import (
     AnalysisCache,
     ComponentMeta,
     LazyComponentStore,
     default_cache_db,
+    resolve_analysis_meta_file,
 )
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.tools import job_state
@@ -47,6 +48,91 @@ def _read_source_from_disk(node) -> str:
     except Exception as e:
         logger.warning("Failed to read source for %s: %s", fp, e)
         return ""
+
+
+def _collect_artifact_facts(
+    repo_path: Path,
+    output_dir: Path,
+    *,
+    include_patterns: str | None,
+    exclude_patterns: str | None,
+) -> Dict[str, Any]:
+    """Collect and persist C3 facts without letting failures block source analysis."""
+
+    from codewiki.mcp.tools.artifact_facts import (
+        ArtifactFactOptions,
+        analyze_artifact_facts,
+        artifact_facts_path,
+        unavailable_artifact_facts,
+    )
+
+    def _patterns(value: str | None) -> tuple[str, ...]:
+        return tuple(item.strip() for item in (value or "").split(",") if item.strip())
+
+    try:
+        path = artifact_facts_path(repo_path, output_dir)
+        previous: Dict[str, Any] | None = None
+        previous_text: str | None = None
+        if path.exists():
+            try:
+                previous_text = path.read_text(encoding="utf-8")
+                loaded = json.loads(previous_text)
+                previous = loaded if isinstance(loaded, dict) else {}
+            except (OSError, UnicodeError, ValueError):
+                previous = {}
+                previous_text = None
+        result = analyze_artifact_facts(
+            repo_path,
+            previous=previous,
+            options=ArtifactFactOptions(
+                include_patterns=_patterns(include_patterns),
+                exclude_patterns=_patterns(exclude_patterns),
+            ),
+        )
+        if previous is not None and previous_text is None:
+            result["status"] = "partial"
+            result["warnings"].append("previous_index_unreadable")
+            result["warnings"] = sorted(set(result["warnings"]))
+        serialized = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)
+        try:
+            if serialized != previous_text:
+                from codewiki.src.store import atomic_write
+
+                atomic_write(path, serialized)
+        except Exception as exc:  # noqa: BLE001 - persistence must not discard valid facts
+            result["status"] = "partial"
+            result["warnings"].append(f"persist_failed:{type(exc).__name__}")
+            result["warnings"] = sorted(set(result["warnings"]))
+            logger.warning("Artifact facts persistence failed (non-fatal): %s", exc)
+        return result
+    except Exception as exc:  # noqa: BLE001 - C3 is an optional fail-open fact layer
+        logger.warning("Artifact facts collection failed (non-fatal): %s", exc)
+        return unavailable_artifact_facts(type(exc).__name__)
+
+
+def _merge_artifact_changes(
+    changes_info: Optional[Dict[str, Any]], artifact_facts: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Merge artifact-only changes into the existing incremental change list."""
+
+    changed = list(artifact_facts.get("changed_files", []))
+    if changes_info is None:
+        if not changed:
+            return None
+        return {
+            "added_files": [],
+            "modified_files": [],
+            "deleted_files": [],
+            "changed_files": changed,
+            "artifact_changed_files": changed,
+            "no_changes": False,
+        }
+    existing = list(changes_info.get("changed_files") or [])
+    changes_info["changed_files"] = sorted(set(existing) | set(changed))
+    changes_info["artifact_changed_files"] = changed
+    if changed:
+        changes_info["no_changes"] = False
+    return changes_info
 
 
 def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
@@ -121,17 +207,32 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     changes_info = None
     cached_unchanged_components: Dict[str, Any] = {}
     skip_file_paths: Optional[set] = None
+    previous_changed_components: Dict[str, Any] | None = None
+    previous_components_for_ownership: Dict[str, Any] | None = None
+    current_changed_components: Dict[str, Any] = {}
+    component_changes: Dict[str, Any] = {"added": [], "deleted": [], "renamed": []}
 
+    artifact_facts: Dict[str, Any] | None = None
     if incremental and cache.is_fresh():
         changes_info = cache.detect_changes()
+        artifact_facts = _collect_artifact_facts(
+            repo_path,
+            output_dir,
+            include_patterns=include,
+            exclude_patterns=exclude,
+        )
+        changes_info = _merge_artifact_changes(changes_info, artifact_facts)
         if changes_info and changes_info.get("no_changes"):
-            # No changes — reuse cached data. Close the ledger started above
-            # so it never lingers in ``analyzing`` (ADR-0020).
+            # No source or artifact changes — reuse cached data. Close the ledger
+            # started above so it never lingers in ``analyzing`` (ADR-0020).
             job_state.finish_job(repo_path, output_dir)
-            return _build_no_change_response(repo_path, output_dir, store, cache, changes_info)
+            return _build_no_change_response(
+                repo_path, output_dir, store, cache, changes_info, artifact_facts=artifact_facts
+            )
         if changes_info and changes_info.get("changed_files"):
             changed = changes_info["changed_files"]
             logger.info("Incremental mode: %d files changed", len(changed))
+            previous_changed_components = cache.get_components_by_files(set(changed))
             # Remove stale components and routes for changed files
             for cf in changed:
                 cache.remove_by_file(cf)
@@ -147,6 +248,8 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
 
             # Load cached components for unchanged files
             cached_unchanged_components = cache.get_components_by_files(unchanged_rel_paths)
+            previous_components_for_ownership = dict(cached_unchanged_components)
+            previous_components_for_ownership.update(previous_changed_components)
 
             # Build set of absolute paths to skip during parsing
             skip_file_paths = set()
@@ -161,6 +264,14 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
                 len(unchanged_rel_paths),
                 len(skip_file_paths),
             )
+
+    if artifact_facts is None:
+        artifact_facts = _collect_artifact_facts(
+            repo_path,
+            output_dir,
+            include_patterns=include,
+            exclude_patterns=exclude,
+        )
 
     # Full parse (writes legacy JSONs to _tmp — clean up afterwards)
     from codewiki.src.be.dependency_analyzer import DependencyGraphBuilder
@@ -214,6 +325,28 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
             merged = [n for n in old_leafs if n in components]
             merged.extend(n for n in leaf_nodes if n not in merged)
             leaf_nodes = merged
+
+    if changes_info is None:
+        changes_info = _detect_doc_changes(repo_path, output_dir, components=components)
+        if changes_info and changes_info.get("changed_files") and cache.is_fresh():
+            changed = changes_info["changed_files"]
+            previous_changed_components = cache.get_components_by_files(set(changed))
+            previous_components_for_ownership = cache.get_all_metas()
+    changes_info = _merge_artifact_changes(changes_info, artifact_facts)
+
+    if previous_changed_components is not None:
+        from codewiki.mcp.tools.reference_index import classify_component_changes
+
+        assert changes_info is not None
+        changed_paths = {str(path).replace("\\", "/") for path in changes_info["changed_files"]}
+        current_changed_components = {
+            component_id: node
+            for component_id, node in components.items()
+            if str(getattr(node, "relative_path", "") or "").replace("\\", "/") in changed_paths
+        }
+        component_changes = classify_component_changes(
+            previous_changed_components, current_changed_components
+        )
 
     # Write to SQLite cache (incremental mode if we had cached components)
     is_incremental = bool(cached_unchanged_components)
@@ -277,6 +410,9 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         leaf_nodes=leaf_nodes,
         cache=cache,
     )
+    # B3 在宿主随后保存树时复用与 changes.tree_repair 完全相同的 diff，
+    # 不再实现第二份组件图差异逻辑。
+    session.component_changes = component_changes
     # Remember the analysis options so watch-mode incremental re-parses
     # apply the same include/exclude filtering (see tools/watch.py).
     session.analyze_options = {
@@ -347,11 +483,42 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     # leaf_nodes: preview in summary.json; full list via leaf_nodes in session
 
     # 4. Incremental changes (from current run or saved metadata.json)
-    if changes_info is None:
-        changes_info = _detect_doc_changes(repo_path, output_dir, components=metas)
+    if not current_changed_components and changes_info and changes_info.get("changed_files"):
+        changed_paths = {str(path).replace("\\", "/") for path in changes_info["changed_files"]}
+        current_changed_components = {
+            component_id: node
+            for component_id, node in metas.items()
+            if str(getattr(node, "relative_path", "") or "").replace("\\", "/") in changed_paths
+        }
     if changes_info is not None:
-        changes_info = _enrich_stale_pages(changes_info, output_dir)
-        changes_info = _enrich_stale_evidence(changes_info, output_dir)
+        changes_info["component_changes"] = component_changes
+        _enrich_stale_pages(changes_info, output_dir)
+        _enrich_stale_evidence(changes_info, output_dir)
+        changes_info = _enrich_referencing_pages(
+            changes_info,
+            repo_path,
+            output_dir,
+            components=metas,
+            previous_components=previous_changed_components,
+            cache=cache,
+        )
+        changes_info = _enrich_ownership(
+            changes_info,
+            repo_path,
+            output_dir,
+            components=metas,
+            previous_components=previous_components_for_ownership,
+            changed_components=current_changed_components,
+            deleted_component_ids=component_changes["deleted"],
+        )
+        changes_info = _enrich_tree_repair(
+            changes_info,
+            repo_path,
+            output_dir,
+            components=metas,
+            component_changes=component_changes,
+            tracked_component_ids=leaf_nodes,
+        )
         workspace.write_json("changes.json", changes_info)
 
     # 5. Summary
@@ -365,6 +532,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         "total_leaf_nodes": len(leaf_nodes),
         "languages": langs,
         "leaf_nodes_preview": leaf_nodes[:20],
+        "artifact_facts": artifact_facts["summary"],
     }
     if job_summary is not None:
         summary["job"] = job_summary
@@ -478,6 +646,9 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         node.source_code = None
 
     # -- MCP response --
+    from codewiki.mcp.tools.artifact_facts import artifact_facts_path
+
+    artifact_file = str(artifact_facts_path(repo_path, output_dir))
     result = {
         "session_id": session.session_id,
         "workspace_dir": str(workspace.root),
@@ -491,7 +662,9 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         "files": {
             "summary": str(workspace.root / "summary.json"),
             "schema": str(output_dir / "schema.yaml"),
+            "artifact_facts": artifact_file,
         },
+        "artifact_facts": artifact_facts,
         "changes": changes_info,
         "cache_mode": "sqlite",
         "hint": (
@@ -522,8 +695,17 @@ def _build_no_change_response(
     store: SessionStore,
     cache: AnalysisCache,
     changes_info: Dict,
+    *,
+    artifact_facts: Dict[str, Any] | None = None,
 ) -> str:
     """Build session from cached data when no changes are detected."""
+    if artifact_facts is None:
+        artifact_facts = _collect_artifact_facts(
+            repo_path,
+            output_dir,
+            include_patterns=None,
+            exclude_patterns=None,
+        )
     metas = cache.get_all_metas()
     leaf_nodes = cache.get_leaf_nodes()
     lazy_store = LazyComponentStore(cache, metas)
@@ -535,6 +717,9 @@ def _build_no_change_response(
         leaf_nodes=leaf_nodes,
         cache=cache,
     )
+    # 本次 fresh analyze 即使无代码变更，也拥有权威的空 diff；与仅从缓存
+    # 恢复的查询会话不同，它仍可显式 apply 树修复。
+    session.component_changes = {"added": [], "deleted": [], "renamed": []}
     from codewiki.cli.utils.repo_validator import get_git_commit_hash
 
     session.analyzed_commit = get_git_commit_hash(repo_path) or None
@@ -553,7 +738,28 @@ def _build_no_change_response(
     # code change), but the D1 evidence signal stays SILENT on this path
     # (ADR-0005): no_changes means "code didn't move" — evidence drift then
     # waits for an explicit lint_wiki(checks=["stale_evidence"]).
-    changes_info = _enrich_stale_pages(changes_info, output_dir)
+    _enrich_stale_pages(changes_info, output_dir)
+    changes_info = _enrich_referencing_pages(
+        changes_info,
+        repo_path,
+        output_dir,
+        components=metas,
+        cache=cache,
+    )
+    changes_info = _enrich_ownership(
+        changes_info,
+        repo_path,
+        output_dir,
+        components=metas,
+    )
+    changes_info = _enrich_tree_repair(
+        changes_info,
+        repo_path,
+        output_dir,
+        components=metas,
+        component_changes=session.component_changes,
+        tracked_component_ids=leaf_nodes,
+    )
     workspace.write_json("changes.json", changes_info)
 
     summary = {
@@ -565,11 +771,14 @@ def _build_no_change_response(
         "total_leaf_nodes": len(leaf_nodes),
         "languages": langs,
         "leaf_nodes_preview": leaf_nodes[:20],
+        "artifact_facts": artifact_facts["summary"],
     }
     job_summary = job_state.job_summary(job_state.load_job(repo_path, output_dir))
     if job_summary is not None:
         summary["job"] = job_summary
     workspace.write_json("summary.json", summary)
+
+    from codewiki.mcp.tools.artifact_facts import artifact_facts_path
 
     response = {
         "session_id": session.session_id,
@@ -583,10 +792,18 @@ def _build_no_change_response(
         },
         "files": {
             "summary": str(workspace.root / "summary.json"),
+            "artifact_facts": str(artifact_facts_path(repo_path, output_dir)),
         },
+        "artifact_facts": artifact_facts,
         "changes": changes_info,
         "cache_mode": "sqlite",
-        "hint": "No changes detected since last analysis. Documentation is up to date.",
+        "hint": (
+            "No changes detected since last analysis. Documentation is up to date."
+            if artifact_facts.get("status") == "ok"
+            else "No source changes detected since last analysis. Artifact facts are partial or "
+            "unavailable; review artifact_facts.status, warnings, failures and omissions before "
+            "treating build/deploy documentation as current."
+        ),
     }
     if job_summary is not None:
         response["job"] = job_summary
@@ -823,6 +1040,168 @@ def _enrich_stale_pages(
     return changes_info
 
 
+@overload
+def _enrich_referencing_pages(
+    changes_info: Dict[str, Any],
+    repo_path: Path,
+    output_dir: Path,
+    *,
+    components: Dict[str, Any],
+    previous_components: Optional[Dict[str, Any]] = None,
+    cache: AnalysisCache,
+) -> Dict[str, Any]: ...
+
+
+@overload
+def _enrich_referencing_pages(
+    changes_info: None,
+    repo_path: Path,
+    output_dir: Path,
+    *,
+    components: Dict[str, Any],
+    previous_components: Optional[Dict[str, Any]] = None,
+    cache: AnalysisCache,
+) -> None: ...
+
+
+def _enrich_referencing_pages(
+    changes_info: Optional[Dict[str, Any]],
+    repo_path: Path,
+    output_dir: Path,
+    *,
+    components: Dict[str, Any],
+    previous_components: Optional[Dict[str, Any]] = None,
+    cache: AnalysisCache,
+) -> Optional[Dict[str, Any]]:
+    """附加反向引用信息，不改变文档正文。"""
+    if not isinstance(changes_info, dict):
+        return changes_info
+    try:
+        from codewiki.mcp.tools.reference_index import rebuild_index, referencing_pages
+
+        path, index = rebuild_index(
+            repo_path,
+            output_dir,
+            components,
+            previous_components=previous_components,
+            historical_symbols=cache.get_reference_symbols(),
+        )
+        cache.save_reference_symbols(index["symbols"])
+        component_changes = changes_info.setdefault(
+            "component_changes", {"added": [], "deleted": [], "renamed": []}
+        )
+        deleted = component_changes.get("deleted") or []
+        renamed = component_changes.get("renamed") or []
+        targets = set(deleted)
+        targets.update(
+            str(item.get("from")) for item in renamed if isinstance(item, dict) and item.get("from")
+        )
+        changes_info["referencing_pages"] = referencing_pages(
+            index,
+            component_ids=targets,
+            page_keys=changes_info.get("deleted_pages") or [],
+        )
+        changes_info["reference_index_file"] = str(path)
+    except Exception:
+        logger.warning("reference index build failed (non-fatal)", exc_info=True)
+    return changes_info
+
+
+def _load_incremental_module_tree(
+    repo_path: Path, output_dir: Path
+) -> tuple[dict[str, Any] | None, str, str | None]:
+    """统一加载增量诊断使用的模块树，并显式区分缺失与损坏。"""
+    tree_path = resolve_analysis_meta_file(repo_path, output_dir, "module_tree.json")
+    if not tree_path.exists():
+        return None, "missing", None
+    try:
+        module_tree = json.loads(tree_path.read_text(encoding="utf-8"))
+        if not isinstance(module_tree, dict):
+            raise ValueError("module tree root must be an object")
+        return module_tree, "loaded", None
+    except (OSError, ValueError, TypeError) as exc:
+        return None, "invalid", str(exc)
+
+
+def _enrich_ownership(
+    changes_info: Dict[str, Any],
+    repo_path: Path,
+    output_dir: Path,
+    *,
+    components: Dict[str, Any],
+    previous_components: Optional[Dict[str, Any]] = None,
+    changed_components: Optional[Dict[str, Any]] = None,
+    deleted_component_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """附加确定性 owner 候选；模块树缺失或损坏时不阻断分析。"""
+    from codewiki.mcp.tools.ownership import close_ownership
+
+    changed = changed_components or {}
+    deleted = deleted_component_ids or []
+    module_tree, status, warning = _load_incremental_module_tree(repo_path, output_dir)
+    try:
+        result = close_ownership(
+            module_tree or {},
+            components,
+            previous_components=previous_components,
+            changed_component_ids=changed,
+            deleted_component_ids=deleted,
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        status, warning = "invalid", str(exc)
+        result = close_ownership(
+            {},
+            components,
+            previous_components=previous_components,
+            changed_component_ids=changed,
+            deleted_component_ids=deleted,
+        )
+    changes_info.update(result)
+    changes_info["ownership_tree_status"] = status
+    if warning:
+        changes_info["ownership_warning"] = warning
+        logger.warning("module tree load failed (ownership unresolved): %s", warning)
+    return changes_info
+
+
+def _enrich_tree_repair(
+    changes_info: Dict[str, Any],
+    repo_path: Path,
+    output_dir: Path,
+    *,
+    components: Dict[str, Any],
+    component_changes: Dict[str, Any],
+    tracked_component_ids: List[str],
+) -> Dict[str, Any]:
+    """附加 B3 observe 修复计划，不修改磁盘上的模块树。"""
+    from codewiki.mcp.tools.tree_repair import repair_module_tree
+
+    module_tree, status, warning = _load_incremental_module_tree(repo_path, output_dir)
+    try:
+        plan = repair_module_tree(
+            module_tree or {},
+            components,
+            component_changes=component_changes,
+            tracked_component_ids=tracked_component_ids,
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        status, warning = "invalid", str(exc)
+        plan = repair_module_tree(
+            {},
+            components,
+            component_changes=component_changes,
+            tracked_component_ids=tracked_component_ids,
+        )
+    if warning:
+        plan["warnings"].append(warning)
+    changes_info["tree_repair"] = plan
+    changes_info["tree_repair_status"] = status
+    if warning:
+        changes_info["tree_repair_warning"] = warning
+        logger.warning("module tree load failed (tree repair unavailable): %s", warning)
+    return changes_info
+
+
 def _enrich_stale_evidence(
     changes_info: Optional[Dict[str, Any]], output_dir: Path
 ) -> Optional[Dict[str, Any]]:
@@ -1031,6 +1410,7 @@ def _detect_mtime_from_meta(repo_path: Path, metadata: Dict) -> Optional[Dict]:
         ".go",
         ".php",
         ".rs",
+        ".rb",
     }
     ch = []
     for dp, dns, fns in os.walk(repo_path):

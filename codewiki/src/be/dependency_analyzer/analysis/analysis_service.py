@@ -317,6 +317,7 @@ class AnalysisService:
             "php",
             "go",
             "rust",
+            "ruby",
             "kotlin",
         }
 
@@ -339,6 +340,8 @@ class AnalysisService:
             "php",
             "kotlin",
             "go",
+            "rust",
+            "ruby",
         ]
 
     def _cleanup_repository(self, temp_dir: str):

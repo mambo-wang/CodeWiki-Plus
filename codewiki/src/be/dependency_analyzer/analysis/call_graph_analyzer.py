@@ -18,6 +18,7 @@ from pathlib import Path
 from contextlib import contextmanager
 from codewiki.src.be.dependency_analyzer.models.core import Node, CallRelationship
 from codewiki.src.be.dependency_analyzer.models.cross_service import RouteNode
+from codewiki.src.be.dependency_analyzer.analyzers.ruby import RUBY_IMPLICIT_PREFIX
 from codewiki.src.be.dependency_analyzer.analyzers.route_extractors import get_extractor
 from codewiki.src.be.dependency_analyzer.analyzers.route_extractors.mq_patterns import (
     extract_mq_routes,
@@ -29,6 +30,7 @@ from codewiki.src.be.dependency_analyzer.utils.external_symbols import (
     is_external_symbol,
     is_macro_name,
 )
+from codewiki.src.be.dependency_analyzer.utils.grammars import ensure_grammars
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +81,7 @@ class CallGraphAnalyzer:
         self._repo_name: str = ""
         self._python_project_modules: set = set()
         self._python_external_import_roots: set = set()
+        self._rust_impls: list[tuple[str, str, int]] = []
         logger.debug("CallGraphAnalyzer initialized.")
 
     def analyze_code_files(
@@ -112,8 +115,11 @@ class CallGraphAnalyzer:
         self.functions = {}
         self.call_relationships = []
         self.routes = []
+        self._rust_impls = []
         self._repo_name = Path(base_dir).name
         code_files = self._route_contextual_headers(code_files, base_dir)
+        # 在逐文件解析前验证 grammar；下载/ABI 失败不能退化成零节点。
+        ensure_grammars(f["language"] for f in code_files)
         self._python_project_modules = self._collect_python_modules(code_files)
         self._python_external_import_roots = set()
 
@@ -149,6 +155,7 @@ class CallGraphAnalyzer:
         )
 
         logger.debug("Resolving call relationships")
+        self._resolve_rust_impl_bases()
         self._resolve_call_relationships()
         self._deduplicate_relationships()
         viz_data = self._generate_visualization_data()
@@ -295,6 +302,10 @@ class CallGraphAnalyzer:
                     self._analyze_php_file(file_path, content, repo_dir)
                 elif language == "go":
                     self._analyze_go_file(file_path, content, repo_dir)
+                elif language == "rust":
+                    self._analyze_rust_file(file_path, content, repo_dir)
+                elif language == "ruby":
+                    self._analyze_ruby_file(file_path, content, repo_dir)
                 # else:
                 #     logger.warning(
                 #         f"Unsupported language for call graph analysis: {language} for file {file_path}"
@@ -553,6 +564,56 @@ class CallGraphAnalyzer:
         except Exception as e:
             logger.error(f"Failed to analyze Go file {file_path}: {e}", exc_info=True)
 
+    def _analyze_rust_file(self, file_path: str, content: str, repo_dir: str):
+        """分析 Rust 源码并保留既有 component ID 与调用边契约。"""
+        from codewiki.src.be.dependency_analyzer.analyzers.rust import analyze_rust_file
+
+        functions, relationships = analyze_rust_file(
+            file_path, content, repo_path=repo_dir, impl_bases=self._rust_impls
+        )
+        for func in functions:
+            func_id = func.id if func.id else f"{file_path}:{func.name}"
+            self.functions[func_id] = func
+        self.call_relationships.extend(relationships)
+
+    def _analyze_ruby_file(self, file_path: str, content: str, repo_dir: str):
+        """分析 Ruby 源码，保留命名空间、实例/单例方法与接收者身份。"""
+        from codewiki.src.be.dependency_analyzer.analyzers.ruby import analyze_ruby_file
+
+        functions, relationships = analyze_ruby_file(
+            file_path, content, repo_path=repo_dir, defer_implicit=True
+        )
+        for func in functions:
+            func_id = func.id if func.id else f"{file_path}:{func.name}"
+            self.functions[func_id] = func
+        self.call_relationships.extend(relationships)
+
+    def _resolve_rust_impl_bases(self) -> None:
+        """跨文件 trait impl 在全部类型可见后回填 base class 与类型边。"""
+        by_name: Dict[str, List[str]] = defaultdict(list)
+        for func_id, node in self.functions.items():
+            if node.language == "rust" and node.name:
+                by_name[node.name].append(func_id)
+        for owner, trait, line in self._rust_impls:
+            owner_matches = by_name.get(owner, [])
+            if len(owner_matches) != 1:
+                continue
+            owner_id = owner_matches[0]
+            node = self.functions[owner_id]
+            bases = node.base_classes or []
+            if trait not in bases:
+                node.base_classes = [*bases, trait]
+            trait_matches = by_name.get(trait, [])
+            resolved = len(trait_matches) == 1
+            self.call_relationships.append(
+                CallRelationship(
+                    caller=owner_id,
+                    callee=trait_matches[0] if resolved else trait,
+                    call_line=line,
+                    is_resolved=resolved,
+                )
+            )
+
     def _extract_routes(self, file_path: str, content: str, language: str):
         """Post-pass: extract HTTP/MQ routes for cross-service analysis.
 
@@ -608,10 +669,16 @@ class CallGraphAnalyzer:
             relationship
             for relationship in self.call_relationships
             if relationship.is_resolved
-            or not self._is_external_callee(
-                self._caller_language(relationship.caller),
-                relationship.callee,
-                dotted_packages,
+            or not (
+                (
+                    self._caller_language(relationship.caller) == "ruby"
+                    and relationship.callee.startswith(RUBY_IMPLICIT_PREFIX)
+                )
+                or self._is_external_callee(
+                    self._caller_language(relationship.caller),
+                    relationship.callee,
+                    dotted_packages,
+                )
             )
         ]
 
@@ -760,6 +827,46 @@ class CallGraphAnalyzer:
         simple: Dict[str, List[str]],
     ) -> Optional[str]:
         callee_name = relationship.callee
+        caller = self.functions.get(relationship.caller)
+        if caller and caller.language == "ruby":
+            # Ruby 常量按调用者词法命名空间查找，但绝不把 Missing.run
+            # 之类的限定调用降级成裸 run 再跨类绑定。隐式方法候选先保留
+            # # / . 身份，跨文件解析失败后由调用图层丢弃。
+            implicit = callee_name.startswith(RUBY_IMPLICIT_PREFIX)
+            logical_name = (
+                callee_name[len(RUBY_IMPLICIT_PREFIX) :] if implicit else callee_name
+            ).replace("::", ".")
+            namespace = self._ruby_caller_namespace(caller)
+            parts = namespace.split(".") if namespace else []
+            if logical_name.startswith("."):
+                if implicit:
+                    for length in range(len(parts), 0, -1):
+                        candidate = ".".join(parts[:length]) + logical_name
+                        match = self._unique_match(exact, candidate)
+                        if match:
+                            return match
+                    return self._unique_match(exact, logical_name)
+                return self._unique_match(exact, logical_name.lstrip("."))
+            if logical_name.startswith("#"):
+                for length in range(len(parts), 0, -1):
+                    candidate = ".".join(parts[:length]) + logical_name
+                    match = self._unique_match(exact, candidate)
+                    if match:
+                        return match
+                return self._unique_match(exact, logical_name)
+            for length in range(len(parts), 0, -1):
+                candidate = ".".join([*parts[:length], logical_name])
+                match = self._unique_match(exact, candidate)
+                if match:
+                    return match
+            return self._unique_match(exact, logical_name)
+
+        if caller and caller.language == "rust":
+            # Rust 的 :: 路径与接收者类型是身份的一部分，不能按尾名猜绑定。
+            logical_name = callee_name.replace("::", ".")
+            return self._unique_match(exact, logical_name) or self._unique_match(
+                simple, logical_name
+            )
 
         exact_match = self._unique_match(exact, callee_name)
         if exact_match:
@@ -782,7 +889,6 @@ class CallGraphAnalyzer:
             if tail_match:
                 return tail_match
 
-        caller = self.functions.get(relationship.caller)
         if caller and caller.language in ("java", "csharp") and "." not in callee_name:
             package = self._dotted_package_for_node(caller)
             if package:
@@ -791,6 +897,15 @@ class CallGraphAnalyzer:
                     return same_package_match
 
         return self._unique_match(simple, callee_name)
+
+    @staticmethod
+    def _ruby_caller_namespace(node: Node) -> str:
+        if node.class_name:
+            return node.class_name
+        qualified = (node.qualified_name or node.name).split("#", 1)[0]
+        if qualified.startswith(("#", ".")):
+            return ""
+        return qualified.replace("::", ".")
 
     def _unique_match(self, index: Dict[str, List[str]], key: str) -> Optional[str]:
         matches = index.get(key, [])

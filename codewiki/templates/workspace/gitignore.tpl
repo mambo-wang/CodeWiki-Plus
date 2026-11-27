@@ -22,6 +22,8 @@ repowiki/.meta/module_tree.json
 repowiki/.meta/symbol_map.json
 repowiki/.meta/project.json
 repowiki/.meta/overview_refs.json
+repowiki/.meta/reference_index.json
+repowiki/.meta/artifact_facts.json
 repowiki/.meta/aggregate_state.json
 repowiki/.meta/source_registry.json
 repowiki/.meta/task_bindings/

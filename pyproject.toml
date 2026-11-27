@@ -60,7 +60,9 @@ dependencies = [
     "colorama>=0.4.6",
     "mcp>=1.0.0,<2",
     "jieba>=0.42.1",
-    "pathspec>=0.12.1"
+    "pathspec>=0.12.1",
+    "tree-sitter-rust>=0.23.2,<0.24.0",
+    "tree-sitter-ruby>=0.23.1,<0.24.0",
 ]
 
 [dependency-groups]
