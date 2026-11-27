@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import threading
 import time
@@ -193,6 +194,54 @@ def _incremental_refresh(
         ai["exclude_patterns"] = [p.strip() for p in str(opts["exclude_patterns"]).split(",")]
     config.agent_instructions = ai
 
+    # go.mod/pubspec.yaml 决定跨文件名称解析；manifest-only 变化必须重解析
+    # 对应语言的全部缓存 caller，与 handle_analyze_repo 共用失效规则。
+    from codewiki.mcp.tools.analysis import _expand_semantic_manifest_changes
+
+    changed_files = _expand_semantic_manifest_changes(cache, changed_files)
+
+    # import/re-export/build.zig 映射会影响全部 Zig caller；与
+    # handle_analyze_repo/CallGraphAnalyzer 保持一致，变化时重解析全部 Zig。
+    if any(Path(path).suffix.lower() == ".zig" for path in changed_files):
+        from codewiki.src.be.dependency_analyzer.analyzers.zig import is_skipped_zig_file
+
+        root = Path(repo_path)
+        zig_files = {
+            path.relative_to(root).as_posix()
+            for path in root.rglob("*.zig")
+            if path.is_file() and not is_skipped_zig_file(path.relative_to(root).as_posix())
+        }
+        cached_zig = {
+            path for path in cache.get_cached_file_paths() if Path(path).suffix.lower() == ".zig"
+        }
+        changed_files = sorted(set(changed_files) | zig_files | cached_zig)
+
+    # Lean 的 import/open/export 决定跨文件可见域；任一 Lean 文件变化时
+    # 重解析当前全部 Lean，并纳入无组件的 import-only 缓存文件。
+    if any(Path(path).suffix.lower() == ".lean" for path in changed_files):
+        from codewiki.src.be.dependency_analyzer.analyzers.lean import is_skipped_lean_file
+
+        root = Path(repo_path)
+        lean_files: set[str] = set()
+        for directory, dirnames, filenames in os.walk(root):
+            dirnames[:] = [
+                name
+                for name in dirnames
+                if not name.startswith(".")
+                and name not in {"node_modules", ".lake", "lake-packages"}
+            ]
+            for filename in filenames:
+                if not filename.endswith(".lean"):
+                    continue
+                path = Path(directory, filename)
+                relative = path.relative_to(root).as_posix()
+                if not is_skipped_lean_file(relative):
+                    lean_files.add(relative)
+        cached_lean = {
+            path for path in cache.get_cached_file_paths() if Path(path).suffix.lower() == ".lean"
+        }
+        changed_files = sorted(set(changed_files) | lean_files | cached_lean)
+
     # Drop stale rows for changed files; everything else stays cached.
     for cf in changed_files:
         try:
@@ -210,7 +259,8 @@ def _incremental_refresh(
     builder = DependencyGraphBuilder(config)
     try:
         components, leaf_nodes, routes = builder.build_dependency_graph(
-            skip_file_paths=skip_file_paths
+            skip_file_paths=skip_file_paths,
+            cached_components=cached_unchanged,
         )
     finally:
         shutil.rmtree(str(_tmp), ignore_errors=True)

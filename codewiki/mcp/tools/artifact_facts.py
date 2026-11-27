@@ -48,6 +48,8 @@ _DROP_SEGMENTS = {
     "dist",
     "fixtures",
     "node_modules",
+    ".lake",
+    "lake-packages",
     "repowiki",
     "snapshots",
     "testdata",
@@ -81,10 +83,23 @@ _MANIFEST_NAMES = {
     "pom.xml",
     "build.gradle",
     "build.gradle.kts",
+    "build.sbt",
+    "pubspec.yaml",
+    "lakefile.toml",
+    "lake-manifest.json",
+    "lean-toolchain",
     "gemfile",
     "composer.json",
 }
-_BUILD_NAMES = {"makefile", "gnumakefile", "build", "workspace", "build.bazel"}
+_BUILD_NAMES = {
+    "makefile",
+    "gnumakefile",
+    "build",
+    "workspace",
+    "build.bazel",
+    "build.zig",
+    "lakefile.lean",
+}
 _SCHEMA_EXTS = {".proto", ".graphql", ".thrift"}
 _SCRIPT_EXTS = {".sh", ".bash", ".zsh", ".fish", ".ps1"}
 _SOURCE_EXTS = {
@@ -99,12 +114,18 @@ _SOURCE_EXTS = {
     ".js",
     ".jsx",
     ".kt",
+    ".lean",
     ".php",
     ".py",
     ".rb",
     ".rs",
+    ".scala",
+    ".sc",
+    ".dart",
+    ".zig",
     ".ts",
     ".tsx",
+    ".vue",
     ".yaml",
     ".yml",
     ".json",
@@ -1048,6 +1069,12 @@ def _parse_generic_manifest(path: str, text: str) -> tuple[dict, list[dict]]:
         "pom.xml": "maven",
         "build.gradle": "gradle",
         "build.gradle.kts": "gradle",
+        "build.sbt": "sbt",
+        "pubspec.yaml": "dart",
+        "build.zig": "zig",
+        "lakefile.toml": "lean",
+        "lake-manifest.json": "lean",
+        "lean-toolchain": "lean",
         "gemfile": "ruby",
         "composer.json": "php",
         "setup.py": "python",
@@ -1061,6 +1088,11 @@ def _parse_generic_manifest(path: str, text: str) -> tuple[dict, list[dict]]:
             "ecosystem": ecosystems.get(Path(path).name.lower(), "unknown"),
             "line_count": len(text.splitlines()),
         },
+        # SBT 常以 file("src/main/scala/...") 显式列出源码；只提取字面路径，
+        # 不执行 build.sbt，也不把普通 Scala 文件升格为 artifact。
+        references=_extract_references(text)
+        if Path(path).name.lower() in {"build.sbt", "build.zig", "lakefile.toml"}
+        else (),
     ), []
 
 
@@ -1224,6 +1256,15 @@ def _parse_artifact(kind: str, path: str, text: str) -> tuple[dict, list[dict]]:
             return _parse_requirements(path, text)
         return _parse_generic_manifest(path, text)
     if kind == "build":
+        if name in {"build.zig", "lakefile.lean"}:
+            return _fact(
+                "build",
+                path,
+                Path(path).name,
+                1,
+                attributes={"line_count": len(text.splitlines())},
+                references=_extract_references(text),
+            ), []
         if name in {"makefile", "gnumakefile"}:
             return _parse_makefile(path, text)
         return _fact(

@@ -37,7 +37,10 @@ class DependencyParser:
         self.analysis_service = AnalysisService()
 
     def parse_repository(
-        self, filtered_folders: List[str] = None, skip_file_paths: Optional[set] = None
+        self,
+        filtered_folders: List[str] = None,
+        skip_file_paths: Optional[set] = None,
+        cached_components: Optional[Dict[str, Node]] = None,
     ) -> Dict[str, Node]:
         logger.debug(f"Parsing repository at {self.repo_path}")
 
@@ -57,6 +60,7 @@ class DependencyParser:
             structure_result["file_tree"],
             self.repo_path,
             skip_file_paths=skip_file_paths,
+            cached_components=cached_components,
         )
 
         # Propagate cross-service routes
@@ -99,6 +103,8 @@ class DependencyParser:
                 component_id=component_id,
                 language=func_dict.get("language")
                 or CODE_EXTENSIONS.get(Path(func_dict.get("file_path", "")).suffix.lower()),
+                qualified_name=func_dict.get("qualified_name"),
+                metadata=func_dict.get("metadata") or {},
             )
 
             self.components[component_id] = node
@@ -181,6 +187,12 @@ class DependencyParser:
             ".cjs",
             ".kt",
             ".kts",
+            ".vue",
+            ".scala",
+            ".sc",
+            ".dart",
+            ".zig",
+            ".lean",
         ]
         for ext in extensions:
             if path.endswith(ext):

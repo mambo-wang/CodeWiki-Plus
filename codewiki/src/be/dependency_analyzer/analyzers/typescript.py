@@ -663,7 +663,7 @@ class TreeSitterTSAnalyzer:
         else:
             rel_path = str(self.file_path)
 
-        for ext in [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]:
+        for ext in [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue"]:
             if rel_path.endswith(ext):
                 rel_path = rel_path[: -len(ext)]
                 break

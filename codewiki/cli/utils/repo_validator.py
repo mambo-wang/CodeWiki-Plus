@@ -33,6 +33,12 @@ SUPPORTED_EXTENSIONS = {
     ".kt",  # Kotlin
     ".kts",  # Kotlin Scripts
     ".rb",  # Ruby
+    ".scala",  # Scala
+    ".sc",  # Scala scripts
+    ".dart",  # Dart / Flutter
+    ".zig",  # Zig
+    ".lean",  # Lean 4
+    ".vue",  # Vue Single-File Components
 }
 
 
@@ -63,7 +69,8 @@ def validate_repository(repo_path: Path) -> Tuple[Path, List[Tuple[str, int]]]:
     if not languages:
         raise RepositoryError(
             f"No supported code files found in {repo_path}\n\n"
-            "CodeWiki supports: Python, Java, JavaScript, TypeScript, C, C++, C#, PHP\n\n"
+            "CodeWiki supports: Python, Java, JavaScript, TypeScript, C, C++, C#, PHP, "
+            "Kotlin, Go, Rust, Ruby, Scala, Dart, Zig, Lean 4, Vue\n\n"
             "Please navigate to a code repository or specify a custom directory:\n"
             "  cd /path/to/your/project\n"
             "  codewiki generate"

@@ -16,7 +16,8 @@ def cli(ctx):
     CodeWiki: Transform codebases into comprehensive documentation.
 
     Generate AI-powered documentation for your code repositories with support
-    for Python, Java, JavaScript, TypeScript, C, C++, and C#.
+    for Python, Java, JavaScript, TypeScript, C, C++, C#, PHP, Kotlin, Go,
+    Rust, Ruby, Scala, Dart, Zig, Lean 4, and Vue.
     """
     # Ensure context object exists
     ctx.ensure_object(dict)

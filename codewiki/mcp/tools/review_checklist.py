@@ -51,6 +51,12 @@ LANG_BY_EXT = {
     ".php": "php",
     ".rb": "ruby",
     ".rs": "rust",
+    ".scala": "scala",
+    ".sc": "scala",
+    ".dart": "dart",
+    ".zig": "zig",
+    ".lean": "lean",
+    ".vue": "vue",
 }
 
 # Builtin checklist ids grouped by scope.  Titles and questions live in the

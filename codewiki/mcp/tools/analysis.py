@@ -135,6 +135,29 @@ def _merge_artifact_changes(
     return changes_info
 
 
+def _expand_semantic_manifest_changes(cache: AnalysisCache, changed_files: List[str]) -> List[str]:
+    """把语义 manifest 变化扩展为对应语言的全部缓存源码文件。
+
+    ``go.mod`` 决定 module/local replace，``pubspec.yaml`` 决定 package 名；
+    它们变化时，未修改的 caller 也必须重解析，否则缓存会恢复旧解析边。
+    """
+    manifest_suffixes = {
+        "go.mod": {".go"},
+        "pubspec.yaml": {".dart"},
+    }
+    affected_suffixes: Set[str] = set()
+    for path in changed_files:
+        affected_suffixes.update(manifest_suffixes.get(Path(path).name, set()))
+    if not affected_suffixes:
+        return sorted(set(changed_files))
+    affected_cached = {
+        path
+        for path in cache.get_cached_file_paths()
+        if Path(path).suffix.lower() in affected_suffixes
+    }
+    return sorted(set(changed_files) | affected_cached)
+
+
 def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     """Run dependency analysis, cache to SQLite, create session with lazy store."""
     repo_path = Path(arguments["repo_path"]).expanduser().resolve()
@@ -230,7 +253,8 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
                 repo_path, output_dir, store, cache, changes_info, artifact_facts=artifact_facts
             )
         if changes_info and changes_info.get("changed_files"):
-            changed = changes_info["changed_files"]
+            changed = _expand_semantic_manifest_changes(cache, changes_info["changed_files"])
+            changes_info["changed_files"] = changed
             logger.info("Incremental mode: %d files changed", len(changed))
             previous_changed_components = cache.get_components_by_files(set(changed))
             # Remove stale components and routes for changed files
@@ -280,7 +304,8 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     builder = DependencyGraphBuilder(config)
     try:
         components, leaf_nodes, routes = builder.build_dependency_graph(
-            skip_file_paths=skip_file_paths
+            skip_file_paths=skip_file_paths,
+            cached_components=cached_unchanged_components,
         )
     finally:
         shutil.rmtree(str(_tmp), ignore_errors=True)
@@ -399,6 +424,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
             qualified_name=node.qualified_name,
             has_docstring=node.has_docstring,
             parameters=node.parameters,
+            metadata=node.metadata,
         )
     lazy_store = LazyComponentStore(cache, metas)
 
@@ -635,9 +661,22 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
         # Repo-relative paths on purpose: _fp_detect() keys its fingerprint
         # rows by relative path (os.walk output). Absolute paths would make
         # every file look changed on the next fingerprint poll.
-        all_files = list({m.relative_path for m in metas.values() if m.relative_path})
+        all_files = list(
+            {m.relative_path for m in metas.values() if m.relative_path}
+            | set(cache.get_cached_file_paths())
+            | set(_go_analysis_paths(repo_path))
+            | set(_dart_analysis_paths(repo_path))
+            | set(_zig_analysis_paths(repo_path))
+            | set(_lean_analysis_paths(repo_path))
+        )
         if all_files:
             cache.update_file_fingerprints(all_files, session.analyzed_commit or "")
+        deleted_paths = [
+            path
+            for path in (changes_info or {}).get("changed_files", [])
+            if path and not (repo_path / path).exists()
+        ]
+        cache.remove_file_fingerprints(deleted_paths)
     except Exception as e:
         logger.warning("Fingerprint update failed: %s", e)
 
@@ -689,6 +728,91 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
+def _go_analysis_paths(repo_path: Path) -> list[str]:
+    """返回 Go module 语义依赖，确保 manifest-only 变化可被指纹检测。"""
+    paths: list[str] = []
+    for directory, dirnames, filenames in os.walk(repo_path):
+        dirnames[:] = [
+            name
+            for name in dirnames
+            if not name.startswith(".") and name not in {"node_modules", "vendor", "testdata"}
+        ]
+        for filename in filenames:
+            if filename != "go.mod":
+                continue
+            path = Path(directory, filename)
+            try:
+                paths.append(path.relative_to(repo_path).as_posix())
+            except ValueError:
+                continue
+    return paths
+
+
+def _dart_analysis_paths(repo_path: Path) -> list[str]:
+    """返回 Dart 源码与 package 语义依赖，包含无组件的 directive-only 文件。"""
+    paths: list[str] = []
+    for directory, dirnames, filenames in os.walk(repo_path):
+        dirnames[:] = [
+            name
+            for name in dirnames
+            if not name.startswith(".") and name not in {"node_modules", "build", ".dart_tool"}
+        ]
+        for filename in filenames:
+            if filename == "pubspec.yaml" or (
+                filename.endswith(".dart")
+                and not filename.endswith((".g.dart", ".freezed.dart", ".gen.dart"))
+            ):
+                path = Path(directory, filename)
+                try:
+                    paths.append(path.relative_to(repo_path).as_posix())
+                except ValueError:
+                    continue
+    return paths
+
+
+def _zig_analysis_paths(repo_path: Path) -> list[str]:
+    """返回参与 Zig 语义分析的源码，包含无组件的 import/re-export 文件。"""
+    from codewiki.src.be.dependency_analyzer.analyzers.zig import is_skipped_zig_file
+
+    paths: list[str] = []
+    for directory, dirnames, filenames in os.walk(repo_path):
+        dirnames[:] = [
+            name
+            for name in dirnames
+            if not name.startswith(".")
+            and name not in {"node_modules", ".zig-cache", "zig-cache", "zig-out"}
+        ]
+        for filename in filenames:
+            if not filename.endswith(".zig"):
+                continue
+            path = Path(directory, filename)
+            relative = path.relative_to(repo_path).as_posix()
+            if not is_skipped_zig_file(relative):
+                paths.append(relative)
+    return paths
+
+
+def _lean_analysis_paths(repo_path: Path) -> list[str]:
+    """返回参与 Lean 可见域分析的源码，包含无组件的 import-only 文件。"""
+    from codewiki.src.be.dependency_analyzer.analyzers.lean import is_skipped_lean_file
+
+    paths: list[str] = []
+    for directory, dirnames, filenames in os.walk(repo_path):
+        dirnames[:] = [
+            name
+            for name in dirnames
+            if not name.startswith(".") and name not in {"node_modules", ".lake", "lake-packages"}
+        ]
+        for filename in filenames:
+            if not filename.endswith(".lean"):
+                continue
+            path = Path(directory, filename)
+            relative = path.relative_to(repo_path).as_posix()
+            if not is_skipped_lean_file(relative):
+                paths.append(relative)
+    return paths
+
+
 def _build_no_change_response(
     repo_path: Path,
     output_dir: Path,
@@ -728,7 +852,7 @@ def _build_no_change_response(
     session.workspace = workspace
     SessionWorkspace.cleanup_legacy_sessions(repo_path)
 
-    langs = {}
+    langs: dict[str, int] = {}
     for m in metas.values():
         lang = (m.language or "").strip()
         if not lang or lang.lower() in ("null", "none", "unknown"):
@@ -1411,17 +1535,34 @@ def _detect_mtime_from_meta(repo_path: Path, metadata: Dict) -> Optional[Dict]:
         ".php",
         ".rs",
         ".rb",
+        ".scala",
+        ".sc",
+        ".dart",
+        ".zig",
+        ".lean",
+        ".vue",
     }
     ch = []
     for dp, dns, fns in os.walk(repo_path):
         dns[:] = [
             d
             for d in dns
-            if not d.startswith(".") and d not in ("node_modules", "__pycache__", "venv", ".venv")
+            if not d.startswith(".")
+            and d
+            not in (
+                "node_modules",
+                "__pycache__",
+                "venv",
+                ".venv",
+                "zig-cache",
+                "zig-out",
+                ".lake",
+                "lake-packages",
+            )
         ]
         for fn in fns:
             fp = Path(dp) / fn
-            if fp.suffix.lower() not in exts:
+            if fn not in {"go.mod", "pubspec.yaml"} and fp.suffix.lower() not in exts:
                 continue
             try:
                 if fp.stat().st_mtime > prev:

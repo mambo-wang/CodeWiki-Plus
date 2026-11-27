@@ -38,6 +38,8 @@ _EXCLUDE_DIRS = {
     ".next",
     ".nuxt",
     "vendor",
+    ".lake",
+    "lake-packages",
     "test",
     "tests",
     "testing",
@@ -91,7 +93,7 @@ def detect_services(repo_path: Path) -> Dict[str, ServiceInfo]:
     # Phase 2: Multiple Dockerfiles
     _detect_from_dockerfiles(repo_path, services)
 
-    # Phase 3: Build manifests (go.mod, pom.xml, package.json, pyproject.toml)
+    # Phase 3: Build manifests (package manifests and Lake project files)
     _detect_from_build_manifests(repo_path, services)
 
     # Phase 4: Convention directories (services/, apps/)
@@ -347,6 +349,11 @@ _BUILD_MANIFESTS = {
     "pom.xml": "maven",
     "build.gradle": "gradle",
     "build.gradle.kts": "gradle",
+    "build.sbt": "sbt",
+    "pubspec.yaml": "pubspec",
+    "build.zig": "zig",
+    "lakefile.lean": "lean",
+    "lakefile.toml": "lean",
     "package.json": "node",
     "pyproject.toml": "python",
     "setup.py": "python",
@@ -467,9 +474,15 @@ def _has_source_files(directory: Path, max_files: int = 200) -> bool:
         ".rs",
         ".kt",
         ".kts",
+        ".scala",
+        ".sc",
+        ".dart",
+        ".zig",
+        ".lean",
         ".cs",
         ".php",
         ".rb",
+        ".vue",
         ".c",
         ".cpp",
     }
@@ -567,16 +580,7 @@ def _extract_spring_app_name_properties(prop_path: Path) -> Optional[str]:
 
 def _find_service_root(start: Path, repo_root: Path) -> Path:
     """Walk up from start to find the nearest directory with a build manifest."""
-    markers = {
-        "pom.xml",
-        "build.gradle",
-        "build.gradle.kts",
-        "go.mod",
-        "package.json",
-        "pyproject.toml",
-        "setup.py",
-        "Cargo.toml",
-    }
+    markers = set(_BUILD_MANIFESTS)
     current = start
     while current != repo_root and current != current.parent:
         if any((current / m).exists() for m in markers):

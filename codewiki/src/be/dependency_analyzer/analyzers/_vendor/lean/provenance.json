@@ -1,0 +1,16 @@
+{
+  "grammar": "Julian/tree-sitter-lean",
+  "grammar_revision": "f35fa9b1ad3edd22c2b07b61f569a6d9c8e07d6e",
+  "binary_release": "xberg-io/tree-sitter-language-pack v1.14.3",
+  "release_url": "https://github.com/xberg-io/tree-sitter-language-pack/releases/tag/v1.14.3",
+  "license": "MIT",
+  "language_abi": 15,
+  "assets": {
+    "linux-aarch64/libtree_sitter_lean.so": "05905e41efd84bd0e91993343b5fb9acd0a77590371bfff3c220ecdbcffd9c18",
+    "linux-x86_64/libtree_sitter_lean.so": "5fb1374a5fd65cd3066e82d83c53e32d83cff10a540327befc28c44f40e2cd44",
+    "macos-arm64/libtree_sitter_lean.dylib": "28db0b283de5105b4bdb29792bcd6b333e9d4656c14d1d496a83c868f4a6b957",
+    "macos-x86_64/libtree_sitter_lean.dylib": "7f56818e924d5fd63e4f33765ba096d8d6ea9520190c49b079784cf227704558",
+    "windows-aarch64/tree_sitter_lean.dll": "b1656a7ca2826586a826f79648af375b99f783daa490d7551b71dc770da5dbad",
+    "windows-x86_64/tree_sitter_lean.dll": "815087ee5d8d530a7f32f12ac23923dc7c3c86a4209a7d47d5e065b79e48e25e"
+  }
+}

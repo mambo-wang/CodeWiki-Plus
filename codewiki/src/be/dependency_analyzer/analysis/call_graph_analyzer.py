@@ -6,8 +6,9 @@ Coordinates language-specific analyzers to build comprehensive call graphs
 across different programming languages in a repository.
 """
 
-from typing import Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Dict, List, Optional, Set
 import logging
+import os
 import traceback
 import time
 import signal
@@ -31,6 +32,9 @@ from codewiki.src.be.dependency_analyzer.utils.external_symbols import (
     is_macro_name,
 )
 from codewiki.src.be.dependency_analyzer.utils.grammars import ensure_grammars
+
+if TYPE_CHECKING:
+    from codewiki.src.be.dependency_analyzer.analyzers.lean_resolution import LeanNameResolver
 
 logger = logging.getLogger(__name__)
 
@@ -82,10 +86,21 @@ class CallGraphAnalyzer:
         self._python_project_modules: set = set()
         self._python_external_import_roots: set = set()
         self._rust_impls: list[tuple[str, str, int]] = []
+        self._go_visible: dict[str, set[str]] = {}
+        self._go_index = None
+        self._scala_index = None
+        self._dart_index = None
+        self._dart_cached_edges: list[tuple[str, str]] = []
+        self._parsed_files: set[str] = set()
+        self._reset_lean_state()
         logger.debug("CallGraphAnalyzer initialized.")
 
     def analyze_code_files(
-        self, code_files: List[Dict], base_dir: str, skip_file_paths: Optional[Set[str]] = None
+        self,
+        code_files: List[Dict],
+        base_dir: str,
+        skip_file_paths: Optional[Set[str]] = None,
+        cached_components: Optional[Dict[str, Node]] = None,
     ) -> Dict:
         """
         Complete analysis: Analyze all files to build complete call graph with all nodes.
@@ -100,10 +115,48 @@ class CallGraphAnalyzer:
             code_files: List of code file info dicts
             base_dir: Base directory of the repository
             skip_file_paths: Optional set of absolute file paths to skip (for incremental mode)
+            cached_components: Unchanged components from SQLite. Go, Scala and Dart nodes are
+                merged before package/scope resolution so changed files can call cached symbols.
         """
+        # Dart visible scope 需要未变更文件的 import/export/part 指令；
+        # 在增量过滤前保留完整文件清单。
+        self._parsed_files = set()
+        dart_files = [
+            file_info["path"] for file_info in code_files if file_info.get("language") == "dart"
+        ]
+        if skip_file_paths and cached_components:
+            # 旧缓存没有原始引用语义，不能凭目标名复核；让这些 Dart 文件
+            # 在首次升级后重解析一次，后续缓存即可安全增量。
+            stale_dart_paths = set()
+            for node in cached_components.values():
+                if (
+                    node.language == "dart" or Path(node.file_path).suffix.lower() == ".dart"
+                ) and "dart_raw_dependencies" not in node.metadata:
+                    stale_dart_paths.add(node.file_path)
+                    try:
+                        stale_dart_paths.add(
+                            Path(os.path.relpath(node.file_path, base_dir)).as_posix()
+                        )
+                    except (TypeError, ValueError):
+                        pass
+            if stale_dart_paths:
+                skip_file_paths = set(skip_file_paths) - stale_dart_paths
         if skip_file_paths:
             original_count = len(code_files)
-            code_files = [f for f in code_files if f.get("path") not in skip_file_paths]
+            skipped_paths = set(skip_file_paths)
+            for skipped in skip_file_paths:
+                try:
+                    skipped_paths.add(Path(os.path.relpath(skipped, base_dir)).as_posix())
+                except (TypeError, ValueError):
+                    pass
+            # Zig 与 Lean 的文件级 import/open/export 会改变其他 caller 的
+            # 可见域；任一文件变化都全量重解析该语言，而非只解析差量。
+            skipped_paths = {
+                p for p in skipped_paths if Path(p).suffix.lower() not in {".zig", ".lean"}
+            }
+            code_files = [
+                file_info for file_info in code_files if file_info.get("path") not in skipped_paths
+            ]
             logger.info(
                 f"Incremental mode: skipping {original_count - len(code_files)} unchanged files, "
                 f"parsing {len(code_files)} changed files"
@@ -116,6 +169,12 @@ class CallGraphAnalyzer:
         self.call_relationships = []
         self.routes = []
         self._rust_impls = []
+        self._go_visible = {}
+        self._go_index = None
+        self._scala_index = None
+        self._dart_index = None
+        self._dart_cached_edges = []
+        self._reset_lean_state()
         self._repo_name = Path(base_dir).name
         code_files = self._route_contextual_headers(code_files, base_dir)
         # 在逐文件解析前验证 grammar；下载/ABI 失败不能退化成零节点。
@@ -129,6 +188,7 @@ class CallGraphAnalyzer:
 
         for idx, file_info in enumerate(code_files, 1):
             file_path = file_info["path"]
+            self._parsed_files.add(file_path)
             try:
                 # Log progress every file with elapsed time
                 if idx % max(1, len(code_files) // 10) == 0 or idx <= 5:
@@ -142,6 +202,10 @@ class CallGraphAnalyzer:
                 self._analyze_code_file(base_dir, file_info)
                 files_analyzed += 1
             except Exception as e:
+                # Lean 的 import/open/export 需要完整文件态；半份结果回填缓存
+                # 会静默产生错误可见域。grammar/parser/scanner 故障必须显式失败。
+                if file_info.get("language") == "lean":
+                    raise
                 files_failed += 1
                 logger.warning(
                     f"  ⚠️  [{idx}/{len(code_files)}] Failed to analyze {file_path}: {str(e)[:100]}"
@@ -155,7 +219,20 @@ class CallGraphAnalyzer:
         )
 
         logger.debug("Resolving call relationships")
+        self._merge_cached_go_components(cached_components)
+        self._merge_cached_scala_components(cached_components)
+        self._merge_cached_dart_components(cached_components)
+        self._merge_cached_vue_components(cached_components, base_dir)
+        self._merge_cached_zig_components(cached_components, base_dir)
+        self._merge_cached_lean_components(cached_components, base_dir)
+        self._rebuild_dart_scope(base_dir, dart_files)
         self._resolve_rust_impl_bases()
+        if any(func.language == "go" for func in self.functions.values()):
+            from codewiki.src.be.dependency_analyzer.analyzers.go_package import (
+                link_go_interfaces,
+            )
+
+            self.call_relationships.extend(link_go_interfaces(self.functions))
         self._resolve_call_relationships()
         self._deduplicate_relationships()
         viz_data = self._generate_visualization_data()
@@ -302,10 +379,20 @@ class CallGraphAnalyzer:
                     self._analyze_php_file(file_path, content, repo_dir)
                 elif language == "go":
                     self._analyze_go_file(file_path, content, repo_dir)
+                elif language == "scala":
+                    self._analyze_scala_file(file_path, content, repo_dir)
+                elif language == "dart":
+                    self._analyze_dart_file(file_path, content, repo_dir)
+                elif language == "zig":
+                    self._analyze_zig_file(file_path, content, repo_dir)
+                elif language == "lean":
+                    self._analyze_lean_file(file_path, content, repo_dir)
                 elif language == "rust":
                     self._analyze_rust_file(file_path, content, repo_dir)
                 elif language == "ruby":
                     self._analyze_ruby_file(file_path, content, repo_dir)
+                elif language == "vue":
+                    self._analyze_vue_file(file_path, content, repo_dir)
                 # else:
                 #     logger.warning(
                 #         f"Unsupported language for call graph analysis: {language} for file {file_path}"
@@ -317,6 +404,8 @@ class CallGraphAnalyzer:
         except TimeoutError as e:
             logger.warning(f"⏱️  Timeout analyzing {file_path}: {str(e)}")
         except Exception as e:
+            if file_info.get("language") == "lean":
+                raise
             logger.debug(f"Error analyzing {file_path}: {str(e)}")
             logger.debug(f"Traceback: {traceback.format_exc()}")
 
@@ -552,17 +641,68 @@ class CallGraphAnalyzer:
             content: File content string
             repo_dir: Repository base directory
         """
-        from codewiki.src.be.dependency_analyzer.analyzers.go import analyze_go_file
+        from codewiki.src.be.dependency_analyzer.analyzers.go import TreeSitterGoAnalyzer
 
-        try:
-            functions, relationships = analyze_go_file(file_path, content, repo_path=repo_dir)
-            for func in functions:
-                func_id = func.id if func.id else f"{file_path}:{func.name}"
-                self.functions[func_id] = func
+        analyzer = TreeSitterGoAnalyzer(str(file_path), content, repo_path=repo_dir)
+        for func in analyzer.nodes:
+            func_id = func.id if func.id else f"{file_path}:{func.name}"
+            self.functions[func_id] = func
+        self.call_relationships.extend(analyzer.call_relationships)
+        self._go_visible[analyzer.relative_path] = analyzer.visible_dirs
 
-            self.call_relationships.extend(relationships)
-        except Exception as e:
-            logger.error(f"Failed to analyze Go file {file_path}: {e}", exc_info=True)
+    def _resolve_go_callee(self, callee: str, caller: Node) -> Optional[str]:
+        """Go 名称只在它指向的 directory/package 内解析，不按尾名跨包猜测。"""
+        from codewiki.src.be.dependency_analyzer.analyzers.go_package import (
+            GoPackageIndex,
+            resolve_go_callee,
+        )
+
+        if self._go_index is None:
+            self._go_index = GoPackageIndex(self.functions)
+        return resolve_go_callee(
+            callee,
+            caller,
+            self._go_index,
+            self._go_visible.get(Path(caller.relative_path).as_posix()),
+        )
+
+    def _analyze_scala_file(self, file_path: str, content: str, repo_dir: str):
+        """分析 Scala 源码；跨文件引用留在 package-scoped 解析阶段。"""
+        from codewiki.src.be.dependency_analyzer.analyzers.scala import analyze_scala_file
+
+        functions, relationships = analyze_scala_file(file_path, content, repo_path=repo_dir)
+        for func in functions:
+            func_id = func.id if func.id else f"{file_path}:{func.name}"
+            self.functions[func_id] = func
+        self.call_relationships.extend(relationships)
+
+    def _resolve_scala_callee(self, callee: str, caller: Node) -> Optional[str]:
+        """Scala 引用只在声明的 package 内精确解析，不按尾名猜绑定。"""
+        from codewiki.src.be.dependency_analyzer.analyzers.scala import (
+            ScalaPackageIndex,
+            resolve_scala_callee,
+        )
+
+        if self._scala_index is None:
+            self._scala_index = ScalaPackageIndex(self.functions)
+        return resolve_scala_callee(callee, caller, self._scala_index)
+
+    def _analyze_dart_file(self, file_path: str, content: str, repo_dir: str):
+        """分析 Dart 源码；跨 library 引用留在 visible-scope 解析阶段。"""
+        from codewiki.src.be.dependency_analyzer.analyzers.dart import analyze_dart_file
+
+        functions, relationships = analyze_dart_file(file_path, content, repo_path=repo_dir)
+        for func in functions:
+            func_id = func.id if func.id else f"{file_path}:{func.name}"
+            self.functions[func_id] = func
+        self.call_relationships.extend(relationships)
+
+    def _resolve_dart_callee(self, callee: str, caller: Node) -> Optional[str]:
+        from codewiki.src.be.dependency_analyzer.analyzers.dart_imports import resolve_dart_callee
+
+        if self._dart_index is None:
+            return None
+        return resolve_dart_callee(callee, caller, self._dart_index)
 
     def _analyze_rust_file(self, file_path: str, content: str, repo_dir: str):
         """分析 Rust 源码并保留既有 component ID 与调用边契约。"""
@@ -587,6 +727,267 @@ class CallGraphAnalyzer:
             func_id = func.id if func.id else f"{file_path}:{func.name}"
             self.functions[func_id] = func
         self.call_relationships.extend(relationships)
+
+    def _analyze_zig_file(self, file_path: str, content: str, repo_dir: str):
+        """Zig 的 import 闭包由 analyzer 直接解析为完整组件 ID。"""
+        from codewiki.src.be.dependency_analyzer.analyzers.zig import analyze_zig_file
+
+        functions, relationships = analyze_zig_file(file_path, content, repo_path=repo_dir)
+        for func in functions:
+            self.functions[func.id] = func
+        self.call_relationships.extend(relationships)
+
+    def _reset_lean_state(self) -> None:
+        self._lean_files: dict = {}
+        self._lean_scopes: dict = {}
+        self._lean_aliases: dict[str, list[str]] = defaultdict(list)
+        self._lean_private: set[str] = set()
+        self._lean_protected: set[str] = set()
+        self._lean_resolver: Optional["LeanNameResolver"] = None
+
+    def _analyze_lean_file(self, file_path: str, content: str, repo_dir: str):
+        """记录 Lean 文件级可见域与声明引用，供仓库级精确解析。"""
+        from codewiki.src.be.dependency_analyzer.analyzers.lean import TreeSitterLeanAnalyzer
+
+        analyzer = TreeSitterLeanAnalyzer(str(file_path), content, repo_path=repo_dir)
+        for func in analyzer.nodes:
+            self.functions[func.id] = func
+        self.call_relationships.extend(analyzer.call_relationships)
+        self._lean_files[analyzer.relative_path] = analyzer.scan
+        self._lean_scopes.update(analyzer.scopes)
+        for alias, node_id in analyzer.aliases.items():
+            self._lean_aliases[alias].append(node_id)
+        self._lean_private.update(analyzer.private_ids)
+        self._lean_protected.update(analyzer.protected_ids)
+
+    def _resolve_lean_callee(self, callee: str, caller: Node) -> Optional[str]:
+        from codewiki.src.be.dependency_analyzer.analyzers.lean_resolution import LeanNameResolver
+
+        if self._lean_resolver is None:
+            self._lean_resolver = LeanNameResolver(
+                self.functions,
+                self._lean_files,
+                self._lean_scopes,
+                self._lean_aliases,
+                self._lean_private,
+                self._lean_protected,
+            )
+        resolved: Optional[str] = self._lean_resolver.resolve(callee, caller)
+        return resolved
+
+    def _merge_cached_lean_components(
+        self, cached_components: Optional[Dict[str, Node]], repo_dir: str
+    ) -> None:
+        """非 Lean 增量复用缓存；只保留仍存在文件的组件与仍存在的目标。"""
+        if not cached_components:
+            return
+        for component_id, cached in cached_components.items():
+            if component_id in self.functions:
+                continue
+            if cached.language != "lean" and Path(cached.file_path).suffix.lower() != ".lean":
+                continue
+            file_path = Path(cached.file_path)
+            if not file_path.is_absolute():
+                file_path = Path(repo_dir) / file_path
+            if not file_path.is_file():
+                continue
+            self.functions[component_id] = cached.model_copy(deep=True)
+        live_ids = set(self.functions)
+        for node in self.functions.values():
+            if node.language != "lean":
+                continue
+            original_edges = set(node.depends_on or set())
+            node.depends_on = set()
+            for callee in sorted(original_edges):
+                if callee in live_ids:
+                    node.depends_on.add(callee)
+                    self.call_relationships.append(
+                        CallRelationship(caller=node.id, callee=callee, is_resolved=True)
+                    )
+
+    def _analyze_vue_file(self, file_path: str, content: str, repo_dir: str):
+        """分析 Vue SFC，保留组件、脚本函数与模板引用的原始身份。"""
+        from codewiki.src.be.dependency_analyzer.analyzers.vue import analyze_vue_file
+
+        functions, relationships = analyze_vue_file(file_path, content, repo_path=repo_dir)
+        for func in functions:
+            func_id = func.id if func.id else f"{file_path}:{func.name}"
+            self.functions[func_id] = func
+        self.call_relationships.extend(relationships)
+
+    def _merge_cached_go_components(self, cached_components: Optional[Dict[str, Node]]) -> None:
+        """让增量解析的变更文件仍能解析到未变更的 Go package。"""
+        if not cached_components:
+            return
+        for component_id, node in cached_components.items():
+            if component_id in self.functions:
+                continue
+            if node.language != "go" and Path(node.file_path).suffix.lower() != ".go":
+                continue
+            if node.language == "go" and node.node_type in ("struct", "type"):
+                # Implicit interface links are recomputed after all changed and
+                # cached declarations are visible; cached links may be stale.
+                node.base_classes = []
+            self.functions[component_id] = node
+            for callee in sorted(node.depends_on or set()):
+                target = cached_components.get(callee)
+                if (
+                    node.language == "go"
+                    and node.node_type in ("struct", "type")
+                    and target is not None
+                    and target.language == "go"
+                    and target.node_type == "interface"
+                ):
+                    continue
+                self.call_relationships.append(
+                    CallRelationship(
+                        caller=component_id,
+                        callee=callee,
+                        is_resolved=True,
+                    )
+                )
+
+    def _merge_cached_scala_components(self, cached_components: Optional[Dict[str, Node]]) -> None:
+        """让增量解析的变更文件仍能解析到未变更的 Scala package。
+
+        缓存只保留已解析 ID，不保留 caller 的 import。新增声明可能使旧
+        wildcard 解析变歧义时丢弃旧边；无关新增仍保留精确的旧边。
+        """
+        from codewiki.src.be.dependency_analyzer.analyzers.scala import scala_node_identity
+
+        if not cached_components:
+            return
+        reparsed_ids = set(self.functions)
+        reparsed_names = {
+            scala_node_identity(node)[1]
+            for node in self.functions.values()
+            if node.language == "scala"
+        }
+        for component_id, node in cached_components.items():
+            if component_id in self.functions:
+                continue
+            if node.language != "scala" and Path(node.file_path).suffix.lower() not in {
+                ".scala",
+                ".sc",
+            }:
+                continue
+            self.functions[component_id] = node
+            cached_edges = set(node.depends_on or set())
+            node.depends_on = set()
+            for callee in sorted(cached_edges):
+                target = cached_components.get(callee)
+                if target is None or target.language != "scala" or callee in reparsed_ids:
+                    continue
+                _, target_name = scala_node_identity(target)
+                if target_name in reparsed_names:
+                    continue
+                node.depends_on.add(callee)
+                self.call_relationships.append(
+                    CallRelationship(
+                        caller=component_id,
+                        callee=callee,
+                        is_resolved=True,
+                    )
+                )
+
+    def _merge_cached_dart_components(self, cached_components: Optional[Dict[str, Node]]) -> None:
+        """合并未变更 Dart 组件；旧边在重建 visible scope 后重新裁决。"""
+        if not cached_components:
+            return
+        self._dart_cached_edges = []
+        for component_id, node in cached_components.items():
+            if component_id in self.functions:
+                continue
+            if node.language != "dart" and Path(node.file_path).suffix.lower() != ".dart":
+                continue
+            self.functions[component_id] = node
+            self._dart_cached_edges.extend(
+                (component_id, callee) for callee in sorted(node.depends_on or set())
+            )
+            node.depends_on = set()
+
+    def _merge_cached_vue_components(
+        self, cached_components: Optional[Dict[str, Node]], repo_dir: str
+    ) -> None:
+        """复用未变更 Vue 组件，并删除指向已消失 JS/TS/Vue 导出的旧边。"""
+        if not cached_components:
+            return
+        for component_id, cached in cached_components.items():
+            if component_id in self.functions:
+                continue
+            if cached.language != "vue" and Path(cached.file_path).suffix.lower() != ".vue":
+                continue
+            file_path = Path(cached.file_path)
+            if not file_path.is_absolute():
+                file_path = Path(repo_dir) / file_path
+            if not file_path.is_file():
+                continue
+            self.functions[component_id] = cached.model_copy(deep=True)
+        live_ids = set(self.functions)
+        for component_id, cached in cached_components.items():
+            if cached.relative_path and Path(cached.relative_path).as_posix() in self._parsed_files:
+                continue
+            file_path = Path(cached.file_path)
+            if not file_path.is_absolute():
+                file_path = Path(repo_dir) / file_path
+            if file_path.is_file():
+                live_ids.add(component_id)
+        for node in self.functions.values():
+            if node.language != "vue" and Path(node.file_path).suffix.lower() != ".vue":
+                continue
+            original_edges = set(node.depends_on or set())
+            node.depends_on = set()
+            for callee in sorted(original_edges):
+                if callee in live_ids:
+                    node.depends_on.add(callee)
+                    self.call_relationships.append(
+                        CallRelationship(caller=node.id, callee=callee, is_resolved=True)
+                    )
+
+    def _merge_cached_zig_components(
+        self, cached_components: Optional[Dict[str, Node]], repo_dir: str
+    ) -> None:
+        """非 Zig 增量复用缓存；只保留仍存在文件的组件与仍存在的目标。"""
+        if not cached_components:
+            return
+        for component_id, cached in cached_components.items():
+            if component_id in self.functions:
+                continue
+            if cached.language != "zig" and Path(cached.file_path).suffix.lower() != ".zig":
+                continue
+            file_path = Path(cached.file_path)
+            if not file_path.is_absolute():
+                file_path = Path(repo_dir) / file_path
+            if not file_path.is_file():
+                continue
+            self.functions[component_id] = cached.model_copy(deep=True)
+        live_ids = set(self.functions)
+        for node in self.functions.values():
+            if node.language != "zig":
+                continue
+            original_edges = set(node.depends_on or set())
+            node.depends_on = set()
+            for callee in sorted(original_edges):
+                if callee in live_ids:
+                    node.depends_on.add(callee)
+                    self.call_relationships.append(
+                        CallRelationship(caller=node.id, callee=callee, is_resolved=True)
+                    )
+
+    def _rebuild_dart_scope(self, repo_dir: str, dart_files: list[str]) -> None:
+        from codewiki.src.be.dependency_analyzer.analyzers.dart_imports import DartScopeIndex
+
+        self._dart_index = None
+        if not any(node.language == "dart" for node in self.functions.values()):
+            return
+        self._dart_index = DartScopeIndex.from_repo(repo_dir, dart_files, self.functions)
+        for caller_id, callee_id in getattr(self, "_dart_cached_edges", []):
+            caller = self.functions.get(caller_id)
+            if caller is not None and self._dart_index.cached_edge_is_valid(caller, callee_id):
+                caller.depends_on.add(callee_id)
+                self.call_relationships.append(
+                    CallRelationship(caller=caller_id, callee=callee_id, is_resolved=True)
+                )
 
     def _resolve_rust_impl_bases(self) -> None:
         """跨文件 trait impl 在全部类型可见后回填 base class 与类型边。"""
@@ -652,6 +1053,8 @@ class CallGraphAnalyzer:
                 func_info.language = CODE_EXTENSIONS.get(file_ext)
 
         indexes = self._build_resolution_indexes()
+        self._go_index = None
+        self._scala_index = None
 
         resolved_count = 0
         for relationship in self.call_relationships:
@@ -669,18 +1072,30 @@ class CallGraphAnalyzer:
             relationship
             for relationship in self.call_relationships
             if relationship.is_resolved
-            or not (
-                (
-                    self._caller_language(relationship.caller) == "ruby"
-                    and relationship.callee.startswith(RUBY_IMPLICIT_PREFIX)
-                )
-                or self._is_external_callee(
-                    self._caller_language(relationship.caller),
-                    relationship.callee,
-                    dotted_packages,
-                )
+            or not self._has_authoritative_resolution(relationship)
+            and not self._is_external_callee(
+                self._caller_language(relationship.caller),
+                relationship.callee,
+                dotted_packages,
             )
         ]
+
+    def _has_authoritative_resolution(self, relationship: CallRelationship) -> bool:
+        """这些解析器拥有作用域裁决；失败后不得再按裸名回退绑定。"""
+        caller = self.functions.get(relationship.caller)
+        if caller is None:
+            return False
+        if caller.language == "go":
+            return True
+        if caller.language == "scala":
+            return True
+        if caller.language == "dart":
+            return True
+        if caller.language == "lean":
+            return True
+        if caller.language == "zig":
+            return True
+        return caller.language == "ruby" and relationship.callee.startswith(RUBY_IMPLICIT_PREFIX)
 
     def _dotted_project_packages(self) -> Dict[str, set]:
         """Project packages/namespaces, partitioned by language. Java and C#
@@ -803,6 +1218,31 @@ class CallGraphAnalyzer:
     ) -> Optional[str]:
         caller = self.functions.get(relationship.caller)
         caller_language = caller.language if caller else None
+
+        if caller_language == "go" and caller is not None:
+            return self._resolve_go_callee(relationship.callee, caller)
+
+        if caller_language == "scala" and caller is not None:
+            return self._resolve_scala_callee(relationship.callee, caller)
+
+        if caller_language == "dart" and caller is not None:
+            return self._resolve_dart_callee(relationship.callee, caller)
+
+        if caller_language == "lean" and caller is not None:
+            return self._resolve_lean_callee(relationship.callee, caller)
+
+        if caller_language == "zig":
+            # analyzer 已按 import/别名/容器作用域裁决；这里只允许完整 ID。
+            if "::" not in relationship.callee:
+                return None
+            return self._unique_match(indexes["exact"], relationship.callee)
+
+        # Vue 模板/脚本通过完整 ``path::symbol`` 显式引用 JS/TS 导出；
+        # 这是精确身份匹配，不能放宽成裸名跨语言猜测。
+        if caller_language == "vue" and "::" in relationship.callee:
+            exact = self._unique_match(indexes["exact"], relationship.callee)
+            if exact:
+                return exact
 
         lang_indexes = indexes["by_lang"].get(caller_language) if caller_language else None
         if lang_indexes:
@@ -990,6 +1430,8 @@ class CallGraphAnalyzer:
                 node_classes.append("lang-cpp")
             elif file_ext in [".kt", ".kts"]:
                 node_classes.append("lang-kotlin")
+            elif language == "vue":
+                node_classes.append("lang-vue")
             elif file_ext in [".php", ".phtml", ".inc"]:
                 node_classes.append("lang-php")
 
@@ -1082,7 +1524,7 @@ class CallGraphAnalyzer:
             self.functions = {fid: func for fid, func in self.functions.items() if fid in func_ids}
             return
 
-        graph = {}
+        graph: dict[str, set[str]] = {}
         for rel in self.call_relationships:
             if rel.caller in self.functions:
                 if rel.caller not in graph:
@@ -1095,11 +1537,13 @@ class CallGraphAnalyzer:
                 graph[rel.caller].add(rel.callee)
                 graph[rel.callee].add(rel.caller)
 
-        degree_centrality = {}
+        degree_centrality: dict[str, int] = {}
         for func_id in self.functions.keys():
             degree_centrality[func_id] = len(graph.get(func_id, set()))
 
-        sorted_func_ids = sorted(degree_centrality, key=degree_centrality.get, reverse=True)
+        sorted_func_ids = sorted(
+            degree_centrality, key=lambda func_id: degree_centrality[func_id], reverse=True
+        )
 
         selected_func_ids = sorted_func_ids[:target_count]
 

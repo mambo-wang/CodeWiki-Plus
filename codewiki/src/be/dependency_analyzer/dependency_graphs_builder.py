@@ -1,4 +1,4 @@
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import os
 from codewiki.src.config import Config
 from codewiki.src.be.dependency_analyzer.ast_parser import DependencyParser
@@ -20,13 +20,16 @@ class DependencyGraphBuilder:
         self.config = config
 
     def build_dependency_graph(
-        self, skip_file_paths: set = None
+        self,
+        skip_file_paths: Optional[set] = None,
+        cached_components: Optional[Dict[str, Any]] = None,
     ) -> tuple[Dict[str, Any], List[str], List[Dict]]:
         """
         Build and save dependency graph, returning components, leaf nodes, and routes.
 
         Args:
             skip_file_paths: Optional set of absolute file paths to skip (for incremental mode)
+            cached_components: Unchanged components used for cross-file package resolution.
 
         Returns:
             Tuple of (components, leaf_nodes, routes)
@@ -65,7 +68,11 @@ class DependencyGraphBuilder:
         #     file_manager.save_json(filtered_folders, filtered_folders_path)
 
         # Parse repository
-        components = parser.parse_repository(filtered_folders, skip_file_paths=skip_file_paths)
+        components = parser.parse_repository(
+            filtered_folders,
+            skip_file_paths=skip_file_paths,
+            cached_components=cached_components,
+        )
 
         # Save dependency graph
         parser.save_dependency_graph(dependency_graph_path)
