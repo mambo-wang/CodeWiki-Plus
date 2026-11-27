@@ -121,3 +121,51 @@ HL-Mem 调研（docs/HL-Mem-调研与借鉴分析.md，基线 v1.1.7/aa5d0688）
 六参考项目（hl_mem/claude-mem/mem0/CBM/OpenViking/teamai-cli）存储与压缩机制对比已完成，产出 repowiki/wiki/queries/参考项目记忆存储与压缩机制对比-2026-09.md。要点：①「压缩」四分类（写入时/归纳式/上下文预算/衰减）不可混用；②全场只有 teamai-cli self 模式与本仓一样知识随业务仓 git 版本化；③OpenViking merge_policy 与本仓 Doctrine 合并纪律几乎逐句对应（独立收敛互证）；④HL-Mem Mental Model 归纳 ⇔ compact_task_memories 同一形态。
 
 **重要修正（作废一条转注）**：整体调研报告 deferred #10「CBM workspace manifest 审批键」系误读——CBM 的 workspace manifest 实为 Rust Cargo.toml workspace 清单（跨 crate 导入解析，pass_lsp_cross.c:478-488），与审批/多仓无关。此前转注到「多仓工作区」任务的这条参考已失效，实施多仓工作区时勿再消费该参考。
+
+### 2026-11-27 09:36 #7rko
+
+C2 第三语言 Vue SFC 薄适配已完成并验收：新增确定性 SFC 扫描器，脚本外等长掩码后复用 JS/TS analyzer，保留原文件行号；提取组件、Options API 成员、脚本函数、导入与模板组件/表达式边。组件与脚本同名时使用 path::script.Name 并重映射关系；Vue caller 仅对完整 path::symbol 放行精确跨语言命中。审查发现的插值伪标签、ID 冲突、跨语言精确解析、前 64KiB 指纹漏检均已先红后绿修复；指纹改为全文流式 SHA-256，旧缓存升级后首次可能全量重算。验证：Vue 专项 25 passed，Vue/Rust/Ruby/correctness/latest compat 联合 106 passed，最终全量 1670 passed/2 skipped/1 warning；ruff、mypy、diff check 通过；MCP 契约 121/5 与既有基线一致；正式 stdio 首次 9 组件，无变更与单文件新增 ArticleList.reset 增量均正确。backlog 已更新，Vue 决策笔记保持 draft 未确认。本轮未提交、未推送；下一语言候选 Go package-aware 仍按需求触发，不自动展开。
+
+### 2026-11-27 10:44 #n88f
+
+Go package-aware 薄适配已完成：保留本地组件 ID 与 route extractor，新增 directory/package 精确解析、go.mod/local replace、仓库 import 可见性、隐式 interface method-set，以及 MCP/watch 增量缓存 package 合并；外部 qualified type、同名包函数/方法、陈旧 interface 边均有回归覆盖。Go 专项 25 项、相邻联合 131 项通过；最终全量 1694 passed, 2 skipped, 1 warning（第 25 项 Go 反例在全量收集后新增，已由专项覆盖）；正式 stdio MCP 首次/无变更/单文件增量通过。边界：interface 仅按方法名集合近似，不校验完整签名/指针接收者/嵌入接口；dot/blank import 保守。下一步：保留 Go 决策草稿待用户确认；提交与推送仍需用户明确授权。
+
+### 2026-11-27 13:45 #9a8p
+
+> [superseded 2026-11-27 by #4yy7]
+
+C2 Scala package-aware 薄适配已完成代码与专项验收：独立 tree-sitter-scala wheel、grammar preflight、声明 package/import 精确解析、companion `$` 身份、Scala 2/3 类型/方法、wildcard 唯一命中、重载弃权、词法 receiver 作用域、缓存嵌套身份与旧边重裁决、继承基类优先及顶层后备、构造参数字段链 package 固化；`.scala/.sc` 与 SBT manifest/service/artifact 接入已同步。三轮审查反例均有回归，Scala 专项 42 passed、语言联合 173 passed，ruff/mypy/diff check 通过；OKF 为既有 121/5。正式 stdio MCP 首次 5 组件、无变更及单文件 5→6 增量通过。决策草稿 notes/2026-11-27-scala-analyzer-应保留组件-id-并按声明-package-精确解析.md 已可检索且保持 draft。最终全量仍在运行；未提交、未推送、未确认草稿。
+
+### 2026-11-27 14:06 #4yy7
+
+C2 Scala package-aware 薄适配已完成并验收：独立 tree-sitter-scala wheel、grammar preflight、声明 package/import 精确解析、companion `$` 身份、Scala 2/3 类型/方法、wildcard 唯一命中、重载弃权、词法 receiver 作用域、缓存嵌套身份与旧边重裁决、继承基类优先及顶层后备、`super` 基类解析、构造参数字段链 package 固化；`.scala/.sc` 与 SBT manifest/service/artifact 接入已同步。三轮审查反例均有回归：Scala 43 passed、语言联合 174 passed、Scala/artifact 82 passed，ruff/mypy/diff check 通过；OKF 为既有 121/5。正式 stdio MCP 首次/无变更/单文件 5→6 增量通过，super 临时仓只连 lib.Base.work。最终全量（清除本机代理环境后）：1738 passed, 2 skipped, 1 warning。决策草稿 notes/2026-11-27-scala-analyzer-应保留组件-id-并按声明-package-精确解析.md 已可检索且保持 draft。边界：完整类型推导、宏、动态派发、重载目标选择、多基类线性化，以及跨文件同包重载/顶层后备仍保守。未提交、未推送、未确认草稿。
+
+### 2026-11-27 15:40 #ya5h
+
+Dart/Flutter C2 语言切片完成：独立 tree-sitter-dart wheel 与 grammar preflight，新增 dart.py/dart_imports.py/dart_flutter.py，实现 visible-scope 解析（相对与 package URI、prefix、show/hide、export 闭包、part、library 私有名、词法遮蔽、继承成员与字段链），接入 CallGraph、SQLite metadata 原始引用复核、旧缓存迁移、pubspec 语义依赖、CLI/prompt/review/服务识别/artifact facts。Flutter 仅做轻量确定性分类，不执行 analyzer 或生成代码，不承诺完整类型推导/泛型/动态派发。验证：Dart 专项 36 passed；语言/artifact/tree repair 联合 257 passed；最终全量 1774 passed, 2 skipped, 1 warning；ruff check/format、git diff --check、新增三模块 mypy 通过；OKF 保持 121 passed/5 failed 既有基线。正式 stdio MCP 验证首次分析、无变更、单文件增量、package/prefix/part 边、pubspec 改名与 artifact-only pubspec，工具总数仍 53。决策草稿：repowiki/notes/2026-11-27-dart-analyzer-应按-library-visible-scope-精确解析并持久化原始引用.md（draft，未确认）。当前代码、文档与草稿均未提交、未推送；未开始 Zig。
+
+### 2026-11-27 16:51 #allr
+
+> [superseded 2026-11-27 by #l5so]
+
+C2 Zig 薄适配已实现并通过专项/联合/正式 MCP 验证，最终全量回归正在运行。使用独立 tree-sitter-zig==1.1.2 wheel，保留 path::logical_name 组件 ID；覆盖容器、泛型、@import/re-export、build.zig addModule、调用/实例化/类型边。未知 receiver 不猜尾名；任一 Zig 变化全量重解析 Zig，非 Zig 增量合并存活缓存。alias-only 文件纳入指纹，build.zig 同时是 build artifact 并提取源码引用。独立审查发现并修复显式类型初始化漏调用边、block 局部类型污染、删除文件指纹永久误报三个问题。Zig 专项 21 passed，语言/artifact/tree/change 联合 273 passed，ruff/mypy/diff check/lock check 通过；OKF 121/5 为既有基线。正式 stdio 首次 4 组件，无变更、单文件增量、build.zig 映射、alias 删除后下一轮收敛均通过。backlog/调研已回填，Zig 决策笔记保持 draft 未确认。本轮未提交、未推送；下一语言候选 Lean 4 不自动展开。
+
+### 2026-11-27 16:59 #l5so
+
+C2 Zig 语言薄适配已完成并验收：使用独立 tree-sitter-zig==1.1.2 wheel 与 grammar preflight，保留 <relative_path>::<logical_name> 组件 ID；覆盖容器/泛型、@import/re-export、build.zig 两种 addModule 映射、调用/构造器/实例化/类型引用。Zig caller 只接受完整 ID 精确解析；任一 Zig 变化保守全量重解析，非 Zig 增量合并存活缓存。alias-only 指纹、删除清理、block 局部作用域、显式类型初始化调用边均已修复；build.zig 同时作为 build artifact 并提取源码引用；源码发现、CallGraph、watch、CLI、prompt、review、服务识别与 artifact facts 已接入。验证：Zig 专项 21 passed、联合 273 passed、最终全量 1795 passed/2 skipped；ruff、mypy、diff、lock、wheel 构建通过；MCP 契约 121/5 为既有基线；正式 stdio 首次/无变更/单文件/build.zig/artifact/删除收敛通过。backlog 与决策草稿已更新，草稿未确认。本轮未提交、未推送；下一语言候选 Lean 4 不自动展开。
+
+### 2026-11-27 18:36 #d1qq
+
+C2 Lean 4 薄适配已完成：保留 path::logical_name 组件 ID，新增 header scanner、Tree-sitter 引用提取与 import/open/export/private/protected 精确 resolver；六平台 ABI 15 grammar 随包离线分发，Tree-sitter 下限升至 0.25.0。任一 Lean 变化全语言重解析，非 Lean 增量合并存活缓存；import-only 指纹、watch、Git 删除收敛、Lake 服务识别与 artifact facts 均已接入。Lean 专项 103、Lean/watch 最终 113、联合 179、全量 1898 passed/2 skipped；mypy 0 error，ruff/锁文件/diff 检查通过；最终 wheel 六平台 SHA-256 全通过；正式 stdio MCP 首次/无变更/单文件增量通过；MCP 契约维持 121/5 既有基线。决策草稿 repowiki/notes/2026-11-27-lean-analyzer-应按-import-可见域精确解析并离线分发-grammar.md 保持 draft，待用户逐篇确认；下一步仍需用户明确授权提交/推送。
+
+### 2026-11-27 21:24 #ee8z
+
+真实 MCP 复核完成：通过正式 ClientSession/StdioServerParameters 启动 codewiki 5.16.8，握手成功且列出 53 个工具；临时 Git+Lean/Makefile 仓库验证首次 3 组件、无变更 no_changes=true、Point 单文件新增 Geo.jump、Main 单文件增量、list_components/list_dependencies 精确解析到 Geo.jump、Makefile artifact-only 变更及 get_task_context（pending_raw_count=0）均通过。MCP handler 契约仍为 121 passed/5 failed 既有基线。Qoder 宿主连接器状态另经 manage_app_mcp 只读查询：codewiki 当前 disabled、toolCount=0，所以服务端可用不等于宿主工具目录已挂载；未擅自启用或修改连接器配置。
+
+### 2026-11-27 22:24 #p2d6
+
+完成 code-review 修复：语义 manifest（go.mod/pubspec.yaml）变化通过 analyze/watch 共用 helper 失效对应语言全部缓存 caller；go.mod 纳入 mtime/fingerprint，vendor/testdata 嵌套 manifest 不参与指纹。Vue 缓存节点仅复核语言相关边，并用 _parsed_files 保留指向未重解析且仍存在 JS/TS 缓存目标的有效边。Zig 统一 realpath 边界和 canonical 相对 ID，覆盖 build.zig root、import、re-export、declared_in，拒绝绝对/../符号链接逃逸；修正 build.zig 测试素材。验证：八语言+watch 345 passed；相邻分析/缓存 66 passed；清理 NO_PROXY 后全量 1911 passed/2 skipped；ruff/format/diff check 通过；mypy 16 个 cache.py 既有错误；MCP 契约 121 passed/5 failed 既有基线。未提交、未推送。
+
+### 2026-11-28 05:23 #5w2t
+
+已按用户授权提交并推送代码：commit fae7731e8fd428810ee7c7aaf4318f0a24eef3ca（feat: 扩展多语言分析并加固增量缓存），分支 feat/codewiki-upstream-b1-b5-c2-c3，本地与 origin 同步。提交仅含 codewiki/、pyproject.toml、uv.lock 和六个新增语言测试；未纳入文档、repowiki 笔记/任务记忆、telemetry、.qoder/settings.json、work/ 等并行会话产物。全量回归 1911 passed/2 skipped。
