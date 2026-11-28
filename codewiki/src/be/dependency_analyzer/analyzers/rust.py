@@ -204,7 +204,7 @@ class TreeSitterRustAnalyzer:
         try:
             return os.path.relpath(
                 os.path.realpath(self.file_path), os.path.realpath(self.repo_path)
-            )
+            ).replace(os.sep, "/")
         except ValueError:
             return str(self.file_path)
 

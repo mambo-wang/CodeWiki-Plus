@@ -183,7 +183,11 @@ class ArtifactParseError(ValueError):
 def artifact_facts_path(repo_path: str | Path, output_dir: str | Path) -> Path:
     """Return the per-repo artifact fact path, including centralized layouts."""
 
-    return analysis_meta_dir(Path(repo_path), Path(output_dir)) / ARTIFACT_FACTS_FILENAME
+    return Path(
+        str(analysis_meta_dir(Path(repo_path), Path(output_dir)) / ARTIFACT_FACTS_FILENAME).replace(
+            os.sep, "/"
+        )
+    )
 
 
 def unavailable_artifact_facts(error_type: str) -> dict[str, Any]:

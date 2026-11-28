@@ -687,7 +687,7 @@ def handle_analyze_repo(arguments: Dict[str, Any], store: SessionStore) -> str:
     # -- MCP response --
     from codewiki.mcp.tools.artifact_facts import artifact_facts_path
 
-    artifact_file = str(artifact_facts_path(repo_path, output_dir))
+    artifact_file = str(artifact_facts_path(repo_path, output_dir)).replace(os.sep, "/")
     result = {
         "session_id": session.session_id,
         "workspace_dir": str(workspace.root),
@@ -915,8 +915,8 @@ def _build_no_change_response(
             "languages": langs,
         },
         "files": {
-            "summary": str(workspace.root / "summary.json"),
-            "artifact_facts": str(artifact_facts_path(repo_path, output_dir)),
+            "summary": str(workspace.root / "summary.json").replace(os.sep, "/"),
+            "artifact_facts": str(artifact_facts_path(repo_path, output_dir)).replace(os.sep, "/"),
         },
         "artifact_facts": artifact_facts,
         "changes": changes_info,
@@ -1225,7 +1225,7 @@ def _enrich_referencing_pages(
             component_ids=targets,
             page_keys=changes_info.get("deleted_pages") or [],
         )
-        changes_info["reference_index_file"] = str(path)
+        changes_info["reference_index_file"] = str(path).replace(os.sep, "/")
     except Exception:
         logger.warning("reference index build failed (non-fatal)", exc_info=True)
     return changes_info

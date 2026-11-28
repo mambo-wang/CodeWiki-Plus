@@ -182,7 +182,7 @@ class TreeSitterZigAnalyzer:
             try:
                 return os.path.relpath(
                     os.path.realpath(str(self.file_path)), os.path.realpath(self.repo_path)
-                )
+                ).replace(os.sep, "/")
             except ValueError:
                 pass
         return str(self.file_path)

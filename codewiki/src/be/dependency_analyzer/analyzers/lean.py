@@ -872,7 +872,7 @@ class TreeSitterLeanAnalyzer:
     def _relative_path(self) -> str:
         if self.repo_path:
             try:
-                return os.path.relpath(str(self.file_path), self.repo_path)
+                return os.path.relpath(str(self.file_path), self.repo_path).replace(os.sep, "/")
             except ValueError:
                 return str(self.file_path)
         return str(self.file_path)

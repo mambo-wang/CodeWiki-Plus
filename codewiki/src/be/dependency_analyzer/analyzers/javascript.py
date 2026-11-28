@@ -89,7 +89,7 @@ class TreeSitterJSAnalyzer:
                 # BUG-21: normalize symlinks before computing relative paths
                 real_file = os.path.realpath(str(self.file_path))
                 real_repo = os.path.realpath(self.repo_path)
-                return os.path.relpath(real_file, real_repo)
+                return os.path.relpath(real_file, real_repo).replace(os.sep, "/")
             except ValueError:
                 return str(self.file_path)
         else:

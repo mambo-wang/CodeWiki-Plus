@@ -198,7 +198,7 @@ class DependencyParser:
             if path.endswith(ext):
                 path = path[: -len(ext)]
                 break
-        return path.replace(os.path.sep, ".")
+        return path.replace("\\", ".").replace("/", ".")
 
     def save_dependency_graph(self, output_path: str):
         result = {}
