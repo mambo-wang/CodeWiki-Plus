@@ -4,10 +4,24 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import tempfile
 from pathlib import Path
 
 import git
 import pytest
+
+
+def _windows_symlink_privilege() -> bool:
+    """探测当前 Windows 进程是否有创建 symlink 的特权。"""
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "target"
+            target.mkdir()
+            (Path(tmp) / "link").symlink_to(target, target_is_directory=True)
+            return True
+    except OSError:
+        return False
 
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.tools.analysis import (
@@ -331,6 +345,12 @@ def test_ci_provider_shapes_are_parsed_or_explicitly_rejected(tmp_path: Path) ->
     failed = next(item for item in invalid["files"] if item["path"] == ".gitlab-ci.yml")
     assert failed["status"] == "failed"
     assert failed["error"]["code"] == "unsupported_ci_structure"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" and not _windows_symlink_privilege(),
+    reason="Windows 无特权模式无法创建 symlink（WinError 1314）",
+)
 
 
 def test_symlinks_nested_repos_and_gitignored_artifacts_are_excluded(artifact_repo: Path) -> None:

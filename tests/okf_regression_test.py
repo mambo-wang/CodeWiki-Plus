@@ -262,8 +262,8 @@ def main():
         check("doc_writer", "标准键status留在顶层", fold_y.get("status") == "stable", fmf[:400])
         check(
             "doc_writer",
-            "components折叠进metadata",
-            meta.get("components") == ["AuthService", "OrderService"],
+            "components被丢弃只留component_count",
+            meta.get("component_count") == 2 and "components" not in meta,
             fmf[:600],
         )
         check(
@@ -523,6 +523,7 @@ def main():
                 "title": "显式stable笔记",
                 "content": "这条笔记显式指定stable状态。",
                 "status": "stable",
+                "reason": "OKF 回归测试：显式 stable 需带 reason（ADR-0013）",
             },
             store,
         )
@@ -962,7 +963,7 @@ def main():
     # supersedes 声明（作者显式意图）→ 确认闸门
     decl_file = base / "decl_supersede.md"
     decl_file.write_text(
-        "---\nsupersedes: rev-doc-v1\n---\n\n# 订单中心设计\n\n订单中心从零重构，采用事件溯源。\n",
+        "---\ntype: Source\nsupersedes: rev-doc-v1\n---\n\n# 订单中心设计\n\n订单中心从零重构，采用事件溯源。\n",
         encoding="utf-8",
     )
     r = json.loads(
@@ -1056,7 +1057,18 @@ def main():
         )
     )
     check("batch_ingest", "批量完成", r.get("status") == "completed", str(r)[:200])
-    items = r.get("results", [])
+    report_file = r.get("report_file")
+    check(
+        "batch_ingest",
+        "报告写入.meta",
+        bool(report_file) and report_file.endswith("batch_ingest_report.json"),
+        str(r)[:300],
+    )
+    items = []
+    if report_file:
+        report_path = output_dir / report_file
+        if report_path.exists():
+            items = json.loads(report_path.read_text(encoding="utf-8")).get("results", [])
     check(
         "batch_ingest",
         "2项全部ok",

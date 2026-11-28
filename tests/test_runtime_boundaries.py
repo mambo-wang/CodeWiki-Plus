@@ -244,7 +244,9 @@ def test_repository_tree_keeps_only_declared_nested_checkouts(tmp_path):
 
     def visit(node):
         if node["type"] == "file":
-            paths.add(node["path"])
+            # 产品 file_tree.path 用 str(relative_path)，Windows 下为反斜杠；
+            # 测试侧归一化后断言（行为先于本提交存在，不改产品）。
+            paths.add(node["path"].replace("\\", "/"))
         for child in node.get("children", []):
             visit(child)
 

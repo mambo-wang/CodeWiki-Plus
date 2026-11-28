@@ -134,7 +134,9 @@ def vue_repo(tmp_path: Path) -> Path:
 
 def _analyze(repo: Path, rel: str):
     path = repo / rel
-    nodes, rels = analyze_vue_file(str(path), path.read_text(), repo_path=str(repo))
+    nodes, rels = analyze_vue_file(
+        str(path), path.read_text(encoding="utf-8"), repo_path=str(repo)
+    )
     return {node.id: node for node in nodes}, {(rel.caller, rel.callee): rel for rel in rels}
 
 
