@@ -23,6 +23,7 @@ def _windows_symlink_privilege() -> bool:
     except OSError:
         return False
 
+
 from codewiki.mcp.session import SessionStore
 from codewiki.mcp.tools.analysis import (
     _collect_artifact_facts,
@@ -351,8 +352,6 @@ def test_ci_provider_shapes_are_parsed_or_explicitly_rejected(tmp_path: Path) ->
     sys.platform == "win32" and not _windows_symlink_privilege(),
     reason="Windows 无特权模式无法创建 symlink（WinError 1314）",
 )
-
-
 def test_symlinks_nested_repos_and_gitignored_artifacts_are_excluded(artifact_repo: Path) -> None:
     _write(artifact_repo, ".gitignore", "ignored/\n")
     _write(artifact_repo, "ignored/Makefile", "bad:\n\ttrue\n")

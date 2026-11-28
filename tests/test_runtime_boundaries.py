@@ -54,7 +54,9 @@ def test_workspace_clone_subprocess_closes_stdin(tmp_path, monkeypatch):
         return _completed()
 
     monkeypatch.setattr(subprocess, "run", run)
-    result = workspace_bootstrap._clone_repo(tmp_path, "dependency", "https://example.invalid/repo", 5)
+    result = workspace_bootstrap._clone_repo(
+        tmp_path, "dependency", "https://example.invalid/repo", 5
+    )
     assert result["status"] == "ok"
     assert calls[0]["stdin"] is subprocess.DEVNULL
 
@@ -97,7 +99,9 @@ def test_clone_repository_git_subprocesses_close_stdin(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", run)
     monkeypatch.setattr(cloning.tempfile, "mkdtemp", lambda prefix: str(tmp_path))
     monkeypatch.setattr(cloning, "GIT_EXECUTABLE_PATH", "git")
-    monkeypatch.setattr(cloning, "os", SimpleNamespace(name="nt", path=os.path, makedirs=os.makedirs))
+    monkeypatch.setattr(
+        cloning, "os", SimpleNamespace(name="nt", path=os.path, makedirs=os.makedirs)
+    )
 
     assert cloning.clone_repository("owner/repo") == str(tmp_path)
     assert len(calls) == 4
