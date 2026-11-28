@@ -67,6 +67,17 @@ conventions:
   # range into the page frontmatter.sources, so lint's stale_evidence check can
   # flag drift for review (evidence is never rewritten automatically).
   auto_evidence: true
+  # B5 clustering diagnostics: estimate tokens from complete scope files.
+  # chars_per_token is a heuristic, not billing precision; min/max apply only
+  # to leaves, and 0 disables the corresponding size diagnostic. Missing files
+  # are reported as unmeasured rather than treated as 0-token files.
+  # Defaults 1000/32000 were calibrated on this repository's 22 leaves and
+  # should be recalibrated for other repositories.
+  clustering_validation:
+    enabled: true
+    chars_per_token: 4
+    min_leaf_tokens: 1000
+    max_leaf_tokens: 32000
   # Whether to enforce OKF (Open Knowledge Format) v0.2 frontmatter.
   # When true, every .md file must start with YAML frontmatter containing
   # type/title/description/tags plus the v0.2 provenance/lifecycle fields
@@ -164,6 +175,10 @@ documentation_dimensions:
   - api_contracts             # public interface inputs/outputs, error codes, versioning
   - data_model_changes        # evolution history and migration strategy of core structures
   - dependency_rationale      # why an external dependency was added, and the alternatives
+  - build_entrypoints         # build, test and run entrypoints in Makefiles, scripts and manifests
+  - ci_workflows              # triggers, jobs, runners and validation steps
+  - container_runtime         # images, stages, ports, service dependencies and data flow
+  - deployment_topology       # how Compose and infrastructure orchestrate and expose services
 
 # ── Incremental update policy ─────────────────────────────────────────────
 update_policy:

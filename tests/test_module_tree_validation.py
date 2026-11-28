@@ -19,21 +19,21 @@ from codewiki.mcp.workspace import SessionWorkspace
 from codewiki.src.be.dependency_analyzer.models.core import Node
 
 
-def _make_node(component_id: str) -> Node:
-    rel_path, _, name = component_id.partition("::")
-    return Node(
-        id=component_id,
-        name=name or component_id,
-        component_type="class",
-        file_path=rel_path,
-        relative_path=rel_path,
-    )
-
-
 def _make_session(store: SessionStore, tmp_path, component_ids: list) -> object:
-    # Validation only reads .keys(), so a plain dict stands in for the
-    # LazyComponentStore here.
-    components = {cid: _make_node(cid) for cid in component_ids}
+    # Validation reads component metadata; B5 additionally measures full files.
+    components = {}
+    for cid in component_ids:
+        rel_path, _, name = cid.partition("::")
+        source_path = tmp_path / rel_path
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        source_path.write_text("x" * 4004, encoding="utf-8")
+        components[cid] = Node(
+            id=cid,
+            name=name or cid,
+            component_type="class",
+            file_path=rel_path,
+            relative_path=rel_path,
+        )
     session = store.create(
         repo_path=str(tmp_path),
         output_dir=str(tmp_path),

@@ -119,6 +119,63 @@ def test_planned_key_counts_regardless_of_page_type(tmp_path):
     assert js.missing_pages(job) == []
 
 
+def test_default_module_type_settles_canonical_overview_write(tmp_path):
+    repo, output = _paths(tmp_path)
+    js.start_job(repo, output)
+    js.record_planned(repo, output, ["overview"])
+
+    job = js.mark_page_written(
+        repo,
+        output,
+        "overview.md",
+        page_key="wiki/overview.md",
+    )
+
+    assert job is not None
+    assert job["pages"]["written"] == 1
+    assert job["pages"]["other_written"] == 0
+    assert js.missing_pages(job) == []
+
+
+def test_same_stem_query_does_not_settle_planned_module(tmp_path):
+    repo, output = _paths(tmp_path)
+    js.start_job(repo, output)
+    js.record_planned(repo, output, ["Core"])
+
+    job = js.mark_page_written(
+        repo,
+        output,
+        "Core.md",
+        page_type="query",
+        page_key="wiki/queries/Core.md",
+    )
+
+    assert job is not None
+    assert job["pages"]["written"] == 0
+    assert job["pages"]["other_written"] == 1
+    assert js.missing_pages(job) == ["Core"]
+
+
+def test_other_partition_module_does_not_settle_current_planned_module(tmp_path):
+    repo, output = _paths(tmp_path)
+    js.start_job(repo, output)
+    js.record_planned(repo, output, ["Core"])
+
+    job = js.mark_page_written(
+        repo,
+        output,
+        "Core.md",
+        page_type="module",
+        page_key="wiki/modules/b/Core.md",
+        module_repo="a",
+    )
+
+    assert job is not None
+    assert job["pages"]["written"] == 0
+    assert job["pages"]["other_written"] == 1
+    assert js.missing_pages(job) == ["Core"]
+
+
 def test_finish_done_when_nothing_missing(tmp_path):
     repo, output = _paths(tmp_path)
     js.start_job(repo, output)

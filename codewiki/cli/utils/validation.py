@@ -167,6 +167,12 @@ def detect_supported_languages(directory: Path) -> List[Tuple[str, int]]:
         "C#": [".cs"],
         "PHP": [".php", ".phtml", ".inc"],
         "Kotlin": [".kt", ".kts"],
+        "Ruby": [".rb"],
+        "Scala": [".scala", ".sc"],
+        "Dart": [".dart"],
+        "Zig": [".zig"],
+        "Lean 4": [".lean"],
+        "Vue": [".vue"],
     }
 
     # Directories to exclude from counting
@@ -183,6 +189,11 @@ def detect_supported_languages(directory: Path) -> List[Tuple[str, int]]:
         "target",
         "bin",
         "obj",
+        ".zig-cache",
+        "zig-cache",
+        "zig-out",
+        ".lake",
+        "lake-packages",
         ".pytest_cache",
         ".mypy_cache",
         ".tox",

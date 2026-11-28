@@ -272,7 +272,11 @@ class AnalysisService:
         return None
 
     def _analyze_call_graph(
-        self, file_tree: Dict[str, Any], repo_dir: str, skip_file_paths: Optional[set] = None
+        self,
+        file_tree: Dict[str, Any],
+        repo_dir: str,
+        skip_file_paths: Optional[set] = None,
+        cached_components: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Perform multi-language call graph analysis.
@@ -292,7 +296,7 @@ class AnalysisService:
         logger.debug(f"Analyzing {len(supported_files)} supported files.")
 
         result = self.call_graph_analyzer.analyze_code_files(
-            supported_files, repo_dir, skip_file_paths
+            supported_files, repo_dir, skip_file_paths, cached_components
         )
 
         result["call_graph"]["supported_languages"] = self._get_supported_languages()
@@ -304,7 +308,8 @@ class AnalysisService:
         """
         Filter code files to only include supported languages.
 
-        Supports Python, JavaScript, TypeScript, Java, C#, C, C++, PHP, Go, and Rust.
+        Supports Python, JavaScript, TypeScript, Java, C#, C, C++, PHP, Go,
+        Rust, Ruby, Scala, Dart, Zig, Lean 4, and Vue.
         """
         supported_languages = {
             "python",
@@ -316,8 +321,14 @@ class AnalysisService:
             "cpp",
             "php",
             "go",
+            "scala",
+            "dart",
+            "zig",
+            "lean",
             "rust",
+            "ruby",
             "kotlin",
+            "vue",
         }
 
         return [
@@ -339,6 +350,13 @@ class AnalysisService:
             "php",
             "kotlin",
             "go",
+            "scala",
+            "dart",
+            "zig",
+            "lean",
+            "rust",
+            "ruby",
+            "vue",
         ]
 
     def _cleanup_repository(self, temp_dir: str):

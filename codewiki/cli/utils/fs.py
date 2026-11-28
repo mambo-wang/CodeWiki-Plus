@@ -4,6 +4,7 @@ File system utilities for CLI operations.
 
 import os
 import shutil
+import time
 from pathlib import Path
 from typing import Optional, List
 
@@ -76,8 +77,19 @@ def safe_write(path: Path, content: str, encoding: str = "utf-8"):
         with open(temp_path, "w", encoding=encoding) as f:
             f.write(content)
 
-        # Atomic rename
-        temp_path.replace(path)
+        # Atomic rename; on Windows the target may be transiently locked
+        # (antivirus / search indexer), so retry briefly before giving up.
+        last_err: Exception | None = None
+        for _ in range(5):
+            try:
+                temp_path.replace(path)
+                last_err = None
+                break
+            except PermissionError as e:
+                last_err = e
+                time.sleep(0.05)
+        if last_err is not None:
+            raise last_err
     except Exception as e:
         # Clean up temp file if it exists
         if temp_path.exists():

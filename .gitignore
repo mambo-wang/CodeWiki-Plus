@@ -8,6 +8,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+# vendored tree-sitter Lean grammar binaries (provenance.json 记录哈希)
+!codewiki/src/be/dependency_analyzer/analyzers/_vendor/lean/**/*.so
 .Python
 build/
 develop-eggs/
@@ -70,6 +72,8 @@ repowiki/.meta/module_tree.json
 repowiki/.meta/symbol_map.json
 repowiki/.meta/project.json
 repowiki/.meta/overview_refs.json
+repowiki/.meta/reference_index.json
+repowiki/.meta/artifact_facts.json
 repowiki/.meta/aggregate_state.json
 repowiki/.meta/source_registry.json
 # ADR-0020: generation job ledger — local progress state, rebuilt on next run

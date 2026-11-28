@@ -7,7 +7,7 @@ metadata:
   confidence_level: weak
   task_id: 他山之石
   source_session: "42b9be13-a446-8a36-9c69-8cd63018803e"
-  related_modules: ["MCP_Tools_Knowledge", "MCP_Tools_DocWriter"]
+related_modules: ["MCP_Tools_Knowledge", "MCP_Tools_DocWriter", "---no-group-devpython-version-补丁固定与-uv.md", "--no-dev-已移除须用"]
   severity: medium
   source_ref: "conversations/conv-https-mp.weixin.qq.com-s-2IUREDltOXzXECO7tWIoPA-阅读文章看看有值得借鉴的.md"
   scene: "场景块 frontmatter 数据修复"
@@ -16,6 +16,7 @@ author: wanderingbug
 generated: { by: codewiki/5.16.7, at: 2026-11-14T01:36:11Z }
 stale_after: 2027-05-13
 origin: conversation
+source_conversations: ['conversations/conv-https-mp.weixin.qq.com-s-2IUREDltOXzXECO7tWIoPA-阅读文章看看有值得借鉴的-770c00.md']
 
 ---
 
@@ -43,3 +44,13 @@ origin: conversation
 ## Rationale
 
 lenient 解析会把结构性损坏降级为「字段偏移」，让人误判成普通字符串笔误；同一处损坏复发说明必须堵写路径，否则修完再脏。
+
+## 修复损坏 frontmatter 文件名时不得用截断前缀加后缀硬拼
+
+> Merged from distillation candidate: 修复损坏 frontmatter 文件名时不得用截断前缀加后缀硬拼
+
+补充一种比“后缀粘到闭合栅栏”更隐蔽的损坏形态：文件名中段可能整段丢失，不能由截断前缀与残留后缀直接重构。实测前缀为 `notes/2026-08-26-uv-工具链两坑`、后缀为 `---no-group-devpython-version-补丁固定与-uv.md`，真实文件却是 `notes/2026-08-26-uv-工具链两坑--no-dev-已移除须用---no-group-devpython-version-补丁固定与-uv.md`；两段之间丢失了 `--no-dev-已移除须用`。
+
+修复时必须在真实目录中按可识别前缀搜索并读取实际文件名，以磁盘文件为准恢复引用；拼接后还要重新严格解析 frontmatter 并重跑溯源检查。
+
+**Rationale:** 直接拼接会造出不存在的新文件名，让“修复成功”仍留下断链；该形态补充本条已有的截断与引号防御知识。

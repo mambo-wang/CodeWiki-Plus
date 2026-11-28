@@ -49,6 +49,7 @@ _SRC_EXTS = {
     ".jsx",
     ".ts",
     ".tsx",
+    ".vue",
     ".c",
     ".h",
     ".cpp",
@@ -60,6 +61,13 @@ _SRC_EXTS = {
     ".kts",
     ".go",
     ".php",
+    ".rs",
+    ".rb",
+    ".scala",
+    ".sc",
+    ".dart",
+    ".zig",
+    ".lean",
 }
 
 _HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
@@ -294,7 +302,9 @@ def collect_git_changes(
         return p[len(sub) + 1 :] if sub else p
 
     def _ext(path: str) -> bool:
-        return Path(path).suffix.lower() in _SRC_EXTS
+        if Path(path).suffix.lower() != ".lean":
+            return Path(path).suffix.lower() in _SRC_EXTS
+        return not {".lake", "lake-packages"}.intersection(Path(path).parts[:-1])
 
     excluded: List[Dict[str, str]] = []
 

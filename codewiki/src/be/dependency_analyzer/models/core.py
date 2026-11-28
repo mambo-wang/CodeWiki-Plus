@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 
 class Node(BaseModel):
@@ -14,6 +14,10 @@ class Node(BaseModel):
     relative_path: str
 
     depends_on: Set[str] = set()
+
+    # 语言分析器可持久化的原始引用语义；Dart 用它复核增量边，
+    # 避免 receiver 类型或可见域变化后仅凭目标名复活旧边。
+    metadata: Dict[str, Any] = {}
 
     source_code: Optional[str] = None
 

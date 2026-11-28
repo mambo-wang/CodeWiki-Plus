@@ -7,7 +7,7 @@ metadata:
   confidence_level: weak
   task_id: 产品维护
   source_session: "23bfb17d128a4fecb57c58b6e7d89639"
-  related_modules: ["release-workflow"]
+related_modules: ["release-workflow", "bc8bf815", "--only"]
   severity: medium
   source_ref: "conversations/conv-我先查一下-CodeBuddy-hooks-官方文档确认-`SessionEnd`-的-`matcher`-正确取值，同.md"
   scene: "发版流程 / git 提交拆分"
@@ -16,7 +16,7 @@ author: iamwangbao-163-com
 generated: { by: codewiki/5.16.4, at: 2026-10-29T09:09:22Z }
 stale_after: 2027-04-27
 origin: conversation
-source_conversations: ['conversations/conv-@command-windows-python-release-发布版本5.16.3.md']
+source_conversations: ['conversations/conv-@command-windows-python-release-发布版本5.16.3.md', 'conversations/conv-command-message-open-code-review-delegate-command-message-co-22dfc9.md']
 
 ---
 
@@ -51,3 +51,15 @@ v5.16.5 发版拆 fix / bump 两个 commit 时，fix commit 两次混入暂存�
 ### Rationale
 
 发版提交要求内容精确可审计；`.scratch/` 误进公开仓库需回滚，且 8 万行 diff 会污染 PR 审查。
+
+## 有既有暂存内容时只提交指定文件：git commit --only <path> 保留其他暂存不动
+
+> 合并自蒸馏候选：有既有暂存内容时只提交指定文件：git commit --only <path> 保留其他暂存不动
+
+## 新解法：git commit --only <path> 保留其他暂存不动（2026-11-28 蒸馏）
+
+主文讲的解法是「先 restore --staged 清理再 add」；同一问题域存在更安全的另一解法：**`git commit --only <path> -m "..."` 只提交指定路径的工作树内容，其他已暂存文件原样保留在暂存区**——不被带入提交、也不被取消暂存，避免了 restore --staged 中途失败丢失暂存状态的风险。
+
+实测（提交 `bc8bf815`，仅 README 一行新增）：提交后 `git status --short` + `git diff --cached --name-only` 复核，既有暂存的任务记忆/telemetry 文件保持不变。
+
+适用判据：需要「只提交本次改动、完全不碰用户既有暂存」时首选 `--only`；需要彻底重构暂存区（拆 commit）时仍走主文的 restore --staged 路径。

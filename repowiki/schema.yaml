@@ -61,6 +61,15 @@ conventions:
   min_leaf_doc_lines: 200
   # 父模块/总览文档的最大行数。超过此值时 lint 报 warning（建议拆分子模块）
   max_overview_doc_lines: 1000
+  # B5 聚类质量诊断：按模块完整 scope 文件文本估算 token，只给宿主建议，
+  # 不自动重排模块树。chars_per_token 是字符估值除数，不是计费精度；
+  # min/max 只作用于 leaf，0 关闭对应诊断；缺文件不会被当成 0 token。
+  # 默认 1000/32000 来自本仓 22 个 leaf 的实测分布，其他仓库应重新校准。
+  clustering_validation:
+    enabled: true
+    chars_per_token: 4
+    min_leaf_tokens: 1000
+    max_leaf_tokens: 32000
   # 是否在 write_doc_file 后自动注入「相关模块」交叉链接章节。
   # 基于模块树的依赖关系计算 "Depends on" / "Used by" 链接
   auto_crosslink: true
@@ -226,6 +235,10 @@ documentation_dimensions:
 - api_contracts               # API 契约：公开接口的输入输出、错误码、版本兼容
 - data_model_changes          # 数据模型变更：核心数据结构的演进历史和迁移策略
 - dependency_rationale        # 依赖理由：为什么引入某个外部依赖，替代方案是什么
+- build_entrypoints           # 构建入口：Make/脚本/manifest 如何构建、验证与运行
+- ci_workflows                # CI 工作流：触发、job、runner 与校验步骤
+- container_runtime           # 容器运行：镜像、stage、端口、服务依赖与数据流
+- deployment_topology         # 部署拓扑：Compose/基础设施如何编排与暴露服务
 
 # ── 增量更新策略 ─────────────────────────────────────────────────────────
 update_policy:

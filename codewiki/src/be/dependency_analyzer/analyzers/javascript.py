@@ -77,7 +77,7 @@ class TreeSitterJSAnalyzer:
         else:
             rel_path = str(self.file_path)
 
-        for ext in [".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"]:
+        for ext in [".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".vue"]:
             if rel_path.endswith(ext):
                 rel_path = rel_path[: -len(ext)]
                 break
@@ -89,7 +89,7 @@ class TreeSitterJSAnalyzer:
                 # BUG-21: normalize symlinks before computing relative paths
                 real_file = os.path.realpath(str(self.file_path))
                 real_repo = os.path.realpath(self.repo_path)
-                return os.path.relpath(real_file, real_repo)
+                return os.path.relpath(real_file, real_repo).replace(os.sep, "/")
             except ValueError:
                 return str(self.file_path)
         else:
@@ -190,8 +190,7 @@ class TreeSitterJSAnalyzer:
                 if method_name:
                     method_node = self._create_method_node(child, method_name, class_name)
                     if method_node:
-                        if method_name != "constructor":
-                            self.nodes.append(method_node)
+                        self.nodes.append(method_node)
                         self.top_level_nodes[method_node.name] = method_node
             elif child.type == "field_definition":
                 # Handle arrow function properties

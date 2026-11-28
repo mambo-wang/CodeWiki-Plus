@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "codewiki-plus"
-version = "5.16.8"
+version = "5.17.0"
 description = "Transform codebases into comprehensive documentation using AI-powered analysis"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -28,7 +28,7 @@ dependencies = [
     "keyring>=24.0.0",
     "GitPython>=3.1.40",
     "Jinja2>=3.1.6",
-    "tree-sitter>=0.23.2",
+    "tree-sitter>=0.25.0",
     "tree-sitter-language-pack>=0.8.0",
     "tree-sitter-python>=0.23.6",
     "tree-sitter-java>=0.23.5",
@@ -60,7 +60,12 @@ dependencies = [
     "colorama>=0.4.6",
     "mcp>=1.0.0,<2",
     "jieba>=0.42.1",
-    "pathspec>=0.12.1"
+    "pathspec>=0.12.1",
+    "tree-sitter-rust>=0.23.2,<0.24.0",
+    "tree-sitter-ruby>=0.23.1,<0.24.0",
+    "tree-sitter-scala>=0.23.2,<0.24.0",
+    "tree-sitter-dart==0.1.0",
+    "tree-sitter-zig==1.1.2",
 ]
 
 [dependency-groups]
@@ -87,6 +92,10 @@ dev = [
     "pre-commit>=4.0.0",
 ]
 
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+default = true
+
 [project.scripts]
 codewiki = "codewiki.cli.main:cli"
 
@@ -97,7 +106,7 @@ Repository = "https://github.com/mambo-wang/CodeWiki-Plus"
 Issues = "https://github.com/mambo-wang/CodeWiki-Plus/issues"
 
 [tool.hatch.build]
-artifacts = ["codewiki/templates/**/*", "codewiki/py.typed", "codewiki/agents/**/*", "codewiki/mcp/locales/**/*", "codewiki/assets/**/*"]
+artifacts = ["codewiki/templates/**/*", "codewiki/py.typed", "codewiki/agents/**/*", "codewiki/mcp/locales/**/*", "codewiki/assets/**/*", "codewiki/src/be/dependency_analyzer/analyzers/_vendor/**/*"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["codewiki"]

@@ -76,6 +76,7 @@ class ComponentMeta:
     qualified_name: Optional[str] = None
     has_docstring: bool = False
     parameters: Optional[List[str]] = None
+    metadata: dict = field(default_factory=dict)
 
     def to_node(self, source_code: str = "", docstring: str = "") -> Node:
         return Node(
@@ -95,6 +96,7 @@ class ComponentMeta:
             qualified_name=self.qualified_name,
             has_docstring=self.has_docstring,
             parameters=self.parameters,
+            metadata=self.metadata,
             source_code=source_code,
             docstring=docstring,
         )
@@ -327,6 +329,12 @@ class AnalysisCache:
             self.conn.commit()
         except Exception:
             pass  # Column already exists
+        # Migration: preserve language-specific raw reference semantics for cache validation.
+        try:
+            self.conn.execute("ALTER TABLE components ADD COLUMN metadata_json TEXT DEFAULT '{}'")
+            self.conn.commit()
+        except Exception:
+            pass  # Column already exists
         # Migration: add authority column for existing databases (P0 authority ranking)
         try:
             self.conn.execute(
@@ -352,6 +360,27 @@ class AnalysisCache:
 
     def set_last_commit_id(self, cid: str):
         self._mset("last_commit_id", cid)
+
+    def get_reference_symbols(self) -> Dict[str, str]:
+        """读取反向索引的持久符号基线，用于索引文件删除后的重建。"""
+        try:
+            data = json.loads(self._mget("reference_symbols", "{}"))
+        except (TypeError, ValueError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {
+            str(name): str(component_id)
+            for name, component_id in data.items()
+            if isinstance(name, str) and isinstance(component_id, str)
+        }
+
+    def save_reference_symbols(self, symbols: Dict[str, str]) -> None:
+        """保存反向索引的持久符号基线，不随索引文件删除而丢失。"""
+        self._mset(
+            "reference_symbols",
+            json.dumps(symbols, ensure_ascii=False, sort_keys=True),
+        )
 
     # NOTE (output_dir convergence): set_output_dir / get_output_dir are
     # retired — output_dir is a pure function of repo_path under the active
@@ -590,15 +619,21 @@ class AnalysisCache:
                 n.docstring or "",
                 json.dumps(n.parameters) if n.parameters else None,
                 json.dumps(sorted(n.depends_on)) if n.depends_on else "[]",
-                "{}",
+                json.dumps(n.metadata, ensure_ascii=False, sort_keys=True) if n.metadata else "{}",
                 _comp_hash(n),
             )
             for n in components.values()
         ]
+        component_columns = (
+            "id,name,component_type,file_path,relative_path,start_line,end_line,"
+            "language,node_type,base_classes,class_name,display_name,qualified_name,"
+            "has_docstring,docstring,parameters,depends_on,metadata_json,content_hash"
+        )
         if incremental:
             # Incremental mode: upsert only the provided components
             c.executemany(
-                "INSERT OR REPLACE INTO components VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                f"INSERT OR REPLACE INTO components ({component_columns}) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 rows,
             )
             # Upsert dependencies for these components only
@@ -614,7 +649,8 @@ class AnalysisCache:
         else:
             c.execute("DELETE FROM components")
             c.executemany(
-                "INSERT INTO components VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                f"INSERT INTO components ({component_columns}) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 rows,
             )
             c.execute("DELETE FROM dependencies")
@@ -697,7 +733,7 @@ class AnalysisCache:
         rows = self.conn.execute(
             "SELECT id,name,component_type,file_path,relative_path,start_line,end_line,"
             "language,node_type,base_classes,class_name,display_name,qualified_name,"
-            "has_docstring,parameters,depends_on FROM components"
+            "has_docstring,parameters,depends_on,metadata_json FROM components"
         ).fetchall()
         out: Dict[str, ComponentMeta] = {}
         for r in rows:
@@ -719,6 +755,7 @@ class AnalysisCache:
                 qualified_name=r["qualified_name"],
                 has_docstring=bool(r["has_docstring"]),
                 parameters=extra[2],
+                metadata=_parse_metadata(r),
             )
         return out
 
@@ -819,10 +856,12 @@ class AnalysisCache:
         try:
             p = self.repo_path / rel
             s = p.stat()
-            # Stream only the first 64KB instead of reading the whole file
+            # 全文流式哈希：大文件尾部修改即使大小与 mtime 不变也必须可检测。
+            digest = hashlib.sha256()
             with open(p, "rb") as f:
-                head = f.read(65536)
-            h = hashlib.sha256(head).hexdigest()
+                for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            h = digest.hexdigest()
             return s.st_mtime, s.st_size, h
         except OSError:
             return None
@@ -900,6 +939,7 @@ class AnalysisCache:
                 has_docstring=bool(r["has_docstring"]),
                 docstring=r["docstring"] or "",
                 parameters=extra[2],
+                metadata=_parse_metadata(r),
                 source_code="",
             )
         return result
@@ -925,6 +965,14 @@ class AnalysisCache:
         ".kts",
         ".go",
         ".php",
+        ".rs",
+        ".rb",
+        ".scala",
+        ".sc",
+        ".dart",
+        ".zig",
+        ".lean",
+        ".vue",
     }
 
     def detect_changes(self) -> Optional[Dict[str, Any]]:
@@ -960,11 +1008,22 @@ class AnalysisCache:
             return None if p.startswith(".codewiki/") else p
 
         ch, seen = [], set()
+        fingerprinted = set(self.get_all_fingerprints())
+        cached_components = self.get_cached_file_paths()
 
         def add(r):
-            if r and (p := _n(r)) and p not in seen:
-                ch.append(p)
-                seen.add(p)
+            if not r or not (p := _n(r)) or p in seen:
+                return
+            # A working-tree deletion stays in Git's diff until staged. Once
+            # analysis has removed its cache rows, do not report it forever.
+            if (
+                not (self.repo_path / p).exists()
+                and p not in fingerprinted
+                and p not in cached_components
+            ):
+                return
+            ch.append(p)
+            seen.add(p)
 
         if prev != cur:
             try:
@@ -982,7 +1041,12 @@ class AnalysisCache:
                 add(item)
         except Exception:
             pass
-        return {"changed_files": ch, "method": "git", "current_commit": cur}
+        return {
+            "changed_files": ch,
+            "method": "git",
+            "current_commit": cur,
+            "no_changes": not ch,
+        }
 
     def _fp_detect(self) -> Optional[Dict[str, Any]]:
         cached = self.get_all_fingerprints()
@@ -994,11 +1058,28 @@ class AnalysisCache:
                 d
                 for d in dns
                 if not d.startswith(".")
-                and d not in ("node_modules", "__pycache__", "venv", ".venv")
+                and d
+                not in (
+                    "node_modules",
+                    "__pycache__",
+                    "venv",
+                    ".venv",
+                    "zig-cache",
+                    "zig-out",
+                    ".lake",
+                    "lake-packages",
+                )
             ]
             rd = Path(dp).relative_to(self.repo_path)
             for fn in fns:
-                if Path(fn).suffix.lower() not in self._SRC_EXTS:
+                if fn == "go.mod" and any(part in {"vendor", "testdata"} for part in rd.parts):
+                    # 与 _go_analysis_paths() 的语义参与范围保持一致，避免非 Git
+                    # 仓库把未纳入指纹的嵌套 fixture manifest 永久报为变更。
+                    continue
+                if (
+                    fn not in {"go.mod", "pubspec.yaml"}
+                    and Path(fn).suffix.lower() not in self._SRC_EXTS
+                ):
                     continue
                 rp = (rd / fn).as_posix() if rd != Path(".") else fn
                 existing.add(rp)
@@ -1862,6 +1943,17 @@ def _parse_row(r: sqlite3.Row) -> Tuple[Set[str], Optional[List], Optional[List]
     except Exception:
         pass
     return deps, bc, params
+
+
+def _parse_metadata(r: sqlite3.Row) -> dict:
+    try:
+        raw = r["metadata_json"]
+        if raw and raw != "{}":
+            value = json.loads(raw)
+            return value if isinstance(value, dict) else {}
+    except Exception:
+        pass
+    return {}
 
 
 def _extract_title(content: str) -> Optional[str]:

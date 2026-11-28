@@ -48,6 +48,7 @@ def _git_creator_author(repo_root: Path, note_rel: str) -> str | None:
                 note_rel,
             ],
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             text=True,
             encoding="utf-8",
             errors="replace",

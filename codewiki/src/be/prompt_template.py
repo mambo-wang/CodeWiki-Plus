@@ -513,6 +513,13 @@ EXTENSION_TO_LANGUAGE = {
     ".php": "php",
     ".phtml": "php",
     ".inc": "php",
+    ".rb": "ruby",
+    ".scala": "scala",
+    ".sc": "scala",
+    ".dart": "dart",
+    ".zig": "zig",
+    ".lean": "lean",
+    ".vue": "vue",
 }
 
 

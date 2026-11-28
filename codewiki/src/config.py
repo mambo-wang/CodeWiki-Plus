@@ -57,6 +57,8 @@ TEAM_LAYOUT_REBUILDABLE_FILES = [
     ".meta/symbol_map.json",
     ".meta/project.json",
     ".meta/overview_refs.json",
+    ".meta/reference_index.json",  # 页面/组件反向引用；从 Markdown 重建
+    ".meta/artifact_facts.json",  # 构建/CI/容器/manifest 事实；从工程文件重建
     ".meta/aggregate_state.json",
     ".meta/source_registry.json",
     ".meta/job.json",  # ADR-0020 generation ledger — local progress state, rebuilt on next run
@@ -165,6 +167,7 @@ def _git_config_value(key: str, lookup_dir: Optional[str] = None) -> str:
     )
     kwargs: dict = {
         "capture_output": True,
+        "stdin": subprocess.DEVNULL,
         "text": True,
         "timeout": 2,
         "encoding": "utf-8",

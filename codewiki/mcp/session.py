@@ -49,6 +49,15 @@ class SessionState:
     # Options the session was analyzed with (include/exclude patterns etc.) so
     # watch-mode incremental re-parses apply the same filtering.
     analyze_options: Dict[str, Any] = field(default_factory=dict)
+    # B3 消费与增量响应完全相同的 component diff；保存在会话上后，
+    # save_module_tree 可直接预览/应用修复，无需保留第二份完整旧图。
+    # None 表示从缓存恢复的查询会话，没有本轮分析 diff。
+    component_changes: Optional[Dict[str, Any]] = None
+    # B5 完整文件 token 的会话内测量缓存；键为解析路径，值为文件签名与计数。
+    # 仅跳过未变文件的重复读取，不承担分析事实源职责。
+    clustering_file_cache: Dict[str, tuple[tuple[int, int, int, int], int]] = field(
+        default_factory=dict
+    )
     created_at: float = field(default_factory=time.time)
     last_accessed: float = field(default_factory=time.time)
 
@@ -135,8 +144,15 @@ class SessionStore:
         with self._lock:
             return self._sessions.pop(session_id, None) is not None
 
+    def _latest_active_locked(self, repo_path: str) -> Optional[SessionState]:
+        """按创建顺序取最新活跃会话；调用方必须已持有 ``_lock``。"""
+        for state in reversed(self._sessions.values()):
+            if state.repo_path == repo_path and not state.is_expired:
+                return state
+        return None
+
     def find_active(self, repo_path: str) -> Optional[SessionState]:
-        """Return a live in-memory session for *repo_path*, or ``None``.
+        """Return the latest live in-memory session for *repo_path*, or ``None``.
 
         Unlike :meth:`find_or_restore`, this never reconstructs a session
         from the SQLite cache — it only reports whether an active session
@@ -147,11 +163,10 @@ class SessionStore:
         """
         rp = str(repo_path)
         with self._lock:
-            for state in self._sessions.values():
-                if state.repo_path == rp and not state.is_expired:
-                    state.touch()
-                    return state
-        return None
+            state = self._latest_active_locked(rp)
+            if state is not None:
+                state.touch()
+            return state
 
     def find_or_restore(self, repo_path: str) -> Optional[SessionState]:
         """Find an active session for *repo_path*, or restore from SQLite cache.
@@ -164,12 +179,12 @@ class SessionStore:
         """
         rp = str(repo_path)
 
-        # 1. Try to find an existing active session
+        # 1. 优先取最新创建的活跃会话
         with self._lock:
-            for state in self._sessions.values():
-                if state.repo_path == rp and not state.is_expired:
-                    state.touch()
-                    return state
+            state = self._latest_active_locked(rp)
+            if state is not None:
+                state.touch()
+                return state
 
         # 2. Load from SQLite cache
         cache = self.get_cache(rp)

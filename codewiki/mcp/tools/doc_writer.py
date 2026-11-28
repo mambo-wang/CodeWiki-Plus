@@ -187,22 +187,28 @@ def _split_frontmatter(content: str) -> tuple:
     return "", content
 
 
-def _find_doc_by_basename(output_dir: str, filename: str) -> Path | None:
-    """Locate an existing wiki document by its basename under ``wiki/``.
+def _find_doc_by_basename(
+    output_dir: str, filename: str, *, search_root: Path | None = None
+) -> Path | None:
+    """Locate one existing wiki document, refusing symlink escapes.
 
-    Lets :func:`handle_edit_doc_file` find ``wiki/queries/Foo.md`` even when
-    the caller passed ``page_type="module"`` (which would otherwise route to
-    ``wiki/modules/Foo.md`` and report "File not found").
+    ``search_root`` confines centralized module fallback to the writing repo's
+    partition. Explicit paths do not use this fallback: a missing query path
+    must not silently redirect to a same-stem module (or vice versa).
     """
     base = filename.rsplit("/", 1)[-1]
     if not base.endswith(".md"):
         base += ".md"
     wiki_dir = Path(output_dir) / "wiki"
-    if not wiki_dir.is_dir():
+    root = search_root if search_root is not None else wiki_dir
+    if not root.is_dir():
         return None
-    for md_file in wiki_dir.rglob("*.md"):
-        if md_file.is_file() and md_file.name == base:
-            return md_file
+    for md_file in sorted(root.rglob("*.md")):
+        if md_file.name != base or not md_file.is_file():
+            continue
+        if not _is_within(md_file, wiki_dir):
+            raise ValueError("document symlink escapes output directory")
+        return md_file
     return None
 
 
@@ -1063,11 +1069,17 @@ def _record_page_manifest(
     injection) so the recorded ``source_fingerprint`` reflects the on-disk
     ``sources`` block.  Never raises — a failed upsert must not fail the write.
     """
+    partition_repo = None
     try:
-        from codewiki.mcp.tools.page_manifest import upsert_page_manifest
         from codewiki.mcp.tools.workspace_layout import routing_for_write
 
         partition_repo = routing_for_write(Path(output_dir), repo_path)
+    except Exception:
+        logger.debug("page write partition lookup failed", exc_info=True)
+
+    try:
+        from codewiki.mcp.tools.page_manifest import upsert_page_manifest
+
         repo = partition_repo or (Path(repo_path).name if repo_path else None)
         upsert_page_manifest(
             Path(output_dir),
@@ -1084,9 +1096,20 @@ def _record_page_manifest(
     # Generation job ledger (ADR-0020): one page reached final content.
     # Same choke point as the manifest so write/edit/undo stay consistent.
     try:
+        page_key = Path(doc_path).resolve().relative_to(Path(output_dir).resolve()).as_posix()
+    except (OSError, ValueError):
+        page_key = None
+    try:
         from codewiki.mcp.tools import job_state
 
-        job_state.mark_page_written(repo_path, output_dir, filename, page_type=page_type)
+        job_state.mark_page_written(
+            repo_path,
+            output_dir,
+            filename,
+            page_type=page_type,
+            page_key=page_key,
+            module_repo=partition_repo,
+        )
     except Exception:
         logger.warning("job ledger page write failed (non-fatal)", exc_info=True)
 
@@ -1095,7 +1118,13 @@ def _record_page_manifest(
     try:
         from codewiki.mcp.tools import change_plan
 
-        change_plan.mark_op_done(repo_path, output_dir, filename)
+        change_plan.mark_op_done(
+            repo_path,
+            output_dir,
+            filename,
+            page_key=page_key,
+            module_repo=partition_repo,
+        )
     except Exception:
         logger.debug("change plan op mark skipped", exc_info=True)
 
@@ -1325,6 +1354,73 @@ def _inject_lightweight_frontmatter(
     return "\n".join(fm_lines) + content
 
 
+def _guard_page_write(
+    arguments: dict[str, Any],
+    repo_path: str | None,
+    output_dir: str | Path,
+    doc_path: Path,
+    filename: str,
+    page_type: str,
+    *,
+    tool: str,
+    module_repo: str | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Evaluate the plan gate after path safety, before any disk mutation."""
+    from codewiki.mcp.tools import change_plan
+    from codewiki.mcp.tools.write_guard import evaluate_page_write
+
+    plan = change_plan.load_plan(repo_path, output_dir)
+    try:
+        decision = evaluate_page_write(
+            plan,
+            output_dir,
+            doc_path=doc_path,
+            filename=filename,
+            page_type=page_type,
+            mode=arguments.get("write_guard_mode") or "observe",
+            target=arguments.get("target"),
+            tool=tool,
+            module_repo=module_repo,
+        )
+    except ValueError as exc:
+        return None, json.dumps({"error": str(exc)}, ensure_ascii=False)
+
+    if decision["outcome"] == "blocked":
+        change_plan.record_unplanned_write(
+            repo_path, output_dir, decision, tool=tool, filename=filename
+        )
+        return decision, json.dumps(
+            {
+                "error": "write_guard blocked this page: " + decision["reason"],
+                "write_guard": decision,
+            },
+            ensure_ascii=False,
+        )
+    return decision, None
+
+
+def _attach_write_guard(
+    result: dict[str, Any],
+    decision: dict[str, Any] | None,
+    repo_path: str | None,
+    output_dir: str | Path,
+    *,
+    tool: str,
+    filename: str,
+) -> None:
+    """Attach the decision and audit only after the page actually landed."""
+    if decision is None:
+        return
+    from codewiki.mcp.tools import change_plan
+
+    change_plan.record_unplanned_write(
+        repo_path, output_dir, decision, tool=tool, filename=filename
+    )
+    result["write_guard"] = decision
+    if decision.get("warning"):
+        result["warning"] = decision["warning"]
+
+
 async def handle_write_doc_file(
     arguments: dict[str, Any],
     store: SessionStore,
@@ -1393,6 +1489,19 @@ async def handle_write_doc_file(
     )
     if doc_path is None:
         return json.dumps({"error": "Filename escapes output directory."})
+
+    guard_decision, guard_error = _guard_page_write(
+        arguments,
+        repo_path,
+        output_dir,
+        doc_path,
+        filename,
+        page_type,
+        tool="write_doc_file",
+        module_repo=partition_repo,
+    )
+    if guard_error:
+        return guard_error
 
     content = read_param(arguments, "content")
     if content is None:
@@ -1497,7 +1606,7 @@ async def handle_write_doc_file(
     mermaid_result = await _validate_mermaid(str(doc_path), filename)
 
     # strict mode: block the write if Mermaid validation STILL has errors after auto-fix
-    if strict and "syntax errors" in mermaid_result.lower():
+    if strict and "mermaid syntax errors found in file:" in mermaid_result.lower():
         try:
             doc_path.unlink()
         except OSError:
@@ -1575,6 +1684,14 @@ async def handle_write_doc_file(
         "mermaid_validation": mermaid_result,
         "mermaid_auto_fixes": mermaid_fixes,
     }
+    _attach_write_guard(
+        result,
+        guard_decision,
+        repo_path,
+        output_dir,
+        tool="write_doc_file",
+        filename=filename,
+    )
     # Phase 3 (D15) + Phase 4 first slice (D14): soft advisories — drift
     # information relayed into the conversation, never blocking.
     advisories = []
@@ -1676,17 +1793,45 @@ async def handle_edit_doc_file(
 
     filename = arguments["filename"]
     page_type = arguments.get("page_type", "module")
-    doc_path = _safe_doc_path(output_dir, filename, page_type=page_type)
+    from codewiki.mcp.tools.workspace_layout import routing_for_write
+
+    partition_repo = routing_for_write(output_dir, repo_path)
+    doc_path = _resolve_doc_path_safe(
+        Path(output_dir),
+        filename,
+        page_type=page_type,
+        repo_name=partition_repo,
+    )
     if doc_path is None:
         return json.dumps({"error": "Filename escapes output directory."})
 
-    # Tolerance: when the page_type-routed path does not exist, locate the
-    # file by basename across the wiki tree so an omitted/incorrect page_type
-    # does not block editing an existing document.
-    if not doc_path.exists():
-        located = _find_doc_by_basename(output_dir, filename)
+    # Tolerance: when a bare name's routed path does not exist, locate it by
+    # basename. An explicit directory path is authoritative and must never be
+    # redirected. Centralized module lookup stays inside the writing repo.
+    explicit_path = "/" in filename or "\\" in filename
+    if not doc_path.exists() and not explicit_path:
+        search_root = None
+        if partition_repo and page_type == "module":
+            search_root = Path(output_dir) / "wiki" / "modules" / partition_repo
+        try:
+            located = _find_doc_by_basename(output_dir, filename, search_root=search_root)
+        except ValueError:
+            return json.dumps({"error": "Filename escapes output directory."})
         if located is not None:
             doc_path = located
+
+    guard_decision, guard_error = _guard_page_write(
+        arguments,
+        repo_path,
+        output_dir,
+        doc_path,
+        filename,
+        page_type,
+        tool="edit_doc_file",
+        module_repo=partition_repo,
+    )
+    if guard_error:
+        return guard_error
 
     command = arguments["command"]
 
@@ -1754,14 +1899,20 @@ async def handle_edit_doc_file(
         except Exception:
             pass
 
-        return json.dumps(
-            {
-                "status": "undone",
-                "filename": filename,
-                "mermaid_validation": mermaid_result,
-            },
-            ensure_ascii=False,
+        result = {
+            "status": "undone",
+            "filename": filename,
+            "mermaid_validation": mermaid_result,
+        }
+        _attach_write_guard(
+            result,
+            guard_decision,
+            repo_path,
+            output_dir,
+            tool="edit_doc_file",
+            filename=filename,
         )
+        return json.dumps(result, ensure_ascii=False)
 
     if not doc_path.exists():
         return json.dumps(
@@ -1906,6 +2057,14 @@ async def handle_edit_doc_file(
         "snippet": snippet,
         "mermaid_validation": mermaid_result,
     }
+    _attach_write_guard(
+        result,
+        guard_decision,
+        repo_path,
+        output_dir,
+        tool="edit_doc_file",
+        filename=filename,
+    )
     # BUG-17: surface Mermaid warnings prominently in the response
     if "syntax errors" in mermaid_result.lower():
         result["mermaid_warnings"] = mermaid_result

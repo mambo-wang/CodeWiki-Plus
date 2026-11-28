@@ -22,7 +22,7 @@ import logging
 import threading
 import uuid
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 logger = logging.getLogger(__name__)
@@ -304,11 +304,34 @@ def mark_page_written(
     output_dir: str | Path,
     filename: str,
     page_type: str = "module",
+    *,
+    page_key: str | None = None,
+    module_repo: str | None = None,
 ) -> dict[str, Any] | None:
-    """Record one page write. Module pages advance the planned/written counters."""
+    """Record one page write without settling a different same-stem page.
+
+    Planned keys are module stems plus ``overview``. A query/entity page or a
+    module from another centralized partition therefore counts as ``other``.
+    Callers without a resolved page key retain the legacy stem-only behavior.
+    """
     key = Path(str(filename)).stem
     if not key:
         return load_job(repo_path, output_dir)
+    normalized_key = str(page_key or "").replace("\\", "/")
+    module_write = page_type == "module"
+    if normalized_key:
+        parts = PurePosixPath(normalized_key).parts
+        if module_repo:
+            module_write = module_write and normalized_key == (
+                f"wiki/modules/{module_repo.strip('/')}/{key}.md"
+            )
+        else:
+            module_write = module_write and (
+                normalized_key == f"{key}.md"
+                or (
+                    len(parts) == 3 and parts[:2] == ("wiki", "modules") and parts[2] == f"{key}.md"
+                )
+            )
 
     def _apply(job: dict[str, Any]) -> bool:
         # A done job is a historical record; later edits do not reopen it.
@@ -316,17 +339,23 @@ def mark_page_written(
         if job.get("phase") in TERMINAL_PHASES:
             return False
         pages = job.setdefault("pages", {})
-        planned = set(pages.get("planned_keys") or [])
-        # Bookkeeping keys off the planned set, not page_type alone: the
-        # overview page is planned but written with its own page_type.
-        if page_type == "module" or key in planned:
+        planned_set = set(pages.get("planned_keys") or [])
+        overview_write = key in planned_set and (
+            normalized_key == "wiki/overview.md" or (not normalized_key and page_type == "overview")
+        )
+        # The overview is planned but written with its own page type. Its
+        # canonical path is authoritative even for legacy module-type callers;
+        # other non-module pages never satisfy a planned module by sharing a stem.
+        if module_write or overview_write:
             written = list(pages.get("written_keys") or [])
             if key not in written:
                 written.append(key)
                 pages["written_keys"] = sorted(written)
             pages["written"] = len(pages["written_keys"])
-            planned = pages.get("planned_keys") or []
-            pages["missing"] = sorted(k for k in planned if k not in set(pages["written_keys"]))
+            planned_keys = pages.get("planned_keys") or []
+            pages["missing"] = sorted(
+                k for k in planned_keys if k not in set(pages["written_keys"])
+            )
         else:
             pages["other_written"] = int(pages.get("other_written") or 0) + 1
         if job.get("phase") not in ("finalizing",):

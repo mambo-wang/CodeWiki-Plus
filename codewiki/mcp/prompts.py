@@ -469,6 +469,7 @@ def _prompt_generate_wiki(args: dict[str, str]) -> str:
 - 根据规则将组件分为模块，构建 module_tree JSON
 - 调用 save_module_tree(repo_path="{repo_path}", module_tree=...) 保存
 - 已有 Wiki 时会返回 `change_plan`（确定性算子计划：delete/add/replan/update）：`pending_pages` 是本次需要新增或重写的页面，删除算子由工具直接执行（`deleted_pages`）；不要自己判断哪些页面过期
+- 有分析会话时还会返回 `clustering_validation`（observe）：按完整 scope 文件文本估算 token，列出微页/超大 leaf、同文件跨 leaf、漏文件、未知 ID 与不可测文件；宿主修正聚类后重新 save，validator 不自动改树
 
 ## 步骤 3: 获取处理顺序
 调用 get_processing_order(repo_path="{repo_path}")
@@ -482,6 +483,8 @@ def _prompt_generate_wiki(args: dict[str, str]) -> str:
 3. 调用 list_dependencies(repo_path="{repo_path}", component_ids) 获取依赖关系
 4. 撰写 Markdown 文档（200-500 行叶模块，含 Mermaid 架构图）
 5. 调用 write_doc_file(repo_path="{repo_path}", filename="<模块名>.md", page_type="module", content=...) 写入
+   - write_guard_mode 默认 observe；需要严格按计划执行时显式传 enforce。计划内 pending 页面直接写入，计划外页面在 observe 下仍会写入并返回 warning/记录 unplanned_write；enforce 仅放行 pending 页面和与实际页面精确匹配的 target，缺计划或计划损坏时 fail closed
+   - 引用修复需要改写计划外页面时，observe 会告警但允许；enforce 必须显式传 target="<实际文件名或 wiki 相对路径>"，target 不能授权 delete_subtree 页面，也不能绕过路径逃逸校验
 
 ## 步骤 5: 仓库总览
 调用 get_prompt(prompt_type="overview_repo", repo_path="{repo_path}") 获取总览模板
@@ -509,9 +512,25 @@ def _prompt_incremental_update(args: dict[str, str]) -> str:
 调用 analyze_repo(repo_path="{repo_path}")
 - 如果 repo_path 对应的 repowiki 已有 .meta/metadata.json，返回 changes 字段
 - changes 包含: added_files, modified_files, deleted_files, affected_modules
+- `component_changes` 列出新增、删除与可确认的同跨度改名组件；`referencing_pages.components` 给出删除/改名组件的引用页面
+- `effective_owner_candidates` 为未分配组件给出同文件、同目录、一跳依赖邻居的确定性候选；`unresolved_deletions` 显式列出无法归属的删除项
+- owner 候选仅供宿主确认，工具不会自动改写 module tree；平局会保留全部候选，没有严格多数时不指定唯一 owner
+- `ownership_tree_status` 区分 `loaded/missing/invalid`；`invalid` 时 `ownership_warning` 给出原因，未解析组件仍保留在 changes 中
+- `tree_repair` 是默认 observe 的确定性修复计划，按 rename → delete → 剪空节点 → add 输出 `operations`；新增只按同文件严格多数、同目录唯一 leaf、一跳邻居严格多数归因
+- `tree_repair.unplaced_component_ids` 显式保留 orphan/untracked/缺失组件；`growth_flagged` 只告警 leaf 新增占比，不触发自动重聚类
+- `tree_repair_status` 区分 `loaded/missing/invalid`，损坏原因见 `tree_repair_warning`；观察计划不修改磁盘上的 module tree
+- `reference_index_file` 是可重建索引，宿主不要把索引当作页面正文或第二份知识真源
+- `artifact_facts` 是源码图外的构建/CI/容器/manifest/schema/脚本事实层；`artifact_changed_files` 让纯 artifact 改动也进入增量流程，即使源码指纹显示无变化
+- artifact 的 `artifact:` ID 不进入源码 components、依赖边或 module tree；宿主只在计划内相关页面中补充构建/部署说明，不据此创建源码组件或自动改聚类
+- 先检查 `artifact_facts.status`、`summary`、`warnings` 与 `omitted_files`：`partial/unavailable`、截断或遗漏必须显式说明，不得当成完整事实；工具不执行任何 artifact 命令，也不导出环境变量值或命令正文
 
-## 步骤 2: 重新聚类并取变更计划
-- 若 changes 显示新增/删除组件或顶层结构变化，重新聚类后调用 save_module_tree(repo_path="{repo_path}", module_tree=...)
+## 步骤 2: 确认归属并重新聚类取变更计划
+- 先检查 `effective_owner_candidates` 与 `unresolved_deletions`，由宿主决定是否采纳候选或补充聚类；无法归属的删除项不得静默忽略
+- 先审查 `tree_repair.operations`：conflict/orphan/untracked 项由宿主决定，不得静默丢弃；纯 rename/delete/剪枝及唯一 owner 的新增可由工具执行
+- 默认调用 save_module_tree(repo_path="{repo_path}", module_tree=...) 时 `repair_mode="observe"`：返回计划但原样保存宿主提交的树
+- 明确采纳全部确定性修复时，向 save_module_tree 传入原始树与 `repair_mode="apply"`；需要本轮 fresh analyze_repo 会话及 component diff，工具先应用修复再保存，orphan 仍不放置，growth 仍只告警
+- 若 changes 显示新增/删除组件或顶层结构变化，也可先重新聚类，再以默认 observe 保存宿主结果
+- 保存结果中的 `clustering_validation` 是 observe 诊断：完整文件 token 估值、微页/超大 leaf、同文件跨 leaf、漏文件、未知 ID、不可测文件；按建议修正后重新保存，工具不会自动重排模块树
 - 返回的 `change_plan` 是确定性算子计划（`add_subtree` / `replan_subtree` / `delete_subtree` / `update_page`）：
   - `pending_pages` = 本次需要新增或重写的页面
   - `deleted_pages` = 已被工具删除的页面（不要手工删文件）
@@ -522,10 +541,15 @@ def _prompt_incremental_update(args: dict[str, str]) -> str:
 对 `pending_pages` 中的每个页面：
 1. read_code_components 读取最新源码
 2. view_repo_file 读取现有文档
-3. write_doc_file 重写整页，或 edit_doc_file(str_replace) 改变更部分（写完后计划里的算子自动记为 done）
+3. 若 `artifact_changed_files` 命中相关页面，读取 `files.artifact_facts` 指向的 JSON 中对应事实；只使用有 path/line 溯源且未被 truncated/failed/omitted 标记的部分
+4. write_doc_file 重写整页，或 edit_doc_file(str_replace) 改变更部分（写完后计划里的算子自动记为 done）
 
-## 步骤 4: 处理删除的文件
+## 步骤 4: 处理删除、改名与过时引用
 - 模块删除已由 `delete_subtree` 执行（`deleted_pages`），检查剩余文档中的过时引用
+- 根据 `changes.referencing_pages.components` 逐页检查删除/改名组件的残留引用，由宿主判断并执行必要的正文改写；工具只返回清单，不自动改正文
+- write/edit 的 `write_guard_mode` 默认 observe：计划外改写仍允许，但返回 warning 并记录 `unplanned_write`；显式 enforce 时只放行 pending 页面和精确匹配的 `target`，缺计划/损坏计划 fail closed，`delete_subtree` 页面即使给 target 也禁止重建
+- 必须修复计划外引用页时，observe 会记录 allowed 审计；enforce 下显式传 `target="<实际文件名或 wiki 相对路径>"`，不要通过改 filename 冒充计划内页面
+- `change_plan` 摘要的 `unplanned_write_count` / `blocked_write_count` 是审计计数；审计不改变 plan_hash，观察到的计划外写入仍需宿主决定是否更新聚类/计划
 - lint_wiki(checks=["stale_refs"]) 检查过时引用
 
 ## 步骤 5: 重建索引

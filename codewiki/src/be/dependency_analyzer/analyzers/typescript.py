@@ -609,7 +609,7 @@ class TreeSitterTSAnalyzer:
             return None
 
     def _should_include_node(self, node: Node) -> bool:
-        excluded_names = {"constructor", "__proto__", "prototype"}
+        excluded_names = {"__proto__", "prototype"}
 
         if node.component_type == "variable":
             return False
@@ -663,7 +663,7 @@ class TreeSitterTSAnalyzer:
         else:
             rel_path = str(self.file_path)
 
-        for ext in [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]:
+        for ext in [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue"]:
             if rel_path.endswith(ext):
                 rel_path = rel_path[: -len(ext)]
                 break
@@ -675,7 +675,7 @@ class TreeSitterTSAnalyzer:
                 # BUG-21: normalize symlinks before computing relative paths
                 real_file = os.path.realpath(str(self.file_path))
                 real_repo = os.path.realpath(self.repo_path)
-                return os.path.relpath(real_file, real_repo)
+                return os.path.relpath(real_file, real_repo).replace(os.sep, "/")
             except ValueError:
                 return str(self.file_path)
         else:

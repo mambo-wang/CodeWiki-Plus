@@ -27,8 +27,9 @@
 
 ### 专栏文章
 
-「迎风追日 / WanderingBug」公众号发布的本项目系列技术专栏，欢迎阅读：
+「WanderingBug」公众号发布的本项目系列技术专栏，欢迎阅读：
 
+- [CodeWiki-Plus 技术白皮书：代码文档+任务记忆+经验沉淀](https://mp.weixin.qq.com/s/VNJzc4k5RunhK1oV2ZwcKQ)（2026-10-23）
 - [专栏开篇词：从代码文档到 AI 知识引擎](https://mp.weixin.qq.com/s/WpjiDAs62_81mytBWUsDQw)（2026-07-26）
 - [第 2 篇：双层 Prompt 架构同时服务人和模型](https://mp.weixin.qq.com/s/1lNjR_SsrU5Fw2NKnkxnMA)（2026-08-01）
 - [第 3 篇：零依赖检索设计](https://mp.weixin.qq.com/s/T7r-ojyWC-YOpM_U5BNbEw)（2026-08-06）
@@ -48,7 +49,7 @@
 
 ### 这个项目是什么？
 
-CodeWiki-Plus 是一个由 AI IDE（CodeBuddy、Cursor、Claude Desktop 等）自身模型驱动的仓库知识引擎：**无需配置任何大模型 API**，即可完成 Wiki 文档生成，并在此基础上提供检索、笔记、任务记忆、团队遥测等完整知识管理能力。
+CodeWiki-Plus 是一个由 AI IDE（CodeBuddy、Qoder、Trae 等）自身模型驱动的仓库知识引擎：**无需配置任何大模型 API**，即可完成 Wiki 文档生成，并在此基础上提供检索、笔记、任务记忆、团队遥测等完整知识管理能力。
 
 项目最初 fork 自 [FSoft-AI4Code/CodeWiki](https://github.com/FSoft-AI4Code/CodeWiki) 并在其工具链（Tree-sitter AST 解析、依赖图构建、拓扑排序、Mermaid 校验）基础上独立演进，现已发展为架构定位不同的独立项目——详见[致谢](#致谢)。
 

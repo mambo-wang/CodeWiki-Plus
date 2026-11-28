@@ -96,7 +96,7 @@ def _atomic_replace_with_retry(src: Path, dst: Path, attempts: int = 5) -> None:
             time.sleep(0.02 * (i + 1))
 
 
-def atomic_write(path: Path, content: str) -> None:
+def atomic_write(path: Path, content: str, *, stage: bool = True) -> None:
     """Write *content* via temp file + atomic replace (crash-safe)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     # pid + thread id: unique across processes AND across threads of this
@@ -116,12 +116,13 @@ def atomic_write(path: Path, content: str) -> None:
     # putting durable knowledge files into the git index (stage only, never
     # commit/push).  Silent no-op outside a git repo / under pytest / when
     # conventions.git_sync.auto_stage is off; never breaks the write.
-    try:
-        from codewiki.src.git_sync import auto_stage
+    if stage:
+        try:
+            from codewiki.src.git_sync import auto_stage
 
-        auto_stage(path)
-    except Exception:
-        pass
+            auto_stage(path)
+        except Exception:
+            pass
 
 
 def _stage_removal(path: Path) -> None:

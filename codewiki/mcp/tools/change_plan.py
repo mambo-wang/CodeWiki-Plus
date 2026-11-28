@@ -35,8 +35,8 @@ import json
 import logging
 import threading
 from collections import Counter
-from pathlib import Path
-from typing import Any, Iterable
+from pathlib import Path, PurePosixPath
+from typing import Any, Iterable, Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +80,7 @@ def _read(path: Path) -> dict[str, Any] | None:
     return data
 
 
-def load_plan(
-    repo_path: str | Path | None, output_dir: str | Path
-) -> dict[str, Any] | None:
+def load_plan(repo_path: str | Path | None, output_dir: str | Path) -> dict[str, Any] | None:
     """Load the current plan, or ``None`` when absent/corrupt."""
     try:
         return _read(plan_path(repo_path, output_dir))
@@ -141,9 +139,7 @@ def base_commit_for(repo_path: str | Path | None, output_dir: str | Path) -> str
     return str(commit) if commit else None
 
 
-def changed_files_since(
-    repo_path: str | Path | None, output_dir: str | Path
-) -> list[str] | None:
+def changed_files_since(repo_path: str | Path | None, output_dir: str | Path) -> list[str] | None:
     """Repo-relative files changed since the last generation, or ``None``.
 
     Reuses the incremental detector's rules (subdirectory scoping, output dir
@@ -244,8 +240,27 @@ def _page_key_for(pages: dict[str, Any], name: str) -> str | None:
     return None
 
 
-def _manifest_files(pages: dict[str, Any], name: str) -> set[str]:
-    page_key = _page_key_for(pages, name)
+def _module_page_key_for(pages: dict[str, Any], name: str, module_repo: str | None) -> str | None:
+    """Resolve a module page without borrowing another centralized partition."""
+    if not module_repo:
+        return _page_key_for(pages, name)
+    prefix = f"wiki/modules/{module_repo.strip('/')}/"
+    expected = prefix + name + ".md"
+    if expected in pages:
+        return expected
+    target = name.casefold()
+    for page_key in sorted(pages):
+        if (
+            page_key.startswith(prefix)
+            and len(PurePosixPath(page_key).parts) == 4
+            and _stem(page_key).casefold() == target
+        ):
+            return page_key
+    return None
+
+
+def _manifest_files(pages: dict[str, Any], name: str, module_repo: str | None = None) -> set[str]:
+    page_key = _module_page_key_for(pages, name, module_repo)
     entry = pages.get(page_key) if page_key else None
     files = entry.get("files") if isinstance(entry, dict) else None
     if not isinstance(files, list):
@@ -266,13 +281,15 @@ def _new_op(op: str, *, page: str, path: list[str] | None = None, **extra: Any) 
     }
 
 
-def _delete_ops(prev: dict[str, dict], new: dict[str, dict], pages: dict) -> list[dict]:
+def _delete_ops(
+    prev: dict[str, dict], new: dict[str, dict], pages: dict, module_repo: str | None = None
+) -> list[dict]:
     ops = []
     for key in sorted(prev):
         if key in new:
             continue
         rec = prev[key]
-        page_key = _page_key_for(pages, rec["name"])
+        page_key = _module_page_key_for(pages, rec["name"], module_repo)
         if page_key is None:
             continue  # never written → nothing to delete
         ops.append(
@@ -316,13 +333,14 @@ def _replan_ops(
     pages: dict,
     changed: set[str],
     stale: set[str],
+    module_repo: str | None = None,
 ) -> list[dict]:
     direct: dict[str, dict[str, Any]] = {}
     for key in sorted(new):
         if key not in prev:
             continue  # covered by add_subtree; only its ancestors are cascaded
         rec = new[key]
-        files = rec["files"] | _manifest_files(pages, rec["name"])
+        files = rec["files"] | _manifest_files(pages, rec["name"], module_repo)
         hit = sorted(files & changed)
         if hit:
             direct[key] = {"reason": "changed_files", "changed_files": hit}
@@ -330,7 +348,7 @@ def _replan_ops(
         if rec["files"] != prev[key]["files"]:
             direct[key] = {"reason": "components_changed", "changed_files": []}
             continue
-        page_key = _page_key_for(pages, rec["name"])
+        page_key = _module_page_key_for(pages, rec["name"], module_repo)
         if page_key and page_key in stale:
             direct[key] = {"reason": "stale_page", "changed_files": []}
 
@@ -358,7 +376,7 @@ def _replan_ops(
                 "replan_subtree",
                 page=new[key]["name"],
                 path=new[key]["path"],
-                page_key=_page_key_for(pages, new[key]["name"]),
+                page_key=_module_page_key_for(pages, new[key]["name"], module_repo),
                 reason=info["reason"],
                 changed_files=info["changed_files"],
             )
@@ -384,9 +402,7 @@ def _update_ops(
             reason = "stale_page"
         else:
             continue
-        ops.append(
-            _new_op("update_page", page=stem, page_key=page_key, reason=reason)
-        )
+        ops.append(_new_op("update_page", page=stem, page_key=page_key, reason=reason))
     return ops
 
 
@@ -394,7 +410,7 @@ def _overview_op(pages: dict) -> dict:
     return _new_op(
         "update_page",
         page="overview",
-        page_key=_page_key_for(pages, "overview"),
+        page_key="wiki/overview.md" if "wiki/overview.md" in pages else None,
         reason="overview_stale",
     )
 
@@ -461,6 +477,7 @@ def build_plan(
     base_commit: str | None = None,
     surface: str = "mcp",
     job_id: str | None = None,
+    module_repo: str | None = None,
 ) -> dict[str, Any]:
     """Produce the plan for one tree transition. Pure and deterministic."""
     changed = sorted(
@@ -476,9 +493,9 @@ def build_plan(
 
     ops: list[dict] = []
     if prev_index:
-        ops.extend(_delete_ops(prev_index, new_index, pages))
+        ops.extend(_delete_ops(prev_index, new_index, pages, module_repo))
         ops.extend(_add_ops(prev_index, new_index))
-        ops.extend(_replan_ops(prev_index, new_index, pages, set(changed), set(stale)))
+        ops.extend(_replan_ops(prev_index, new_index, pages, set(changed), set(stale), module_repo))
         ops.extend(_update_ops(new_index, pages, set(changed), set(stale)))
         ops = _dedupe(ops)
         if ops and not any(op.get("page") == "overview" for op in ops):
@@ -532,12 +549,124 @@ def plan_summary(plan: dict[str, Any] | None) -> dict[str, Any] | None:
             {
                 str(op.get("page"))
                 for op in ops
-                if str(op.get("status") or "pending") != "done"
-                and op.get("op") != "delete_subtree"
+                if str(op.get("status") or "pending") != "done" and op.get("op") != "delete_subtree"
             }
         ),
     }
+    audit = plan.get("write_guard")
+    events = audit.get("unplanned_writes") if isinstance(audit, dict) else None
+    if isinstance(events, list):
+        view["unplanned_write_count"] = len(events)
+        view["blocked_write_count"] = sum(
+            isinstance(event, dict) and event.get("outcome") == "blocked" for event in events
+        )
     return view
+
+
+def record_unplanned_write(
+    repo_path: str | Path | None,
+    output_dir: str | Path,
+    decision: Mapping[str, Any],
+    *,
+    tool: str,
+    filename: str,
+) -> None:
+    """Persist a write-guard audit without changing the deterministic plan hash.
+
+    Only writes known to be outside a loaded plan are audited.  Missing/corrupt
+    plans cannot prove that a page is unplanned, and no timestamp is recorded.
+    Audit failures are fail-open because the plan is generation bookkeeping,
+    not a lock; an enforce rejection still reaches the caller independently.
+    """
+    if not decision.get("unplanned_write"):
+        return
+    path = plan_path(repo_path, output_dir)
+    try:
+        with _LOCK:
+            plan = _read(path)
+            if plan is None:
+                logger.warning("write guard audit skipped: change plan unavailable")
+                return
+            audit = plan.get("write_guard")
+            if not isinstance(audit, dict):
+                audit = {}
+                plan["write_guard"] = audit
+            events = audit.get("unplanned_writes")
+            if not isinstance(events, list):
+                events = []
+                audit["unplanned_writes"] = events
+            events.append(
+                {
+                    "tool": tool,
+                    "filename": filename,
+                    "page_key": decision.get("page_key"),
+                    "mode": decision.get("mode"),
+                    "outcome": decision.get("outcome"),
+                    "reason": decision.get("reason"),
+                }
+            )
+            _save(path, plan)
+    except Exception:
+        logger.warning("write guard audit failed (non-fatal)", exc_info=True)
+
+
+def _is_module_page_key(page_key: str, stem: str, module_repo: str | None) -> bool:
+    normalized = str(page_key or "").replace("\\", "/")
+    if module_repo:
+        return normalized == f"wiki/modules/{module_repo.strip('/')}/{stem}.md"
+    parts = PurePosixPath(normalized).parts
+    return normalized == f"{stem}.md" or (
+        len(parts) == 3 and parts[:2] == ("wiki", "modules") and parts[2] == f"{stem}.md"
+    )
+
+
+_SHARED_UPDATE_DIRS = frozenset({"entities", "concepts", "sources", "comparisons", "queries"})
+
+
+def _legacy_update_rank(op: Mapping[str, Any], page_key: str, filename: str) -> int:
+    """Rank an old keyless update match; zero means no safe match."""
+    if op.get("op") != "update_page" or op.get("page_key"):
+        return 0
+    target = str(op.get("page") or "").replace("\\", "/")
+    if target == "overview":
+        return 3 if page_key == "wiki/overview.md" else 0
+    if "/" in target:
+        candidate = target if target.lower().endswith(".md") else target + ".md"
+        expected = (
+            {candidate} if candidate.startswith("wiki/") else {candidate, f"wiki/{candidate}"}
+        )
+        return 2 if page_key in expected else 0
+    stem = Path(filename).stem
+    parts = PurePosixPath(page_key).parts
+    if target == stem and (
+        (
+            len(parts) == 3
+            and parts[0] == "wiki"
+            and parts[1] in _SHARED_UPDATE_DIRS
+            and parts[2] == f"{stem}.md"
+        )
+        or (len(parts) == 2 and parts[0] == "notes" and parts[1] == f"{stem}.md")
+    ):
+        return 1
+    return 0
+
+
+def match_legacy_update_ops(
+    ops: Iterable[Mapping[str, Any]], page_key: str, filename: str
+) -> list[Mapping[str, Any]]:
+    """Select one unambiguous legacy update operator for an actual shared page.
+
+    Older plans omitted ``page_key``. A bare stem is inherently ambiguous, so it
+    only matches when exactly one candidate exists; an explicit page path wins
+    over a generic same-stem candidate. Ties stay pending rather than settling
+    multiple pages from one write.
+    """
+    ranked = [(rank, op) for op in ops if (rank := _legacy_update_rank(op, page_key, filename))]
+    if not ranked:
+        return []
+    best = max(rank for rank, _ in ranked)
+    matches = [op for rank, op in ranked if rank == best]
+    return matches if len(matches) == 1 else []
 
 
 def _resolve_page_path(output_dir: str | Path, op: dict[str, Any]) -> Path | None:
@@ -577,9 +706,7 @@ def _drop_manifest_pages(output_dir: str | Path, page_keys: list[str]) -> None:
         logger.warning("page_manifest delete cleanup failed (non-fatal)", exc_info=True)
 
 
-def execute_deletions(
-    repo_path: str | Path | None, output_dir: str | Path
-) -> list[str]:
+def execute_deletions(repo_path: str | Path | None, output_dir: str | Path) -> list[str]:
     """Apply every unsettled ``delete_subtree`` op and mark it done.
 
     Deletion is deterministic, so the plan executes it itself instead of asking
@@ -593,6 +720,9 @@ def execute_deletions(
         plan = _read(path)
         if plan is None:
             return []
+        from codewiki.mcp.tools.workspace_layout import routing_for_write
+
+        partition_repo = routing_for_write(Path(output_dir), repo_path)
         touched = False
         for op in plan.get("ops") or []:
             if op.get("op") != "delete_subtree":
@@ -600,8 +730,25 @@ def execute_deletions(
             if str(op.get("status") or "pending") == "done":
                 continue
             touched = True
+            stem = _stem(str(op.get("page") or ""))
+            raw_page_key = str(op.get("page_key") or "").replace("\\", "/")
+            legacy_page = str(op.get("page") or "")
+            if (
+                (not raw_page_key and ("/" in legacy_page or "\\" in legacy_page))
+                or (partition_repo and not raw_page_key)
+                or (raw_page_key and not _is_module_page_key(raw_page_key, stem, partition_repo))
+            ):
+                logger.warning(
+                    "change plan delete target is outside the current module partition: %s",
+                    raw_page_key or stem,
+                )
+                op["status"] = "failed"
+                continue
             target = _resolve_page_path(output_dir, op)
             status = "done"
+            if target is None:
+                logger.warning("change plan delete target cannot be resolved: %s", stem)
+                status = "failed"
             if target is not None:
                 try:
                     rel = target.resolve().relative_to(Path(output_dir).resolve())
@@ -624,27 +771,57 @@ def execute_deletions(
 
 
 def mark_op_done(
-    repo_path: str | Path | None, output_dir: str | Path, page: str
+    repo_path: str | Path | None,
+    output_dir: str | Path,
+    page: str,
+    *,
+    page_key: str | None = None,
+    module_repo: str | None = None,
 ) -> dict[str, Any] | None:
     """Mark the operators for *page* as done (called from the write path).
 
-    Any unsettled operator counts — on replay an operator may be ``failed`` or
-    ``skipped`` from the previous attempt, and writing the page settles it.
+    Any unsettled, writable operator counts — on replay an operator may be
+    ``failed`` or ``skipped`` from the previous attempt, and writing the page
+    settles it. ``page_key`` disambiguates equal stems; legacy structural
+    operators without one only settle actual module pages. A write never
+    settles a delete operator.
     """
     key = Path(str(page)).stem
     if not key:
         return None
+    normalized_key = str(page_key or "").replace("\\", "/")
+    is_module_page = bool(normalized_key and _is_module_page_key(normalized_key, key, module_repo))
     path = plan_path(repo_path, output_dir)
     with _LOCK:
         plan = _read(path)
         if plan is None:
             return None
         changed = False
+        legacy_updates = {
+            id(op) for op in match_legacy_update_ops(plan.get("ops") or [], normalized_key, page)
+        }
         for op in plan.get("ops") or []:
             if str(op.get("status") or "pending") == "done":
                 continue
+            if op.get("op") == "delete_subtree":
+                continue
+            is_update = op.get("op") == "update_page"
+            if normalized_key and not is_update and not is_module_page:
+                continue
             target = str(op.get("page") or "")
-            if target == key or target.casefold() == key.casefold():
+            planned_key = str(op.get("page_key") or "").replace("\\", "/")
+            if normalized_key and planned_key:
+                # An explicit page key is authoritative even when an old plan's
+                # display label still contains a directory prefix.
+                same_page = planned_key == normalized_key
+            elif normalized_key and is_update:
+                same_page = id(op) in legacy_updates
+            elif normalized_key:
+                same_page = target == key and is_module_page
+            else:
+                # Legacy callers without a resolved path retain stem-only behavior.
+                same_page = target == key
+            if same_page:
                 op["status"] = "done"
                 changed = True
         if not changed:

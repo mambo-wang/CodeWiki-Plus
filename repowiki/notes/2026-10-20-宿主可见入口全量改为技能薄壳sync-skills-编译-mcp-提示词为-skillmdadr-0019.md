@@ -33,6 +33,8 @@ verified:
   at: '2026-10-31T01:16:56Z'
 source_conversations:
 - conversations/conv-codewiki-setup命令，生成的skill为什么没有根据语言生成不同的内容和名称-@SKILL.md-2-2.md
+source_conversations: ['conversations/conv-现在初始化或者执行codewiki-setup的时候会生成并拷贝24个skill到智能体对应目录，我发现有些skill给.md']
+
 ---
 
 ## 决策
@@ -69,3 +71,19 @@ source_conversations:
 - **目录名恒为 `codewiki-<kebab>` 不动**：prune 口径（`codewiki/cli/commands/sync_skills.py:32-34`，目标目录 `codewiki-*` 全集 == 本次渲染集合）决定目录名本地化会让 `--lang en` 把 zh 目录当陈旧产物整体删掉。
 - 实现收敛在 `sync_skills.py` 新增的 `_localized_skill_name()`；静态资产 `codewiki/assets/skills/codewiki-setup/SKILL.zh.md` name 行同步改中文；`docs/adr/0019` 已加修订记录。行为变更：zh 技能触发词从 `/codewiki-<kebab>` 变为 `/codewiki-<中文标题>`。
 - 遗留：qoder 宿主未实测中文 name（只验了 codebuddy/trae），回退点集中在 `_localized_skill_name()` 一处。
+
+## 7 个 codewiki 技能改为模型可自动触发（修订 ADR-0019 全手动口径）：registry auto 元数据 + 模板条件渲染
+
+> 合并自蒸馏候选：7 个 codewiki 技能改为模型可自动触发（修订 ADR-0019 全手动口径）：registry auto 元数据 + 模板条件渲染
+
+## 修订记录（2026-10-24）：决策 2 的「全部手动触发」被修订为 7 技能 auto
+
+用户指定 7 个技能改为模型可自动触发（非评估建议的 8 个只读型清单）：`search-wiki`、`ingest-note`、`distill-conversations`、`task-workflow`、`consolidate-knowledge`、`skill-creator`、`promote-note`。其余 17 个保持手动（含破坏性/一次性/重型流水线类）。上文「关键口径」中 `disable-model-invocation: true` 对这 7 个不再适用。
+
+实现（commit `484b775`，已推送 develop）：
+1. `codewiki/mcp/prompts.py` — `_PROMPT_REGISTRY` 7 条加 `"auto": True` 元数据；
+2. `codewiki/cli/commands/sync_skills.py` — 模板条件渲染：auto 技能不写 `disable-model-invocation`，以 `# model-invocable` 注释行占位（仓内解析器 `skill_match.py:119` 跳过 `#` 行，安全）；hint 文案双态，模板占位符从 `manual_hint` 改名 `trigger_hint`（OCR 评审发现双态语义漂移后修复）；
+3. `tests/test_sync_skills.py` — auto 集合钉死断言 + 4 项专项测试，47 passed。
+4. 同步把 7 个 auto 技能的 description 从「工作流摘要」口径改写为「触发条件」口径（zh+en 共 14 处，`locales/zh.yaml`/`en.yaml`）——description 是模型自动路由的唯一依据，摘要口径不含触发时机会导致误触发偏高。
+
+遗留观察项：`distill-conversations` 放开与 Team Doctrine「不自动蒸馏：触发永远显式」边界冲突（用户明确要求，已照做），需观察误触发情况；回退只需删该条 `"auto": True` + 重跑 `codewiki sync-skills`。

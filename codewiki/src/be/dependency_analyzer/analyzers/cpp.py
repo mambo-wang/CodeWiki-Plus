@@ -6,6 +6,10 @@ import re
 
 from tree_sitter import Parser, Language
 import tree_sitter_cpp
+from codewiki.src.be.dependency_analyzer.analyzers.c_declarators import (
+    declarator_name,
+    function_declarator,
+)
 from codewiki.src.be.dependency_analyzer.models.core import Node, CallRelationship
 from codewiki.src.be.dependency_analyzer.utils.external_symbols import (
     is_external_symbol,
@@ -186,7 +190,7 @@ class TreeSitterCppAnalyzer:
         elif node.type == "function_definition":
             # Check if this is inside a class or function
             containing_class = self._find_containing_class_for_method(node)
-            declarator = next((c for c in node.children if c.type == "function_declarator"), None)
+            declarator = function_declarator(node)
             qualified_parts = self._get_qualified_declarator_parts(declarator) if declarator else []
             if not containing_class and len(qualified_parts) > 1:
                 containing_class = qualified_parts[-2]
@@ -196,21 +200,10 @@ class TreeSitterCppAnalyzer:
                 node_type = "function"
 
             if declarator:
-                for child in declarator.children:
-                    if child.type == "identifier":
-                        node_name = child.text.decode()
-                        break
-                    elif child.type == "field_identifier":
-                        node_name = child.text.decode()
-                        break
-                    elif child.type == "qualified_identifier":
-                        identifiers = [c for c in child.children if c.type == "identifier"]
-                        if identifiers:
-                            node_name = identifiers[-1].text.decode()
-                            break
+                node_name = declarator_name(declarator)
         elif node.type == "declaration":
             containing_class = self._find_containing_class_for_method(node)
-            declarator = next((c for c in node.children if c.type == "function_declarator"), None)
+            declarator = function_declarator(node)
             if containing_class and declarator:
                 node_type = "method"
                 node_name = self._get_declarator_name(declarator)
@@ -307,20 +300,7 @@ class TreeSitterCppAnalyzer:
 
     def _get_declarator_name(self, declarator) -> Optional[str]:
         """Extract the declared function or method name from nested declarators."""
-        for child in declarator.children:
-            if child.type in ["identifier", "field_identifier"]:
-                return child.text.decode()
-            if child.type == "qualified_identifier":
-                identifiers = [
-                    c for c in child.children if c.type in ["identifier", "field_identifier"]
-                ]
-                if identifiers:
-                    return identifiers[-1].text.decode()
-            if child.children:
-                name = self._get_declarator_name(child)
-                if name:
-                    return name
-        return None
+        return declarator_name(declarator)
 
     def _get_qualified_declarator_parts(self, declarator) -> list[str]:
         if declarator is None:
@@ -536,9 +516,7 @@ class TreeSitterCppAnalyzer:
                 if found:
                     return found
             if current.type == "function_definition":
-                declarator = next(
-                    (c for c in current.children if c.type == "function_declarator"), None
-                )
+                declarator = function_declarator(current)
                 found = self._search_parameter_declaration(declarator, variable_name)
                 if found:
                     return found
@@ -620,17 +598,11 @@ class TreeSitterCppAnalyzer:
         while current:
             if current.type == "function_definition":
                 # Get function name
-                declarator = next(
-                    (c for c in current.children if c.type == "function_declarator"), None
-                )
+                declarator = function_declarator(current)
                 if declarator:
-                    identifier = next(
-                        (c for c in declarator.children if c.type == "identifier"), None
-                    )
-                    if identifier:
-                        func_name = identifier.text.decode()
-                        if func_name in top_level_nodes:
-                            return func_name
+                    func_name = self._get_declarator_name(declarator)
+                    if func_name in top_level_nodes:
+                        return func_name
             current = current.parent
         return None
 
@@ -639,9 +611,7 @@ class TreeSitterCppAnalyzer:
         current = node.parent
         while current:
             if current.type == "function_definition":
-                declarator = next(
-                    (c for c in current.children if c.type == "function_declarator"), None
-                )
+                declarator = function_declarator(current)
                 if declarator:
                     func_name = self._get_declarator_name(declarator)
                     if func_name:
