@@ -8,6 +8,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+# vendored tree-sitter Lean grammar binaries (provenance.json 记录哈希)
+!codewiki/src/be/dependency_analyzer/analyzers/_vendor/lean/**/*.so
 .Python
 build/
 develop-eggs/
