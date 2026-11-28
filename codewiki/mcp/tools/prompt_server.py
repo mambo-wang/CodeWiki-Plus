@@ -470,8 +470,6 @@ def handle_get_prompt(
     #   session_id  → resolves via the active session's output_dir
     repo_path = arguments.get("repo_path")
     if repo_path:
-        from pathlib import Path
-
         from codewiki.mcp.tools.workspace_layout import default_output_dir
 
         rp = (
@@ -502,6 +500,10 @@ def handle_get_prompt(
             if active is not None and getattr(active, "output_dir", None):
                 session = active
                 output_dir = active.output_dir
+        # Explicit output_dir locator (no session/repo_path): honor it
+        # directly so schema constraints (incl. OKF) are injected too.
+        if output_dir is None and arguments.get("output_dir"):
+            output_dir = str(Path(arguments["output_dir"]).expanduser().resolve())
 
     if prompt_type not in _PROMPT_CATALOG:
         available = list(_PROMPT_CATALOG.keys())
