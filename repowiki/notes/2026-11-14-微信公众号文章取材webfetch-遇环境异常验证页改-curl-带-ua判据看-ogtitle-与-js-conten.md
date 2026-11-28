@@ -15,6 +15,7 @@ author: wanderingbug
 generated: { by: codewiki/5.16.7, at: 2026-11-14T01:36:20Z }
 stale_after: 2027-05-13
 origin: conversation
+source_conversations: ['conversations/conv-command-message-open-code-review-delegate-command-message-co-22dfc9.md']
 
 ---
 
@@ -33,3 +34,17 @@ origin: conversation
 ## Rationale
 
 WebFetch 对微信文章会静默返回验证页，若按「页面无技术内容」结案就会漏掉整篇可借鉴材料；而 curl 后 grep「环境异常」又会反向误判为失败——两个坑都必须用 og:title/js_content 判据绕过。
+
+## 微信文章标题/日期提取：WebFetch 被拦时用 curl 带 MicroMessenger UA 下载 HTML 再 grep msg_title/publish_time
+
+> 合并自蒸馏候选：微信文章标题/日期提取：WebFetch 被拦时用 curl 带 MicroMessenger UA 下载 HTML 再 grep msg_title/publish_time
+
+## 补充：元数据提取变体（2026-11-28 蒸馏）
+
+主文讲正文取材（og:title/js_content 判据 + HTMLParser 提取）；本节补一个轻量变体——**只需要标题与发布日期时**（如为 README 专栏列表补条目）：
+
+1. curl 带**微信内置浏览器 UA**（`MicroMessenger/8.0.47`，比通用浏览器 UA 更稳）：`curl -L -A "Mozilla/5.0 (iPhone; ...) MicroMessenger/8.0.47" -o %TEMP%/wechat-article.html <url>`；
+2. HTML 里 grep `msg_title`（文章标题）与 `publish_time`（Unix 时间戳），时间戳用 `date -u -d @<ts>` 转日期；
+3. 实测成功提取《CodeWiki-Plus 技术白皮书》标题与 2026-10-23 发布日期。
+
+与主文判据互补：og:title/js_content 用于判真伪+取正文；msg_title/publish_time 用于纯元数据场景，无需解析正文。
