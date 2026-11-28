@@ -136,3 +136,7 @@ HL-Mem 调研（docs/HL-Mem-调研与借鉴分析.md，基线 v1.1.7/aa5d0688）
 5. 测试侧修复：test_vue utf-8 encoding、test_artifact_facts symlink skipif、test_runtime_boundaries 分隔符归一化、OKF 5 个落后断言。
 6. prompt_server.py 新增显式 output_dir 定位符支持（修复 get_prompt 不注入 OKF 段的产品缺陷）。
 待办：所有改动未提交，等用户醒来 review 后决定 commit 拆分。
+
+### 2026-11-28 12:48 #yoog
+
+2026-11-28 提交推送完成：6 个提交已推到 origin/feat/codewiki-upstream-b1-b5-c2-c3（6e9ada99..145ffa1d）：①69568713 补交 vendored Lean Linux .so（升级阻断修复）；②c28172da 六分析器+ast_parser+analysis/artifact_facts 路径正斜杠归一化；③45d3f2be get_prompt 显式 output_dir 定位符 + safe_write Windows 文件锁重试；④0dcb63cc 测试侧 Windows 兼容修复（编码/symlink/分隔符/OKF 5 断言）；⑤bf88ab04 python.py 补漏；⑥145ffa1d 蒸馏笔记与任务记忆归档。全量 pytest 1902 passed / 0 failed，OKF 127/127。telemetry 与 .codebuddy/memory 按约定未提交。
